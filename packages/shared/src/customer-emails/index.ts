@@ -11,6 +11,7 @@ export const CUSTOMER_EMAIL_KINDS = [
   'contract_signed',
   'contract_ending_soon',
   'contract_renewed',
+  'contract_auto_renewal_notice',
   'contract_price_change',
   'deposit_settled',
   'move_out_confirmed',
@@ -52,6 +53,11 @@ export const CUSTOMER_EMAIL_LABELS: Record<
   contract_renewed: {
     label: 'Contrato renovado',
     description: 'Aviso con la nueva fecha de fin cuando un contrato se prorroga o se renueva.',
+  },
+  contract_auto_renewal_notice: {
+    label: 'Aviso de prórroga',
+    description:
+      'Aviso 30 días antes de que un contrato con renovación automática se prorrogue solo, con la fecha hasta la que puede darse de baja.',
   },
   contract_price_change: {
     label: 'Cambio de cuota',

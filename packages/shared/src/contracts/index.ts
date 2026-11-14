@@ -251,6 +251,10 @@ export interface AnniversaryUpdateDto {
   anniversary: string;
   currentPrice: number;
   newPrice: number;
+  /** % que se aplica (el propio del contrato o el del negocio). */
+  pct: number;
+  /** El contrato tiene su propio %. */
+  customPct: boolean;
   /** El aniversario pasó hace más de 30 días y sigue sin revisarse. */
   late: boolean;
   /** Ya tuvo una subida en los últimos 12 meses. */

@@ -89,6 +89,8 @@ function noteText(p: Record<string, unknown>): { title: string; detail: string |
   switch (p.event ?? p.kind) {
     case 'annex_created':
       return { title: `Anexo ${num(p.number)} enviado a firmar`, detail: str(p.title) || null };
+    case 'renewal_offer_sent':
+      return { title: `Oferta de renovación enviada (anexo ${num(p.number)})`, detail: null };
     case 'annex_signed':
       return {
         title: `Anexo ${num(p.number)} firmado`,

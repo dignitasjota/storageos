@@ -159,6 +159,8 @@ export class AnniversaryUpdatesService {
             autoRenew: true,
             priceMonthly: true,
             lastAnniversaryUpdateOn: true,
+            anniversaryUpdatePct: true,
+            rentIncreaseExemptUntil: true,
             customer: {
               select: { firstName: true, lastName: true, companyName: true, customerType: true },
             },
@@ -193,6 +195,8 @@ export class AnniversaryUpdatesService {
     for (const r of rows) {
       const anniversary = dueAnniversary(r.startDate, r.lastAnniversaryUpdateOn, midnight);
       if (!anniversary) continue;
+      // Marcado «no subir» hasta después del aniversario.
+      if (r.rentIncreaseExemptUntil && r.rentIncreaseExemptUntil >= anniversary) continue;
       // Ya tiene otro cambio de cuota en marcha: no se propone otro encima.
       if ((changes.get(r.id) ?? []).length > 0) continue;
       // Se va antes del aniversario.
@@ -205,6 +209,8 @@ export class AnniversaryUpdatesService {
         continue;
       }
       const current = Number(r.priceMonthly);
+      const customPct = r.anniversaryUpdatePct != null;
+      const pct = customPct ? Number(r.anniversaryUpdatePct) : settings.pct;
       due.push({
         contractId: r.id,
         contractNumber: r.contractNumber,
@@ -217,7 +223,9 @@ export class AnniversaryUpdatesService {
         propertyKind: r.unit.unitType.propertyKind === 'housing' ? 'housing' : 'storage',
         anniversary: iso(anniversary),
         currentPrice: current,
-        newPrice: anniversaryPrice(current, settings.pct),
+        newPrice: anniversaryPrice(current, pct),
+        pct,
+        customPct,
         late: anniversary.getTime() < midnight.getTime() - LATE_DAYS * DAY,
         raisedThisYear: contractRaises.length > 0,
       });
@@ -233,7 +241,6 @@ export class AnniversaryUpdatesService {
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ApplyAnniversaryUpdatesResultDto> {
-    const settings = await this.getSettings(args.tenantId);
     const due = new Map(
       (await this.listDue(args.tenantId, args.facilityScope)).map((d) => [d.contractId, d]),
     );
@@ -261,7 +268,7 @@ export class AnniversaryUpdatesService {
             facilityScope: args.facilityScope ?? null,
             input: {
               priceMonthly: row.newPrice,
-              reason: `Actualización anual (${settings.pct > 0 ? '+' : ''}${settings.pct} %) — aniversario ${row.anniversary}`,
+              reason: `Actualización anual (${row.pct > 0 ? '+' : ''}${row.pct} %) — aniversario ${row.anniversary}`,
               ...(future ? { effectiveDate: row.anniversary } : {}),
               notifyCustomer: true,
             },

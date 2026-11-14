@@ -1,19 +1,19 @@
 'use client';
 
 import {
-  earliestRentIncreaseDate,
-  RENT_INCREASE_EXCLUSION_LABELS,
-  RENT_INCREASE_HIGH_PCT,
   RENT_INCREASE_SKIP_LABELS,
   type RentIncreaseDto,
   type RentIncreaseItemDto,
-  type RentIncreasePreviewDto,
+  type RentIncreaseResultsDto,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { AlertTriangle, Calculator, CheckCircle2, Plus, TrendingUp, XCircle } from 'lucide-react';
+import { CheckCircle2, Send, UserMinus, XCircle } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+
+import { CreateWizard } from './create-wizard';
+import { NoticeTemplateCard } from './notice-template-card';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -25,32 +25,22 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import { localDateString } from '@/lib/dates';
-import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
-import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate, formatEur } from '@/lib/format';
 import {
   useApplyRentIncrease,
   useCancelRentIncrease,
-  useCreateRentIncrease,
-  usePreviewRentIncrease,
   useRentIncrease,
+  useRentIncreaseItemAction,
   useRentIncreasePolicy,
+  useRentIncreaseResults,
   useRentIncreases,
   useUpdateRentIncreasePolicy,
 } from '@/lib/rent-increases/hooks';
@@ -64,33 +54,12 @@ const STATUS: Record<
   cancelled: { label: 'Cancelada', variant: 'outline' },
 };
 
-const NOTICE: Record<NonNullable<RentIncreaseItemDto['noticeStatus']>, string> = {
-  sent: 'Avisado',
-  no_email: 'Sin email: avísale tú',
-  failed: 'No se pudo enviar',
-};
-
 const increaseLabel = (r: Pick<RentIncreaseDto, 'increaseType' | 'increaseValue'>) =>
-  r.increaseType === 'percentage' ? `+${r.increaseValue} %` : `+${formatEur(r.increaseValue)}`;
-
-/** Los próximos 12 días 1 a partir del primero posible. */
-function firstDaysFrom(earliest: string): string[] {
-  const out: string[] = [];
-  const d = new Date(`${earliest}T00:00:00Z`);
-  for (let i = 0; i < 12; i++) {
-    out.push(d.toISOString().slice(0, 10));
-    d.setUTCMonth(d.getUTCMonth() + 1, 1);
-  }
-  return out;
-}
-
-const monthLabel = (ymd: string) =>
-  new Intl.DateTimeFormat('es-ES', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(`${ymd}T00:00:00Z`));
+  r.increaseType === 'percentage'
+    ? `+${r.increaseValue} %`
+    : r.increaseType === 'to_list_price'
+      ? `Hasta tarifa (máx. +${r.increaseValue} %)`
+      : `+${formatEur(r.increaseValue)}`;
 
 export default function RentIncreasesPage() {
   const ask = useConfirm();
@@ -198,7 +167,12 @@ export default function RentIncreasesPage() {
         </p>
       </div>
 
-      {canManage && companyWide && <PolicyCard />}
+      {canManage && companyWide && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <PolicyCard />
+          <NoticeTemplateCard />
+        </div>
+      )}
 
       {list.isError ? (
         <Card>
@@ -213,7 +187,7 @@ export default function RentIncreasesPage() {
           searchPlaceholder="Buscar subida..."
           guide="precios"
           emptyText="Sube la cuota a los inquilinos actuales con su preaviso, por antigüedad, local o tamaño."
-          toolbarRight={canManage ? <CreateDialog /> : null}
+          toolbarRight={canManage ? <CreateWizard /> : null}
         />
       )}
 
@@ -222,357 +196,47 @@ export default function RentIncreasesPage() {
   );
 }
 
-function CreateDialog() {
-  const ask = useConfirm();
-  const [open, setOpen] = useState(false);
-  const facilities = useFacilities();
-  const unitTypes = useUnitTypes();
-  const policy = useRentIncreasePolicy();
-  const headerFacility = useHeaderFacilityId();
-  const companyWide = useCompanyWide();
-  const preview = usePreviewRentIncrease();
-  const create = useCreateRentIncrease();
-
-  const [name, setName] = useState('');
-  const [type, setType] = useState<'percentage' | 'fixed'>('percentage');
-  const [value, setValue] = useState('5');
-  const [minMonths, setMinMonths] = useState('6');
-  const [facilityId, setFacilityId] = useState<string>('all');
-  const [unitTypeId, setUnitTypeId] = useState<string>('all');
-  const [effectiveDate, setEffectiveDate] = useState('');
-  const [result, setResult] = useState<RentIncreasePreviewDto | null>(null);
-
-  const earliest = earliestRentIncreaseDate(localDateString(), policy.data?.noticeDays ?? 30);
-  const dates = useMemo(() => firstDaysFrom(earliest), [earliest]);
-
-  useEffect(() => {
-    if (!open) return;
-    setResult(null);
-    setFacilityId(headerFacility ?? (companyWide ? 'all' : (facilities.data?.[0]?.id ?? 'all')));
-    setEffectiveDate((d) => (d && d >= earliest ? d : earliest));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const reset = () => setResult(null);
-  const numValue = Number(String(value).replace(',', '.'));
-
-  function buildBase() {
-    return {
-      increaseType: type,
-      increaseValue: numValue,
-      effectiveDate,
-      scope: {
-        minMonthsSinceSigned: Number(minMonths) || 0,
-        ...(facilityId !== 'all' ? { facilityId } : {}),
-        ...(unitTypeId !== 'all' ? { unitTypeId } : {}),
-      },
-    };
-  }
-
-  async function calc() {
-    if (!(numValue > 0)) {
-      toast.error('Indica cuánto sube.');
-      return;
-    }
-    try {
-      setResult(await preview.mutateAsync(buildBase()));
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo calcular.');
-    }
-  }
-
-  async function submit() {
-    if (!name.trim()) {
-      toast.error('Ponle un nombre.');
-      return;
-    }
-    if (!result || result.affectedCount === 0) return;
-    const high =
-      type === 'percentage'
-        ? numValue > RENT_INCREASE_HIGH_PCT
-        : result.contracts.some(
-            (c) => c.newPrice > c.oldPrice * (1 + RENT_INCREASE_HIGH_PCT / 100),
-          );
-    const confirmed = await ask({
-      title: `¿Programar la subida y avisar a ${result.affectedCount} inquilinos?`,
-      description: [
-        high ? `Es una subida grande (más del ${RENT_INCREASE_HIGH_PCT} %).` : null,
-        `El correo con el preaviso sale ahora y la cuota cambia el ${monthLabel(effectiveDate)}.`,
-        result.raisedThisYear > 0
-          ? `${result.raisedThisYear} ya tuvieron una subida en los últimos 12 meses: el contrato dice que la cuota se revisa una vez al año.`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(' '),
-      confirmLabel: 'Programar y avisar',
-    });
-    if (!confirmed) return;
-    try {
-      await create.mutateAsync({ name: name.trim(), ...buildBase() });
-      toast.success('Subida programada. Se ha enviado el preaviso a los inquilinos.');
-      setOpen(false);
-      setName('');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo programar.');
-    }
-  }
-
-  return (
-    <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus className="mr-1 h-4 w-4" /> Nueva subida
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Programar una subida de precio</DialogTitle>
-            <DialogDescription>
-              Empieza siempre un día 1, con {policy.data?.noticeDays ?? 30} días de preaviso como
-              mínimo. Las viviendas no entran: se actualizan en su aniversario (Renovaciones).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="ri-name">Nombre</Label>
-              <Input
-                id="ri-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Revisión anual 2027"
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
-                <Label>Tipo</Label>
-                <Select
-                  value={type}
-                  onValueChange={(v) => {
-                    setType(v as 'percentage' | 'fixed');
-                    reset();
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="percentage">Porcentaje (%)</SelectItem>
-                    <SelectItem value="fixed">Euros al mes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="ri-value">{type === 'percentage' ? 'Porcentaje' : 'Euros'}</Label>
-                <Input
-                  id="ri-value"
-                  inputMode="decimal"
-                  value={value}
-                  onChange={(e) => {
-                    setValue(e.target.value);
-                    reset();
-                  }}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Desde el</Label>
-                <Select
-                  value={effectiveDate}
-                  onValueChange={(v) => {
-                    setEffectiveDate(v);
-                    reset();
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Elige el mes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {dates.map((d) => (
-                      <SelectItem key={d} value={d}>
-                        {monthLabel(d)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
-                <Label>Local</Label>
-                <Select
-                  value={facilityId}
-                  onValueChange={(v) => {
-                    setFacilityId(v);
-                    reset();
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {companyWide && <SelectItem value="all">Todos</SelectItem>}
-                    {(facilities.data ?? []).map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label>Tamaño</Label>
-                <Select
-                  value={unitTypeId}
-                  onValueChange={(v) => {
-                    setUnitTypeId(v);
-                    reset();
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos</SelectItem>
-                    {(unitTypes.data ?? [])
-                      .filter((t) => t.propertyKind !== 'housing')
-                      .map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="ri-min">Antigüedad mínima (meses)</Label>
-                <Input
-                  id="ri-min"
-                  inputMode="numeric"
-                  value={minMonths}
-                  onChange={(e) => {
-                    setMinMonths(e.target.value);
-                    reset();
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void calc()}
-                disabled={preview.isPending || !effectiveDate}
-              >
-                <Calculator className="mr-1 h-4 w-4" />
-                {preview.isPending ? 'Calculando…' : 'Ver a quién afecta'}
-              </Button>
-              {result && (
-                <span className="text-sm">
-                  <span className="font-medium">{result.affectedCount}</span> contratos ·{' '}
-                  <span className="text-emerald-700 dark:text-emerald-400">
-                    +{formatEur(result.mrrDelta)} al mes
-                  </span>
-                </span>
-              )}
-            </div>
-
-            {result && <PreviewDetails result={result} />}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cerrar
-            </Button>
-            <Button
-              onClick={() => void submit()}
-              disabled={create.isPending || !result || result.affectedCount === 0 || !name.trim()}
-            >
-              <TrendingUp className="mr-1 h-4 w-4" />
-              {create.isPending ? 'Programando…' : 'Programar y avisar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
-function PreviewDetails({ result }: { result: RentIncreasePreviewDto }) {
-  return (
-    <div className="space-y-2 text-sm">
-      {result.raisedThisYear > 0 && (
-        <p className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          {result.raisedThisYear} ya tuvieron una subida en los últimos 12 meses. El contrato dice
-          que la cuota se revisa una vez al año.
-        </p>
-      )}
-      {result.noEmail > 0 && (
-        <p className="text-amber-700 dark:text-amber-400">
-          {result.noEmail} no tienen email: no les llegará el preaviso, avísales tú.
-        </p>
-      )}
-      {result.excluded.length > 0 && (
-        <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
-          <p className="mb-1 font-medium text-foreground">Se quedan fuera:</p>
-          <ul className="list-inside list-disc space-y-0.5">
-            {result.excluded.map((e) => (
-              <li key={e.reason}>
-                {e.count} · {RENT_INCREASE_EXCLUSION_LABELS[e.reason]}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {result.affectedCount === 0 && (
-        <p className="text-muted-foreground">
-          Ningún contrato cumple estos criterios. Prueba con menos antigüedad, otro local o tamaño;
-          los que ya tienen una subida programada no entran en otra.
-        </p>
-      )}
-      {result.contracts.length > 0 && (
-        <ul className="max-h-60 divide-y overflow-auto rounded-md border">
-          {result.contracts.map((c) => (
-            <li key={c.contractId} className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2">
-              <span className="min-w-0 flex-1">
-                <span className="font-medium">{c.customerName}</span>
-                <span className="text-muted-foreground">
-                  {' '}
-                  · {c.unitCode} · {c.contractNumber}
-                </span>
-                {c.raisedThisYear && (
-                  <Badge variant="outline" className="ml-2">
-                    Subida este año
-                  </Badge>
-                )}
-                {c.noEmail && (
-                  <Badge variant="outline" className="ml-2">
-                    Sin email
-                  </Badge>
-                )}
-              </span>
-              <span className="text-xs">
-                {formatEur(c.oldPrice)} → <strong>{formatEur(c.newPrice)}</strong>
-                {c.effectiveDate && c.effectiveDate !== result.contracts[0]?.effectiveDate && (
-                  <span className="text-muted-foreground">
-                    {' '}
-                    · desde {formatDate(c.effectiveDate)}
-                  </span>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="text-xs text-muted-foreground">
-        Importes sin IVA. Quien paga por adelantado cambia al empezar su siguiente periodo.
-      </p>
-    </div>
-  );
-}
-
 function DetailDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const ask = useConfirm();
   const detail = useRentIncrease(id ?? undefined);
   const ri = detail.data;
+  const canManage = useHasPermission('contracts:manage');
+  const results = useRentIncreaseResults(id ?? undefined, !!ri && ri.status !== 'cancelled');
+  const itemAction = useRentIncreaseItemAction();
+  const scheduled = ri?.status === 'scheduled';
+
+  async function removeItem(it: RentIncreaseItemDto) {
+    if (!ri) return;
+    if (
+      !(await ask({
+        title: `¿Quitar a ${it.customerName || it.contractNumber} de la subida?`,
+        description:
+          it.noticeStatus === 'sent'
+            ? 'Su cuota no cambiará y le llega un correo diciendo que la subida queda anulada.'
+            : 'Su cuota no cambiará.',
+        confirmLabel: 'Quitar',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await itemAction.mutateAsync({ id: ri.id, itemId: it.id, action: 'remove' });
+      toast.success('Quitado de la subida.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo quitar.');
+    }
+  }
+
+  async function resend(it: RentIncreaseItemDto) {
+    if (!ri) return;
+    try {
+      await itemAction.mutateAsync({ id: ri.id, itemId: it.id, action: 'resend' });
+      toast.success('Aviso enviado otra vez.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+    }
+  }
+
   return (
     <Dialog open={!!id} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
@@ -580,13 +244,17 @@ function DetailDialog({ id, onClose }: { id: string | null; onClose: () => void 
           <DialogTitle>{ri?.name ?? 'Subida'}</DialogTitle>
           {ri && (
             <DialogDescription>
-              {increaseLabel(ri)} · {ri.affectedCount} contratos · desde el{' '}
+              {increaseLabel(ri)} · {ri.affectedCount}{' '}
+              {ri.affectedCount === 1 ? 'contrato' : 'contratos'} · desde el{' '}
               {formatDate(ri.effectiveDate)} · {STATUS[ri.status].label}
               {ri.cancelledAt ? ` (cancelada el ${formatDate(ri.cancelledAt)})` : ''}
             </DialogDescription>
           )}
         </DialogHeader>
         {detail.isError && <SectionError onRetry={() => void detail.refetch()} />}
+        {results.data && (results.data.applied > 0 || results.data.left.length > 0) && (
+          <ResultsSummary results={results.data} />
+        )}
         {ri && (
           <ul className="divide-y rounded-md border text-sm">
             {(ri.items ?? []).map((it) => (
@@ -606,13 +274,41 @@ function DetailDialog({ id, onClose }: { id: string | null; onClose: () => void 
                 <span className="text-xs">
                   {formatEur(it.oldPrice)} → <strong>{formatEur(it.newPrice)}</strong>
                 </span>
-                <span className="w-full text-xs text-muted-foreground sm:w-auto">
-                  {it.status === 'applied'
-                    ? 'Aplicada'
-                    : it.status === 'skipped'
-                      ? `No se subió: ${RENT_INCREASE_SKIP_LABELS[it.skipReason ?? ''] ?? it.skipReason ?? ''}`
-                      : 'Pendiente'}
-                  {it.noticeStatus ? ` · ${NOTICE[it.noticeStatus]}` : ''}
+                <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    {it.status === 'applied'
+                      ? 'Aplicada'
+                      : it.status === 'skipped'
+                        ? `No se subió: ${RENT_INCREASE_SKIP_LABELS[it.skipReason ?? ''] ?? it.skipReason ?? ''}`
+                        : 'Pendiente'}
+                  </span>
+                  <NoticeBadge item={it} />
+                  {canManage && scheduled && it.status === 'pending' && (
+                    <span className="ml-auto flex gap-1">
+                      {(it.noticeStatus !== 'sent' ||
+                        it.noticeDelivery === 'bounced' ||
+                        it.noticeDelivery === 'failed') && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          onClick={() => void resend(it)}
+                          disabled={itemAction.isPending}
+                        >
+                          <Send className="mr-1 h-3.5 w-3.5" /> Reenviar aviso
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7"
+                        onClick={() => void removeItem(it)}
+                        disabled={itemAction.isPending}
+                      >
+                        <UserMinus className="mr-1 h-3.5 w-3.5" /> Quitar
+                      </Button>
+                    </span>
+                  )}
                 </span>
               </li>
             ))}
@@ -620,6 +316,74 @@ function DetailDialog({ id, onClose }: { id: string | null; onClose: () => void 
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Qué ha pasado con el correo del aviso de un contrato. */
+function NoticeBadge({ item }: { item: RentIncreaseItemDto }) {
+  if (item.noticeStatus === 'no_email') {
+    return <Badge variant="outline">Sin email: avísale tú</Badge>;
+  }
+  if (item.noticeStatus === 'failed' || item.noticeDelivery === 'failed') {
+    return <Badge variant="destructive">Aviso no enviado</Badge>;
+  }
+  if (item.noticeDelivery === 'bounced') {
+    return <Badge variant="destructive">Aviso rebotado</Badge>;
+  }
+  if (item.noticeDelivery === 'delivered') return <Badge variant="default">Aviso entregado</Badge>;
+  if (item.noticeDelivery === 'sent') return <Badge variant="secondary">Aviso enviado</Badge>;
+  if (item.noticeDelivery === 'pending') return <Badge variant="outline">Enviando aviso…</Badge>;
+  return null;
+}
+
+/** Lo que ha dado la subida: lo previsto, lo que se cobra de verdad y quién se fue. */
+function ResultsSummary({ results: r }: { results: RentIncreaseResultsDto }) {
+  return (
+    <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="Previsto al mes" value={`+${formatEur(r.plannedMonthly)}`} />
+        <Stat label="Se cobra de más" value={`+${formatEur(r.realMonthly)}`} />
+        <Stat label="Ya facturado de más" value={formatEur(r.extraInvoiced)} />
+        <Stat
+          label="Bajas tras el aviso"
+          value={String(r.left.length)}
+          tone={r.left.length > 0 ? 'warn' : undefined}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {r.applied} subidos · {r.pending} pendientes · {r.skipped} no subidos. Importes sin IVA.
+      </p>
+      {r.left.length > 0 && (
+        <div className="text-xs">
+          <p className="font-medium">
+            Se fueron o pidieron la baja después del aviso (pagaban {formatEur(r.lostMonthly)} al
+            mes):
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {r.left.map((l) => (
+              <li key={l.contractId}>
+                <Link href={`/contracts/${l.contractId}`} className="hover:underline">
+                  {l.customerName}
+                </Link>{' '}
+                · {l.unitCode}
+                {l.endDate ? ` · fin ${formatDate(l.endDate)}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: 'warn' }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`font-semibold ${tone === 'warn' ? 'text-amber-700 dark:text-amber-400' : ''}`}>
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -660,7 +424,7 @@ function PolicyCard() {
           aplica al calcular a quién afecta cada subida.
         </p>
       </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-[repeat(3,minmax(0,13rem))_auto] sm:items-start">
+      <CardContent className="grid gap-3 sm:grid-cols-3 sm:items-start">
         <div className="space-y-1">
           <Label htmlFor="pol-notice">Preaviso (días)</Label>
           <Input
@@ -692,7 +456,7 @@ function PolicyCard() {
         </div>
         <Button
           variant="outline"
-          className="w-fit sm:mt-6"
+          className="w-fit sm:col-span-3"
           onClick={() => void save()}
           disabled={update.isPending}
         >

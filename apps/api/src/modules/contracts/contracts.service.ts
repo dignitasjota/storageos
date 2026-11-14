@@ -26,6 +26,7 @@ import { endDateAfterCancellingMoveOut } from '../../common/move-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { nextPriceChange, pendingPriceChanges } from '../../common/price-changes';
+import { termMonths } from '../../common/term-months';
 import { releaseReservedUnit, unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
@@ -107,17 +108,6 @@ function portalWithdrawalDeadline(row: {
   if (isPendingPreOpening(row)) return null;
   const deadline = row.withdrawalDeadline.toISOString().slice(0, 10);
   return deadline >= todayInTimezone().toISOString().slice(0, 10) ? deadline : null;
-}
-
-/** Meses del plazo de un contrato (mínimo 1), para prorrogarlo por lo mismo. */
-export function termMonths(start: Date, end: Date): number {
-  // El día siguiente al fin cierra el plazo (1 ene → 31 dic = 12 meses).
-  const e = new Date(end.getTime() + 86_400_000);
-  const months =
-    (e.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    (e.getUTCMonth() - start.getUTCMonth()) -
-    (e.getUTCDate() < start.getUTCDate() ? 1 : 0);
-  return Math.min(120, Math.max(1, months));
 }
 
 const ALLOWED_TRANSITIONS: Record<ContractStatusValue, ContractStatusValue[]> = {
@@ -3732,7 +3722,8 @@ export class ContractsService {
    */
   async renew(args: {
     tenantId: string;
-    userId: string;
+    /** null = la aplica el sistema (oferta de renovación firmada por el inquilino). */
+    userId: string | null;
     contractId: string;
     months: number;
     /** Cuota del nuevo periodo. */
@@ -4683,6 +4674,10 @@ export class ContractsService {
             }
           : null,
       pendingRentIncrease: null,
+      rentIncreaseExemptUntil: row.rentIncreaseExemptUntil?.toISOString().slice(0, 10) ?? null,
+      rentIncreaseExemptReason: row.rentIncreaseExemptReason,
+      anniversaryUpdatePct:
+        row.anniversaryUpdatePct != null ? Number(row.anniversaryUpdatePct) : null,
       scheduledMove:
         row.scheduledUnitId && row.scheduledUnitDate
           ? {

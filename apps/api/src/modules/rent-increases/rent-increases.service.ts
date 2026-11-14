@@ -5,10 +5,18 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@storageos/database';
 import {
   earliestRentIncreaseDate,
   RENT_INCREASE_EXCLUSIONS,
+  RENT_INCREASE_NOTICE_DEFAULTS,
+  RentIncreaseNoticeTemplateSchema,
   rentTax,
+  type PreviewRentIncreaseNoticeInput,
+  type RentIncreaseNoticePreviewDto,
+  type RentIncreaseNoticeTemplate,
+  type RentIncreaseNoticeTemplateDto,
+  type RentIncreaseResultsDto,
   type CreateRentIncreaseInput,
   type PreviewRentIncreaseInput,
   type RentIncreaseAffectedContract,
@@ -31,8 +39,6 @@ import {
 } from '../customer-emails/customer-emails.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
-
-import type { Prisma } from '@storageos/database';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const sameAmount = (a: number, b: number) => Math.abs(a - b) < 0.005;
@@ -183,7 +189,14 @@ export class RentIncreasesService {
   private async resolveAffected(
     tx: Tx,
     tenantId: string,
-    args: { scope: RentIncreaseScopeInput; type: string; value: number; effectiveDate: Date },
+    args: {
+      scope: RentIncreaseScopeInput;
+      type: string;
+      value: number;
+      effectiveDate: Date;
+      /** Quitados a mano al repasar la lista. */
+      excludeContractIds?: string[];
+    },
     policy: Policy,
   ): Promise<{ affected: AffectedRow[]; excluded: Map<RentIncreaseExclusion, number> }> {
     const { scope } = args;
@@ -219,6 +232,7 @@ export class RentIncreasesService {
         billingStartsOn: true,
         billingIntervalMonths: true,
         scheduledPrice: true,
+        rentIncreaseExemptUntil: true,
         customerId: true,
         customer: {
           select: {
@@ -232,6 +246,7 @@ export class RentIncreasesService {
         unit: {
           select: {
             code: true,
+            basePriceMonthly: true,
             facility: { select: { name: true } },
             unitType: { select: { propertyKind: true } },
           },
@@ -297,7 +312,13 @@ export class RentIncreasesService {
     const excluded = new Map<RentIncreaseExclusion, number>();
     const exclude = (r: RentIncreaseExclusion) => excluded.set(r, (excluded.get(r) ?? 0) + 1);
     const affected: AffectedRow[] = [];
+    const removed = new Set(args.excludeContractIds ?? []);
     for (const c of contracts) {
+      if (removed.has(c.id)) continue;
+      if (c.rentIncreaseExemptUntil && c.rentIncreaseExemptUntil >= args.effectiveDate) {
+        exclude('exempt');
+        continue;
+      }
       if (c.status === 'ending') {
         exclude('ending');
         continue;
@@ -321,7 +342,18 @@ export class RentIncreasesService {
         continue;
       }
       const oldPrice = Number(c.priceMonthly);
-      let newPrice = this.computeNewPrice(oldPrice, args.type, args.value);
+      let newPrice: number;
+      if (args.type === 'to_list_price') {
+        // Hasta el precio de tarifa de su trastero, con un máximo de % por vez.
+        const listPrice = Number(c.unit.basePriceMonthly);
+        newPrice = round2(Math.min(listPrice, oldPrice * (1 + args.value / 100)));
+        if (newPrice <= oldPrice) {
+          exclude('at_list_price');
+          continue;
+        }
+      } else {
+        newPrice = this.computeNewPrice(oldPrice, args.type, args.value);
+      }
       if (policy.maxAnnualPct > 0) {
         // Tope sobre la cuota que tenía hace 12 meses (cuentan todas las subidas).
         const first = changes.find((e) => e.at >= yearAgo);
@@ -456,6 +488,7 @@ export class RentIncreasesService {
             type: input.increaseType,
             value: input.increaseValue,
             effectiveDate,
+            ...(input.excludeContractIds ? { excludeContractIds: input.excludeContractIds } : {}),
           },
           policy,
         );
@@ -511,7 +544,8 @@ export class RentIncreasesService {
       },
     });
 
-    // Preaviso a cada inquilino (con IVA, en su idioma y en su ficha).
+    // Preaviso a cada inquilino (con IVA, en su idioma, con el texto del negocio y en su ficha).
+    const template = await this.noticeTemplate(tenantId);
     const itemOf = new Map(created.items.map((i) => [i.contractId, i.id]));
     let noticeSent = false;
     for (const a of affected) {
@@ -530,6 +564,7 @@ export class RentIncreasesService {
           newMonthlyWithVat: withVat(a.newPrice),
           effectiveDate: a.effectiveDate,
           prepaid: a.prepaid,
+          template,
         },
       });
       if (outcome.status === 'sent') noticeSent = true;
@@ -854,6 +889,351 @@ export class RentIncreasesService {
     return this.detail(tenantId, id, facilityScope);
   }
 
+  // --------------------------------------------------------- texto del aviso
+
+  private async noticeTemplate(tenantId: string): Promise<RentIncreaseNoticeTemplate | null> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { rentIncreaseNoticeTemplate: true },
+    });
+    const parsed = RentIncreaseNoticeTemplateSchema.safeParse(t?.rentIncreaseNoticeTemplate);
+    return parsed.success ? parsed.data : null;
+  }
+
+  async getNoticeTemplate(tenantId: string): Promise<RentIncreaseNoticeTemplateDto> {
+    return {
+      template: await this.noticeTemplate(tenantId),
+      defaults: {
+        es: { ...RENT_INCREASE_NOTICE_DEFAULTS.es },
+        en: { ...RENT_INCREASE_NOTICE_DEFAULTS.en },
+      },
+    };
+  }
+
+  async updateNoticeTemplate(args: {
+    tenantId: string;
+    userId: string;
+    template: RentIncreaseNoticeTemplate | null;
+    facilityScope?: string[] | null;
+  }): Promise<RentIncreaseNoticeTemplateDto> {
+    assertAllFacilities(args.facilityScope);
+    await this.admin.tenant.update({
+      where: { id: args.tenantId },
+      data: {
+        rentIncreaseNoticeTemplate: args.template
+          ? (args.template as Prisma.InputJsonValue)
+          : Prisma.DbNull,
+      },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'rent_increase.notice_template_changed',
+      entityType: 'Tenant',
+      entityId: args.tenantId,
+      changes: { custom: !!args.template },
+    });
+    return this.getNoticeTemplate(args.tenantId);
+  }
+
+  /** Cómo le llegará el aviso (a un inquilino concreto o con datos de ejemplo). */
+  async previewNotice(
+    tenantId: string,
+    input: PreviewRentIncreaseNoticeInput,
+  ): Promise<RentIncreaseNoticePreviewDto> {
+    const template =
+      input.template === undefined ? await this.noticeTemplate(tenantId) : input.template;
+    const policy = await this.getPolicy(tenantId);
+    const date =
+      input.effectiveDate ?? earliestRentIncreaseDate(this.todayYmd(), policy.noticeDays);
+    const contractId = input.contractId;
+    const contract = contractId
+      ? await this.prisma.withTenant(
+          (tx) =>
+            tx.contract.findFirst({
+              where: { id: contractId, deletedAt: null },
+              select: {
+                customerId: true,
+                contractNumber: true,
+                priceMonthly: true,
+                discountAmount: true,
+                billingIntervalMonths: true,
+                unit: {
+                  select: {
+                    code: true,
+                    facility: { select: { name: true } },
+                    unitType: { select: { propertyKind: true } },
+                  },
+                },
+              },
+            }),
+          tenantId,
+        )
+      : null;
+    const facility = contract
+      ? null
+      : await this.admin.facility.findFirst({
+          where: { tenantId, deletedAt: null },
+          select: { name: true },
+        });
+    const old = contract ? Number(contract.priceMonthly) : 60;
+    const discount = contract ? Number(contract.discountAmount) : 0;
+    const next = input.newPrice ?? round2(old * 1.05);
+    const { taxRate } = rentTax(contract?.unit.unitType?.propertyKind);
+    const withVat = (p: number) => round2(Math.max(0, p - discount) * (1 + taxRate / 100));
+    return this.customerEmails.previewRentIncreaseNotice({
+      tenantId,
+      customerId: contract?.customerId ?? null,
+      locale: input.locale,
+      data: {
+        kind: 'rent_increase_notice',
+        contractNumber: contract?.contractNumber ?? 'CT-2027-00001',
+        unitCode: contract?.unit.code ?? 'A-12',
+        facilityName: contract?.unit.facility.name ?? facility?.name ?? 'Tu local',
+        oldMonthlyWithVat: withVat(old),
+        newMonthlyWithVat: withVat(next),
+        effectiveDate: new Date(`${date}T00:00:00Z`),
+        prepaid: (contract?.billingIntervalMonths ?? 1) > 1,
+        template,
+      },
+    });
+  }
+
+  // ------------------------------------------------- contratos de una tanda
+
+  /** Datos del aviso de un contrato de la tanda (para reenviarlo o anularlo). */
+  private async itemForNotice(tenantId: string, rentIncreaseId: string, itemId: string) {
+    const item = await this.prisma.withTenant(
+      (tx) =>
+        tx.rentIncreaseItem.findFirst({
+          where: { id: itemId, rentIncreaseId },
+          include: {
+            rentIncrease: { select: { status: true } },
+            contract: {
+              select: {
+                id: true,
+                contractNumber: true,
+                customerId: true,
+                priceMonthly: true,
+                discountAmount: true,
+                billingIntervalMonths: true,
+                unit: {
+                  select: {
+                    code: true,
+                    facility: { select: { name: true } },
+                    unitType: { select: { propertyKind: true } },
+                  },
+                },
+              },
+            },
+          },
+        }),
+      tenantId,
+    );
+    if (!item) {
+      throw new NotFoundException({
+        code: 'rent_increase_item_not_found',
+        message: 'Ese contrato no está en esta subida',
+      });
+    }
+    return item;
+  }
+
+  /** Quita un contrato de una subida aún sin aplicar y, si tenía el aviso, se le dice. */
+  async removeItem(args: {
+    tenantId: string;
+    rentIncreaseId: string;
+    itemId: string;
+    userId: string;
+    facilityScope?: string[] | null;
+  }): Promise<RentIncreaseDto> {
+    await this.findRow(args.tenantId, args.rentIncreaseId, args.facilityScope);
+    const item = await this.itemForNotice(args.tenantId, args.rentIncreaseId, args.itemId);
+    const done = await this.admin.rentIncreaseItem.updateMany({
+      where: { id: item.id, status: 'pending' },
+      data: { status: 'skipped', skipReason: 'removed' },
+    });
+    if (done.count === 0) {
+      throw new BadRequestException({
+        code: 'rent_increase_item_not_pending',
+        message: 'Ese contrato ya no está pendiente en esta subida',
+      });
+    }
+    await this.finishIfEmpty(args.rentIncreaseId);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'rent_increase.contract_removed',
+      entityType: 'RentIncrease',
+      entityId: args.rentIncreaseId,
+      changes: { contractId: item.contractId },
+    });
+    const c = item.contract;
+    if (item.noticeStatus === 'sent' && c) {
+      const { taxRate } = rentTax(c.unit.unitType?.propertyKind);
+      await this.customerEmails.sendRentIncreaseMail({
+        tenantId: args.tenantId,
+        customerId: c.customerId,
+        contractId: c.id,
+        data: {
+          kind: 'rent_increase_cancelled',
+          contractNumber: c.contractNumber,
+          unitCode: c.unit.code,
+          facilityName: c.unit.facility.name,
+          monthlyWithVat: round2(
+            Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount)) * (1 + taxRate / 100),
+          ),
+          effectiveDate: item.effectiveDate,
+        },
+      });
+    }
+    return this.detail(args.tenantId, args.rentIncreaseId, args.facilityScope);
+  }
+
+  /** Vuelve a enviar el aviso a un contrato pendiente (p. ej. tras corregir su email). */
+  async resendNotice(args: {
+    tenantId: string;
+    rentIncreaseId: string;
+    itemId: string;
+    facilityScope?: string[] | null;
+  }): Promise<RentIncreaseDto> {
+    await this.findRow(args.tenantId, args.rentIncreaseId, args.facilityScope);
+    const item = await this.itemForNotice(args.tenantId, args.rentIncreaseId, args.itemId);
+    if (item.status !== 'pending' || item.rentIncrease.status !== 'scheduled' || !item.contract) {
+      throw new BadRequestException({
+        code: 'rent_increase_item_not_pending',
+        message: 'Ese contrato ya no está pendiente en esta subida',
+      });
+    }
+    const c = item.contract;
+    const { taxRate } = rentTax(c.unit.unitType?.propertyKind);
+    const discount = Number(c.discountAmount);
+    const withVat = (p: number) => round2(Math.max(0, p - discount) * (1 + taxRate / 100));
+    const outcome = await this.customerEmails.sendRentIncreaseMail({
+      tenantId: args.tenantId,
+      customerId: c.customerId,
+      contractId: c.id,
+      data: {
+        kind: 'rent_increase_notice',
+        contractNumber: c.contractNumber,
+        unitCode: c.unit.code,
+        facilityName: c.unit.facility.name,
+        oldMonthlyWithVat: withVat(Number(item.oldPrice)),
+        newMonthlyWithVat: withVat(Number(item.newPrice)),
+        effectiveDate: item.effectiveDate,
+        prepaid: c.billingIntervalMonths > 1,
+        template: await this.noticeTemplate(args.tenantId),
+      },
+    });
+    await this.recordNotice(args.tenantId, item.id, outcome);
+    if (outcome.status === 'no_email') {
+      throw new BadRequestException({
+        code: 'customer_without_email',
+        message: 'El inquilino no tiene email: añádelo en su ficha o avísale por otro medio',
+      });
+    }
+    return this.detail(args.tenantId, args.rentIncreaseId, args.facilityScope);
+  }
+
+  /** Sin contratos pendientes: aplicada si se subió alguno, cancelada si no. */
+  private async finishIfEmpty(rentIncreaseId: string): Promise<void> {
+    const [pending, applied] = await Promise.all([
+      this.admin.rentIncreaseItem.count({ where: { rentIncreaseId, status: 'pending' } }),
+      this.admin.rentIncreaseItem.count({ where: { rentIncreaseId, status: 'applied' } }),
+    ]);
+    if (pending > 0) return;
+    await this.admin.rentIncrease.updateMany({
+      where: { id: rentIncreaseId, status: 'scheduled' },
+      data:
+        applied > 0
+          ? { status: 'applied', appliedAt: new Date(), appliedCount: applied }
+          : { status: 'cancelled', cancelledAt: new Date() },
+    });
+  }
+
+  /**
+   * Qué ha dado la subida: lo que se cobra de más ahora, lo ya facturado de
+   * más y quién se fue (o pidió la baja) después del aviso.
+   */
+  async results(
+    tenantId: string,
+    id: string,
+    facilityScope?: string[] | null,
+  ): Promise<RentIncreaseResultsDto> {
+    const row = await this.findRow(tenantId, id, facilityScope);
+    return this.prisma.withTenant(async (tx) => {
+      const items = await tx.rentIncreaseItem.findMany({
+        where: { rentIncreaseId: id },
+        include: {
+          contract: {
+            select: {
+              id: true,
+              contractNumber: true,
+              status: true,
+              endDate: true,
+              endingRequestedAt: true,
+              endedAt: true,
+              cancelledAt: true,
+              customer: {
+                select: { customerType: true, firstName: true, lastName: true, companyName: true },
+              },
+              unit: { select: { code: true } },
+            },
+          },
+        },
+      });
+      const appliedItems = items.filter((i) => i.status === 'applied');
+      const invoices = await tx.invoice.findMany({
+        where: {
+          contractId: { in: appliedItems.map((i) => i.contractId) },
+          kind: 'invoice',
+          status: { notIn: ['draft', 'cancelled'] },
+          deletedAt: null,
+          periodStart: { not: null },
+          periodEnd: { not: null },
+        },
+        select: { contractId: true, periodStart: true, periodEnd: true },
+      });
+      let extraInvoiced = 0;
+      for (const it of appliedItems) {
+        const delta = Number(it.newPrice) - Number(it.oldPrice);
+        for (const inv of invoices) {
+          if (inv.contractId !== it.contractId || inv.periodStart! < it.effectiveDate) continue;
+          const days = (inv.periodEnd!.getTime() - inv.periodStart!.getTime()) / 86_400_000 + 1;
+          extraInvoiced += delta * Math.max(1, Math.round(days / 30.44));
+        }
+      }
+      const live = (status: string | undefined) => status === 'active' || status === 'ending';
+      const leftAt = (c: (typeof items)[number]['contract']) =>
+        c.endingRequestedAt ?? c.endedAt ?? c.cancelledAt ?? null;
+      const left = items.filter((i) => {
+        const at = i.contract ? leftAt(i.contract) : null;
+        return !!at && at >= row.createdAt;
+      });
+      return {
+        applied: appliedItems.length,
+        skipped: items.filter((i) => i.status === 'skipped').length,
+        pending: items.filter((i) => i.status === 'pending').length,
+        plannedMonthly: Number(row.mrrDelta),
+        realMonthly: round2(
+          appliedItems
+            .filter((i) => live(i.contract?.status))
+            .reduce((sum, i) => sum + Number(i.newPrice) - Number(i.oldPrice), 0),
+        ),
+        extraInvoiced: round2(extraInvoiced),
+        lostMonthly: round2(left.reduce((sum, i) => sum + Number(i.oldPrice), 0)),
+        left: left.map((i) => ({
+          contractId: i.contractId,
+          contractNumber: i.contract.contractNumber,
+          customerName: customerName(i.contract.customer),
+          unitCode: i.contract.unit.code,
+          endDate: i.contract.endDate ? ymd(i.contract.endDate) : null,
+          requestedAt: leftAt(i.contract)?.toISOString() ?? null,
+        })),
+      };
+    }, tenantId);
+  }
+
   // ------------------------------------------------------------------ lectura
 
   async list(tenantId: string, facilityScope?: string[] | null): Promise<RentIncreaseDto[]> {
@@ -883,6 +1263,7 @@ export class RentIncreasesService {
             items: {
               orderBy: [{ effectiveDate: 'asc' }, { oldPrice: 'desc' }],
               include: {
+                noticeCommunication: { select: { status: true } },
                 contract: {
                   select: {
                     contractNumber: true,
@@ -923,6 +1304,7 @@ export class RentIncreasesService {
       appliedAt: it.appliedAt?.toISOString() ?? null,
       effectiveDate: ymd(it.effectiveDate),
       noticeStatus: (it.noticeStatus as RentIncreaseNoticeStatus | null) ?? null,
+      noticeDelivery: deliveryOf(it.noticeCommunication?.status ?? null),
     }));
     return { ...this.toDto(row), items };
   }
@@ -973,5 +1355,24 @@ export function assertAllFacilities(facilityScope: string[] | null | undefined):
       code: 'requires_all_facilities',
       message: 'Este ajuste es de toda la empresa: solo puede cambiarlo quien ve todos los locales',
     });
+  }
+}
+
+/** Qué pasó con el correo del aviso, a partir del estado de la comunicación. */
+function deliveryOf(status: string | null): RentIncreaseItemDto['noticeDelivery'] {
+  switch (status) {
+    case null:
+      return null;
+    case 'pending':
+    case 'processing':
+      return 'pending';
+    case 'sent':
+      return 'sent';
+    case 'delivered':
+      return 'delivered';
+    case 'bounced':
+      return 'bounced';
+    default:
+      return 'failed';
   }
 }

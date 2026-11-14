@@ -98,6 +98,7 @@ describe('resolveCustomerEmailSettings', () => {
       contract_signed: true,
       contract_ending_soon: true,
       contract_renewed: true,
+      contract_auto_renewal_notice: true,
       contract_price_change: true,
       deposit_settled: true,
       move_out_confirmed: true,

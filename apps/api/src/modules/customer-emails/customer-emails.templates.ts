@@ -1,3 +1,9 @@
+import {
+  fillRentIncreaseNotice,
+  RENT_INCREASE_NOTICE_DEFAULTS,
+  type RentIncreaseNoticeTemplate,
+} from '@storageos/shared';
+
 import { formatEur } from '../../common/format';
 import { brandButton, tenantEmailShell } from '../../common/tenant-email-layout';
 
@@ -80,6 +86,18 @@ export type CustomerEmailData =
       newPrice?: { monthlyWithVat: number; from: Date } | null;
     }
   | {
+      /** Aviso antes de que un contrato con renovación automática se prorrogue solo. */
+      kind: 'contract_auto_renewal_notice';
+      contractNumber: string;
+      unitCode: string;
+      facilityName: string;
+      endDate: Date;
+      newEndDate: Date;
+      months: number;
+      /** Último día para pedir la baja con el preaviso del contrato. */
+      lastDayToCancel: Date;
+    }
+  | {
       kind: 'contract_price_change';
       contractNumber: string;
       unitCode: string;
@@ -99,6 +117,8 @@ export type CustomerEmailData =
       effectiveDate: Date;
       /** Paga por adelantado: la cuota nueva vale desde su siguiente periodo. */
       prepaid: boolean;
+      /** Texto propio del negocio (null = el de serie). */
+      template?: RentIncreaseNoticeTemplate | null;
     }
   | {
       kind: 'rent_increase_cancelled';
@@ -261,7 +281,7 @@ function paymentParagraphs(p: InvoicePaymentHint, invoiceNumber: string, l: Loca
   }
 }
 
-function content(data: CustomerEmailData, l: Locale): Content {
+function content(data: CustomerEmailData, l: Locale, base?: CustomerEmailBase): Content {
   const en = l === 'en';
   switch (data.kind) {
     case 'invoice_issued':
@@ -423,6 +443,22 @@ function content(data: CustomerEmailData, l: Locale): Content {
             ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
+    case 'contract_auto_renewal_notice':
+      return {
+        subject: en
+          ? `Your contract ${data.contractNumber} renews on ${day(data.endDate, l)}`
+          : `Tu contrato ${data.contractNumber} se prorroga el ${day(data.endDate, l)}`,
+        paragraphs: en
+          ? [
+              `Your contract for storage unit ${data.unitCode} at ${data.facilityName} ends on ${day(data.endDate, l)} and renews automatically for ${data.months} more months, until ${day(data.newEndDate, l)}. You do not need to do anything to keep your unit.`,
+              `If you do not want to continue, let us know before ${day(data.lastDayToCancel, l)}, from your customer area or by replying to this email.`,
+            ]
+          : [
+              `Tu contrato del trastero ${data.unitCode} en ${data.facilityName} vence el ${day(data.endDate, l)} y se prorroga solo ${data.months} ${data.months === 1 ? 'mes' : 'meses'} más, hasta el ${day(data.newEndDate, l)}. No tienes que hacer nada para seguir.`,
+              `Si no quieres seguir, avísanos antes del ${day(data.lastDayToCancel, l)}, desde tu área de clientes o contestando a este correo.`,
+            ],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
     case 'contract_price_change':
       return {
         subject: en
@@ -445,30 +481,37 @@ function content(data: CustomerEmailData, l: Locale): Content {
             ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
-    case 'rent_increase_notice':
+    case 'rent_increase_notice': {
+      const text = data.template?.[l] ?? RENT_INCREASE_NOTICE_DEFAULTS[l];
+      const values: Record<string, string> = {
+        nombre: base?.customerName ?? '',
+        negocio: base?.tenantName ?? '',
+        trastero: data.unitCode,
+        local: data.facilityName,
+        contrato: data.contractNumber,
+        cuota_actual: eur(data.oldMonthlyWithVat, l),
+        cuota_nueva: eur(data.newMonthlyWithVat, l),
+        fecha: day(data.effectiveDate, l),
+      };
       return {
-        subject: en
-          ? `New monthly fee for your storage unit ${data.unitCode}`
-          : `Revisión de la cuota de tu trastero ${data.unitCode}`,
-        paragraphs: en
-          ? [
-              `From ${day(data.effectiveDate, l)}, the monthly fee for storage unit ${data.unitCode} at ${data.facilityName} (contract ${data.contractNumber}) will go from ${eur(data.oldMonthlyWithVat, l)} to ${eur(data.newMonthlyWithVat, l)} (VAT included).`,
-              data.prepaid
-                ? 'As you pay in advance, the new fee applies from your next period, which starts on that date.'
-                : '',
-              'If you do not agree, you can cancel your contract before that date without notice or penalty, from your customer area or by replying to this email.',
-              'If you have any questions, get in touch with us.',
-            ]
-          : [
-              `Desde el ${day(data.effectiveDate, l)}, la cuota mensual de tu trastero ${data.unitCode} en ${data.facilityName} (contrato ${data.contractNumber}) pasará de ${eur(data.oldMonthlyWithVat, l)} a ${eur(data.newMonthlyWithVat, l)} (IVA incluido).`,
-              data.prepaid
-                ? 'Como pagas por adelantado, la cuota nueva se aplica desde tu siguiente periodo, que empieza ese día.'
-                : '',
-              'Si no estás de acuerdo, puedes darte de baja antes de esa fecha sin preaviso ni penalización, desde tu área de clientes o contestando a este correo.',
-              'Si tienes cualquier duda, contacta con nosotros.',
-            ],
+        subject: fillRentIncreaseNotice(text.subject, values),
+        paragraphs: [
+          ...fillRentIncreaseNotice(text.body, values)
+            .split(/\n\s*\n/)
+            .map((p) => p.trim()),
+          data.prepaid
+            ? en
+              ? 'As you pay in advance, the new fee applies from your next period, which starts on that date.'
+              : 'Como pagas por adelantado, la cuota nueva se aplica desde tu siguiente periodo, que empieza ese día.'
+            : '',
+          // Condición 4 del contrato: siempre, aunque el texto sea propio.
+          en
+            ? 'If you do not agree, you can cancel your contract before that date without notice or penalty, from your customer area or by replying to this email.'
+            : 'Si no estás de acuerdo, puedes darte de baja antes de esa fecha sin preaviso ni penalización, desde tu área de clientes o contestando a este correo.',
+        ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
+    }
     case 'rent_increase_cancelled':
       return {
         subject: en
@@ -675,7 +718,7 @@ export function renderCustomerEmail(
   data: CustomerEmailData,
 ): RenderedEmail {
   const l: Locale = base.locale === 'en' ? 'en' : 'es';
-  const c = content(data, l);
+  const c = content(data, l, base);
   const hello = l === 'en' ? 'Hello' : 'Hola';
   const greeting = base.customerName ? `${hello} ${base.customerName},` : `${hello},`;
   const regards = l === 'en' ? 'Kind regards,' : 'Un saludo,';

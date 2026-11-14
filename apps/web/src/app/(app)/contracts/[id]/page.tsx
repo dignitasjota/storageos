@@ -30,6 +30,7 @@ import { contractEventText } from './event-text';
 import { InspectionPhotosCard } from './inspection-photos-card';
 import { IrpfRetentionCard } from './irpf-retention-card';
 import { contractStartLabel, PreOpeningContractCard } from './pre-opening-card';
+import { PriceCard } from './price-card';
 import { RetentionCard } from './retention-card';
 import { SigningCard } from './signing-card';
 import { WithdrawalCard } from './withdrawal-card';
@@ -486,6 +487,7 @@ export default function ContractDetailPage() {
         </TabsContent>
         <TabsContent value="billing" className="space-y-4">
           <ConditionsCard contract={c} />
+          {c.status !== 'draft' && <PriceCard contract={c} />}
           <InsuranceCard
             contractId={c.id}
             planId={c.insurancePlanId}

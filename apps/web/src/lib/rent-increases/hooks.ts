@@ -5,10 +5,15 @@ import { apiFetch } from '../auth/api';
 import type {
   CreateRentIncreaseInput,
   PreviewRentIncreaseInput,
+  PreviewRentIncreaseNoticeInput,
   RentIncreaseDto,
+  RentIncreaseNoticePreviewDto,
+  RentIncreaseNoticeTemplate,
+  RentIncreaseNoticeTemplateDto,
   RentIncreasePolicyDto,
   RentIncreasePolicyInput,
   RentIncreasePreviewDto,
+  RentIncreaseResultsDto,
 } from '@storageos/shared';
 
 const key = ['rent-increases'] as const;
@@ -43,6 +48,7 @@ export function useCreateRentIncrease() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['portfolio'] });
     },
   });
 }
@@ -55,6 +61,7 @@ export function useApplyRentIncrease() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['portfolio'] });
     },
   });
 }
@@ -67,6 +74,7 @@ export function useCancelRentIncrease() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['portfolio'] });
     },
   });
 }
@@ -87,5 +95,62 @@ export function useUpdateRentIncreasePolicy() {
     mutationFn: (input: RentIncreasePolicyInput) =>
       apiFetch<RentIncreasePolicyDto>('/rent-increases/policy', { method: 'PATCH', json: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: policyKey }),
+  });
+}
+
+const templateKey = ['rent-increases', 'notice-template'] as const;
+
+export function useRentIncreaseNoticeTemplate() {
+  return useQuery({
+    queryKey: templateKey,
+    queryFn: () => apiFetch<RentIncreaseNoticeTemplateDto>('/rent-increases/notice-template'),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateRentIncreaseNoticeTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (template: RentIncreaseNoticeTemplate | null) =>
+      apiFetch<RentIncreaseNoticeTemplateDto>('/rent-increases/notice-template', {
+        method: 'PUT',
+        json: { template },
+      }),
+    onSuccess: (data) => qc.setQueryData(templateKey, data),
+  });
+}
+
+export function usePreviewRentIncreaseNotice() {
+  return useMutation({
+    mutationFn: (input: Partial<PreviewRentIncreaseNoticeInput>) =>
+      apiFetch<RentIncreaseNoticePreviewDto>('/rent-increases/notice-preview', {
+        method: 'POST',
+        json: input,
+      }),
+  });
+}
+
+export function useRentIncreaseResults(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: [...key, id, 'results'] as const,
+    queryFn: () => apiFetch<RentIncreaseResultsDto>(`/rent-increases/${id}/results`),
+    enabled: !!id && enabled,
+  });
+}
+
+/** Quitar un contrato de la subida o volver a enviarle el aviso. */
+export function useRentIncreaseItemAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; itemId: string; action: 'remove' | 'resend' }) =>
+      apiFetch<RentIncreaseDto>(`/rent-increases/${args.id}/items/${args.itemId}/${args.action}`, {
+        method: 'POST',
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData([...key, data.id], data);
+      void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+      void qc.invalidateQueries({ queryKey: ['portfolio'] });
+    },
   });
 }

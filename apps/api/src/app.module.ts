@@ -85,6 +85,7 @@ import { PlatformModule } from './modules/platform/platform.module';
 import { PlatformBlogModule } from './modules/platform-blog/platform-blog.module';
 import { PlatformContactModule } from './modules/platform-contact/platform-contact.module';
 import { PortalModule } from './modules/portal/portal.module';
+import { PortfolioModule } from './modules/portfolio/portfolio.module';
 import { ProductUpdatesModule } from './modules/product-updates/product-updates.module';
 import { ProductsModule } from './modules/products/products.module';
 import { PromoLandingsModule } from './modules/promo-landings/promo-landings.module';
@@ -273,6 +274,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     ReferralsModule,
     CampaignsModule,
     RentIncreasesModule,
+    PortfolioModule,
     InsuranceModule,
     MaintenanceModule,
     SepaModule,

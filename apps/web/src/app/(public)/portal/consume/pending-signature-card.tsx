@@ -147,6 +147,11 @@ export function PendingSignatureCard({ session }: { session: PortalSessionDto })
                   facility: a.facilityName,
                 })}
               </p>
+              {a.renewal && (
+                <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                  {t('renewalOffer', { months: a.renewal.months })}
+                </p>
+              )}
             </div>
             <Button size="sm" onClick={() => void sign(a.id, 'annex')} disabled={opening !== null}>
               {opening === a.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

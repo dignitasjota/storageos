@@ -54,6 +54,11 @@ export interface ContractAnnexDto {
   ipAddress: string | null;
   userAgent: string | null;
   cancelledAt: string | null;
+  /** Renovación que se aplica al firmarlo (null = anexo de texto). */
+  renewal: { months: number; newPrice: number | null } | null;
+  /** Cuándo se aplicó lo que hacía al firmarse, o por qué no. */
+  actionAppliedAt: string | null;
+  actionError: string | null;
 }
 
 /** Al crear o reenviar: el enlace (para copiarlo) y si salió el correo. */
@@ -93,4 +98,6 @@ export interface PortalAnnexDto {
   status: 'pending' | 'signed';
   createdAt: string;
   signedAt: string | null;
+  /** Oferta de renovación: al firmarla se renueva el contrato. */
+  renewal: { months: number; newPrice: number | null } | null;
 }

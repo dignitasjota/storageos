@@ -191,6 +191,11 @@ export interface ContractDto {
     newPrice: number;
     date: string;
   } | null;
+  /** No entra en las subidas de precio hasta esta fecha (YYYY-MM-DD). */
+  rentIncreaseExemptUntil: string | null;
+  rentIncreaseExemptReason: string | null;
+  /** % propio de la actualización anual (null = el del negocio). */
+  anniversaryUpdatePct: number | null;
   /** Traslado programado. */
   scheduledMove: {
     unitId: string;
