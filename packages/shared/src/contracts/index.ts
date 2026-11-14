@@ -267,3 +267,4 @@ export interface ApplyAnniversaryUpdatesResultDto {
 }
 export * from './pre-opening';
 export * from './withdrawal';
+export * from './annexes';

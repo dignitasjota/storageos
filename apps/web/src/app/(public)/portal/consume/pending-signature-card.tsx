@@ -10,6 +10,7 @@ import { intlLocaleForPortal } from '../i18n/messages';
 import { usePortalLocale } from '../i18n/provider';
 
 import type {
+  PortalAnnexDto,
   PortalPendingSignatureDto,
   PortalSessionDto,
   PortalSignLinkDto,
@@ -22,13 +23,15 @@ import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 /**
  * «Pendiente de firmar»: contratos que el inquilino aún no ha firmado (se le
- * envió el enlace o reservó online y no terminó). «Firmar» abre la firma con
- * un enlace nuevo, aunque el del correo ya no valga. Sin ninguno, no se pinta.
+ * envió el enlace o reservó online y no terminó) y anexos de sus contratos.
+ * «Firmar» abre la firma con un enlace nuevo, aunque el del correo ya no
+ * valga. Sin ninguno, no se pinta.
  */
 export function PendingSignatureCard({ session }: { session: PortalSessionDto }) {
   const t = useTranslations('portal.consume.pendingSignature');
   const { locale } = usePortalLocale();
   const [items, setItems] = useState<PortalPendingSignatureDto[]>([]);
+  const [annexes, setAnnexes] = useState<PortalAnnexDto[]>([]);
   const [opening, setOpening] = useState<string | null>(null);
   const headers = { Authorization: `Bearer ${session.accessToken}` };
 
@@ -44,13 +47,20 @@ export function PendingSignatureCard({ session }: { session: PortalSessionDto })
       .catch(() => {
         /* opcional */
       });
+    portalApiFetch<PortalAnnexDto[]>('/portal/me/annexes', { headers, requiresAuth: false })
+      .then((rows) => {
+        if (!cancelled) setAnnexes(rows.filter((a) => a.status === 'pending'));
+      })
+      .catch(() => {
+        /* opcional */
+      });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.accessToken]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0 && annexes.length === 0) return null;
   const intl = intlLocaleForPortal(locale);
   const money = (n: number) =>
     n.toLocaleString(intl, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -67,15 +77,20 @@ export function PendingSignatureCard({ session }: { session: PortalSessionDto })
       minute: '2-digit',
     });
 
-  async function sign(id: string) {
+  async function sign(id: string, kind: 'contract' | 'annex' = 'contract') {
     setOpening(id);
     try {
-      const res = await portalApiFetch<PortalSignLinkDto>(`/portal/me/contracts/${id}/sign-link`, {
-        method: 'POST',
-        headers,
-        requiresAuth: false,
-      });
-      window.location.assign(signHref(res.token, locale === 'en' ? 'en' : 'es'));
+      const res = await portalApiFetch<PortalSignLinkDto>(
+        kind === 'annex'
+          ? `/portal/me/annexes/${id}/sign-link`
+          : `/portal/me/contracts/${id}/sign-link`,
+        { method: 'POST', headers, requiresAuth: false },
+      );
+      window.location.assign(
+        kind === 'annex'
+          ? `/sign/annex/${encodeURIComponent(res.token)}`
+          : signHref(res.token, locale === 'en' ? 'en' : 'es'),
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : t('error'));
       setOpening(null);
@@ -114,6 +129,27 @@ export function PendingSignatureCard({ session }: { session: PortalSessionDto })
             </div>
             <Button size="sm" onClick={() => void sign(c.id)} disabled={opening !== null}>
               {opening === c.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {t('sign')}
+            </Button>
+          </div>
+        ))}
+        {annexes.map((a) => (
+          <div
+            key={a.id}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+          >
+            <div className="text-sm">
+              <p className="font-medium">{t('annex', { number: a.number, title: a.title })}</p>
+              <p className="text-xs text-muted-foreground">
+                {t('annexDetails', {
+                  number: a.contractNumber,
+                  unit: a.unitCode,
+                  facility: a.facilityName,
+                })}
+              </p>
+            </div>
+            <Button size="sm" onClick={() => void sign(a.id, 'annex')} disabled={opening !== null}>
+              {opening === a.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {t('sign')}
             </Button>
           </div>

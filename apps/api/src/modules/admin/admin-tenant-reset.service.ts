@@ -133,6 +133,7 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'verifactu_emitters' },
   { table: 'contract_inspection_photos' },
   { table: 'contract_signatures' },
+  { table: 'contract_annexes' },
   { table: 'contract_events' },
   { table: 'reservations' },
   { table: 'contracts' },

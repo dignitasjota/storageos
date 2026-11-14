@@ -135,6 +135,17 @@ Los apps separados `portal/` (inquilino final) y `admin/` (super admin) están p
 
 ## Estado actual
 
+**🗓️ Sesión 2026-11-14 (2) — ANEXOS A UN CONTRATO FIRMADO (1 PR, apilada sobre la de condiciones específicas; decisión de Jota: el anexo lo firma el inquilino desde su área de clientes).** Migración `20270119100000_contract_annexes` (RLS; número por contrato con `pg_advisory_xact_lock`, texto congelado con su huella, enlace de 14 días, evidencia de la firma, `pdf_key`). `ContractAnnexesService` (move-in; `MoveInModule` importa `AuthModule` y `NotificationsModule` y lo exporta):
+
+- Panel: crear (solo activo o en baja: 409 `contract_not_signed`), reenviar, cancelar y PDF (Puppeteer, se genera la primera vez).
+- Firma pública por token; el correo sale en el idioma del inquilino.
+- Área de clientes: lista, enlace nuevo y PDF.
+- Al firmarse: aviso al equipo (`contract.annex_signed`), `contract_events` `note_added` (`annex_created/signed/cancelled`, legible en el historial) y auditoría.
+- Las partes del anexo salen de la cabecera del texto firmado del contrato (`annex-text.ts`, hasta la primera línea en blanco: el pie repite al arrendador).
+- RGPD (exportación y anonimizar) y vaciado (`PURGE_STEPS`).
+
+Web: tarjeta «Anexos» en la pestaña «Firma», página `/sign/annex/[token]` (es/en, `TenantMiniChrome`), anexos pendientes en `PendingSignatureCard` y «Anexos de tus contratos» (`SignedAnnexesCard`). unit `annex-text` + e2e `contract-annexes`. DEPLOYMENT §133.
+
 **🗓️ Sesión 2026-11-14 — CONDICIONES ESPECÍFICAS DE CADA CONTRATO (1 PR; le sigue la de anexos).** Petición de Jota: una condición propia de un contrato concreto, no de la plantilla general. Migración `20270118100000_contract_specific_conditions` (`contracts.specific_conditions`). `CreateContractSchema`/`UpdateContractSchema.specificConditions` (máx. 5.000; solo en borrador, 400 `contract_not_draft` «añade un anexo»). `buildContractTermsText` las pone como «Condiciones específicas de este contrato:» tras las generales y antes del consentimiento (en la huella, el PDF y el área de clientes; las cláusulas del tenant ya se titulan «Condiciones particulares:»). Panel: campo en el paso 3 del alta y en «Editar» del borrador; tarjeta «Condiciones». unit `contract-signing-documents` + e2e `contract-specific-conditions`. DEPLOYMENT §132.
 
 **🗓️ Sesión 2026-11-13 (6) — CONTRATOS PENDIENTES DE FIRMAR EN EL ÁREA DE CLIENTES (1 PR, sin migración).** Caso real: un inquilino con un contrato en borrador (la firma falló) entraba a su área de clientes y no lo veía, porque el portal solo lista los activos o con la baja pedida, y no tenía cómo firmarlo. `SignaturesService.pendingForCustomer` (borradores con `signingTokenHash`: enlace enviado o reserva online; los que el equipo prepara no) + `signLinkForCustomer` (token nuevo con `generateSigningToken`, el anterior deja de valer; 404 si no es suyo o no se envió, 409 `contract_not_signable`). `GET /portal/me/contracts/pending-signature` y `POST /portal/me/contracts/:id/sign-link` → `PendingSignatureCard` en Inicio y Contratos (es/en; «Firmar» → `signHref`). e2e `portal-pending-signature` (2). DEPLOYMENT §131. **Sin aclarar**: qué error dio la firma en producción (en local, la del inquilino existente con el enlace del correo funciona).

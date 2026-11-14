@@ -34,6 +34,7 @@ import {
   PortalGoCardlessMandateCompleteSchema,
   type PaymentMethodDto,
   type PortalChargeResultDto,
+  type PortalAnnexDto,
   type PortalContractDto,
   type PortalPendingSignatureDto,
   type PortalSignLinkDto,
@@ -130,6 +131,7 @@ import { CustomerAuthorizedPersonsService } from '../customers/customer-authoriz
 import { CustomerDocumentsService } from '../customers/customer-documents.service';
 import { FaqService } from '../faq/faq.service';
 import { GeneralTermsService } from '../landing/general-terms.service';
+import { ContractAnnexesService } from '../move-in/contract-annexes.service';
 import { SignaturesService } from '../move-in/signatures.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { IncidentsService } from '../operations/incidents.service';
@@ -207,6 +209,7 @@ export class PortalController {
     private readonly unitRequests: UnitRequestsService,
     private readonly waitlist: WaitlistService,
     private readonly signatures: SignaturesService,
+    private readonly annexes: ContractAnnexesService,
     private readonly nightPass: NightPassService,
     private readonly messages: CustomerMessagesService,
     private readonly faq: FaqService,
@@ -776,6 +779,38 @@ export class PortalController {
   ): Promise<PortalSignLinkDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.signatures.signLinkForCustomer(tenantId, customerId, id);
+  }
+
+  /** Anexos de sus contratos (pendientes de firmar y firmados). */
+  @Public()
+  @Get('me/annexes')
+  async myAnnexes(@Headers('authorization') auth: string | undefined): Promise<PortalAnnexDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.annexes.listForCustomer(tenantId, customerId);
+  }
+
+  /** Enlace nuevo para firmar un anexo pendiente. */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/annexes/:id/sign-link')
+  @HttpCode(HttpStatus.OK)
+  async myAnnexSignLink(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalSignLinkDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.annexes.signLinkForCustomer(tenantId, customerId, id);
+  }
+
+  /** URL temporal para descargar el PDF de un anexo firmado. */
+  @Public()
+  @Get('me/annexes/:id/pdf')
+  async myAnnexPdf(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ url: string }> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.annexes.pdfForCustomer(tenantId, customerId, id);
   }
 
   /** URL temporal para descargar el PDF del contrato firmado. */

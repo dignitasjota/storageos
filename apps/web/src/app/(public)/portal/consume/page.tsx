@@ -57,6 +57,7 @@ import { AccessCredentialItem } from './access-credential';
 import { AccessLogsCard } from './access-logs-card';
 import { AdditionalUnitCard } from './additional-unit-card';
 import { PortalAiChatCard } from './ai-chat-card';
+import { SignedAnnexesCard } from './annexes-card';
 import { AnnualInvoicesCard } from './annual-invoices-card';
 import { ChatCard } from './chat-card';
 import { CollectionsCard } from './collections-card';
@@ -1177,6 +1178,7 @@ function PortalConsumeContent() {
 
           <TabsContent value="contratos" className="space-y-6">
             <PendingSignatureCard session={session} />
+            <SignedAnnexesCard session={session} />
             <ExtrasCard
               session={session}
               contracts={contracts ?? []}

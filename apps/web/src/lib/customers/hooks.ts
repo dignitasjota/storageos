@@ -27,7 +27,10 @@ import type {
   ContractDto,
   ContractEventDto,
   ContractSignatureDto,
+  ContractAnnexDto,
+  ContractAnnexSentDto,
   ContractSigningRecordDto,
+  CreateContractAnnexInput,
   ConvertReservationInput,
   CreateContractInput,
   RequestSignatureResultDto,
@@ -330,6 +333,45 @@ export function useContractSigning(id: string | undefined) {
     queryKey: id ? (['contracts', id, 'signing'] as const) : ['contract', 'none', 'signing'],
     queryFn: () => apiFetch<ContractSigningRecordDto>(`/contracts/${id}/signing`),
     enabled: !!id,
+  });
+}
+
+/** Anexos de un contrato firmado. */
+export function useContractAnnexes(contractId: string | undefined) {
+  return useQuery({
+    queryKey: ['contracts', contractId ?? 'none', 'annexes'] as const,
+    queryFn: () => apiFetch<ContractAnnexDto[]>(`/contracts/${contractId}/annexes`),
+    enabled: !!contractId,
+  });
+}
+
+/** Crea un anexo y envía al inquilino el enlace para firmarlo. */
+export function useCreateContractAnnex(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateContractAnnexInput) =>
+      apiFetch<ContractAnnexSentDto>(`/contracts/${contractId}/annexes`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts', contractId] });
+    },
+  });
+}
+
+/** Reenviar (enlace nuevo) o cancelar un anexo pendiente. */
+export function useContractAnnexAction(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { annexId: string; action: 'resend' | 'cancel' }) =>
+      apiFetch<ContractAnnexSentDto | ContractAnnexDto>(
+        `/contracts/${contractId}/annexes/${args.annexId}/${args.action}`,
+        { method: 'POST' },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts', contractId] });
+    },
   });
 }
 

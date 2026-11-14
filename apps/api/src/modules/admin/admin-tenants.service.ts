@@ -2439,6 +2439,10 @@ export class AdminTenantsService {
         where: { tenantId },
         data: { ipAddress: null, userAgent: null, signerEmail: null },
       });
+      await tx.contractAnnex.updateMany({
+        where: { tenantId },
+        data: { ipAddress: null, userAgent: null, sentTo: null },
+      });
       await tx.legalDocAcceptance.updateMany({
         where: { tenantId },
         data: { ipAddress: null, userAgent: null },

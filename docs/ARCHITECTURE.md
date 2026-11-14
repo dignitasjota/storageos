@@ -501,3 +501,22 @@ Las direcciones «bonitas» (`/reservar/<centro>`, `/precios`, `/contacto`, `/<l
 - **Extras aparte**: `TodayExtrasService` (`GET /dashboard/today/extras`) para no frenar la bandeja principal.
 - **Apartar** (`today_snoozes`, `admin_today_snoozes`): lo apartado no sale ni cuenta, y se comparte con todo el equipo.
 - **Resumen del día**: se reserva por persona (`users.daily_summary_last_date`).
+
+## Imágenes compiladas fuera del servidor (2026-11-12, #941)
+
+- El servidor (VPS de 4 GB) no compila: GitHub Actions (`images.yml`) construye `api`, `worker` y `web` en cada push a `main` y las publica en GHCR (`latest` y `sha-<commit>`); Portainer las descarga (`pull_policy: always`). Compilar cinco imágenes a la vez en el servidor lo dejó sin memoria el 12-11.
+- La web hornea sus URL públicas desde las variables del repositorio. Una variable `NEXT_PUBLIC_*` nueva necesita su variable y su `build_args`.
+- En la CI, `nest build` y la comprobación de tipos llevan `--max-old-space-size=4096`: con el límite por defecto de Node se quedaban sin memoria (exit 134).
+
+## Lo que se cobra y se emite cuando entra el dinero (2026-11-12/13, #942, #946)
+
+- La primera factura de una reserva online, o de un contrato del panel firmado por enlace, es un borrador `issue_on_payment`: se emite (número, fecha y Veri\*Factu) al cobrarse. Si no se paga en plazo, se anula sin número ni rectificativa.
+- Lo mismo con la señal de una reserva y con la tienda y el pase nocturno del área de clientes.
+- El justificante de fianza que va con ese pago espera como borrador y pasa a cobrable cuando se emite la factura.
+- `PAYABLE_INVOICE_WHERE` es el único criterio de «se puede pagar» en el portal, los recordatorios, «Hoy» y la caducidad.
+
+## Documentos que firma el inquilino (2026-11-13/14, #949–#951)
+
+- **Contrato**: el texto lo arma `composeContractTerms` (cabecera con partes y cifras, condiciones generales o del tenant, condiciones específicas del contrato, reserva anticipada, formulario de desistimiento y consentimiento). Se congela al firmar (`signed_terms_text`) con su huella.
+- **Anexos** (`contract_annexes`): lo firmado no se cambia. El anexo congela su texto al crearlo, toma las partes de la cabecera del contrato firmado y se firma con un enlace propio (`/sign/annex/<token>`), con la misma evidencia que el contrato.
+- **Enlaces**: los de firma son de un uso de verdad. Pedir uno nuevo, desde el panel o desde el área de clientes («Pendiente de firmar»), invalida el anterior, así que el correo viejo deja de valer.
