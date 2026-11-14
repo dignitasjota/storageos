@@ -94,7 +94,7 @@ describe('Actualización de renta por aniversario (e2e)', () => {
       .post('/contract-anniversaries/apply')
       .set(auth)
       .send({ contractIds: [flat] });
-    expect(applied.body).toEqual({ applied: 1, skipped: 0, failed: [] });
+    expect(applied.body).toEqual({ applied: 1, scheduled: 0, skipped: 0, failed: [] });
     const flatDetail = await request(app.getHttpServer()).get(`/contracts/${flat}`).set(auth);
     expect(flatDetail.body.priceMonthly).toBe(721);
 
@@ -102,7 +102,7 @@ describe('Actualización de renta por aniversario (e2e)', () => {
       .post('/contract-anniversaries/apply')
       .set(auth)
       .send({ contractIds: [box], action: 'skip' });
-    expect(skipped.body).toEqual({ applied: 0, skipped: 1, failed: [] });
+    expect(skipped.body).toEqual({ applied: 0, scheduled: 0, skipped: 1, failed: [] });
     const boxDetail = await request(app.getHttpServer()).get(`/contracts/${box}`).set(auth);
     expect(boxDetail.body.priceMonthly).toBe(50);
 

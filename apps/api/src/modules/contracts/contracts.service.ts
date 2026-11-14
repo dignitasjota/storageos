@@ -20,11 +20,12 @@ import {
 import { assertCashDayOpen } from '../../common/cash-day';
 import { depositWasCollected } from '../../common/deposit-collected';
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
-import { todayInTimezone } from '../../common/format';
+import { formatDateLong, todayInTimezone } from '../../common/format';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { endDateAfterCancellingMoveOut } from '../../common/move-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
+import { nextPriceChange, pendingPriceChanges } from '../../common/price-changes';
 import { releaseReservedUnit, unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
@@ -307,6 +308,7 @@ export class ContractsService {
     const ids = resolveFacilityFilter(filters.facilityScope, filters.facilityId);
     if (ids === null) return [];
     // `end_date` es un día: con la hora actual se quedaban fuera los que vencen hoy.
+    // Sin límite por abajo: un contrato vencido que sigue abierto es lo más urgente.
     const today = todayInTimezone();
     const limit = new Date(today.getTime() + days * 86_400_000);
     const rows = await this.prisma.withTenant(
@@ -316,7 +318,7 @@ export class ContractsService {
             ...(ids ? { unit: { facilityId: { in: ids } } } : {}),
             deletedAt: null,
             status: { in: ['active', 'ending'] as ContractStatus[] },
-            endDate: { not: null, gte: today, lte: limit },
+            endDate: { not: null, lte: limit },
           },
           orderBy: [{ endDate: 'asc' }],
           include: {
@@ -348,6 +350,27 @@ export class ContractsService {
         (tx) => depositWasCollected(tx, id),
         tenantId,
       );
+    }
+    const pendingIncrease = await this.prisma.withTenant(
+      (tx) =>
+        tx.rentIncreaseItem.findFirst({
+          where: { contractId: id, status: 'pending', rentIncrease: { status: 'scheduled' } },
+          orderBy: { effectiveDate: 'asc' },
+          select: {
+            newPrice: true,
+            effectiveDate: true,
+            rentIncrease: { select: { id: true, name: true } },
+          },
+        }),
+      tenantId,
+    );
+    if (pendingIncrease) {
+      dto.pendingRentIncrease = {
+        rentIncreaseId: pendingIncrease.rentIncrease.id,
+        name: pendingIncrease.rentIncrease.name,
+        newPrice: Number(pendingIncrease.newPrice),
+        date: pendingIncrease.effectiveDate.toISOString().slice(0, 10),
+      };
     }
     if (dto.scheduledMove) {
       const target = await this.prisma.withTenant(
@@ -1912,12 +1935,34 @@ export class ContractsService {
    */
   private async customerMoveOutDate(
     tenantId: string,
-    contract: { unitId: string; cancellationNoticeDays: number; moveOutEndOfMonth: boolean | null },
+    contract: {
+      id: string;
+      unitId: string;
+      priceMonthly: unknown;
+      cancellationNoticeDays: number;
+      moveOutEndOfMonth: boolean | null;
+    },
     requestedYmd: string,
   ): Promise<Date> {
     const today = await this.todayAtUnit(tenantId, contract.unitId);
     const endOfMonth = contract.moveOutEndOfMonth === true;
     const todayYmd = today.toISOString().slice(0, 10);
+    // Condición 4: ante una subida anunciada puede irse antes sin preaviso.
+    const increase = await this.announcedIncrease(tenantId, contract, today);
+    if (increase && requestedYmd.slice(0, 10) < increase) {
+      if (requestedYmd.slice(0, 10) < todayYmd) {
+        throw new BadRequestException({
+          code: 'notice_period_not_met',
+          message: 'La fecha de baja no puede ser anterior a hoy',
+          details: { minEndDate: todayYmd },
+        });
+      }
+      const lastDay = new Date(new Date(`${increase}T00:00:00Z`).getTime() - 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const wanted = effectiveMoveOutDate(requestedYmd, endOfMonth);
+      return new Date(`${wanted < lastDay ? wanted : lastDay}T00:00:00Z`);
+    }
     const minDate = earliestMoveOutDate({
       today: todayYmd,
       noticeDays: contract.cancellationNoticeDays,
@@ -1937,6 +1982,29 @@ export class ContractsService {
       });
     }
     return new Date(`${effectiveMoveOutDate(requestedYmd, endOfMonth)}T00:00:00Z`);
+  }
+
+  /**
+   * Fecha (YYYY-MM-DD) de la próxima subida ya programada de un trastero, si
+   * la hay: hasta el día antes puede darse de baja sin preaviso.
+   */
+  private async announcedIncrease(
+    tenantId: string,
+    contract: { id: string; unitId: string; priceMonthly: unknown },
+    today: Date,
+  ): Promise<string | null> {
+    const unit = await this.admin.unit.findUnique({
+      where: { id: contract.unitId },
+      select: { unitType: { select: { propertyKind: true } } },
+    });
+    if (unit?.unitType?.propertyKind === 'housing') return null;
+    const changes =
+      (await pendingPriceChanges(this.admin, tenantId, { contractIds: [contract.id] })).get(
+        contract.id,
+      ) ?? [];
+    const next = nextPriceChange(Number(contract.priceMonthly), changes);
+    if (!next || next.price <= Number(contract.priceMonthly) || next.date <= today) return null;
+    return next.date.toISOString().slice(0, 10);
   }
 
   private toPortalDto(
@@ -1972,6 +2040,8 @@ export class ContractsService {
       withdrawnAt: Date | null;
     },
     overlocked = false,
+    /** Próximo cambio de cuota ya decidido (programado o de una tanda). */
+    upcoming: { price: number; date: Date } | null = null,
   ): PortalContractDto {
     const base = Number(row.priceMonthly);
     const discount = Number(row.discountAmount);
@@ -2008,6 +2078,16 @@ export class ContractsService {
       hasSignedPdf: !!row.signedPdfUrl,
       overlocked,
       preOpening: preOpeningDto(row),
+      upcomingPrice: upcoming
+        ? {
+            monthlyWithVat: round2(Math.max(0, upcoming.price - discount) * (1 + rentVat / 100)),
+            date: upcoming.date.toISOString().slice(0, 10),
+            canLeaveWithoutNotice:
+              upcoming.price > base &&
+              row.unit.unitType?.propertyKind !== 'housing' &&
+              upcoming.date > todayInTimezone(),
+          }
+        : null,
     };
   }
 
@@ -2043,7 +2123,17 @@ export class ContractsService {
         select: { contractId: true },
       });
       const overlockedSet = new Set(overlocked.map((o) => o.contractId));
-      return rows.map((r) => this.toPortalDto(r, overlockedSet.has(r.id)));
+      const changes = await pendingPriceChanges(tx, tenantId, {
+        contractIds: rows.map((r) => r.id),
+      });
+      return rows.map((r) => {
+        const next = nextPriceChange(Number(r.priceMonthly), changes.get(r.id) ?? []);
+        return this.toPortalDto(
+          r,
+          overlockedSet.has(r.id),
+          next ? { price: next.price, date: next.date } : null,
+        );
+      });
     }, tenantId);
   }
 
@@ -3478,12 +3568,18 @@ export class ContractsService {
     const notice = (): void => {
       if (!args.input.notifyCustomer) return;
       const monthly = subtractAmounts(args.input.priceMonthly, Number(existing.discountAmount));
-      const { taxRate } = rentTax(existing.unit.unitType?.propertyKind);
+      const kind = existing.unit.unitType?.propertyKind;
+      const { taxRate } = rentTax(kind);
       this.eventBus.emit(DOMAIN_EVENTS.contract_price_notice, {
         tenantId: args.tenantId,
         contractId: args.contractId,
         monthlyWithVat: Math.round(monthly * (100 + taxRate)) / 100,
         effectiveDate: effective,
+        // Condición 4 del contrato del trastero: ante una subida puede irse antes sin preaviso.
+        canLeaveWithoutNotice:
+          kind !== 'housing' &&
+          effective > today &&
+          args.input.priceMonthly > Number(existing.priceMonthly),
       } satisfies ContractPriceNoticePayload);
     };
     // Con fecha futura solo queda anotado: lo aplica el proceso diario.
@@ -3629,9 +3725,10 @@ export class ContractsService {
   }
 
   /**
-   * Renueva un contrato: extiende su `endDate` N meses (desde el fin actual o
-   * desde hoy si es indefinido). Si estaba `ending`, vuelve a `active` y limpia
-   * la solicitud de baja. Palanca de retención (la página /renewals lo usa).
+   * Renueva un contrato con fecha de fin: la alarga N meses (desde el fin
+   * actual, o desde hoy si ya pasó). Si estaba en baja, vuelve a activo. Con
+   * cuota nueva, se programa para el día siguiente al fin y va en el mismo
+   * correo de la renovación. Todo se comprueba antes de tocar nada.
    */
   async renew(args: {
     tenantId: string;
@@ -3640,6 +3737,8 @@ export class ContractsService {
     months: number;
     /** Cuota del nuevo periodo. */
     newPrice?: number;
+    /** Fin que vio quien renueva: si ya cambió, no se vuelve a renovar. */
+    expectedEndDate?: string | null;
     facilityScope?: string[] | null;
     meta: RequestMeta;
   }): Promise<ContractDto> {
@@ -3656,12 +3755,51 @@ export class ContractsService {
         message: 'La reserva aún no ha empezado: cancélala como reserva antes de la apertura',
       });
     }
-    const base =
-      existing.endDate && existing.endDate.getTime() > Date.now() ? existing.endDate : new Date();
+    if (!existing.endDate) {
+      throw new BadRequestException({
+        code: 'contract_indefinite',
+        message: 'Este contrato no tiene fecha de fin: sigue en vigor sin renovarlo',
+      });
+    }
+    const currentEnd = existing.endDate.toISOString().slice(0, 10);
+    if (args.expectedEndDate !== undefined && args.expectedEndDate !== currentEnd) {
+      throw new ConflictException({
+        code: 'contract_changed',
+        message: `El contrato ya vence el ${formatDateLong(existing.endDate)}: vuelve a abrirlo antes de renovarlo`,
+        details: { endDate: currentEnd },
+      });
+    }
+    const priceChanges = args.newPrice != null && args.newPrice !== Number(existing.priceMonthly);
+    if (priceChanges) {
+      if (isGreaterThan(Number(existing.discountAmount), args.newPrice!)) {
+        throw new BadRequestException({
+          code: 'discount_too_high',
+          message: 'La cuota no puede ser menor que el descuento del contrato',
+        });
+      }
+      const pending = await pendingPriceChanges(this.admin, args.tenantId, {
+        contractIds: [args.contractId],
+      });
+      const first = pending.get(args.contractId)?.[0];
+      if (first) {
+        throw new ConflictException({
+          code: 'price_change_pending',
+          message:
+            first.source === 'rent_increase'
+              ? `Ya tiene una subida programada para el ${formatDateLong(first.date)} (tanda «${first.rentIncreaseName}»): renueva sin cambiar la cuota o quítalo antes de la tanda`
+              : `Ya tiene un cambio de cuota programado para el ${formatDateLong(first.date)}: anúlalo en su ficha o renueva sin cambiar la cuota`,
+        });
+      }
+    }
+
+    const today = todayInTimezone();
+    const base = existing.endDate.getTime() >= today.getTime() ? existing.endDate : today;
     const newEndDate = this.addMonths(base, args.months);
+    const priceFrom = new Date(base.getTime() + 86_400_000);
     const updated = await this.prisma.withTenant(async (tx) => {
-      const row = await tx.contract.update({
-        where: { id: args.contractId },
+      // El fin no puede haber cambiado entre la comprobación y la escritura (doble clic).
+      const moved = await tx.contract.updateMany({
+        where: { id: args.contractId, endDate: existing.endDate },
         data: {
           endDate: newEndDate,
           // Las prórrogas automáticas siguen con el último plazo pactado.
@@ -3671,9 +3809,21 @@ export class ContractsService {
             ? { status: 'active' as const, endingRequestedAt: null, endDateBeforeEnding: null }
             : {}),
           endingSoonNotifiedAt: null,
+          ...(priceChanges
+            ? {
+                scheduledPrice: args.newPrice!,
+                scheduledPriceDate: priceFrom,
+                scheduledPriceReason: 'Renovación del contrato',
+              }
+            : {}),
         },
-        include: this.contractInclude(),
       });
+      if (moved.count === 0) {
+        throw new ConflictException({
+          code: 'contract_changed',
+          message: 'El contrato acaba de cambiar: vuelve a abrirlo antes de renovarlo',
+        });
+      }
       await tx.contractEvent.create({
         data: {
           tenantId: args.tenantId,
@@ -3683,7 +3833,26 @@ export class ContractsService {
           createdByUserId: args.userId,
         },
       });
-      return row;
+      if (priceChanges) {
+        await tx.contractEvent.create({
+          data: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            eventType: 'note_added',
+            payload: {
+              event: 'price_scheduled',
+              to: args.newPrice!,
+              date: priceFrom.toISOString().slice(0, 10),
+              reason: 'Renovación del contrato',
+            },
+            createdByUserId: args.userId,
+          },
+        });
+      }
+      return tx.contract.findUniqueOrThrow({
+        where: { id: args.contractId },
+        include: this.contractInclude(),
+      });
     }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
@@ -3691,32 +3860,31 @@ export class ContractsService {
       action: 'contract.renewed',
       entityType: 'Contract',
       entityId: updated.id,
-      changes: { months: args.months, newEndDate: newEndDate.toISOString().slice(0, 10) },
+      changes: {
+        months: args.months,
+        newEndDate: newEndDate.toISOString().slice(0, 10),
+        ...(priceChanges
+          ? { newPrice: args.newPrice, priceFrom: priceFrom.toISOString().slice(0, 10) }
+          : {}),
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+    const { taxRate } = rentTax(existing.unit.unitType?.propertyKind);
     this.eventBus.emit(DOMAIN_EVENTS.contract_renewed, {
       tenantId: args.tenantId,
       contractId: args.contractId,
       newEndDate,
+      newPrice: priceChanges
+        ? {
+            monthlyWithVat:
+              Math.round(
+                subtractAmounts(args.newPrice!, Number(existing.discountAmount)) * (100 + taxRate),
+              ) / 100,
+            from: priceFrom,
+          }
+        : null,
     } satisfies ContractRenewedPayload);
-    // La cuota nueva vale desde el día siguiente al fin que tenía.
-    if (args.newPrice != null && args.newPrice !== Number(existing.priceMonthly)) {
-      const from = new Date(base.getTime() + 86_400_000).toISOString().slice(0, 10);
-      return this.changePrice({
-        tenantId: args.tenantId,
-        userId: args.userId,
-        contractId: args.contractId,
-        facilityScope: args.facilityScope ?? null,
-        input: {
-          priceMonthly: args.newPrice,
-          reason: 'Renovación del contrato',
-          effectiveDate: from,
-          notifyCustomer: true,
-        },
-        meta: args.meta,
-      });
-    }
     return this.toDto(updated);
   }
 
@@ -4514,6 +4682,7 @@ export class ContractsService {
               reason: row.scheduledPriceReason,
             }
           : null,
+      pendingRentIncrease: null,
       scheduledMove:
         row.scheduledUnitId && row.scheduledUnitDate
           ? {

@@ -84,6 +84,9 @@ jobs:
       - name: Build
         run: pnpm build
         env:
+          # Compilar el worker (que incluye los módulos del API) pasa del límite
+          # por defecto de Node (exit 134), como la comprobación de tipos.
+          NODE_OPTIONS: --max-old-space-size=4096
           # `NEXT_PUBLIC_*` se inyecta en build-time; varias páginas (p. ej.
           # /units/import, /contracts/import) leen NEXT_PUBLIC_API_URL al cargar
           # el módulo y el prerender falla si no está. Valor dummy: solo se

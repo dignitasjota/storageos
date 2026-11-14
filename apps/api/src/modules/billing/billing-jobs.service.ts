@@ -5,6 +5,7 @@ import { Queue } from 'bullmq';
 
 import { toCents } from '../../common/money';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
+import { pendingPriceChanges, priceOn } from '../../common/price-changes';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_BILLING_GENERATE_RECURRING, QUEUE_BILLING } from '../queues/queues.module';
@@ -120,6 +121,13 @@ export class BillingJobsService {
       },
     });
 
+    // Cambios de cuota ya decididos (programados o de una subida): la factura
+    // del periodo sale con la cuota de ese día aunque el proceso diario que los
+    // aplica aún no haya corrido.
+    const priceChanges = await pendingPriceChanges(this.admin, tenantId, {
+      contractIds: contracts.map((c) => c.id),
+    });
+
     let created = 0;
     for (const c of contracts) {
       const interval = c.billingIntervalMonths;
@@ -199,7 +207,8 @@ export class BillingJobsService {
       // Precio congelado del contrato (cuota − descuento): las reglas de precio
       // son para el alta de contratos nuevos y no deben cambiar la cuota de un
       // contrato en vigor (para subirla está la revisión de precios).
-      const effectivePrice = Number(c.priceMonthly) - Number(c.discountAmount);
+      const monthly = priceOn(Number(c.priceMonthly), priceChanges.get(c.id) ?? [], cStart);
+      const effectivePrice = monthly - Number(c.discountAmount);
 
       const series = await this.series.getDefault(tenantId);
       if (!series) {

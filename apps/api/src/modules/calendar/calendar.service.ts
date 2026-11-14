@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
+import { formatEur } from '../../common/format';
 import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
+import { nextPriceChange, pendingPriceChanges } from '../../common/price-changes';
 import { tenantFeatures } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -178,6 +180,33 @@ export class CalendarService {
           detail: r.unit?.code ?? null,
           href: '/reservations',
         });
+      }
+      // Cambios de cuota programados y subidas de una tanda.
+      const priceChanges = await pendingPriceChanges(tx, tenantId, { from, until: to });
+      if (priceChanges.size > 0) {
+        const withChanges = await tx.contract.findMany({
+          where: { id: { in: [...priceChanges.keys()] }, ...byUnit },
+          select: {
+            id: true,
+            priceMonthly: true,
+            customer: {
+              select: { customerType: true, firstName: true, lastName: true, companyName: true },
+            },
+            unit: { select: { code: true } },
+          },
+        });
+        for (const c of withChanges) {
+          const next = nextPriceChange(Number(c.priceMonthly), priceChanges.get(c.id) ?? []);
+          if (!next) continue;
+          events.push({
+            id: `price-${c.id}`,
+            type: 'price_change',
+            date: next.date.toISOString(),
+            label: customerName(c.customer),
+            detail: `${c.unit?.code ?? ''} · cuota ${formatEur(Number(c.priceMonthly))} → ${formatEur(next.price)}`,
+            href: `/contracts/${c.id}`,
+          });
+        }
       }
       return events;
     }, tenantId);

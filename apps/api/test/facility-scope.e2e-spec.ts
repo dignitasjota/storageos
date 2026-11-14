@@ -665,9 +665,15 @@ describe('Permisos por local (facility scope) (e2e)', () => {
         increaseType: 'percentage',
         increaseValue: 5,
         scope: { minMonthsSinceSigned: 0 },
-        effectiveDate: '2027-01-01',
+        effectiveDate: '2030-01-01',
       });
     expect(batchWide.status).toBe(201);
+    // Se cancela para que los contratos queden libres (un contrato no puede estar en
+    // dos subidas a la vez); sigue existiendo para comprobar el alcance.
+    await request(app.getHttpServer())
+      .post(`/rent-increases/${batchWide.body.id}/cancel`)
+      .set(ownerAuth)
+      .expect(200);
     const batchB = await request(app.getHttpServer())
       .post('/rent-increases')
       .set(ownerAuth)
@@ -676,7 +682,7 @@ describe('Permisos por local (facility scope) (e2e)', () => {
         increaseType: 'percentage',
         increaseValue: 5,
         scope: { minMonthsSinceSigned: 0, facilityId: facB.facilityId },
-        effectiveDate: '2027-01-01',
+        effectiveDate: '2030-01-01',
       });
     expect(batchB.status).toBe(201);
 
@@ -747,7 +753,7 @@ describe('Permisos por local (facility scope) (e2e)', () => {
         increaseType: 'percentage',
         increaseValue: 5,
         scope: { minMonthsSinceSigned: 0, facilityId: facB.facilityId },
-        effectiveDate: '2027-01-01',
+        effectiveDate: '2030-01-01',
       });
     expect(createForB.status).toBe(403);
     expect(createForB.body.code).toBe('facility_not_in_scope');
@@ -761,7 +767,7 @@ describe('Permisos por local (facility scope) (e2e)', () => {
         increaseType: 'percentage',
         increaseValue: 5,
         scope: { minMonthsSinceSigned: 0, facilityId: facA.facilityId },
-        effectiveDate: '2027-01-01',
+        effectiveDate: '2030-01-01',
       });
     expect(createA.status).toBe(201);
     const detailA = await request(app.getHttpServer())

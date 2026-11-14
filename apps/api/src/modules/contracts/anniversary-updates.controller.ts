@@ -38,7 +38,12 @@ export class AnniversaryUpdatesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: UpdateSettingsDto,
   ): Promise<AnniversarySettingsDto> {
-    return this.service.updateSettings({ tenantId: user.tenantId, userId: user.sub, input: body });
+    return this.service.updateSettings({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input: body,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('contracts:read')

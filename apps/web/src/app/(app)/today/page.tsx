@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   Wallet,
   Wrench,
+  TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -460,7 +461,10 @@ export default function TodayPage() {
         }))
       )
         return;
-      await renew.mutateAsync({ id: it.id, body: { months: 12 } });
+      await renew.mutateAsync({
+        id: it.id,
+        body: { months: 12, ...(it.date ? { expectedEndDate: it.date.slice(0, 10) } : {}) },
+      });
       toast.success('Contrato prorrogado 12 meses.');
     });
   }
@@ -910,6 +914,18 @@ export default function TodayPage() {
                       : undefined
                   }
                 />
+                {(data.priceChangesSoon?.count ?? 0) > 0 && (
+                  <SectionCard
+                    permission="contracts:read"
+                    title="Cuotas que cambian esta semana"
+                    icon={TrendingUp}
+                    count={data.priceChangesSoon!.count}
+                    items={data.priceChangesSoon!.items}
+                    href="/rent-increases"
+                    itemHref={(it) => `/contracts/${it.id}`}
+                    empty="Ninguna cuota cambia en los próximos 7 días."
+                  />
+                )}
                 <SectionCard
                   permission="reservations:read"
                   title="Reservas que expiran"

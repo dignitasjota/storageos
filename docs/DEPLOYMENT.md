@@ -2297,3 +2297,22 @@ Migración `20270119100000_contract_annexes` (tabla `contract_annexes` con RLS, 
 - **Firma**: página `/sign/annex/<token>` (también con dominio propio). Se firma dibujando o escribiendo el nombre. El texto se congela al crear el anexo; para corregirlo hay que cancelarlo y crear otro.
 - **RGPD**: la exportación de datos del inquilino incluye sus anexos y anonimizar quita la IP, el navegador y el email. El vaciado de datos de prueba los borra.
 - El PDF se genera la primera vez que se pide y se guarda en el bucket `uploads` (`<tenant>/contracts/<contrato>/annexes/<anexo>.pdf`).
+
+## 134. Revisión de Subidas de precio y Renovaciones (2026-11-14)
+
+Migración `20270120100000_rent_increases_review` (se aplica sola): `tenants.rent_increase_notice_days` (30), `rent_increases.cancelled_at` y, en `rent_increase_items`, la fecha de cada contrato (`effective_date`, rellenada con la de su tanda) y la constancia del aviso (`notice_status`, `notice_communication_id`, `notice_sent_at`). Sin variables nuevas.
+
+**Qué cambia para el negocio**
+
+- Las subidas empiezan siempre un día 1 y con el preaviso de la política (30 días por defecto; se cambia en Subidas de precio → Política). No se puede elegir una fecha anterior.
+- Quedan fuera los contratos con la baja pedida, los que terminan antes, las viviendas (van por la actualización anual), los que ya tienen otro cambio de cuota programado y lo que excluye la política. La pantalla dice cuántos y por qué, y avisa si alguno ya tuvo una subida en los últimos 12 meses.
+- Quien paga por adelantado cambia al empezar su siguiente periodo.
+- El aviso al inquilino lleva la cuota con IVA y su descuento, va en su idioma, queda en su ficha y le recuerda que puede darse de baja antes sin preaviso. Si se cancela la subida, se le avisa.
+- Al llegar la fecha, un contrato cuya cuota cambió desde el aviso o que pidió la baja no se toca; el equipo recibe un aviso.
+- **Horarios**: las cuotas programadas se aplican a las 00:05 de Madrid (`contracts.scheduled-changes`) y las subidas a las 00:10 (`rent-increases.apply`), antes de la facturación (02:00 UTC). La factura del mes sale con la cuota nueva aunque ese proceso no haya corrido.
+- **Actualización anual**: se programa para su aniversario y avisa al inquilino; no se pierde a los 60 días.
+- **Renovar**: un contrato sin fecha de fin no se renueva; con cuota nueva sale un solo correo; un doble clic ya no renueva dos veces.
+- **Renovaciones** enseña también los contratos vencidos que siguen abiertos.
+- Los cambios de cuota próximos salen en «Hoy», en el calendario, en la ficha del contrato y en el área de clientes.
+
+**Antes de desplegar**: las subidas ya programadas siguen con su fecha aunque no sea día 1 ni respete el nuevo preaviso (se avisó con las reglas anteriores).

@@ -8,6 +8,7 @@ import {
 } from '../../common/facility-scope';
 import { formatEur, todayInTimezone } from '../../common/format';
 import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
+import { nextPriceChange, pendingPriceChanges } from '../../common/price-changes';
 import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantFeatures } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -112,6 +113,49 @@ export class TodayService {
     const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
     const marketingRenewalsLimit = addDays(startOfToday, MARKETING_RENEWAL_SOON_DAYS);
     const today = { gte: startOfToday, lt: startOfTomorrow };
+    // Cuotas que cambian en los próximos 7 días (programadas o de una subida).
+    const priceChangeItems: TodayItemDto[] = [];
+    if (can('contracts:read')) {
+      const changes = await pendingPriceChanges(this.admin, tenantId, {
+        from: startOfToday,
+        until: addDays(startOfToday, 7),
+      });
+      const contractIds = [...changes.keys()];
+      const rows =
+        contractIds.length === 0
+          ? []
+          : await this.prisma.withTenant(
+              (tx) =>
+                tx.contract.findMany({
+                  where: { id: { in: contractIds }, ...(fac ? { unit: { facilityId: fac } } : {}) },
+                  select: {
+                    id: true,
+                    priceMonthly: true,
+                    customer: {
+                      select: {
+                        customerType: true,
+                        firstName: true,
+                        lastName: true,
+                        companyName: true,
+                      },
+                    },
+                    unit: { select: { code: true } },
+                  },
+                }),
+              tenantId,
+            );
+      for (const r of rows) {
+        const next = nextPriceChange(Number(r.priceMonthly), changes.get(r.id) ?? []);
+        if (!next) continue;
+        priceChangeItems.push({
+          id: r.id,
+          label: customerName(r.customer),
+          detail: `${r.unit.code} · ${formatEur(Number(r.priceMonthly))} → ${formatEur(next.price)}${next.rentIncreaseName ? ` (${next.rentIncreaseName})` : ''}`,
+          date: next.date.toISOString(),
+        });
+      }
+      priceChangeItems.sort((a, b) => (a.date ?? '').localeCompare(b.date ?? ''));
+    }
     // Un contrato activo con renovación automática se prorroga solo al llegar a
     // su fecha: no se va ni hay que renovarlo a mano.
     const leaving = { OR: [{ status: 'ending' as const }, { autoRenew: false }] };
@@ -1127,6 +1171,10 @@ export class TodayService {
               detail: r.contract.unit?.code ?? null,
               date: r.validUntil ? r.validUntil.toISOString() : null,
             })),
+          },
+          priceChangesSoon: {
+            count: priceChangeItems.length,
+            items: priceChangeItems.slice(0, TAKE_LIST),
           },
           preOpeningSoon: section(
             'facilities:read',

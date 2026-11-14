@@ -76,9 +76,32 @@ export type CustomerEmailData =
       unitCode: string;
       facilityName: string;
       endDate: Date;
+      /** Cuota del nuevo periodo, si cambia. */
+      newPrice?: { monthlyWithVat: number; from: Date } | null;
     }
   | {
       kind: 'contract_price_change';
+      contractNumber: string;
+      unitCode: string;
+      facilityName: string;
+      monthlyWithVat: number;
+      effectiveDate: Date;
+      canLeaveWithoutNotice?: boolean;
+    }
+  | {
+      /** Preaviso de una tanda de Subidas de precio (condición 4 del contrato). */
+      kind: 'rent_increase_notice';
+      contractNumber: string;
+      unitCode: string;
+      facilityName: string;
+      oldMonthlyWithVat: number;
+      newMonthlyWithVat: number;
+      effectiveDate: Date;
+      /** Paga por adelantado: la cuota nueva vale desde su siguiente periodo. */
+      prepaid: boolean;
+    }
+  | {
+      kind: 'rent_increase_cancelled';
       contractNumber: string;
       unitCode: string;
       facilityName: string;
@@ -386,11 +409,17 @@ function content(data: CustomerEmailData, l: Locale): Content {
         paragraphs: en
           ? [
               `Your contract for storage unit ${data.unitCode} at ${data.facilityName} has been renewed until ${day(data.endDate, l)}.`,
-              'Nothing else changes: you can keep using your unit as usual.',
+              data.newPrice
+                ? `From ${day(data.newPrice.from, l)}, the monthly fee will be ${eur(data.newPrice.monthlyWithVat, l)} (VAT included).`
+                : 'Nothing else changes: you can keep using your unit as usual.',
+              data.newPrice ? 'If you have any questions, get in touch with us.' : '',
             ]
           : [
               `Tu contrato del trastero ${data.unitCode} en ${data.facilityName} se ha renovado hasta el ${day(data.endDate, l)}.`,
-              'No tienes que hacer nada: sigues usando tu trastero como hasta ahora.',
+              data.newPrice
+                ? `Desde el ${day(data.newPrice.from, l)}, la cuota mensual será de ${eur(data.newPrice.monthlyWithVat, l)} (IVA incluido).`
+                : 'No tienes que hacer nada: sigues usando tu trastero como hasta ahora.',
+              data.newPrice ? 'Si tienes cualquier duda, contacta con nosotros.' : '',
             ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };
@@ -402,11 +431,57 @@ function content(data: CustomerEmailData, l: Locale): Content {
         paragraphs: en
           ? [
               `From ${day(data.effectiveDate, l)}, the monthly fee for storage unit ${data.unitCode} at ${data.facilityName} will be ${eur(data.monthlyWithVat, l)} (VAT included).`,
+              data.canLeaveWithoutNotice
+                ? 'If you do not agree, you can cancel your contract before that date without notice or penalty, from your customer area or by replying to this email.'
+                : '',
               'If you have any questions, get in touch with us.',
             ]
           : [
               `Desde el ${day(data.effectiveDate, l)}, la cuota mensual del trastero ${data.unitCode} en ${data.facilityName} será de ${eur(data.monthlyWithVat, l)} (IVA incluido).`,
+              data.canLeaveWithoutNotice
+                ? 'Si no estás de acuerdo, puedes darte de baja antes de esa fecha sin preaviso ni penalización, desde tu área de clientes o contestando a este correo.'
+                : '',
               'Si tienes cualquier duda, contacta con nosotros.',
+            ],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    case 'rent_increase_notice':
+      return {
+        subject: en
+          ? `New monthly fee for your storage unit ${data.unitCode}`
+          : `Revisión de la cuota de tu trastero ${data.unitCode}`,
+        paragraphs: en
+          ? [
+              `From ${day(data.effectiveDate, l)}, the monthly fee for storage unit ${data.unitCode} at ${data.facilityName} (contract ${data.contractNumber}) will go from ${eur(data.oldMonthlyWithVat, l)} to ${eur(data.newMonthlyWithVat, l)} (VAT included).`,
+              data.prepaid
+                ? 'As you pay in advance, the new fee applies from your next period, which starts on that date.'
+                : '',
+              'If you do not agree, you can cancel your contract before that date without notice or penalty, from your customer area or by replying to this email.',
+              'If you have any questions, get in touch with us.',
+            ]
+          : [
+              `Desde el ${day(data.effectiveDate, l)}, la cuota mensual de tu trastero ${data.unitCode} en ${data.facilityName} (contrato ${data.contractNumber}) pasará de ${eur(data.oldMonthlyWithVat, l)} a ${eur(data.newMonthlyWithVat, l)} (IVA incluido).`,
+              data.prepaid
+                ? 'Como pagas por adelantado, la cuota nueva se aplica desde tu siguiente periodo, que empieza ese día.'
+                : '',
+              'Si no estás de acuerdo, puedes darte de baja antes de esa fecha sin preaviso ni penalización, desde tu área de clientes o contestando a este correo.',
+              'Si tienes cualquier duda, contacta con nosotros.',
+            ],
+        cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
+      };
+    case 'rent_increase_cancelled':
+      return {
+        subject: en
+          ? `The fee review for your storage unit ${data.unitCode} is cancelled`
+          : `Anulada la revisión de la cuota de tu trastero ${data.unitCode}`,
+        paragraphs: en
+          ? [
+              `The new monthly fee we announced for ${day(data.effectiveDate, l)} for storage unit ${data.unitCode} at ${data.facilityName} will not apply.`,
+              `Your fee stays at ${eur(data.monthlyWithVat, l)} a month (VAT included).`,
+            ]
+          : [
+              `La nueva cuota que te anunciamos para el ${day(data.effectiveDate, l)} del trastero ${data.unitCode} en ${data.facilityName} queda anulada.`,
+              `Tu cuota sigue siendo de ${eur(data.monthlyWithVat, l)} al mes (IVA incluido).`,
             ],
         cta: en ? 'Go to my customer area' : 'Ir a mi área de clientes',
       };

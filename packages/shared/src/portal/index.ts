@@ -69,6 +69,15 @@ export interface PortalContractDto {
   overlocked: boolean;
   /** Reserva anticipada en un local por abrir (null si no lo es). */
   preOpening: ContractPreOpeningDto | null;
+  /**
+   * Cambio de cuota ya anunciado (null si no hay). Si es una subida, puede
+   * darse de baja antes de esa fecha sin preaviso (condición 4 del contrato).
+   */
+  upcomingPrice: {
+    monthlyWithVat: number;
+    date: string;
+    canLeaveWithoutNotice: boolean;
+  } | null;
 }
 
 /** Un pago del inquilino, visto en su portal (historial de cobros). */

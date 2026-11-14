@@ -286,6 +286,8 @@ export interface ContractRenewedPayload {
   tenantId: string;
   contractId: string;
   newEndDate: Date;
+  /** Cuota del nuevo periodo, si cambia (va en el mismo correo). */
+  newPrice?: { monthlyWithVat: number; from: Date } | null;
 }
 
 export interface ContractPriceNoticePayload {
@@ -293,6 +295,8 @@ export interface ContractPriceNoticePayload {
   contractId: string;
   monthlyWithVat: number;
   effectiveDate: Date;
+  /** Es una subida de un trastero con fecha futura: puede irse antes sin preaviso. */
+  canLeaveWithoutNotice?: boolean;
 }
 
 export interface ContractDepositSettledPayload {

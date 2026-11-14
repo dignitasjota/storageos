@@ -367,6 +367,13 @@ export default function ContractDetailPage() {
           }
         />
       )}
+      {c.pendingRentIncrease && (
+        <ScheduledNotice
+          text={`Subida de cuota «${c.pendingRentIncrease.name}»: pasa a ${formatEur(c.pendingRentIncrease.newPrice)} el ${formatDate(c.pendingRentIncrease.date)}. El inquilino está avisado; para quitarla, cancela la subida en Subidas de precio.`}
+          canCancel={false}
+          onCancel={() => undefined}
+        />
+      )}
       {c.scheduledMove && (
         <ScheduledNotice
           text={`Traslado al trastero ${c.scheduledMove.unitCode ?? ''} el ${formatDate(c.scheduledMove.date)}${c.scheduledMove.price != null ? `, con cuota de ${formatEur(c.scheduledMove.price)}` : ''}. El trastero queda reservado hasta entonces.`}
@@ -711,8 +718,8 @@ export default function ContractDetailPage() {
                 onChange={(e) => setRenewMonths(Number(e.target.value))}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Se suma al fin actual{c.endDate ? ` (${formatDate(c.endDate)})` : ' (desde hoy)'}.
-                Si el contrato está en baja, vuelve a activo.
+                Se suma al fin actual ({formatDate(c.endDate)}) o, si ya pasó, a hoy. Si el contrato
+                está en baja, vuelve a activo.
               </p>
             </div>
           </div>
@@ -723,7 +730,13 @@ export default function ContractDetailPage() {
             <Button
               onClick={() =>
                 handle(async () => {
-                  await renew.mutateAsync({ id: c.id, body: { months: renewMonths } });
+                  await renew.mutateAsync({
+                    id: c.id,
+                    body: {
+                      months: renewMonths,
+                      expectedEndDate: c.endDate ? c.endDate.slice(0, 10) : null,
+                    },
+                  });
                   setRenewOpen(false);
                 }, 'Contrato renovado.')
               }

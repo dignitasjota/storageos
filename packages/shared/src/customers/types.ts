@@ -181,6 +181,16 @@ export interface ContractDto {
   depositReturnReference: string | null;
   /** Cambio de cuota programado. */
   scheduledPrice: { amount: number; date: string; reason: string | null } | null;
+  /**
+   * Subida de una tanda de Subidas de precio aún sin aplicar (solo en la
+   * ficha; en las listas va a null).
+   */
+  pendingRentIncrease: {
+    rentIncreaseId: string;
+    name: string;
+    newPrice: number;
+    date: string;
+  } | null;
   /** Traslado programado. */
   scheduledMove: {
     unitId: string;

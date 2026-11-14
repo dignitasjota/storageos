@@ -23,10 +23,23 @@ export class ContractAutoEndCron {
         this.logger.log(`Contratos vencidos: ${renewed} prorrogados, ${ending} pasan a baja`);
       const { ended } = await this.contracts.autoEndDue();
       if (ended > 0) this.logger.log(`Contratos finalizados en su fecha de baja: ${ended}`);
+    } catch (err) {
+      this.logger.error(`contracts.auto-end falló: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Cambios de cuota y traslados programados: a las 00:05 de Madrid, antes de
+   * la facturación del día (02:00 UTC), para que la factura del mes salga ya
+   * con la cuota nueva.
+   */
+  @Cron('5 0 * * *', { name: 'contracts.scheduled-changes', timeZone: 'Europe/Madrid' })
+  async runScheduled(): Promise<void> {
+    try {
       const { prices, moves } = await this.contracts.applyScheduledChanges();
       if (prices + moves > 0) this.logger.log(`Programados: ${prices} cuotas, ${moves} traslados`);
     } catch (err) {
-      this.logger.error(`contracts.auto-end falló: ${(err as Error).message}`);
+      this.logger.error(`contracts.scheduled-changes falló: ${(err as Error).message}`);
     }
   }
 }

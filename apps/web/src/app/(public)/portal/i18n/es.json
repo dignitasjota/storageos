@@ -157,14 +157,17 @@
           "confirm": "Confirmar baja",
           "changeTitle": "Cambiar la fecha de la baja",
           "descriptionEndOfMonth": "{days, plural, one {El preaviso es de # día} other {El preaviso es de # días}} y la baja surte efecto a final de mes, que se paga entero. La fecha más temprana es el {minDate}.",
-          "endOfMonthLabel": "Último día del contrato"
+          "endOfMonthLabel": "Último día del contrato",
+          "noNotice": "Como te hemos anunciado una nueva cuota para el {date}, puedes irte antes de esa fecha sin preaviso."
         },
         "viewContract": "Ver contrato",
         "termsTitle": "Contrato {number}",
         "signedOn": "Firmado el {date}",
         "noTerms": "Este contrato se firmó fuera del área de clientes: pide una copia a tu gestor.",
         "changeMoveOutDate": "Cambiar fecha",
-        "moveOutDateChanged": "Fecha de baja cambiada."
+        "moveOutDateChanged": "Fecha de baja cambiada.",
+        "upcomingPrice": "Tu cuota pasa a {price} € (IVA incl.) el {date}.",
+        "upcomingPriceLeave": "Si no estás de acuerdo, puedes darte de baja antes de esa fecha sin preaviso ni penalización."
       },
       "unitChange": {
         "title": "Cambiar de trastero",

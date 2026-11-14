@@ -157,14 +157,17 @@
           "confirm": "Confirm move-out",
           "changeTitle": "Change the move-out date",
           "descriptionEndOfMonth": "{days, plural, one {The notice period is # day} other {The notice period is # days}} and the move-out takes effect at the end of the month, which is paid in full. The earliest date is {minDate}.",
-          "endOfMonthLabel": "Last day of the contract"
+          "endOfMonthLabel": "Last day of the contract",
+          "noNotice": "As we have announced a new fee from {date}, you can leave before that date without notice."
         },
         "viewContract": "View contract",
         "termsTitle": "Contract {number}",
         "signedOn": "Signed on {date}",
         "noTerms": "This contract was signed outside the customer area: ask your manager for a copy.",
         "changeMoveOutDate": "Change date",
-        "moveOutDateChanged": "Move-out date changed."
+        "moveOutDateChanged": "Move-out date changed.",
+        "upcomingPrice": "Your fee changes to €{price} (VAT incl.) on {date}.",
+        "upcomingPriceLeave": "If you do not agree, you can cancel before that date without notice or penalty."
       },
       "unitChange": {
         "title": "Change your unit",

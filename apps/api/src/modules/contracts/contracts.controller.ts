@@ -44,7 +44,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import { parsePageRequest, toPage } from '../../common/pagination';
+import { assertUuid, parsePageRequest, toPage } from '../../common/pagination';
 import { GeneralTermsService } from '../landing/general-terms.service';
 
 import { ContractsService } from './contracts.service';
@@ -149,6 +149,7 @@ export class ContractsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('facilityId') facilityId?: string,
   ): Promise<ContractDto[]> {
+    assertUuid(facilityId);
     return this.contracts.listRenewals(user.tenantId, {
       ...(facilityId ? { facilityId } : {}),
       facilityScope: user.facilityScope ?? null,
@@ -440,6 +441,7 @@ export class ContractsController {
       contractId: id,
       months: body.months,
       ...(body.newPrice != null ? { newPrice: body.newPrice } : {}),
+      ...(body.expectedEndDate !== undefined ? { expectedEndDate: body.expectedEndDate } : {}),
       facilityScope: user.facilityScope ?? null,
       meta: extractMeta(req),
     });

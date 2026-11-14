@@ -380,6 +380,11 @@ export const RenewContractSchema = z.object({
   months: z.number().int().min(1).max(60),
   /** Cuota del nuevo periodo: se programa para el día siguiente al fin actual. */
   newPrice: positiveDecimal.optional(),
+  /**
+   * Fin que tenía el contrato cuando se abrió la pantalla: si ya no coincide
+   * (otra renovación, un doble clic), no se renueva otra vez.
+   */
+  expectedEndDate: dateOnly.nullable().optional(),
 });
 export type RenewContractInput = z.infer<typeof RenewContractSchema>;
 
