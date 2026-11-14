@@ -1010,3 +1010,43 @@ Decisiones de Jota: todo en una PR, sin comparativa con competidores, testimonio
 Hecho: portada con el titular que se busca («Software de gestión de trasteros y self-storage»), captura del panel, tarjetas que enlazan a 9 páginas de funcionalidad, 3 páginas de solución (operadores, administradores de cartera, trasteros y viviendas), `/precios` con cambio mensual/anual y comparativa sacada del catálogo, blog con editor en el panel admin (`/admin/blog`, 4 guías en borrador), calculadora de rentabilidad con informe por correo, «Pedir una demo» en todas las páginas, botón fijo en el móvil y mapa del sitio con todo. La demo y la calculadora entran en Leads con su origen (`demo`, `calculator`). Capturas del producto con un negocio de ejemplo en `apps/web/public/screens/`.
 
 Tras desplegar (DEPLOYMENT §123): publicar las guías juntas, añadir testimonios reales, reenviar el sitemap en Search Console y Bing, redirigir `www.trasteros.pro` en Nginx Proxy Manager y revisar los precios anuales en `/admin/plans`.
+
+### Imágenes compiladas en GitHub (GHCR) ✅ (2026-11-12, #941)
+
+El despliegue del 12-11 tumbó la web: el servidor (4 GB) compilaba cinco imágenes a la vez. Ahora las compila GitHub (`images.yml`) y Portainer solo las descarga (`image:` + `pull_policy: always`, `IMAGE_TAG` para volver atrás). El webhook de Portainer se dispara cuando las imágenes terminan bien. DEPLOYMENT §124.
+
+### Reserva online: la primera factura se emite al cobrarse ✅ (2026-11-12, #942)
+
+Antes, una reserva abandonada dejaba factura y rectificativa. Ahora el contrato entra en vigor con el primer pago y la factura se emite al cobrarlo (`invoices.issue_on_payment`). Si caduca sin pagar, el borrador se anula sin número. **Pendiente de la asesoría**: conformidad del criterio, fianza retenida por un servicio y depósito de fianzas de trasteros. DEPLOYMENT §125.
+
+### Gastos y Fiscalidad: revisión y mejoras ✅ (2026-11-13, #943–#945)
+
+- **Arreglos (#943)**: la cuenta de resultados cuadra con el Resumen; alcance por local en gastos; la fiscalidad, solo para quien ve todos los locales; libros con los datos del cliente congelados al emitir; exportación con anuladas a 0.
+- **Gastos (#944)**: proveedores, desglose de IVA y retención, justificantes leídos con IA, forma de pago (en efectivo, apunte en la caja), categorías y presupuestos propios, recurrentes trimestrales y anuales.
+- **Fiscalidad (#945)**: libro de recibidas, 303 completo con el IVA deducible, 347 con proveedores y efectivo, retenciones 111/115, «Antes de presentar», cierre del trimestre y envío a la asesoría.
+
+DEPLOYMENT §126–§128.
+
+### Documentos que no se llegan a cobrar ✅ (2026-11-13, #946)
+
+El justificante de fianza sin cobrar se anula sin rectificativa. Cancelar un contrato anula sus borradores y su fianza sin cobrar. El contrato del panel firmado por enlace funciona como la reserva online (72 h para pagar). La señal, la tienda y el pase nocturno se emiten al cobrarse. En la lista de facturas, «Ocultar canceladas» viene marcado. DEPLOYMENT §129.
+
+### Emails mal escritos y rebotes temporales ✅ (2026-11-13, #947–#948)
+
+- **Al escribirlo**: «¿Querías decir …@gmail.com?» en todos los formularios con email.
+- **Cuando rebota**: el rebote temporal de Brevo o Resend queda a la vista en Comunicaciones, con un aviso al equipo.
+- **En la ficha del inquilino**: «Problema con su email» con «Cambiar el email».
+- **En Correo saliente**: cuándo llegó el último aviso de cada proveedor.
+- **#947**: la cabecera de Inquilinos dice «cuotas en vigor (sin IVA)» y «cobrado en 12 meses».
+
+DEPLOYMENT §130 (pasos a mano: `EMAIL_WEBHOOK_TOKEN` y el webhook de Brevo con «Soft bounce»).
+
+### Contratos pendientes de firmar, condiciones específicas y anexos ✅ (2026-11-13/14, #949–#951)
+
+- **#949**: el área de clientes enseña «Pendiente de firmar» (contratos enviados a firmar y reservas sin firmar). «Firmar» abre la firma con un enlace nuevo.
+- **#950**: cada contrato puede llevar sus condiciones, escritas en el borrador. Van en el texto que se firma y no se cambian tras la firma.
+- **#951**: lo que se acuerde después va en un **anexo** que el inquilino firma desde el correo o su área de clientes, con la misma evidencia que el contrato y en PDF.
+
+DEPLOYMENT §131–§133.
+
+**Por aclarar**: qué error dio la firma de un contrato en producción (2026-11-13). En local, la del inquilino existente con el enlace del correo funciona.
