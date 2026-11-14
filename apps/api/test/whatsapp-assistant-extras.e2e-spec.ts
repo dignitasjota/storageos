@@ -135,6 +135,12 @@ describe('Asistente de WhatsApp: horario, intenciones y seguimiento (e2e)', () =
         where: { tenantId, intent: 'reclamacion' },
       }),
     );
+    // El aviso se crea justo después de guardar la intención: se espera a él.
+    await waitFor(async () =>
+      (await prismaAdmin.notification.count({ where: { tenantId, type: 'whatsapp.intent' } })) > 0
+        ? true
+        : null,
+    );
     expect(
       await prismaAdmin.notification.count({ where: { tenantId, type: 'whatsapp.intent' } }),
     ).toBe(1);

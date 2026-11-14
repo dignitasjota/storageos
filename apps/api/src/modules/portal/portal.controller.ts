@@ -35,6 +35,8 @@ import {
   type PaymentMethodDto,
   type PortalChargeResultDto,
   type PortalContractDto,
+  type PortalPendingSignatureDto,
+  type PortalSignLinkDto,
   type PortalDownloadDto,
   type PortalFacilityDto,
   type PortalIncidentDto,
@@ -751,6 +753,29 @@ export class PortalController {
   ): Promise<PortalContractDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.contracts.listForCustomer(tenantId, customerId);
+  }
+
+  /** Contratos que esperan su firma (enlace enviado o reserva online sin firmar). */
+  @Public()
+  @Get('me/contracts/pending-signature')
+  async myPendingSignatures(
+    @Headers('authorization') auth: string | undefined,
+  ): Promise<PortalPendingSignatureDto[]> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.signatures.pendingForCustomer(tenantId, customerId);
+  }
+
+  /** Enlace de firma nuevo para uno de esos contratos (el del correo deja de valer). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/contracts/:id/sign-link')
+  @HttpCode(HttpStatus.OK)
+  async mySignLink(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PortalSignLinkDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.signatures.signLinkForCustomer(tenantId, customerId, id);
   }
 
   /** URL temporal para descargar el PDF del contrato firmado. */

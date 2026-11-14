@@ -134,8 +134,12 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm -F web exec playwright install --with-deps chromium
 
+      # Como en la imagen de Docker: con el límite por defecto de Node, `nest
+      # build` se queda sin memoria (exit 134).
       - name: Build API
         run: pnpm -F api build
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       - name: Build web (standalone)
         run: pnpm -F web build
