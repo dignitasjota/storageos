@@ -169,7 +169,10 @@ export class TaskRulesService {
         if (!c) return;
         if (opts.onlyWithoutAutoRenew && c.autoRenew) return;
         if (opts.skipPendingPreOpening && c.preOpening && !c.preOpeningStartedAt) return;
-        const exists = await tx.task.findFirst({
+        // La de renovar va por vencimiento: si se renueva y vuelve a vencer, otra.
+        const endDate = c.endDate?.toISOString().slice(0, 10) ?? '';
+        const perEnd = rule === 'renewal_call';
+        const previous = await tx.task.findMany({
           where: {
             deletedAt: null,
             AND: [
@@ -177,7 +180,14 @@ export class TaskRulesService {
               { metadata: { path: ['contractId'], equals: c.id } },
             ],
           },
-          select: { id: true },
+          select: { metadata: true, createdAt: true },
+        });
+        const recent = Date.now() - 31 * 86_400_000;
+        const exists = previous.some((t) => {
+          if (!perEnd) return true;
+          const prevEnd = (t.metadata as { endDate?: unknown } | null)?.endDate;
+          // Las de antes no guardaban el vencimiento: cuentan si son de este último mes.
+          return prevEnd === endDate || (prevEnd === undefined && t.createdAt.getTime() > recent);
         });
         if (exists) return;
         // Día de calendario del local (no el día UTC: de madrugada difieren).
@@ -199,7 +209,7 @@ export class TaskRulesService {
             facilityId: c.unit.facilityId,
             unitId: c.unitId,
             dueDate: due,
-            metadata: { autoRule: rule, contractId: c.id },
+            metadata: { autoRule: rule, contractId: c.id, ...(perEnd ? { endDate } : {}) },
           },
         });
       }, p.tenantId);

@@ -2331,3 +2331,18 @@ Migración `20270121100000_portfolio_features` (se aplica sola): en `contracts`,
 - **Aviso de prórroga**: 30 días antes de que un contrato con renovación automática se prorrogue, el inquilino recibe la fecha y hasta cuándo puede darse de baja (se apaga en Configuración → Correo).
 - **Cuotas previstas** (Cartera): todos los cambios de cuota que vienen, de dónde salen y cuánto suman.
 - **Ficha del contrato → Cobro y condiciones → Cuota**: historial de la cuota con lo previsto, «no subir hasta…» y % propio de la actualización anual.
+
+## 136. Revisión de Operaciones diarias (2026-11-14)
+
+Migración `20270122100000_daily_ops_review` (se aplica sola): `incidents.visible_to_customer` (las que reportó el inquilino desde el área de clientes quedan visibles) y `business_reminders.anchor_day` (el día del mes de un vencimiento que se repite, relleno con el de su fecha). Sin variables nuevas.
+
+**Qué cambia para el negocio**
+
+- **Tareas**: una tarea abierta se puede dar por hecha sin pasar por «En curso», y una hecha o cancelada se puede reabrir. Desde la ficha se edita (también quitar la fecha) y se borra. El responsable tiene que estar activo y el trastero ser del local elegido (si solo se elige el trastero, la tarea toma su local). Dos personas marcando puntos de la misma ronda ya no se pisan.
+- **Tareas automáticas**: solo las cambia quien ve todos los locales. «Llamar para renovar» sale otra vez en cada vencimiento (antes, una sola vez por contrato).
+- **Incidencias**: el inquilino solo ve en su área de clientes las que reportó él y las que el equipo marque «Visible para el inquilino»; las notas internas sobre él ya no le salen. Cuando se cierran ve la respuesta y la fecha. Las que reporta se enlazan a su contrato si tiene uno solo. Al resolver o descartar se pide qué se ha hecho. Desde la ficha se edita la gravedad, el responsable, el local, el trastero y si la ve el inquilino. «Abrir incidencia» desde un punto de una ronda no crea dos. El aviso de una incidencia abre su ficha y el contador del menú cuenta los locales de cada persona.
+- **Mantenimiento**: un plan con fecha de inicio pasada empieza hoy (sin tareas ya vencidas); cambiar el título u otro dato que no sea la frecuencia no mueve la próxima fecha; al reactivar un plan sigue desde hoy. «Generar ahora» crea ya la siguiente tarea (no adelanta otra si la anterior sigue abierta). Se elige el responsable y le llega un aviso con cada tarea. Las fechas van en la zona horaria del negocio.
+- **Calendario**: cada tipo de evento sale solo a quien puede ver su apartado (tareas, contratos, reservas, vencimientos). Las tareas borradas ya no salen, un contrato con renovación automática sale como «Se prorroga» y los planes de mantenimiento enseñan todas sus repeticiones del mes. «+N más» abre la lista del día.
+- **Vencimientos**: un doble clic en «Hecho» ya no apunta dos gastos; uno del día 31 vuelve al 31 después de febrero; guardar otro dato no quita el «pospuesto»; una plantilla no se añade dos veces; uno hecho por error se puede reabrir, y todo queda en el registro de actividad. El resumen semanal y el enlace del calendario solo los cambia quien ve todos los locales.
+
+**Antes de desplegar**: las incidencias que el equipo creó con un inquilino dejan de verse en su área de clientes; si alguna debe verla, se marca «Visible para el inquilino» en su ficha.

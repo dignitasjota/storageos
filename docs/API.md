@@ -2960,3 +2960,41 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - `POST /contracts/:id/renewal-offer {months, newPrice?, note?}` (`contracts:manage`): crea un anexo «Renovación del contrato» y lo envía a firmar; al firmarlo se renueva solo (`renew` con el fin que tenía). Si el contrato cambió, el anexo queda firmado con `actionError` y aviso al equipo (`contract.renewal_accepted`). 409 `renewal_offer_pending`, `price_change_pending`; 400 `contract_indefinite`, `discount_too_high`. Los anexos (`ContractAnnexDto` y `/portal/me/annexes`) llevan `renewal` y, en el panel, `actionAppliedAt`/`actionError`.
 - `PUT /contracts/:id/rent-increase-exemption {until: YYYY-MM-DD | null, reason?}` (`contracts:manage`, 204; 400 `invalid_until` con fecha pasada) y `PUT /contracts/:id/anniversary-pct {pct: -20…30 | null}` (`contracts:manage`, 204). `ContractDto` gana `rentIncreaseExemptUntil`, `rentIncreaseExemptReason` y `anniversaryUpdatePct`.
 - Correo nuevo al inquilino `contract_auto_renewal_notice`: 30 días antes de la prórroga automática (con el evento `contract_ending_soon`), con la nueva fecha y el último día para darse de baja.
+
+### Operaciones diarias: revisión (2026-11-14)
+
+**Tareas**
+
+- `POST /tasks/:id/transition`: `open → done` directo y `done|cancelled → open` (reabrir: limpia `completedAt`, `cancelledAt`, `cancelReason`). Dos cambios a la vez → 409 `task_changed`.
+- `POST|PATCH /tasks`: `dueDate` con fecha real; `description`, `facilityId`, `unitId`, `assignedToUserId` y `dueDate` admiten `null` para vaciarlos. 400 `facility_not_found`, `unit_not_found`, `unit_not_in_facility`, `assignee_not_found` (inexistente o desactivado). Con solo `unitId`, la tarea toma su local.
+- `GET /tasks` y `/tasks/page`: un `status`, `type` o id mal escrito → 400 `invalid_filter` / `invalid_id`.
+- `PATCH /tasks/:id/checklist/:itemId` bloquea la fila. `ChecklistItemDto.incidentId`: la incidencia abierta desde ese punto.
+- `PUT /tasks/auto-rules`: 403 `requires_all_facilities` a quien solo ve unos locales. La de «llamar para renovar» guarda `metadata.endDate` (una por vencimiento).
+
+**Incidencias**
+
+- `CreateIncidentSchema.visibleToCustomer` y `UpdateIncidentSchema.visibleToCustomer` (solo con inquilino); `IncidentDto.visibleToCustomer`. Las del área de clientes nacen visibles y se enlazan a su contrato, trastero y local si tiene uno solo.
+- Alta y edición validan local, trastero, inquilino, contrato y responsable (400 `contract_not_for_customer`, `unit_not_in_facility`, `assignee_not_found`…); lo que falte se toma del contrato o del trastero. `PATCH` admite `null` en `facilityId`, `unitId`, `customerId`, `contractId`, `occurredAt`, `assignedToUserId`.
+- Desde un punto de una ronda (`metadata.source = 'checklist'`, `taskId`, `checklistItemId`): una sola incidencia abierta por punto (409 `incident_already_open` con `details.incidentId`).
+- Reabrir borra `resolution`. Dos cambios a la vez → 409 `incident_changed`.
+- `GET /incidents/pending-counts` cuenta los locales del usuario (y las de toda la empresa).
+- `GET /portal/me/incidents`: solo `visibleToCustomer`; `PortalIncidentDto` gana `resolution` y `closedAt` (cerradas).
+- El aviso `incident.created` enlaza a `/incidents?incident=<id>`.
+
+**Mantenimiento**
+
+- Inicio pasado → empieza hoy (en la zona del negocio). `PATCH` solo recalcula `nextRunDate` si cambia la frecuencia o `startDate`; reactivar con la fecha pasada sigue desde hoy. Local y responsable validados (400 `facility_not_found`, `assignee_not_found`).
+- `POST /maintenance-plans/:id/run` → `{generated, dueDate, reason?}`: crea ya la siguiente tarea; `reason: 'open_task'` si la anterior sigue abierta. Cada tarea generada con responsable le envía el aviso `task.assigned`.
+
+**Calendario**
+
+- `GET /calendar` ya no exige `tasks:read`: cada tipo sale con su permiso (`tasks:read` tareas y mantenimiento; `contracts:read` entradas, fin, prórroga y cuotas; `reservations:read` reservas; `reminders:read` vencimientos). Fechas reales y `facilityId` válido (400 `invalid_range` / `invalid_id`).
+- Tipo nuevo `contract_renewing` (renovación automática sin baja pedida). Mantenimiento: una entrada por repetición del rango (`id` = `<planId>:<fecha>`). Sin tareas borradas.
+
+**Vencimientos**
+
+- `POST /business-reminders/:id/complete`: reserva antes de apuntar el gasto (un doble clic → 409 `reminder_done` sin gasto de más). Los que se repiten guardan `anchorDay` y vuelven a ese día (31 → 28 de febrero → 31 de marzo).
+- `PATCH`: solo una fecha nueva quita `snoozedUntil`; `{status: 'active'}` reabre uno hecho (`business_reminder.reopened`).
+- `POST /business-reminders/templates/:key/apply`: 409 `template_already_applied`.
+- `PATCH /business-reminders/settings` y el enlace del calendario: 403 `requires_all_facilities` a quien solo ve unos locales (y `GET` no le da `icsUrl`).
+- Registro de actividad: `business_reminder.created|updated|reopened|completed|snoozed|deleted|settings_changed|calendar_link_created|calendar_link_revoked`.
