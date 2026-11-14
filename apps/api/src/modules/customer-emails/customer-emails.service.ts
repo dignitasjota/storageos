@@ -17,6 +17,7 @@ import { loadInvoicePaymentHint } from '../../common/invoice-payment-hint';
 import { isPendingOnlineBookingInvoice } from '../../common/online-booking';
 import { tenantBookingUrl, tenantPortalLoginUrl } from '../../common/portal-url';
 import { tenantHasFeature } from '../../common/tenant-features';
+import { termMonths } from '../../common/term-months';
 import { claimAlert } from '../admin/alert-state';
 import { AuditService } from '../auth/audit.service';
 import {
@@ -302,8 +303,37 @@ export class CustomerEmailsService {
   async onContractEndingSoon(p: DomainEventPayload): Promise<void> {
     await this.safe('contract_ending_soon', p.tenantId, async () => {
       const c = await this.contract(p.tenantId, p.entityId);
-      // Con baja ya pedida o renovación automática, el aviso no aplica.
-      if (!c?.endDate || c.status !== 'active' || c.autoRenew) return;
+      if (!c?.endDate || c.status !== 'active') return;
+      // Con renovación automática: aviso de que se prorroga y hasta cuándo puede irse.
+      if (c.autoRenew) {
+        const months = c.termMonths ?? termMonths(c.startDate, c.endDate);
+        const newEnd = new Date(c.endDate);
+        const day = newEnd.getUTCDate();
+        newEnd.setUTCDate(1);
+        newEnd.setUTCMonth(newEnd.getUTCMonth() + months);
+        newEnd.setUTCDate(
+          Math.min(
+            day,
+            new Date(Date.UTC(newEnd.getUTCFullYear(), newEnd.getUTCMonth() + 1, 0)).getUTCDate(),
+          ),
+        );
+        await this.send(p.tenantId, 'contract_auto_renewal_notice', null, c.customerId, {
+          data: {
+            kind: 'contract_auto_renewal_notice',
+            contractNumber: c.contractNumber,
+            unitCode: c.unit.code,
+            facilityName: c.unit.facility.name,
+            endDate: c.endDate,
+            newEndDate: newEnd,
+            months,
+            lastDayToCancel: new Date(
+              c.endDate.getTime() - Math.max(0, c.cancellationNoticeDays) * 86_400_000,
+            ),
+          },
+          contractId: c.id,
+        });
+        return;
+      }
       await this.send(p.tenantId, 'contract_ending_soon', 'contract_ending_soon', c.customerId, {
         data: {
           kind: 'contract_ending_soon',
@@ -668,6 +698,39 @@ export class CustomerEmailsService {
    * Preaviso de una subida de cuota (o su anulación). Es un aviso que exige el
    * contrato: sale aunque los correos automáticos estén apagados.
    */
+  /** Cómo le llegaría el aviso de subida a un inquilino (sin enviarlo). */
+  async previewRentIncreaseNotice(args: {
+    tenantId: string;
+    customerId: string | null;
+    locale: 'es' | 'en';
+    data: Extract<CustomerEmailData, { kind: 'rent_increase_notice' }>;
+  }): Promise<{ subject: string; text: string; html: string }> {
+    const tenant = await this.admin.tenant.findUniqueOrThrow({
+      where: { id: args.tenantId },
+      select: {
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        portalLogoUrl: true,
+        portalBrandColor: true,
+      },
+    });
+    const recipient = args.customerId ? await this.recipient(args.tenantId, args.customerId) : null;
+    const email = renderCustomerEmail(
+      {
+        tenantName: tenant.name,
+        customerName: recipient?.name ?? (args.locale === 'en' ? 'Alex' : 'Lucía'),
+        locale: args.locale,
+        logoUrl: tenant.portalLogoUrl,
+        brandColor: tenant.portalBrandColor,
+        portalUrl: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+      },
+      args.data,
+    );
+    return { subject: email.subject, text: email.text, html: email.html };
+  }
+
   async sendRentIncreaseMail(args: {
     tenantId: string;
     customerId: string;
@@ -941,6 +1004,8 @@ export class CustomerEmailsService {
         priceMonthly: true,
         startDate: true,
         endDate: true,
+        termMonths: true,
+        cancellationNoticeDays: true,
         preOpening: true,
         preOpeningDateConfirmed: true,
         preOpeningStartedAt: true,

@@ -1070,4 +1070,20 @@ Arreglado:
   - errores pintados como vacío;
   - el móvil y la jerga.
 
-**Sigue PR B** (mejoras).
+### Subidas de precio y Renovaciones: mejoras (2026-11-14, PR B)
+
+- **Subidas**:
+  - asistente en cuatro pasos: a quién, cuánto, repasar la lista quitando contratos y ver el correo antes de enviarlo;
+  - subir «hasta el precio de tarifa» a quien paga menos, con un máximo de %;
+  - «no subir hasta…» por contrato (también para la actualización anual);
+  - resultado de cada subida: lo que se cobra de más, lo facturado y quién se fue tras el aviso;
+  - quitar a un contrato de una subida o reenviarle el aviso.
+- **Aviso**: texto propio en español e inglés con variables, con la baja sin preaviso siempre; constancia de entregado o rebotado por inquilino.
+- **Renovaciones**:
+  - bandeja de 30, 60, 90 días o vencidos con cuota, antigüedad, deuda, teléfono y riesgo de baja, y CSV;
+  - aviso de la prórroga automática 30 días antes;
+  - oferta de renovación que el inquilino firma como anexo y se aplica sola.
+- **Actualización anual**: % propio por contrato.
+- **Visión de conjunto**: pantalla «Cuotas previstas» e historial de la cuota en la ficha del contrato.
+
+Sin hacer: la plantilla del aviso no admite HTML; el resultado de una subida mide las bajas pedidas tras el aviso, no si se van por la subida.

@@ -628,6 +628,7 @@
         "holdUntil": "We are holding the unit for you until {date}.",
         "annex": "Annex {number} · {title}",
         "annexDetails": "Contract {number} · {unit} · {facility}",
+        "renewalOffer": "Renewal offer: once you sign it, your contract renews for {months, plural, one {# more month} other {# more months}}.",
         "sign": "Sign",
         "error": "We couldn't open the signing page. Please try again."
       },

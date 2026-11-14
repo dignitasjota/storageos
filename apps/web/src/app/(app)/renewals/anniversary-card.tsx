@@ -129,8 +129,9 @@ export function AnniversaryCard() {
       <CardContent className="space-y-4 text-sm">
         <p className="text-muted-foreground">
           En el aniversario de cada contrato se propone subir la renta con el porcentaje que
-          indiques (el índice pactado en el contrato). Nada se aplica solo: tú decides cuáles.
-          Comprueba los límites legales vigentes para viviendas.
+          indiques (el índice pactado en el contrato). Nada se aplica solo: tú decides cuáles. Un
+          contrato puede tener su propio porcentaje (en su ficha). Comprueba los límites legales
+          vigentes para viviendas.
         </p>
         {canManage && companyWide && (
           <div className="grid gap-3 sm:grid-cols-[auto_8rem_12rem_auto] sm:items-end">
@@ -231,6 +232,13 @@ export function AnniversaryCard() {
                     </div>
                     <span>
                       {eur(d.currentPrice)} → <strong>{eur(d.newPrice)}</strong>
+                      <span
+                        className="ml-1 text-xs text-muted-foreground"
+                        title={d.customPct ? 'Porcentaje propio de este contrato' : undefined}
+                      >
+                        ({d.pct > 0 ? '+' : ''}
+                        {d.pct} %{d.customPct ? ', propio' : ''})
+                      </span>
                     </span>
                   </li>
                 ))}

@@ -2316,3 +2316,18 @@ Migración `20270120100000_rent_increases_review` (se aplica sola): `tenants.ren
 - Los cambios de cuota próximos salen en «Hoy», en el calendario, en la ficha del contrato y en el área de clientes.
 
 **Antes de desplegar**: las subidas ya programadas siguen con su fecha aunque no sea día 1 ni respete el nuevo preaviso (se avisó con las reglas anteriores).
+
+## 135. Cartera: mejoras de Subidas de precio y Renovaciones (2026-11-14)
+
+Migración `20270121100000_portfolio_features` (se aplica sola): en `contracts`, `rent_increase_exempt_until`/`rent_increase_exempt_reason` («no subir hasta…») y `anniversary_update_pct` (% propio de la actualización anual); `tenants.rent_increase_notice_template` (texto propio del aviso) y, en `contract_annexes`, `action`/`action_applied_at`/`action_error` (lo que hace un anexo al firmarse). Sin variables nuevas.
+
+**Qué cambia para el negocio**
+
+- **Subidas en cuatro pasos**: a quién, cuánto y desde cuándo, repasar la lista (se puede desmarcar a cualquiera) y ver el correo exacto que le llega a cada inquilino antes de enviarlo.
+- **Hasta el precio de tarifa**: tercera forma de subir; cada inquilino sube hasta el precio actual de su trastero, sin pasar del % que se ponga. Quien ya paga la tarifa no entra.
+- **Texto del aviso** editable (español e inglés, con variables). La frase de que puede darse de baja antes sin preaviso se añade siempre.
+- **Ficha de cada subida**: si el aviso se entregó o rebotó, reenviarlo, quitar a un contrato (se le dice que queda anulada) y, cuando ya se ha aplicado, lo que se cobra de más, lo facturado y quién se fue tras el aviso.
+- **Renovaciones**: 30, 60, 90 días o vencidos, con cuota, antigüedad, deuda, teléfono y riesgo de baja, y CSV. **Oferta de renovación**: el inquilino la firma como anexo (correo o área de clientes) y el contrato se renueva solo; si entretanto cambió, no se aplica y se avisa al equipo.
+- **Aviso de prórroga**: 30 días antes de que un contrato con renovación automática se prorrogue, el inquilino recibe la fecha y hasta cuándo puede darse de baja (se apaga en Configuración → Correo).
+- **Cuotas previstas** (Cartera): todos los cambios de cuota que vienen, de dónde salen y cuánto suman.
+- **Ficha del contrato → Cobro y condiciones → Cuota**: historial de la cuota con lo previsto, «no subir hasta…» y % propio de la actualización anual.

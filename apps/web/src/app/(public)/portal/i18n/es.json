@@ -628,6 +628,7 @@
         "holdUntil": "Te guardamos el trastero hasta el {date}.",
         "annex": "Anexo {number} · {title}",
         "annexDetails": "Contrato {number} · {unit} · {facility}",
+        "renewalOffer": "Oferta de renovación: al firmarla, tu contrato se renueva {months, plural, one {# mes} other {# meses}} más.",
         "sign": "Firmar",
         "error": "No se ha podido abrir la firma. Inténtalo de nuevo."
       },

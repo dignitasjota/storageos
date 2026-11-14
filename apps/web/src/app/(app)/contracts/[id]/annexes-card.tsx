@@ -28,7 +28,7 @@ import {
   useContractAnnexes,
   useCreateContractAnnex,
 } from '@/lib/customers/hooks';
-import { formatDate, formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 
 const STATUS: Record<ContractAnnexDto['status'], { label: string; className: string }> = {
   pending: {
@@ -153,6 +153,27 @@ export function AnnexesCard({ contractId, canAdd }: { contractId: string; canAdd
                     </span>
                   )}
                 </div>
+                {a.renewal && (
+                  <p className="text-xs">
+                    Oferta de renovación: {a.renewal.months}{' '}
+                    {a.renewal.months === 1 ? 'mes' : 'meses'}
+                    {a.renewal.newPrice != null
+                      ? ` con cuota de ${formatEur(a.renewal.newPrice)} sin IVA`
+                      : ' con la misma cuota'}
+                    {a.actionAppliedAt && (
+                      <span className="text-emerald-700 dark:text-emerald-400">
+                        {' '}
+                        · renovado al firmarla
+                      </span>
+                    )}
+                    {a.actionError && (
+                      <span className="text-red-600 dark:text-red-400">
+                        {' '}
+                        · no se aplicó: {a.actionError}. Renuévalo a mano.
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="ghost" onClick={() => setViewing(a)}>

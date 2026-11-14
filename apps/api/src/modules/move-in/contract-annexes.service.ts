@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 import {
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,12 +10,14 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
+import { Prisma, type ContractAnnex } from '@storageos/database';
 
 import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { loadPuppeteer } from '../../common/puppeteer';
 import { AuditService } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { termsHash } from '../contracts/contract-terms';
+import { ContractsService } from '../contracts/contracts.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -23,7 +26,6 @@ import { buildAnnexText } from './annex-text';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
-import type { ContractAnnex } from '@storageos/database';
 import type {
   AnnexSignViewDto,
   ContractAnnexDto,
@@ -31,6 +33,7 @@ import type {
   CreateContractAnnexInput,
   PortalAnnexDto,
   PortalSignLinkDto,
+  RenewalAnnexAction,
   SignContractAnnexInput,
 } from '@storageos/shared';
 
@@ -85,6 +88,7 @@ export class ContractAnnexesService {
     private readonly audit: AuditService,
     private readonly files: FilesService,
     private readonly config: ConfigService<Env, true>,
+    private readonly contracts: ContractsService,
   ) {}
 
   // ---------------------------------------------------------------- equipo
@@ -109,6 +113,8 @@ export class ContractAnnexesService {
     input: CreateContractAnnexInput;
     scope: FacilityScope | null;
     meta: RequestMeta;
+    /** Lo que hace al firmarse (p. ej. renovar el contrato). */
+    action?: RenewalAnnexAction;
   }): Promise<ContractAnnexSentDto> {
     const contract = await this.loadContract(args.tenantId, args.contractId, args.scope);
     if (contract.status !== 'active' && contract.status !== 'ending') {
@@ -150,6 +156,7 @@ export class ContractAnnexesService {
           termsText,
           documentHash: termsHash(termsText),
           createdByUserId: args.userId,
+          ...(args.action ? { action: args.action as unknown as Prisma.InputJsonValue } : {}),
           signingTokenHash: tokenHash,
           signingTokenExpiresAt: expiresAt,
         },
@@ -159,7 +166,11 @@ export class ContractAnnexesService {
           tenantId: args.tenantId,
           contractId: args.contractId,
           eventType: 'note_added',
-          payload: { kind: 'annex_created', number, title: row.title },
+          payload: {
+            kind: args.action?.type === 'renewal' ? 'renewal_offer_sent' : 'annex_created',
+            number,
+            title: row.title,
+          },
           createdByUserId: args.userId,
         },
       });
@@ -354,11 +365,19 @@ export class ContractAnnexesService {
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
+    const renewal = renewalOf(annex);
+    const renewError = renewal ? await this.applyRenewal(annex, renewal, meta) : null;
     await this.notifications
       .create(annex.tenantId, {
-        type: 'contract.annex_signed',
-        title: `Anexo ${annex.number} firmado — ${contract.contractNumber}`,
-        body: annex.title,
+        type: renewal ? 'contract.renewal_accepted' : 'contract.annex_signed',
+        title: renewal
+          ? renewError
+            ? `Renovación aceptada sin aplicar — ${contract.contractNumber}`
+            : `Renovación aceptada — ${contract.contractNumber}`
+          : `Anexo ${annex.number} firmado — ${contract.contractNumber}`,
+        body: renewError
+          ? `El inquilino firmó la renovación, pero no se pudo aplicar: ${renewError}. Renuévalo a mano.`
+          : annex.title,
         link: `/contracts/${annex.contractId}?tab=signing`,
         contractId: annex.contractId,
       })
@@ -366,6 +385,44 @@ export class ContractAnnexesService {
         this.logger.warn(`[annex] aviso no creado: ${(err as Error).message}`),
       );
     return { status: 'signed', signedAt: signedAt.toISOString() };
+  }
+
+  /**
+   * Renueva el contrato que el inquilino aceptó firmando la oferta. Si el
+   * contrato cambió entretanto (otra renovación, baja…), no se aplica y se
+   * avisa al equipo. Devuelve el motivo si no se pudo.
+   */
+  private async applyRenewal(
+    annex: ContractAnnex,
+    renewal: RenewalAnnexAction,
+    meta: RequestMeta,
+  ): Promise<string | null> {
+    let error: string | null = null;
+    try {
+      await this.contracts.renew({
+        tenantId: annex.tenantId,
+        userId: null,
+        contractId: annex.contractId,
+        months: renewal.months,
+        ...(renewal.newPrice != null ? { newPrice: renewal.newPrice } : {}),
+        expectedEndDate: renewal.expectedEndDate,
+        facilityScope: null,
+        meta,
+      });
+    } catch (err) {
+      error =
+        err instanceof HttpException
+          ? ((err.getResponse() as { message?: string }).message ?? err.message)
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      this.logger.warn(`[annex] renovación ${annex.id} no aplicada: ${error}`);
+    }
+    await this.admin.contractAnnex.update({
+      where: { id: annex.id },
+      data: error ? { actionError: error.slice(0, 500) } : { actionAppliedAt: new Date() },
+    });
+    return error;
   }
 
   // --------------------------------------------------- área de clientes
@@ -398,6 +455,7 @@ export class ContractAnnexesService {
       status: r.status === 'signed' ? 'signed' : 'pending',
       createdAt: r.createdAt.toISOString(),
       signedAt: r.signedAt?.toISOString() ?? null,
+      renewal: renewalSummary(r),
     }));
   }
 
@@ -668,6 +726,9 @@ Huella SHA-256 del texto: ${escapeHtml(annex.documentHash)}</p></div>
       signedAt: r.signedAt?.toISOString() ?? null,
       signerName: r.signerName,
       signatureMethod: (r.signatureMethod as 'drawn' | 'typed' | null) ?? null,
+      renewal: renewalSummary(r),
+      actionAppliedAt: r.actionAppliedAt?.toISOString() ?? null,
+      actionError: r.actionError,
       signatureImage: r.signatureImage,
       typedSignature: r.typedSignature,
       ipAddress: r.ipAddress,
@@ -686,4 +747,23 @@ Huella SHA-256 del texto: ${escapeHtml(annex.documentHash)}</p></div>
       message: 'Este anexo ya está firmado o cancelado.',
     });
   }
+}
+
+/** La renovación que aplica un anexo al firmarse (null = anexo de texto). */
+function renewalOf(annex: Pick<ContractAnnex, 'action'>): RenewalAnnexAction | null {
+  const a = annex.action as Partial<RenewalAnnexAction> | null;
+  if (!a || a.type !== 'renewal' || !(Number(a.months) >= 1) || !a.expectedEndDate) return null;
+  return {
+    type: 'renewal',
+    months: Number(a.months),
+    newPrice: a.newPrice != null ? Number(a.newPrice) : null,
+    expectedEndDate: a.expectedEndDate,
+  };
+}
+
+export function renewalSummary(
+  annex: Pick<ContractAnnex, 'action'>,
+): { months: number; newPrice: number | null } | null {
+  const r = renewalOf(annex);
+  return r ? { months: r.months, newPrice: r.newPrice } : null;
 }

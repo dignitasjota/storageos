@@ -431,6 +431,8 @@ model Tenant {
   rentIncreaseMinMonthsBetween Int                   @default(12) @map("rent_increase_min_months_between")
   /// Días de preaviso mínimos de una subida de cuota (la condición 4 del contrato dice 30).
   rentIncreaseNoticeDays       Int                   @default(30) @map("rent_increase_notice_days")
+  /// Texto propio del aviso de subida ({ es: {subject, body}, en?: {...} }); null = el de serie.
+  rentIncreaseNoticeTemplate   Json?                 @map("rent_increase_notice_template")
   reviewRequestDelayDays       Int                   @default(14) @map("review_request_delay_days")
   /// Link de "deja tu reseña" en Google Business Profile; se ofrece al promotor
   /// (NPS >= 9) tras valorar, para mejorar el ranking local.
@@ -1746,6 +1748,11 @@ model Contract {
   depositRegistryRecoveredAt DateTime? @map("deposit_registry_recovered_at") @db.Date
   /// Último aniversario con la renta actualizada (o descartado).
   lastAnniversaryUpdateOn    DateTime? @map("last_anniversary_update_on") @db.Date
+  /// % propio de la actualización anual (null = el del negocio).
+  anniversaryUpdatePct       Decimal?  @map("anniversary_update_pct") @db.Decimal(5, 2)
+  /// No entra en las subidas de precio hasta esta fecha.
+  rentIncreaseExemptUntil    DateTime? @map("rent_increase_exempt_until") @db.Date
+  rentIncreaseExemptReason   String?   @map("rent_increase_exempt_reason")
   /// % de retención de IRPF que practica el inquilino (0 = sin retención).
   irpfRetentionPct           Decimal   @default(0) @map("irpf_retention_pct") @db.Decimal(5, 2)
   /// Propietario al crear el contrato (plan Administrador).
@@ -2254,6 +2261,10 @@ model ContractAnnex {
   channel               String?
   pdfKey                String?   @map("pdf_key")
   cancelledAt           DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  /// Lo que hace al firmarse: { type: 'renewal', months, newPrice, expectedEndDate }.
+  action                Json?
+  actionAppliedAt       DateTime? @map("action_applied_at") @db.Timestamptz(6)
+  actionError           String?   @map("action_error")
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

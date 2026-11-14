@@ -58,6 +58,6 @@ import { WithdrawalService } from './withdrawal.service';
       ? [ContractEndingSoonCron, ContractAutoEndCron, ReservationExpiryCron, PreOpeningCron]
       : []),
   ],
-  exports: [ContractsService, PreOpeningService, WithdrawalService],
+  exports: [ContractsService, PreOpeningService, WithdrawalService, AnniversaryUpdatesService],
 })
 export class ContractsModule {}
