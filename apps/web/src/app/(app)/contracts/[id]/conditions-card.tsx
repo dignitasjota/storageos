@@ -47,6 +47,12 @@ export function ConditionsCard({ contract: c }: { contract: ContractDto }) {
           <dd>{c.autoRenew ? 'Sí, por el mismo plazo' : 'No'}</dd>
           <dt className="text-muted-foreground">Preaviso de baja</dt>
           <dd>{c.cancellationNoticeDays} días</dd>
+          {c.specificConditions && (
+            <>
+              <dt className="text-muted-foreground">Condiciones específicas</dt>
+              <dd className="whitespace-pre-line">{c.specificConditions}</dd>
+            </>
+          )}
           <dt className="text-muted-foreground">Notas</dt>
           <dd className="whitespace-pre-line">{c.notes || '—'}</dd>
         </dl>

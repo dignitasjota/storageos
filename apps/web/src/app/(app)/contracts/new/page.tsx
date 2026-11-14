@@ -65,6 +65,7 @@ export default function NewContractWizardPage() {
   const [cancellationNoticeDays, setCancellationNoticeDays] = useState(15);
   const [irpfRetentionPct, setIrpfRetentionPct] = useState(0);
   const [notes, setNotes] = useState('');
+  const [specificConditions, setSpecificConditions] = useState('');
 
   const create = useCreateContract();
   const unitTypes = useUnitTypes();
@@ -153,6 +154,7 @@ export default function NewContractWizardPage() {
       cancellationNoticeDays,
       ...(irpfRetentionPct > 0 ? { irpfRetentionPct } : {}),
       ...(notes.trim() ? { notes: notes.trim() } : {}),
+      ...(specificConditions.trim() ? { specificConditions: specificConditions.trim() } : {}),
       ...(prefill.reservationId ? { reservationId: prefill.reservationId } : {}),
       ...(prefill.waitlistEntryId ? { waitlistEntryId: prefill.waitlistEntryId } : {}),
       ...(prefill.unitRequestId ? { unitRequestId: prefill.unitRequestId } : {}),
@@ -261,6 +263,7 @@ export default function NewContractWizardPage() {
           cancellationNoticeDays={cancellationNoticeDays}
           irpfRetentionPct={irpfRetentionPct}
           notes={notes}
+          specificConditions={specificConditions}
           isBusiness={customer?.customerType === 'business'}
           onChange={(p) => {
             if (p.startDate !== undefined) setStartDate(p.startDate);
@@ -282,6 +285,7 @@ export default function NewContractWizardPage() {
               setCancellationNoticeDays(p.cancellationNoticeDays);
             if (p.irpfRetentionPct !== undefined) setIrpfRetentionPct(p.irpfRetentionPct);
             if (p.notes !== undefined) setNotes(p.notes);
+            if (p.specificConditions !== undefined) setSpecificConditions(p.specificConditions);
           }}
           onBack={() => setStep(2)}
           onNext={() => setStep(4)}
@@ -482,9 +486,11 @@ function StepEconomics(props: {
   cancellationNoticeDays: number;
   irpfRetentionPct: number;
   notes: string;
+  specificConditions: string;
   isBusiness: boolean;
   onChange: (
     p: Partial<{
+      specificConditions: string;
       autoRenew: boolean;
       cancellationNoticeDays: number;
       irpfRetentionPct: number;
@@ -839,6 +845,23 @@ function StepEconomics(props: {
           />
           Renovar solo al llegar a la fecha de fin, por el mismo plazo
         </label>
+        <div>
+          <Label htmlFor="new-specific-conditions">
+            Condiciones específicas de este contrato (opcional)
+          </Label>
+          <Textarea
+            id="new-specific-conditions"
+            rows={3}
+            maxLength={5000}
+            value={props.specificConditions}
+            onChange={(e) => props.onChange({ specificConditions: e.target.value })}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Van en el contrato que firma el inquilino, después de las condiciones generales. Por
+            ejemplo: «Si el local no está abierto el 1 de marzo, el inquilino puede cancelar sin
+            coste». Tras la firma ya no se cambian.
+          </p>
+        </div>
         <div>
           <Label>Notas internas</Label>
           <Textarea

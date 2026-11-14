@@ -2275,3 +2275,12 @@ Sin migración ni variables nuevas.
 - El área de clientes enseña en Inicio y en Contratos la tarjeta **«Pendiente de firmar»**. Recoge los contratos que se le enviaron para firmar, o la reserva online que no llegó a firmar, con el plazo hasta el que se le guarda el trastero.
 - **«Firmar»** abre la firma con un enlace nuevo, aunque el del correo haya caducado o se haya sustituido. El enlace anterior deja de valer.
 - Los borradores que el equipo aún está preparando (sin enviar a firmar) no salen.
+
+## 132. Condiciones específicas de cada contrato (2026-11-14)
+
+Migración `20270118100000_contract_specific_conditions` (`contracts.specific_conditions`, se aplica sola). Sin variables nuevas.
+
+- En el alta del contrato (paso 3) y en «Editar» del borrador hay un campo **«Condiciones específicas de este contrato»**. Por ejemplo: «Si el local no está abierto el 1 de marzo, el inquilino puede cancelar sin coste».
+- Van en el texto que firma el inquilino, después de las condiciones generales («Condiciones específicas de este contrato:»). Por eso cuentan en la huella de la firma y salen en el PDF y en el área de clientes. Se ven en la tarjeta «Condiciones» de la ficha.
+- **Solo se cambian en borrador.** Tras la firma, `PATCH /contracts/:id` responde 400 `contract_not_draft` («añade un anexo»).
+- La app no aplica la condición sola: si se cumple, la cancelación sin coste se hace desde el panel, como cualquier otra.

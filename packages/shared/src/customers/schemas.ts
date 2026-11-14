@@ -241,6 +241,11 @@ export const CreateContractSchema = z.object({
   autoRenew: z.boolean().default(true),
   cancellationNoticeDays: z.number().int().min(0).max(365).default(15),
   notes: optionalText(2000),
+  /**
+   * Condiciones propias de este contrato: van en el texto que firma el
+   * inquilino, tras las condiciones generales.
+   */
+  specificConditions: optionalText(5000),
   /** Reserva que se convierte en este contrato (mismo trastero e inquilino). */
   reservationId: z.string().uuid().optional(),
   /** Entrada de la lista de espera que se convierte en este contrato. */
@@ -266,6 +271,8 @@ export const UpdateContractSchema = z
     autoRenew: z.boolean().optional(),
     cancellationNoticeDays: z.number().int().min(0).max(365).optional(),
     notes: optionalText(2000),
+    /** Solo en borrador: lo firmado no se cambia. '' = sin condiciones propias. */
+    specificConditions: optionalText(5000),
   })
   .refine((v) => Object.values(v).some((field) => field !== undefined), {
     message: 'Debes enviar al menos un campo',

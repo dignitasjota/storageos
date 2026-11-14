@@ -63,8 +63,12 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Con el límite por defecto de Node, la comprobación de tipos del worker
+      # (que incluye los módulos del API) se queda sin memoria (exit 134).
       - name: Typecheck
         run: pnpm typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       # `verifactu-xsd.spec.ts` valida el XML de Veri*Factu contra los esquemas
       # de la AEAT con xmllint; en la CI es obligatorio.

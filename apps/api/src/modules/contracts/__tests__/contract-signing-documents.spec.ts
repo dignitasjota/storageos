@@ -38,10 +38,18 @@ describe('texto del contrato que se firma', () => {
       insurance: { name: 'Básico', price: 4.5, taxRate: 21 },
       customClauses: 'Cláusula general',
       defaultClauses: true,
+      specificConditions: 'Si el local no abre el 1 de marzo, se puede cancelar sin coste.',
     });
     expect(text).toContain(
       'Arrendador: Trasteros García SL · NIF B12345674 · Calle Mayor 1, 28001 Madrid',
     );
+    // Las condiciones de este contrato, tras las generales y antes del consentimiento.
+    const specific = text.indexOf(
+      'Condiciones específicas de este contrato:\nSi el local no abre el 1 de marzo',
+    );
+    expect(specific).toBeGreaterThan(text.indexOf('Cláusula general'));
+    expect(specific).toBeLessThan(text.indexOf('El firmante declara'));
+    expect(buildContractTermsText(base)).not.toContain('Condiciones específicas');
     expect(text).toContain('Inquilino: Ana Ruiz · DNI 12345678Z');
     expect(text).toContain('Trastero: A-12 (Mediano, 6 m²) — Trasteros Centro');
     expect(text).toContain('Inicio y entrega del trastero: 01/02/2026');

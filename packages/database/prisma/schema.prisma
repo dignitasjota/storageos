@@ -1831,6 +1831,8 @@ model Contract {
   insurancePlanId        String?               @map("insurance_plan_id") @db.Uuid
   insurancePrice         Decimal?              @map("insurance_price") @db.Decimal(10, 2)
   notes                  String?
+  /// Condiciones propias de este contrato (texto libre que va en lo que se firma).
+  specificConditions     String?               @map("specific_conditions")
   deletedAt              DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)

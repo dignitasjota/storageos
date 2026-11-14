@@ -47,6 +47,8 @@ export interface ContractTermsInput {
   startDate: string;
   /** Cláusulas YA renderizadas (variables sustituidas). */
   customClauses?: string | null;
+  /** Condiciones propias de este contrato (tras las generales). */
+  specificConditions?: string | null;
   /** true = son las condiciones generales por defecto (no las del tenant). */
   defaultClauses?: boolean;
   /** `housing` = contrato de vivienda. */
@@ -311,6 +313,9 @@ export function buildContractTermsText(t: ContractTermsInput): string {
         t.customClauses.trim(),
       ]
     : [];
+  const specific = t.specificConditions?.trim()
+    ? ['', 'Condiciones específicas de este contrato:', t.specificConditions.trim()]
+    : [];
   const reservation = t.preOpening ? ['', ...preOpeningClauses(t, t.preOpening)] : [];
   const withdrawalForm = t.withdrawalFormTo
     ? [
@@ -332,7 +337,9 @@ export function buildContractTermsText(t: ContractTermsInput): string {
     'expresión de su consentimiento (firma electrónica simple, art. 25 Reglamento',
     'eIDAS y Ley 6/2020).',
   ];
-  return [...header, ...custom, ...reservation, ...withdrawalForm, ...consent].join('\n');
+  return [...header, ...custom, ...specific, ...reservation, ...withdrawalForm, ...consent].join(
+    '\n',
+  );
 }
 
 /** Condiciones de la reserva antes de la apertura (se añaden a las del contrato). */
@@ -382,6 +389,7 @@ const TERMS_SELECT = {
   endDate: true,
   autoRenew: true,
   cancellationNoticeDays: true,
+  specificConditions: true,
   insurancePrice: true,
   insurancePlan: { select: { name: true, taxRate: true } },
   couponRedemptions: {
@@ -573,6 +581,7 @@ export async function composeContractTerms(
     billingCycle: c.billingCycle,
     startDate,
     customClauses: clauses,
+    specificConditions: c.specificConditions,
     defaultClauses,
     landlord: c.owner
       ? {

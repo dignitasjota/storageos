@@ -45,6 +45,7 @@ export function EditDraftDialog({
     cancellationNoticeDays: String(c.cancellationNoticeDays),
     autoRenew: c.autoRenew,
     notes: c.notes ?? '',
+    specificConditions: c.specificConditions ?? '',
   });
   const [form, setForm] = useState(initial);
   useEffect(() => {
@@ -85,6 +86,9 @@ export function EditDraftDialog({
       ...(notice !== c.cancellationNoticeDays ? { cancellationNoticeDays: notice } : {}),
       ...(form.autoRenew !== c.autoRenew ? { autoRenew: form.autoRenew } : {}),
       ...(form.notes !== (c.notes ?? '') ? { notes: form.notes } : {}),
+      ...(form.specificConditions !== (c.specificConditions ?? '')
+        ? { specificConditions: form.specificConditions }
+        : {}),
     };
     if (Object.keys(input).length === 0) {
       onOpenChange(false);
@@ -194,6 +198,23 @@ export function EditDraftDialog({
             />
             Se renueva solo
           </label>
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="draft-specific-conditions">
+              Condiciones específicas de este contrato
+            </Label>
+            <Textarea
+              id="draft-specific-conditions"
+              rows={3}
+              maxLength={5000}
+              value={form.specificConditions}
+              onChange={(e) => set('specificConditions', e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Van en el contrato que firma el inquilino, después de las condiciones generales. Por
+              ejemplo: «Si el local no está abierto el 1 de marzo, el inquilino puede cancelar sin
+              coste». Tras la firma ya no se cambian.
+            </p>
+          </div>
           <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="draft-notes">Notas internas</Label>
             <Textarea

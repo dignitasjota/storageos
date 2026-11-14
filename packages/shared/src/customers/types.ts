@@ -211,6 +211,8 @@ export interface ContractDto {
   /** Cuándo desistió (el contrato queda cancelado). */
   withdrawnAt: string | null;
   notes: string | null;
+  /** Condiciones propias de este contrato (van en lo que se firma). */
+  specificConditions: string | null;
   createdAt: string;
   updatedAt: string;
   /** Reserva anticipada en un local por abrir (null si no lo es). */
