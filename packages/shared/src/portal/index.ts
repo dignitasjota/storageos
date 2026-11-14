@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { AddOpsFileSchema, IncidentCategoryEnum } from '../operations/daily-ops';
 import { SepaBicSchema, SepaIbanSchema } from '../sepa';
 
 import type { ContractPreOpeningDto } from '../contracts/pre-opening';
@@ -220,6 +221,11 @@ export type RequestMoveOutInput = z.infer<typeof RequestMoveOutSchema>;
 export const PortalReportIncidentSchema = z.object({
   title: z.string().trim().min(3).max(160),
   description: z.string().trim().max(2000).optional(),
+  /** Contrato (trastero) al que se refiere; con uno solo se toma ese. */
+  contractId: z.string().uuid().optional(),
+  category: IncidentCategoryEnum.optional(),
+  /** Fotos subidas antes con `/portal/me/incidents/photo-upload-url`. */
+  photos: z.array(AddOpsFileSchema).max(4).optional(),
 });
 export type PortalReportIncidentInput = z.infer<typeof PortalReportIncidentSchema>;
 
@@ -233,6 +239,8 @@ export interface PortalIncidentDto {
   /** Qué se hizo, al resolverla o descartarla. */
   resolution: string | null;
   closedAt: string | null;
+  category: string;
+  unitCode: string | null;
 }
 
 /** Acceso adicional que el inquilino se crea desde el portal (familiar, etc.). */

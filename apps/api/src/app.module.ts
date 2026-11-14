@@ -46,6 +46,7 @@ import { CouponsModule } from './modules/coupons/coupons.module';
 import { CustomerEmailsModule } from './modules/customer-emails/customer-emails.module';
 import { CustomerMessagesModule } from './modules/customer-messages/customer-messages.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { DailyOpsModule } from './modules/daily-ops/daily-ops.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { DataRetentionModule } from './modules/data-retention/data-retention.module';
 import { DatabaseModule } from './modules/database/database.module';
@@ -215,6 +216,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     CollectionsModule,
     ExpensesModule,
     BusinessRemindersModule,
+    DailyOpsModule,
     TenantDigestModule,
     CustomerEmailsModule,
     EmailEventsModule,

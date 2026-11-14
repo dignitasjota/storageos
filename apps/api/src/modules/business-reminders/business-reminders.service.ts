@@ -24,6 +24,14 @@ import {
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
+import {
+  addOpsFile,
+  asJson,
+  opsFileUploadUrl,
+  opsFilesDto,
+  readOpsFiles,
+  removeOpsFile,
+} from '../../common/ops-files';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -34,6 +42,11 @@ import type { FacilityScope } from '../../common/facility-scope';
 import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 import type {
+  AddOpsFileInput,
+  MessageAttachmentUploadDto,
+  ReminderForecastDto,
+  ReminderForecastItemDto,
+  RemindersDueCountDto,
   BusinessReminderCategory,
   BusinessReminderCompletionDto,
   BusinessReminderDto,
@@ -159,6 +172,13 @@ export class BusinessRemindersService {
       status,
       snoozedUntil: row.snoozedUntil ? dateStr(row.snoozedUntil) : null,
       templateKey: row.templateKey,
+      attachments: readOpsFiles(row.attachments).map((f) => ({
+        id: f.id,
+        filename: f.filename,
+        mimeType: f.mimeType,
+        createdAt: f.createdAt,
+        url: '',
+      })),
       lastCompletedAt: row.completions[0]?.completedAt.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
     };
@@ -396,6 +416,219 @@ export class BusinessRemindersService {
     const keys = receipts.map((r) => r.receiptKey).filter((k): k is string => !!k);
     if (keys.length > 0) await this.files.deleteObjects('uploads', keys).catch(() => undefined);
     await this.log(tenantId, userId, 'business_reminder.deleted', id, { title: current.title });
+  }
+
+  // --------------------------------------------------------------------------
+  // Deshacer un «hecho»
+  // --------------------------------------------------------------------------
+
+  /**
+   * Deshace el último «hecho»: vuelve a su fecha, activo, y se borra lo que se
+   * apuntó (el gasto, si se puede, y el justificante).
+   */
+  async undoLastCompletion(
+    tenantId: string,
+    userId: string,
+    id: string,
+    scope: FacilityScope,
+  ): Promise<BusinessReminderDto & { expenseKept: boolean }> {
+    await this.findOrThrow(tenantId, id, scope);
+    const undone = await this.prisma.withTenant(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM business_reminders WHERE id = ${id}::uuid FOR UPDATE`;
+      const last = await tx.businessReminderCompletion.findFirst({
+        where: { reminderId: id },
+        orderBy: { completedAt: 'desc' },
+      });
+      if (!last) {
+        throw new BadRequestException({
+          code: 'nothing_to_undo',
+          message: 'No hay ningún «hecho» que deshacer',
+        });
+      }
+      await tx.businessReminderCompletion.delete({ where: { id: last.id } });
+      await tx.businessReminder.update({
+        where: { id },
+        data: { dueDate: last.dueDate, status: 'active', snoozedUntil: null },
+      });
+      return last;
+    }, tenantId);
+    let expenseKept = false;
+    if (undone.expenseId) {
+      // Un gasto ya pagado en caja o conciliado puede no borrarse: se avisa.
+      await this.expenses.remove(tenantId, undone.expenseId, scope).catch(() => {
+        expenseKept = true;
+      });
+    }
+    if (undone.receiptKey) {
+      await this.files.deleteObjects('uploads', [undone.receiptKey]).catch(() => undefined);
+    }
+    await this.log(tenantId, userId, 'business_reminder.completion_undone', id, {
+      dueDate: dateStr(undone.dueDate),
+      expenseKept,
+    });
+    return { ...(await this.get(tenantId, id, scope)), expenseKept };
+  }
+
+  // --------------------------------------------------------------------------
+  // Documentos
+  // --------------------------------------------------------------------------
+
+  private filePrefix(tenantId: string, id: string): string {
+    return `${tenantId}/reminders/${id}/files/`;
+  }
+
+  async attachmentUploadUrl(
+    tenantId: string,
+    id: string,
+    mimeType: string,
+    scope: FacilityScope,
+  ): Promise<MessageAttachmentUploadDto> {
+    await this.findOrThrow(tenantId, id, scope);
+    return opsFileUploadUrl(this.files, this.filePrefix(tenantId, id), mimeType);
+  }
+
+  async addAttachment(
+    tenantId: string,
+    id: string,
+    input: AddOpsFileInput,
+    scope: FacilityScope,
+  ): Promise<BusinessReminderDto> {
+    const row = await this.findOrThrow(tenantId, id, scope);
+    const list = await addOpsFile(
+      this.files,
+      this.filePrefix(tenantId, id),
+      readOpsFiles(row.attachments),
+      input,
+    );
+    await this.prisma.withTenant(
+      (tx) => tx.businessReminder.update({ where: { id }, data: { attachments: asJson(list) } }),
+      tenantId,
+    );
+    return this.get(tenantId, id, scope);
+  }
+
+  async removeAttachment(
+    tenantId: string,
+    id: string,
+    fileId: string,
+    scope: FacilityScope,
+  ): Promise<BusinessReminderDto> {
+    const row = await this.findOrThrow(tenantId, id, scope);
+    const list = await removeOpsFile(this.files, readOpsFiles(row.attachments), fileId);
+    await this.prisma.withTenant(
+      (tx) => tx.businessReminder.update({ where: { id }, data: { attachments: asJson(list) } }),
+      tenantId,
+    );
+    return this.get(tenantId, id, scope);
+  }
+
+  async attachmentUrl(
+    tenantId: string,
+    id: string,
+    fileId: string,
+    scope: FacilityScope,
+  ): Promise<{ url: string }> {
+    const row = await this.findOrThrow(tenantId, id, scope);
+    const file = readOpsFiles(row.attachments).find((f) => f.id === fileId);
+    if (!file) {
+      throw new NotFoundException({ code: 'file_not_found', message: 'Documento no encontrado' });
+    }
+    const [dto] = await opsFilesDto(this.files, [file]);
+    return { url: dto!.url };
+  }
+
+  // --------------------------------------------------------------------------
+  // Previsión y contador
+  // --------------------------------------------------------------------------
+
+  /** Lo que vence en los próximos meses (con las repeticiones) y lo que suma. */
+  async forecast(
+    tenantId: string,
+    scope: FacilityScope,
+    months = 12,
+  ): Promise<ReminderForecastDto> {
+    const where = optionalFacilityWhere(scope);
+    const today = await this.today(tenantId);
+    const span = Math.min(Math.max(months, 1), 24);
+    const start = today.slice(0, 7);
+    const [y, m] = start.split('-').map(Number) as [number, number];
+    const end = new Date(Date.UTC(y, m - 1 + span, 1)).toISOString().slice(0, 10);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.businessReminder.findMany({
+          where: { tenantId, status: 'active', ...(where ?? {}) },
+          select: {
+            id: true,
+            title: true,
+            category: true,
+            dueDate: true,
+            amount: true,
+            recurrence: true,
+            intervalMonths: true,
+            anchorDay: true,
+            templateKey: true,
+          },
+          take: 500,
+        }),
+      tenantId,
+    );
+    const buckets = new Map<string, ReminderForecastItemDto[]>();
+    for (let i = 0; i < span; i++) {
+      buckets.set(new Date(Date.UTC(y, m - 1 + i, 1)).toISOString().slice(0, 7), []);
+    }
+    for (const r of rows) {
+      let due: string | null = dateStr(r.dueDate);
+      for (let n = 0; due && due < end && n < 400; n++) {
+        // Lo vencido sin hacer cuenta en el mes en curso.
+        const month = due < today ? start : due.slice(0, 7);
+        buckets.get(month)?.push({
+          id: r.id,
+          title: r.title,
+          category: r.category,
+          dueDate: due,
+          amount: r.amount === null ? null : Number(r.amount),
+        });
+        due =
+          fiscalNextDueDate(r.templateKey, due) ??
+          nextReminderDueDate(
+            due,
+            r.recurrence as BusinessReminderRecurrence,
+            r.intervalMonths,
+            r.anchorDay,
+          );
+      }
+    }
+    const monthsDto = [...buckets.entries()].map(([month, items]) => ({
+      month,
+      items: items.sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+      total: Math.round(items.reduce((sum, i) => sum + (i.amount ?? 0), 0) * 100) / 100,
+    }));
+    return {
+      months: monthsDto,
+      total: Math.round(monthsDto.reduce((sum, mo) => sum + mo.total, 0) * 100) / 100,
+    };
+  }
+
+  /** Vencidos o que vencen en 7 días (el número del menú). */
+  async dueCount(tenantId: string, scope: FacilityScope): Promise<RemindersDueCountDto> {
+    const where = optionalFacilityWhere(scope);
+    const today = await this.today(tenantId);
+    const soon = dateOf(today);
+    soon.setUTCDate(soon.getUTCDate() + 7);
+    const due = await this.prisma.withTenant(
+      (tx) =>
+        tx.businessReminder.count({
+          where: {
+            tenantId,
+            status: 'active',
+            dueDate: { lte: soon },
+            OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: dateOf(today) } }],
+            ...(where ?? {}),
+          },
+        }),
+      tenantId,
+    );
+    return { due };
   }
 
   /** Pospone los avisos unos días (no cambia la fecha del vencimiento). */
@@ -861,7 +1094,14 @@ export class BusinessRemindersService {
   }
 
   /** Calendario de los vencimientos activos (null si el enlace no vale). */
-  async icsFeed(token: string): Promise<string | null> {
+  /**
+   * Calendario ICS. Con `include` añade las tareas con fecha (`tasks`) y las
+   * entradas y salidas de inquilinos (`moves`) de los próximos meses.
+   */
+  async icsFeed(
+    token: string,
+    include: { tasks?: boolean; moves?: boolean } = {},
+  ): Promise<string | null> {
     if (!/^[A-Za-z0-9_-]{20,100}$/.test(token)) return null;
     const hash = createHash('sha256').update(token).digest('hex');
     const tenant = await this.admin.tenant.findFirst({
@@ -920,6 +1160,92 @@ export class BusinessRemindersService {
           : []),
         'END:VEVENT',
       );
+    }
+    const dayEvent = (uid: string, day: Date, summary: string, desc: string) => {
+      const next = new Date(day);
+      next.setUTCDate(next.getUTCDate() + 1);
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:${uid}@trasteros`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${dateStr(day).replace(/-/g, '')}`,
+        `DTEND;VALUE=DATE:${dateStr(next).replace(/-/g, '')}`,
+        `SUMMARY:${icsEscape(summary)}`,
+        `DESCRIPTION:${icsEscape(desc)}`,
+        'END:VEVENT',
+      );
+    };
+    const now = Date.now();
+    const from = new Date(now - 30 * 86_400_000);
+    const until = new Date(now + 120 * 86_400_000);
+    if (include.tasks) {
+      const tasks = await this.admin.task.findMany({
+        where: {
+          tenantId: tenant.id,
+          deletedAt: null,
+          status: { in: ['open', 'in_progress'] },
+          dueDate: { gte: from, lte: until },
+        },
+        select: {
+          id: true,
+          title: true,
+          dueDate: true,
+          facility: { select: { name: true } },
+          assignedTo: { select: { fullName: true } },
+        },
+        take: 500,
+      });
+      for (const t of tasks) {
+        if (!t.dueDate) continue;
+        dayEvent(
+          `task-${t.id}`,
+          t.dueDate,
+          `Tarea: ${t.title}`,
+          [t.facility?.name, t.assignedTo?.fullName, `${web}/tasks?task=${t.id}`]
+            .filter(Boolean)
+            .join('\n'),
+        );
+      }
+    }
+    if (include.moves) {
+      const contracts = await this.admin.contract.findMany({
+        where: {
+          tenantId: tenant.id,
+          deletedAt: null,
+          OR: [
+            { signedAt: { not: null }, startDate: { gte: from, lte: until } },
+            { status: { in: ['active', 'ending'] }, endDate: { gte: from, lte: until } },
+          ],
+        },
+        select: {
+          id: true,
+          status: true,
+          autoRenew: true,
+          signedAt: true,
+          startDate: true,
+          endDate: true,
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+          customer: {
+            select: { customerType: true, firstName: true, lastName: true, companyName: true },
+          },
+        },
+        take: 500,
+      });
+      for (const c of contracts) {
+        const who =
+          c.customer?.customerType === 'business'
+            ? (c.customer.companyName ?? 'Empresa')
+            : [c.customer?.firstName, c.customer?.lastName].filter(Boolean).join(' ') || 'Cliente';
+        const where = [c.unit?.code, c.unit?.facility?.name].filter(Boolean).join(' · ');
+        const link = `${web}/contracts/${c.id}`;
+        if (c.signedAt && c.startDate >= from && c.startDate <= until) {
+          dayEvent(`in-${c.id}`, c.startDate, `Entrada: ${who}`, [where, link].join('\n'));
+        }
+        // Con renovación automática y sin baja pedida no se va: se prorroga.
+        if (c.endDate && !(c.autoRenew && c.status === 'active')) {
+          dayEvent(`out-${c.id}`, c.endDate, `Salida: ${who}`, [where, link].join('\n'));
+        }
+      }
     }
     lines.push('END:VCALENDAR');
     return `${lines.join('\r\n')}\r\n`;

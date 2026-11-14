@@ -2998,3 +2998,43 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - `POST /business-reminders/templates/:key/apply`: 409 `template_already_applied`.
 - `PATCH /business-reminders/settings` y el enlace del calendario: 403 `requires_all_facilities` a quien solo ve unos locales (y `GET` no le da `icsUrl`).
 - Registro de actividad: `business_reminder.created|updated|reopened|completed|snoozed|deleted|settings_changed|calendar_link_created|calendar_link_revoked`.
+
+### Operaciones diarias: mejoras (2026-11-14)
+
+**Fotos y documentos** (tareas, incidencias, vencimientos; JPG, PNG, WebP o PDF, hasta 10 por registro, 10 MB cada uno)
+
+- `POST /tasks/:id/photos/upload-url {mimeType}` → URL firmada; `POST /tasks/:id/photos {key, mimeType, filename}` (bytes comprobados, carpeta del registro; 400 `invalid_attachment`, `too_many_files`); `DELETE /tasks/:id/photos/:fileId`. Igual en `/incidents/:id/photos` y en `/business-reminders/:id/attachments` (+ `GET …/attachments/:fileId` → `{url}`). Las fichas devuelven las fotos con URL firmada; las listas, sin URL.
+- Área de clientes: `POST /portal/me/incidents/photo-upload-url {mimeType}` y `POST /portal/me/incidents` con `photos` (hasta 4), `category` y `contractId` (uno de sus contratos vivos; 400 `contract_not_found`).
+
+**Tareas**
+
+- `GET /tasks` y `/tasks/page?due=overdue|today|week|none`. `GET /tasks/mine-count` → `{pending}` (mías, abiertas o en curso, atrasadas o de hoy).
+- `TaskDto` gana `photos`, `expenseId`, `estimatedCost` y `supplierId` (del plan que la creó).
+- `POST /tasks/:id/expense {amount, supplierId?, vendor?, expenseDate?}` (`expenses:manage`) → `ExpenseDto` (mantenimiento, en el local de la tarea; 409 `expense_already_registered`).
+
+**Mantenimiento**
+
+- `CreateMaintenancePlanSchema`: `interval` también en los semanales (cada N semanas), `dayOfMonth` hasta 31 (31 = último día), `leadDays` 0-60, `estimatedCost`, `supplierId` (400 `supplier_not_found`). `MaintenancePlanDto` gana `leadDays`, `estimatedCost`, `supplierId`, `supplierName`.
+- `GET /maintenance-plans/:id/history` (`tasks:read`) → `{items, total, done, onTimePct, overdueOpen}`. `POST /maintenance-plans/:id/copy {facilityIds}` (`tasks:manage`) → los planes creados (sin responsable).
+
+**Calendario**
+
+- Tipos nuevos `invoice_due` (`invoices:read`) y `document_expiring` (`facilities:read`).
+- `GET /v1/public/reminders-calendar/:token?include=tasks,moves`: también las tareas con fecha y las entradas y salidas de inquilinos (sin las prórrogas automáticas).
+
+**Vencimientos**
+
+- `POST /business-reminders/:id/undo` (`reminders:manage`) → el vencimiento con `expenseKept` (true si el gasto no se pudo borrar); 400 `nothing_to_undo`.
+- `GET /business-reminders/forecast?months=1..24` → `{months: [{month, items, total}], total}`. `GET /business-reminders/due-count` → `{due}`.
+- `POST /business-reminders/:id/task {title?, assignedToUserId?, dueDate?}` (`tasks:write`) → `TaskDto` (409 `reminder_task_exists` si hay una abierta para esa fecha). `BusinessReminderDto.attachments`.
+
+**Incidencias**
+
+- `category` (`IncidentCategoryEnum`), `cost`, `insuranceClaimStatus` (`filed|accepted|rejected|paid`), `insuranceClaimRef`, `insuranceClaimAmount` en alta y edición. `IncidentDto` gana `category`, `photos`, `responseDueAt`, `firstResponseAt`, `responseOverdue`, `cost`, `expenseId` y los del seguro.
+- `GET|PUT /incidents/settings` (`incidents:read` / `incidents:manage`) → horas de la primera respuesta por gravedad (`IncidentResponseHoursSchema`, 1-720). La primera respuesta es un comentario, moverla de «reportada» o contestar al inquilino.
+- `GET /incidents/page?category=&responseOverdue=1`.
+- `POST /incidents/:id/transition`: resolver o descartar exige `resolution` (400 `resolution_required`).
+- `POST /incidents/:id/reply {body}` (`incidents:write`, 204): al chat del inquilino y a los comentarios (400 `incident_without_customer`).
+- `POST /incidents/:id/task` (`tasks:write`) → tarea de reparación (`metadata.incidentId`); `GET /incidents/:id/tasks`.
+- `POST /incidents/:id/expense {amount, supplierId?}` (`expenses:manage`) → `ExpenseDto`; guarda `cost` y `expenseId` (409 `expense_already_registered`).
+- `GET /incidents/report?from=&to=` (por defecto 90 días) → totales, horas hasta resolver, % respondidas a tiempo, coste, partes al seguro y desglose por tipo, gravedad y local.

@@ -83,8 +83,9 @@ import {
 } from '@/components/ui/sidebar';
 import { useWebChatPending } from '@/lib/ai/web-chat-hooks';
 import { useCompanyWide, useFeatures, usePanelBrand, usePermissions } from '@/lib/auth/hooks';
+import { useRemindersDueCount } from '@/lib/business-reminders/hooks';
 import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
-import { useIncidentPendingCounts } from '@/lib/operations/hooks';
+import { useIncidentPendingCounts, useMyTasksCount } from '@/lib/operations/hooks';
 import { appInitials, appName, brandColorOf, textColorOn } from '@/lib/portal/tenant-app';
 import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
 import { useSupportWaitingCount } from '@/lib/support/hooks';
@@ -530,6 +531,12 @@ export function AppSidebar() {
     reported: 0,
     investigating: 0,
   };
+  // Mis tareas atrasadas o para hoy, y vencimientos que tocan.
+  const myTasks = useMyTasksCount(permissions.includes('tasks:read')).data?.pending ?? 0;
+  const remindersDue =
+    useRemindersDueCount(
+      permissions.includes('reminders:read') && features.includes('business_reminders'),
+    ).data?.due ?? 0;
   // Mensajes de inquilinos sin leer (total, para el item «Inquilinos»).
   const unreadMessages =
     useCustomerUnreadSummary(permissions.includes('customers:read')).data?.total ?? 0;
@@ -593,6 +600,8 @@ export function AppSidebar() {
     if (href === '/whatsapp') return whatsappUnread;
     if (href === '/marketing/web-chat') return webChatCount;
     if (href === '/incidents') return incidentCounts.reported + incidentCounts.investigating;
+    if (href === '/tasks') return myTasks;
+    if (href === '/reminders') return remindersDue;
     return 0;
   }
 
@@ -633,6 +642,26 @@ export function AppSidebar() {
     }
     if (href === '/marketing/web-chat' && webChatCount > 0) {
       return <SidebarMenuBadge className="bg-blue-500 text-white">{webChatCount}</SidebarMenuBadge>;
+    }
+    if (href === '/tasks' && myTasks > 0) {
+      return (
+        <SidebarMenuBadge
+          className="bg-primary text-primary-foreground"
+          title="Tus tareas atrasadas o de hoy"
+        >
+          {myTasks}
+        </SidebarMenuBadge>
+      );
+    }
+    if (href === '/reminders' && remindersDue > 0) {
+      return (
+        <SidebarMenuBadge
+          className="bg-amber-500 text-white"
+          title="Vencidos o en los próximos 7 días"
+        >
+          {remindersDue}
+        </SidebarMenuBadge>
+      );
     }
     if (href === '/messages' && unreadMessages > 0) {
       return (
@@ -705,7 +734,11 @@ export function AppSidebar() {
                 const cActive = pathname === c.href || pathname.startsWith(`${c.href}/`);
                 const CIcon = c.icon;
                 return (
-                  <SidebarMenuSubItem key={c.href}>
+                  // El número del subapartado, en su fila (no debajo).
+                  <SidebarMenuSubItem
+                    key={c.href}
+                    className="relative [&>[data-sidebar=menu-badge]]:top-1"
+                  >
                     <SidebarMenuSubButton asChild isActive={cActive}>
                       <Link href={c.href}>
                         <CIcon />

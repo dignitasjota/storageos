@@ -236,7 +236,7 @@ describe('Revisión de la Operativa (e2e)', () => {
     await http()
       .post(`/incidents/${incB.body.id}/transition`)
       .set(ownerAuth)
-      .send({ status: 'resolved' })
+      .send({ status: 'resolved', resolution: 'Arreglada' })
       .expect(201);
     const reopened = await http()
       .post(`/incidents/${incB.body.id}/transition`)

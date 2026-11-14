@@ -2346,3 +2346,17 @@ Migración `20270122100000_daily_ops_review` (se aplica sola): `incidents.visibl
 - **Vencimientos**: un doble clic en «Hecho» ya no apunta dos gastos; uno del día 31 vuelve al 31 después de febrero; guardar otro dato no quita el «pospuesto»; una plantilla no se añade dos veces; uno hecho por error se puede reabrir, y todo queda en el registro de actividad. El resumen semanal y el enlace del calendario solo los cambia quien ve todos los locales.
 
 **Antes de desplegar**: las incidencias que el equipo creó con un inquilino dejan de verse en su área de clientes; si alguna debe verla, se marca «Visible para el inquilino» en su ficha.
+
+## 137. Operaciones diarias: mejoras (2026-11-14)
+
+Migración `20270123100000_daily_ops_features` (se aplica sola): `tasks.photos`, en `maintenance_plans` `lead_days`/`estimated_cost`/`supplier_id`, en `incidents` `category`/`photos`/`response_due_at`/`first_response_at`/`cost`/`expense_id`/`insurance_claim_*`, `tenants.incident_response_hours` y `business_reminders.attachments`. Los planes semanales pasan a «cada 1 semana» (antes «cada N» no contaba en los semanales). Las incidencias abiertas que ya no estaban «reportadas» cuentan como respondidas. Sin variables nuevas.
+
+**Qué cambia para el negocio**
+
+- **Tareas**: vistas de pendientes (atrasadas, hoy, esta semana, sin fecha), fotos y documentos, «Apuntar el gasto» (con el coste y el proveedor del plan de mantenimiento) y el número de «mis tareas» atrasadas o de hoy en el menú.
+- **Mantenimiento**: cada N semanas, «el último día del mes», crear la tarea unos días antes, coste previsto y proveedor, historial de cada plan (hechas a tiempo, atrasadas) y «Copiar a otros locales».
+- **Calendario**: filtrar por tipo (se recuerda), «+» en cada día para crear una tarea, facturas que vencen y documentos de los locales que caducan. El enlace del calendario de Vencimientos puede llevar también las tareas y las entradas y salidas de inquilinos.
+- **Vencimientos**: deshacer el último «hecho» (vuelve a su fecha y borra el gasto si se puede), documentos (contrato, póliza…), crear una tarea, previsión de 12 meses con lo que suman, filtros y el número de los que tocan en el menú.
+- **Incidencias**: tipo (daños, agua, cerradura…), plazo de la primera respuesta según la gravedad (Incidencias → Plazos; las que se pasan salen «Fuera de plazo»), resolución obligatoria al cerrar, fotos (también las que sube el inquilino al reportar, eligiendo su trastero), responder al inquilino por su chat, tarea de reparación, coste y gasto, parte al seguro e informe por tipo, gravedad y local.
+- **RGPD**: anonimizar a un inquilino borra las fotos de sus incidencias.
+- **Menú**: los números de los subapartados (Incidencias, Tareas, Vencimientos…) salen en su fila; antes caían una fila más abajo.

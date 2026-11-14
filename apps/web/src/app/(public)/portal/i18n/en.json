@@ -344,7 +344,22 @@
         "statusResolved": "Resolved",
         "statusDismissed": "Closed",
         "closedOn": "Closed on {date}",
-        "resolution": "Reply from the team"
+        "resolution": "Reply from the team",
+        "category": "Type",
+        "whichUnit": "Which unit?",
+        "anyUnit": "None in particular",
+        "attach": "Add photos",
+        "attachType": "Add an image (JPG, PNG or WebP) or a PDF.",
+        "attachSize": "Each photo, 10 MB at most.",
+        "categories": {
+          "damage": "Damage",
+          "water": "Water or damp",
+          "lock": "Lock or door",
+          "access": "Access or code",
+          "cleaning": "Cleaning",
+          "pests": "Pests",
+          "other": "Other"
+        }
       },
       "facility": {
         "title": "Your facility",

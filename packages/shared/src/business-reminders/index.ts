@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { calendarDate } from '../common/calendar-date';
 
 import type { ExpenseCategory } from '../expenses';
+import type { OpsFileDto } from '../operations/daily-ops';
 
 /**
  * Vencimientos del negocio: plazos que el tenant apunta (renovar el dominio,
@@ -249,6 +250,8 @@ export interface BusinessReminderDto {
   status: 'active' | 'paused' | 'done';
   snoozedUntil: string | null;
   templateKey: string | null;
+  /** Documentos (contrato, póliza…), sin URL; se piden aparte. */
+  attachments: OpsFileDto[];
   lastCompletedAt: string | null;
   createdAt: string;
 }

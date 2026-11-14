@@ -6,6 +6,7 @@ import {
   type CreateTaskInput,
   CreateTaskSchema,
   type TaskDto,
+  type TaskDueFilter,
   type TaskPriorityValue,
   type TaskStatusValue,
   type TaskTypeValue,
@@ -18,6 +19,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Receipt,
   Settings2,
   Trash2,
   UserCheck,
@@ -32,6 +34,8 @@ import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { DateSelect } from '@/components/month-year-select';
+import { OpsExpenseDialog } from '@/components/operations/ops-expense-dialog';
+import { OpsFiles } from '@/components/operations/ops-files';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -64,7 +68,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission, useMe } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur } from '@/lib/format';
 import {
   useBulkAssignTasks,
   useTaskAutoRules,
@@ -128,6 +132,14 @@ const NEXT_STATUS: Record<TaskStatusValue, TaskStatusValue[]> = {
   cancelled: ['open'],
 };
 
+const DUE_VIEWS: { value: TaskDueFilter | undefined; label: string }[] = [
+  { value: undefined, label: 'Todas' },
+  { value: 'overdue', label: 'Atrasadas' },
+  { value: 'today', label: 'Hoy' },
+  { value: 'week', label: 'Esta semana' },
+  { value: 'none', label: 'Sin fecha' },
+];
+
 function transitionLabel(from: TaskStatusValue, to: TaskStatusValue): string {
   if (to === 'open') return from === 'in_progress' ? 'Volver a abierta' : 'Reabrir';
   return `Marcar como ${STATUS_LABELS[to].label.toLowerCase()}`;
@@ -135,6 +147,8 @@ function transitionLabel(from: TaskStatusValue, to: TaskStatusValue): string {
 
 export default function TasksPage() {
   const [status, setStatus] = useState<TaskStatusValue | undefined>();
+  // Vista de pendientes: atrasadas, de hoy, de la semana o sin fecha.
+  const [due, setDue] = useState<TaskDueFilter | undefined>();
   const [type, setType] = useState<TaskTypeValue | undefined>();
   const [facilityId, setFacilityId] = useFacilityFilterState();
   const [assignedToUserId, setAssignedToUserId] = useState<string | undefined>();
@@ -160,6 +174,7 @@ export default function TasksPage() {
 
   const [searchText, search, setSearchText] = useDebouncedSearch();
   const tasks = usePagedList<TaskDto>('tasks', '/tasks', {
+    due,
     status,
     type,
     facilityId,
@@ -518,6 +533,20 @@ export default function TasksPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-1 rounded-md border p-0.5 sm:w-fit">
+        {DUE_VIEWS.map((v) => (
+          <Button
+            key={v.value ?? 'all'}
+            size="sm"
+            variant={due === v.value ? 'default' : 'ghost'}
+            className="h-8"
+            onClick={() => setDue(v.value)}
+          >
+            {v.label}
+          </Button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap gap-2">
         <Select
           value={status ?? 'all'}
@@ -618,8 +647,9 @@ export default function TasksPage() {
       {tasks.isError && <SectionError onRetry={() => void tasks.refetch()} />}
 
       <DataTable
-        filtersActive={!!status || !!type || !!assignedToUserId}
+        filtersActive={!!status || !!type || !!assignedToUserId || !!due}
         onClearFilters={() => {
+          setDue(undefined);
           setStatus(undefined);
           setType(undefined);
           setAssignedToUserId(undefined);
@@ -781,8 +811,10 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
   const addComment = useAddTaskComment(id);
   const canWrite = useHasPermission('tasks:write');
   const canManage = useHasPermission('tasks:manage');
+  const canExpense = useHasPermission('expenses:manage');
   const [body, setBody] = useState('');
   const [editing, setEditing] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
   const notFound = task.error instanceof ApiError && task.error.statusCode === 404;
 
   async function handleTransition(status: TaskStatusValue) {
@@ -934,6 +966,29 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
               />
             )}
 
+            <OpsFiles
+              files={task.data.photos}
+              basePath={`/tasks/${task.data.id}/photos`}
+              canEdit={canWrite}
+              onChanged={() => void task.refetch()}
+            />
+
+            {task.data.expenseId && task.data.expenseId !== 'pending' ? (
+              <p className="text-sm text-muted-foreground">
+                Gasto apuntado ·{' '}
+                <Link href="/expenses" className="text-primary hover:underline">
+                  Ver en Gastos
+                </Link>
+              </p>
+            ) : (
+              canExpense && (
+                <Button size="sm" variant="outline" onClick={() => setExpenseOpen(true)}>
+                  <Receipt className="mr-1 h-4 w-4" /> Apuntar el gasto
+                  {task.data.estimatedCost ? ` (${formatEur(task.data.estimatedCost)})` : ''}
+                </Button>
+              )
+            )}
+
             <div className="space-y-2">
               <h3 className="text-sm font-medium">Comentarios</h3>
               <div className="max-h-48 space-y-2 overflow-y-auto">
@@ -968,6 +1023,19 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
           </div>
         )}
       </DialogContent>
+      {expenseOpen && task.data && (
+        <OpsExpenseDialog
+          path={`/tasks/${task.data.id}/expense`}
+          title={task.data.title}
+          defaultAmount={task.data.estimatedCost}
+          defaultSupplierId={task.data.supplierId}
+          onClose={() => setExpenseOpen(false)}
+          onDone={() => {
+            setExpenseOpen(false);
+            void task.refetch();
+          }}
+        />
+      )}
     </Dialog>
   );
 }
