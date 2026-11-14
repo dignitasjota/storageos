@@ -188,7 +188,19 @@ describe('Cartera: mejoras de subidas y renovaciones (e2e)', () => {
     const itemB = items.find((i) => i.contractId === b.id)!;
     expect(['pending', 'sent', 'delivered']).toContain(itemA.noticeDelivery);
 
-    // Rebota el correo: se ve en la ficha y se puede reenviar.
+    // Rebota el correo: se ve en la ficha y se puede reenviar. Antes se espera a
+    // que la cola lo envíe (si no, el envío lo vuelve a dejar como «enviado»).
+    for (let i = 0; i < 50; i++) {
+      const pending = await db.communication.count({
+        where: {
+          contractId: a.id,
+          source: 'customer_email.rent_increase_notice',
+          status: { in: ['pending', 'processing'] },
+        },
+      });
+      if (pending === 0) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     await db.communication.updateMany({
       where: { contractId: a.id, source: 'customer_email.rent_increase_notice' },
       data: { status: 'bounced' },
