@@ -342,7 +342,9 @@
         "statusReported": "Recibida",
         "statusInvestigating": "En curso",
         "statusResolved": "Resuelta",
-        "statusDismissed": "Cerrada"
+        "statusDismissed": "Cerrada",
+        "closedOn": "Cerrada el {date}",
+        "resolution": "Respuesta del equipo"
       },
       "facility": {
         "title": "Tu local",

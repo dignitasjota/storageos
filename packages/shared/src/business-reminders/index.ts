@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
+
 import type { ExpenseCategory } from '../expenses';
 
 /**
@@ -93,7 +95,7 @@ export type BusinessReminderRecipientMode = z.infer<typeof BusinessReminderRecip
 /** Opciones de «días antes» que se ofrecen en el formulario. */
 export const BUSINESS_REMINDER_DAY_OPTIONS = [90, 60, 30, 15, 7, 3, 1, 0] as const;
 
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
+const dateOnly = calendarDate;
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 const reminderFields = {
@@ -365,14 +367,23 @@ export function recurrenceMonths(
   }
 }
 
-/** Siguiente vencimiento al marcar hecho; null si no se repite. */
+/**
+ * Siguiente vencimiento al marcar hecho; null si no se repite. `anchorDay` es
+ * el día del mes en que se apuntó: un vencimiento del 31 pasa al 28 en febrero
+ * y vuelve al 31 en marzo (sin él se quedaría en el 28 para siempre).
+ */
 export function nextReminderDueDate(
   dueDate: string,
   recurrence: BusinessReminderRecurrence,
   intervalMonths: number | null | undefined,
+  anchorDay?: number | null,
 ): string | null {
   const months = recurrenceMonths(recurrence, intervalMonths);
-  return months ? addMonthsToDate(dueDate, months) : null;
+  if (!months) return null;
+  const next = addMonthsToDate(dueDate, months);
+  if (!anchorDay) return next;
+  const { y, m } = parse(next);
+  return fmt(y, m, Math.min(anchorDay, daysInMonth(y, m)));
 }
 
 export function recurrenceLabel(

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
 import { TaskPriorityEnum, TaskTypeEnum } from '../operations/schemas';
 
 // ============================================================================
@@ -15,7 +16,7 @@ export const ChecklistTemplateItemSchema = z.object({
 });
 export type ChecklistTemplateItem = z.infer<typeof ChecklistTemplateItemSchema>;
 
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
+const dateOnly = calendarDate;
 
 export const CreateMaintenancePlanSchema = z
   .object({

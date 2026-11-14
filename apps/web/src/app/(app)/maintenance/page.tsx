@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ import {
   useRunMaintenancePlan,
   useUpdateMaintenancePlan,
 } from '@/lib/maintenance/hooks';
+import { useUsers } from '@/lib/users/hooks';
 
 const TYPE_LABELS: Record<TaskTypeValue, string> = {
   cleaning: 'Limpieza',
@@ -86,6 +88,23 @@ export default function MaintenancePage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MaintenancePlanDto | null>(null);
 
+  async function runNow(p: MaintenancePlanDto) {
+    try {
+      const res = await run.mutateAsync(p.id);
+      if (res.generated) {
+        toast.success(
+          res.dueDate ? `Tarea creada para el ${formatDate(res.dueDate)}.` : 'Tarea creada.',
+        );
+      } else if (res.reason === 'open_task') {
+        toast.info('La tarea anterior de este plan sigue abierta: termínala antes de crear otra.');
+      } else {
+        toast.info('No había ninguna tarea que crear.');
+      }
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   async function action(fn: () => Promise<unknown>, ok: string) {
     try {
       await fn();
@@ -119,7 +138,9 @@ export default function MaintenancePage() {
         )}
       </div>
 
-      {plans.isLoading ? (
+      {plans.isError ? (
+        <SectionError onRetry={() => void plans.refetch()} />
+      ) : plans.isLoading ? (
         <div className="flex h-48 items-center justify-center">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
@@ -147,9 +168,7 @@ export default function MaintenancePage() {
                         size="sm"
                         variant="outline"
                         disabled={run.isPending || !p.isActive}
-                        onClick={() =>
-                          void action(() => run.mutateAsync(p.id), 'Generación lanzada.')
-                        }
+                        onClick={() => void runNow(p)}
                       >
                         Generar ahora
                       </Button>
@@ -223,6 +242,8 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
   const create = useCreateMaintenancePlan();
   const updatePlan = useUpdateMaintenancePlan();
   const facilities = useFacilities();
+  const users = useUsers();
+  const [assignee, setAssignee] = useState<string>(plan?.assignedToUserId ?? '');
   const [title, setTitle] = useState(plan?.title ?? '');
   const [description, setDescription] = useState(plan?.description ?? '');
   const [type, setType] = useState<TaskTypeValue>(plan?.type ?? 'maintenance');
@@ -255,6 +276,7 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
       type,
       priority,
       ...(facilityId ? { facilityId } : {}),
+      ...(assignee ? { assignedToUserId: assignee } : {}),
       freq,
       interval: Number(interval) || 1,
       weekdays: freq === 'weekly' ? weekdays : [],
@@ -276,6 +298,7 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
             type,
             priority,
             facilityId: facilityId || null,
+            assignedToUserId: assignee || null,
             freq,
             interval: input.interval,
             weekdays: input.weekdays,
@@ -369,6 +392,31 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Responsable (opcional)</Label>
+          <Select
+            value={assignee || 'none'}
+            onValueChange={(v) => setAssignee(v === 'none' ? '' : v)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Sin asignar" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sin asignar</SelectItem>
+              {(users.data ?? [])
+                .filter((u) => u.isActive || u.id === plan?.assignedToUserId)
+                .map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.fullName}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Cada tarea le llega asignada, con un aviso.
+          </p>
         </div>
 
         <div className="rounded-md border p-3">

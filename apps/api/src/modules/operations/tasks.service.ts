@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
 import { pageArgs, type PageRequest } from '../../common/pagination';
@@ -40,12 +45,20 @@ type TaskWithIncludes = Task & {
   assignedTo?: { fullName: string } | null;
 };
 
+// Una tarea abierta se puede dar por hecha sin pasar por «En curso»; hecha o
+// cancelada se puede reabrir.
 const ALLOWED_TRANSITIONS: Record<TaskStatusValue, TaskStatusValue[]> = {
-  open: ['in_progress', 'cancelled'],
+  open: ['in_progress', 'done', 'cancelled'],
   in_progress: ['done', 'open', 'cancelled'],
-  done: [],
+  done: ['open'],
   cancelled: ['open'],
 };
+
+const TASK_INCLUDE = {
+  facility: { select: { name: true } },
+  unit: { select: { code: true } },
+  assignedTo: { select: { fullName: true } },
+} as const;
 
 @Injectable()
 export class TasksService {
@@ -146,6 +159,67 @@ export class TasksService {
     return { updated: res.count };
   }
 
+  /**
+   * Comprueba el local, el trastero y el responsable: que existan, que sean de
+   * los locales del usuario y que el trastero sea del local elegido. Sin local,
+   * toma el del trastero. Devuelve el local que queda.
+   */
+  private async checkRefs(
+    tenantId: string,
+    scope: string[] | null | undefined,
+    refs: {
+      facilityId?: string | null | undefined;
+      unitId?: string | null | undefined;
+      assignedToUserId?: string | null | undefined;
+    },
+  ): Promise<{ facilityId: string | null | undefined }> {
+    let facilityId = refs.facilityId;
+    await this.prisma.withTenant(async (tx) => {
+      if (facilityId) {
+        assertFacilityAllowed(scope, facilityId);
+        const f = await tx.facility.count({ where: { id: facilityId, deletedAt: null } });
+        if (f === 0) {
+          throw new BadRequestException({
+            code: 'facility_not_found',
+            message: 'Local no encontrado',
+          });
+        }
+      }
+      if (refs.unitId) {
+        const unit = await tx.unit.findFirst({
+          where: { id: refs.unitId },
+          select: { facilityId: true },
+        });
+        if (!unit) {
+          throw new BadRequestException({
+            code: 'unit_not_found',
+            message: 'Trastero no encontrado',
+          });
+        }
+        assertFacilityAllowed(scope, unit.facilityId);
+        if (facilityId && unit.facilityId !== facilityId) {
+          throw new BadRequestException({
+            code: 'unit_not_in_facility',
+            message: 'Ese trastero no es del local elegido',
+          });
+        }
+        if (facilityId === undefined || facilityId === null) facilityId = unit.facilityId;
+      }
+      if (refs.assignedToUserId) {
+        const user = await tx.user.count({
+          where: { id: refs.assignedToUserId, isActive: true },
+        });
+        if (user === 0) {
+          throw new BadRequestException({
+            code: 'assignee_not_found',
+            message: 'La persona elegida no está en el equipo o está desactivada',
+          });
+        }
+      }
+    }, tenantId);
+    return { facilityId };
+  }
+
   async list(tenantId: string, filters: ListFilters): Promise<TaskDto[]> {
     const where: Prisma.TaskWhereInput = { deletedAt: null };
     if (filters.status) where.status = filters.status as TaskStatus;
@@ -185,14 +259,14 @@ export class TasksService {
     /** Locales del usuario (null = todos). */
     facilityScope?: string[] | null;
   }): Promise<TaskDto> {
-    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
+    const refs = await this.checkRefs(args.tenantId, args.facilityScope, args.input);
     const data: Prisma.TaskUncheckedCreateInput = {
       tenantId: args.tenantId,
       type: args.input.type,
       priority: args.input.priority,
       title: args.input.title,
       description: args.input.description || null,
-      facilityId: args.input.facilityId ?? null,
+      facilityId: refs.facilityId ?? null,
       unitId: args.input.unitId ?? null,
       assignedToUserId: args.input.assignedToUserId ?? null,
       createdByUserId: args.userId,
@@ -226,13 +300,24 @@ export class TasksService {
     facilityScope?: string[] | null;
   }): Promise<TaskDto> {
     const before = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
-    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
+    // El trastero se comprueba contra el local que quedará (el nuevo o el que tenía).
+    const nextFacility =
+      args.input.facilityId !== undefined ? args.input.facilityId : before.facilityId;
+    const nextUnit = args.input.unitId !== undefined ? args.input.unitId : before.unitId;
+    const refs = await this.checkRefs(args.tenantId, args.facilityScope, {
+      facilityId: nextFacility,
+      unitId:
+        args.input.unitId !== undefined || args.input.facilityId !== undefined ? nextUnit : null,
+      assignedToUserId: args.input.assignedToUserId,
+    });
     const data: Prisma.TaskUncheckedUpdateInput = {};
     if (args.input.type !== undefined) data.type = args.input.type;
     if (args.input.priority !== undefined) data.priority = args.input.priority;
     if (args.input.title !== undefined) data.title = args.input.title;
     if (args.input.description !== undefined) data.description = args.input.description || null;
-    if (args.input.facilityId !== undefined) data.facilityId = args.input.facilityId ?? null;
+    if (args.input.facilityId !== undefined || refs.facilityId !== nextFacility) {
+      data.facilityId = refs.facilityId ?? null;
+    }
     if (args.input.unitId !== undefined) data.unitId = args.input.unitId ?? null;
     if (args.input.assignedToUserId !== undefined)
       data.assignedToUserId = args.input.assignedToUserId ?? null;
@@ -285,20 +370,34 @@ export class TasksService {
       data.cancelledAt = now;
       if (args.input.reason) data.cancelReason = args.input.reason;
     }
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.task.update({
-          where: { id: args.id },
-          data,
-          include: {
-            facility: { select: { name: true } },
-            unit: { select: { code: true } },
-            assignedTo: { select: { fullName: true } },
-          },
-        }),
-      args.tenantId,
+    if (args.input.status === 'open') {
+      // Reabrir: fuera las marcas de cierre.
+      data.completedAt = null;
+      data.cancelledAt = null;
+      data.cancelReason = null;
+    }
+    const updated = await this.prisma.withTenant(async (tx) => {
+      // Dos clics a la vez: solo cambia si sigue en el estado que se leyó.
+      const moved = await tx.task.updateMany({
+        where: { id: args.id, status: existing.status },
+        data,
+      });
+      if (moved.count === 0) {
+        throw new ConflictException({
+          code: 'task_changed',
+          message: 'La tarea acaba de cambiar: vuelve a abrirla',
+        });
+      }
+      return tx.task.findUniqueOrThrow({
+        where: { id: args.id },
+        include: TASK_INCLUDE,
+      });
+    }, args.tenantId);
+    await this.writeAudit(
+      `task.${args.input.status === 'open' ? 'reopened' : args.input.status}`,
+      args,
+      args.id,
     );
-    await this.writeAudit(`task.${args.input.status}`, args, args.id);
     return this.toDto(updated);
   }
 
@@ -374,31 +473,33 @@ export class TasksService {
     /** Locales del usuario (null = todos). */
     facilityScope?: string[] | null;
   }): Promise<TaskDto> {
-    const task = await this.findOrThrow(args.tenantId, args.taskId, args.facilityScope);
-    const items = (task.checklist as ChecklistItemDto[] | null) ?? [];
-    const idx = items.findIndex((it) => it.id === args.itemId);
-    if (idx === -1) {
-      throw new NotFoundException({
-        code: 'checklist_item_not_found',
-        message: 'Punto no encontrado',
+    await this.findOrThrow(args.tenantId, args.taskId, args.facilityScope);
+    // La fila se bloquea: dos personas marcando puntos a la vez ya no se pisan.
+    const updated = await this.prisma.withTenant(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${args.taskId}::uuid FOR UPDATE`;
+      const task = await tx.task.findUniqueOrThrow({
+        where: { id: args.taskId },
+        select: { checklist: true },
       });
-    }
-    const next = items.map((it, i) =>
-      i === idx ? { ...it, status: args.input.status, note: args.input.note?.trim() || null } : it,
-    );
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.task.update({
-          where: { id: args.taskId },
-          data: { checklist: next as unknown as Prisma.InputJsonValue },
-          include: {
-            facility: { select: { name: true } },
-            unit: { select: { code: true } },
-            assignedTo: { select: { fullName: true } },
-          },
-        }),
-      args.tenantId,
-    );
+      const items = (task.checklist as ChecklistItemDto[] | null) ?? [];
+      const idx = items.findIndex((it) => it.id === args.itemId);
+      if (idx === -1) {
+        throw new NotFoundException({
+          code: 'checklist_item_not_found',
+          message: 'Punto no encontrado',
+        });
+      }
+      const next = items.map((it, i) =>
+        i === idx
+          ? { ...it, status: args.input.status, note: args.input.note?.trim() || null }
+          : it,
+      );
+      return tx.task.update({
+        where: { id: args.taskId },
+        data: { checklist: next as unknown as Prisma.InputJsonValue },
+        include: TASK_INCLUDE,
+      });
+    }, args.tenantId);
     await this.writeAudit('task.checklist_item_updated', args, args.taskId);
     return this.toDto(updated);
   }

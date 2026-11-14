@@ -342,7 +342,9 @@
         "statusReported": "Received",
         "statusInvestigating": "In progress",
         "statusResolved": "Resolved",
-        "statusDismissed": "Closed"
+        "statusDismissed": "Closed",
+        "closedOn": "Closed on {date}",
+        "resolution": "Reply from the team"
       },
       "facility": {
         "title": "Your facility",

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -32,7 +33,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import { parsePageRequest, toPage } from '../../common/pagination';
+import { assertUuid, parsePageRequest, toPage } from '../../common/pagination';
 
 import { IncidentsService } from './incidents.service';
 
@@ -57,13 +58,24 @@ function extractMeta(req: Request): RequestMeta {
 function parseStatus(value: string | undefined): IncidentStatusValue | undefined {
   if (!value) return undefined;
   const parsed = IncidentStatusEnum.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  if (!parsed.success) {
+    throw new BadRequestException({ code: 'invalid_filter', message: 'Filtro no válido' });
+  }
+  return parsed.data;
 }
 
 function parseSeverity(value: string | undefined): IncidentSeverityValue | undefined {
   if (!value) return undefined;
   const parsed = IncidentSeverityEnum.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  if (!parsed.success) {
+    throw new BadRequestException({ code: 'invalid_filter', message: 'Filtro no válido' });
+  }
+  return parsed.data;
+}
+
+/** Los identificadores de los filtros: uno mal escrito es un 400, no un error del servidor. */
+function checkIds(...ids: (string | undefined)[]): void {
+  for (const id of ids) assertUuid(id);
 }
 
 @Controller('incidents')
@@ -88,6 +100,7 @@ export class IncidentsController {
   ): Promise<PageDto<IncidentDto>> {
     const parsedStatus = parseStatus(status);
     const parsedSeverity = parseSeverity(severity);
+    checkIds(facilityId, unitId, customerId, contractId, assignedToUserId);
     const page = parsePageRequest(cursor, limit);
     const rows = await this.incidents.list(user.tenantId, {
       ...(search ? { search } : {}),
@@ -118,6 +131,7 @@ export class IncidentsController {
   ): Promise<IncidentDto[]> {
     const parsedStatus = parseStatus(status);
     const parsedSeverity = parseSeverity(severity);
+    checkIds(facilityId, unitId, customerId, contractId, assignedToUserId);
     return this.incidents.list(user.tenantId, {
       ...(parsedStatus ? { status: parsedStatus } : {}),
       ...(parsedSeverity ? { severity: parsedSeverity } : {}),
@@ -136,7 +150,7 @@ export class IncidentsController {
   async pendingCounts(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ reported: number; investigating: number }> {
-    return this.incidents.countOpenByStatus(user.tenantId);
+    return this.incidents.countOpenByStatus(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('incidents:read')

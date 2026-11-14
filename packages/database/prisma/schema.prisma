@@ -4191,6 +4191,8 @@ model Incident {
   assignedToUserId   String?          @map("assigned_to_user_id") @db.Uuid
   reportedByUserId   String?          @map("reported_by_user_id") @db.Uuid
   reportedByExternal String?          @map("reported_by_external")
+  /// El inquilino la ve en su área de clientes.
+  visibleToCustomer  Boolean          @default(false) @map("visible_to_customer")
   occurredAt         DateTime?        @map("occurred_at") @db.Timestamptz(6)
   resolvedAt         DateTime?        @map("resolved_at") @db.Timestamptz(6)
   dismissedAt        DateTime?        @map("dismissed_at") @db.Timestamptz(6)
@@ -7935,6 +7937,8 @@ model BusinessReminder {
   /// active | paused | done
   status            String    @default("active")
   snoozedUntil      DateTime? @map("snoozed_until") @db.Date
+  /// Día del mes en que se apuntó (para volver al 31 después de febrero).
+  anchorDay         Int?      @map("anchor_day") @db.SmallInt
   templateKey       String?   @map("template_key")
   createdByUserId   String?   @map("created_by_user_id") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
