@@ -13,7 +13,9 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  CopyMaintenancePlanSchema,
   CreateMaintenancePlanSchema,
+  type MaintenanceHistoryDto,
   type MaintenancePlanDto,
   UpdateMaintenancePlanSchema,
 } from '@storageos/shared';
@@ -32,6 +34,7 @@ import type { Request } from 'express';
 
 class CreateMaintenancePlanDto extends createZodDto(CreateMaintenancePlanSchema) {}
 class UpdateMaintenancePlanDto extends createZodDto(UpdateMaintenancePlanSchema) {}
+class CopyMaintenancePlanDto extends createZodDto(CopyMaintenancePlanSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -71,6 +74,35 @@ export class MaintenanceController {
       facilityScope: user.facilityScope ?? null,
       input,
       meta: extractMeta(req),
+    });
+  }
+
+  /** Las tareas que ha creado el plan y si se hicieron a tiempo. */
+  @RequirePermission('tasks:read')
+  @Get(':id/history')
+  history(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<MaintenanceHistoryDto> {
+    return this.service.history(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** Copia el plan a otros locales (uno por local). */
+  @RequirePermission('tasks:manage')
+  @Post(':id/copy')
+  copy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() input: CopyMaintenancePlanDto,
+    @Req() req: Request,
+  ): Promise<MaintenancePlanDto[]> {
+    return this.service.copyToFacilities({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      planId: id,
+      facilityIds: input.facilityIds,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
     });
   }
 

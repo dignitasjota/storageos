@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { attachmentKeysOf } from '../../common/message-attachments';
+import { readOpsFiles } from '../../common/ops-files';
 import { releaseReservedUnit } from '../../common/unit-holds';
 import {
   anonymizeWhatsappConversations,
@@ -407,6 +408,18 @@ export class RgpdService {
       await tx.contractInspectionPhoto.deleteMany({
         where: { id: { in: photos.map((p) => p.id) } },
       });
+      // Fotos de sus incidencias (las que subió y las del equipo).
+      const incidents = await tx.incident.findMany({
+        where: { customerId, NOT: { photos: { equals: [] } } },
+        select: { id: true, photos: true },
+      });
+      const incidentPhotoKeys = incidents.flatMap((i) => readOpsFiles(i.photos).map((f) => f.key));
+      if (incidents.length > 0) {
+        await tx.incident.updateMany({
+          where: { id: { in: incidents.map((i) => i.id) } },
+          data: { photos: [] },
+        });
+      }
       // Mandatos SEPA: se dan de baja. Se conservan referencia, fecha y cuenta
       // (cifrada) porque son la prueba ante una reclamación de un adeudo ya
       // cobrado (el banco la admite hasta 13 meses después), igual que la firma
@@ -430,7 +443,11 @@ export class RgpdService {
         where: { customerId },
         data: { ipAddress: null, userAgent: null },
       });
-      const fileKeys = [...faces.map((f) => f.facePhotoKey!), ...photos.map((p) => p.key)];
+      const fileKeys = [
+        ...faces.map((f) => f.facePhotoKey!),
+        ...photos.map((p) => p.key),
+        ...incidentPhotoKeys,
+      ];
       // Conversaciones de WhatsApp: sin texto ni número.
       const whatsapp = await anonymizeWhatsappConversations(
         tx,
@@ -445,6 +462,10 @@ export class RgpdService {
       return [...whatsapp.mediaKeys, ...fileKeys];
     }, args.tenantId);
     await this.files.deleteObjects('uploads', [...filesToDelete, ...chatAttachmentKeys]);
+    // Fotos que subió para una incidencia y no llegó a enviar.
+    await this.files
+      .deleteByPrefix('uploads', `${args.tenantId}/incidents/portal/${args.customerId}/`)
+      .catch(() => undefined);
     for (const unitId of freedUnitIds) {
       this.events.emit(DOMAIN_EVENTS.unit_available, {
         tenantId: args.tenantId,

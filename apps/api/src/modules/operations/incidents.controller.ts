@@ -12,6 +12,7 @@ import {
   Post,
   Query,
   Req,
+  Put,
 } from '@nestjs/common';
 import {
   CreateIncidentSchema,
@@ -25,6 +26,14 @@ import {
   type IncidentStatusValue,
   TransitionIncidentSchema,
   UpdateIncidentSchema,
+  AddOpsFileSchema,
+  IncidentCategoryEnum,
+  IncidentResponseHoursSchema,
+  OpsFileUploadSchema,
+  type IncidentCategory,
+  type IncidentReportDto,
+  type IncidentResponseHours,
+  type MessageAttachmentUploadDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -45,6 +54,32 @@ class CreateIncidentDto extends createZodDto(CreateIncidentSchema) {}
 class UpdateIncidentDto extends createZodDto(UpdateIncidentSchema) {}
 class TransitionIncidentDto extends createZodDto(TransitionIncidentSchema) {}
 class IncidentCommentDtoBody extends createZodDto(IncidentCommentSchema) {}
+class OpsFileUploadDto extends createZodDto(OpsFileUploadSchema) {}
+class AddOpsFileDto extends createZodDto(AddOpsFileSchema) {}
+class ResponseHoursDto extends createZodDto(IncidentResponseHoursSchema) {}
+
+function parseCategory(value: string | undefined): IncidentCategory | undefined {
+  if (!value) return undefined;
+  const parsed = IncidentCategoryEnum.safeParse(value);
+  if (!parsed.success) {
+    throw new BadRequestException({ code: 'invalid_filter', message: 'Filtro no válido' });
+  }
+  return parsed.data;
+}
+
+/** `YYYY-MM-DD` válido o 400. */
+function parseDay(value: string | undefined, fallback: Date): Date {
+  if (!value) return fallback;
+  const d = new Date(`${value}T00:00:00.000Z`);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
+    Number.isNaN(d.getTime()) ||
+    d.toISOString().slice(0, 10) !== value
+  ) {
+    throw new BadRequestException({ code: 'invalid_range', message: 'Fecha no válida' });
+  }
+  return d;
+}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -97,14 +132,19 @@ export class IncidentsController {
     @Query('search') search?: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Query('category') category?: string,
+    @Query('responseOverdue') responseOverdue?: string,
   ): Promise<PageDto<IncidentDto>> {
     const parsedStatus = parseStatus(status);
     const parsedSeverity = parseSeverity(severity);
+    const parsedCategory = parseCategory(category);
     checkIds(facilityId, unitId, customerId, contractId, assignedToUserId);
     const page = parsePageRequest(cursor, limit);
     const rows = await this.incidents.list(user.tenantId, {
       ...(search ? { search } : {}),
       page,
+      ...(parsedCategory ? { category: parsedCategory } : {}),
+      ...(responseOverdue === '1' || responseOverdue === 'true' ? { responseOverdue: true } : {}),
       ...(parsedStatus ? { status: parsedStatus } : {}),
       ...(parsedSeverity ? { severity: parsedSeverity } : {}),
       ...(facilityId ? { facilityId } : {}),
@@ -142,6 +182,81 @@ export class IncidentsController {
       ...(assignedToUserId ? { assignedToUserId } : {}),
       facilityScope: user.facilityScope ?? null,
     });
+  }
+
+  /** Plazos de la primera respuesta por gravedad (horas). Antes de `:id`. */
+  @RequirePermission('incidents:read')
+  @Get('settings')
+  settings(@CurrentUser() user: AuthenticatedUser): Promise<IncidentResponseHours> {
+    return this.incidents.getResponseHours(user.tenantId);
+  }
+
+  @RequirePermission('incidents:manage')
+  @Put('settings')
+  updateSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ResponseHoursDto,
+  ): Promise<IncidentResponseHours> {
+    return this.incidents.setResponseHours(user.tenantId, user.sub, body);
+  }
+
+  /** Informe de un periodo (por tipo, gravedad y local). Antes de `:id`. */
+  @RequirePermission('incidents:read')
+  @Get('report')
+  report(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<IncidentReportDto> {
+    const end = parseDay(to, new Date());
+    const start = parseDay(from, new Date(end.getTime() - 89 * 86_400_000));
+    if (start.getTime() > end.getTime()) {
+      throw new BadRequestException({ code: 'invalid_range', message: 'Rango de fechas inválido' });
+    }
+    return this.incidents.report(
+      user.tenantId,
+      {
+        from: start,
+        to: new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() + 1)),
+      },
+      user.facilityScope ?? null,
+    );
+  }
+
+  @RequirePermission('incidents:write')
+  @Post(':id/photos/upload-url')
+  @HttpCode(HttpStatus.OK)
+  photoUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: OpsFileUploadDto,
+  ): Promise<MessageAttachmentUploadDto> {
+    return this.incidents.photoUploadUrl(
+      user.tenantId,
+      id,
+      body.mimeType,
+      user.facilityScope ?? null,
+    );
+  }
+
+  @RequirePermission('incidents:write')
+  @Post(':id/photos')
+  addPhoto(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AddOpsFileDto,
+  ): Promise<IncidentDto> {
+    return this.incidents.addPhoto(user.tenantId, id, body, user.facilityScope ?? null);
+  }
+
+  @RequirePermission('incidents:write')
+  @Delete(':id/photos/:fileId')
+  removePhoto(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('fileId', new ParseUUIDPipe()) fileId: string,
+  ): Promise<IncidentDto> {
+    return this.incidents.removePhoto(user.tenantId, id, fileId, user.facilityScope ?? null);
   }
 
   /** Nº de incidencias abiertas por estado — para los badges del menú. */

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  type MessageAttachmentUploadDto,
   type PaymentMethodDto,
   type PortalAccountDto,
   type PortalAccessCredentialDto,
@@ -16,6 +17,7 @@ import {
   type PortalSessionDto,
   type PortalUnitChangeRequestDto,
   type SetupIntentResponseDto,
+  PORTAL_INCIDENT_CATEGORIES,
   earliestMoveOutDate,
   monthEndOf,
   monthEndsFrom,
@@ -86,6 +88,7 @@ import { WithdrawalNotice } from './withdrawal-notice';
 
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { AttachmentPicker, uploadMessageAttachments } from '@/components/messages/attachments';
 import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
 import { TenantAppHead } from '@/components/pwa/tenant-app-head';
 import { Badge } from '@/components/ui/badge';
@@ -320,6 +323,9 @@ function PortalConsumeContent() {
   const [incidents, setIncidents] = useState<PortalIncidentDto[] | null>(null);
   const [incidentTitle, setIncidentTitle] = useState('');
   const [incidentDesc, setIncidentDesc] = useState('');
+  const [incidentCategory, setIncidentCategory] = useState<string>('other');
+  const [incidentContract, setIncidentContract] = useState<string>('');
+  const [incidentPhotos, setIncidentPhotos] = useState<File[]>([]);
   const [reportingIncident, setReportingIncident] = useState(false);
   const [pushKey, setPushKey] = useState<string | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
@@ -723,13 +729,26 @@ function PortalConsumeContent() {
     }
     setReportingIncident(true);
     try {
+      const photos = await uploadMessageAttachments(incidentPhotos.slice(0, 4), (mimeType) =>
+        portalFetch<MessageAttachmentUploadDto>(session, '/portal/me/incidents/photo-upload-url', {
+          method: 'POST',
+          json: { mimeType },
+        }),
+      );
       const created = await portalFetch<PortalIncidentDto>(session, '/portal/me/incidents', {
         method: 'POST',
-        json: { title: incidentTitle.trim(), description: incidentDesc.trim() || undefined },
+        json: {
+          title: incidentTitle.trim(),
+          description: incidentDesc.trim() || undefined,
+          category: incidentCategory,
+          ...(incidentContract ? { contractId: incidentContract } : {}),
+          ...(photos.length > 0 ? { photos } : {}),
+        },
       });
       setIncidents((prev) => [created, ...(prev ?? [])]);
       setIncidentTitle('');
       setIncidentDesc('');
+      setIncidentPhotos([]);
       toast.success(tIncidents('success'));
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : tIncidents('error'));
@@ -1684,6 +1703,46 @@ function PortalConsumeContent() {
                   maxLength={2000}
                   rows={3}
                   className="w-full rounded-md border bg-background px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-ring sm:text-sm"
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="space-y-1 text-sm">
+                    <span className="text-muted-foreground">{tIncidents('category')}</span>
+                    <select
+                      value={incidentCategory}
+                      onChange={(e) => setIncidentCategory(e.target.value)}
+                      className="w-full rounded-md border bg-background px-3 py-2 text-base sm:text-sm"
+                    >
+                      {PORTAL_INCIDENT_CATEGORIES.map((c) => (
+                        <option key={c} value={c}>
+                          {tIncidents(`categories.${c}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {(contracts ?? []).length > 1 && (
+                    <label className="space-y-1 text-sm">
+                      <span className="text-muted-foreground">{tIncidents('whichUnit')}</span>
+                      <select
+                        value={incidentContract}
+                        onChange={(e) => setIncidentContract(e.target.value)}
+                        className="w-full rounded-md border bg-background px-3 py-2 text-base sm:text-sm"
+                      >
+                        <option value="">{tIncidents('anyUnit')}</option>
+                        {(contracts ?? []).map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.unitCode} · {c.facilityName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                <AttachmentPicker
+                  files={incidentPhotos}
+                  onChange={(f) => setIncidentPhotos(f.slice(0, 4))}
+                  disabled={reportingIncident}
+                  label={tIncidents('attach')}
+                  texts={{ wrongType: tIncidents('attachType'), tooBig: tIncidents('attachSize') }}
                 />
                 <Button
                   onClick={reportIncident}

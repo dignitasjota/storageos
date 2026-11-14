@@ -8,6 +8,10 @@ import type {
   IncidentCommentDto,
   IncidentCommentInput,
   IncidentDto,
+  IncidentRepairTaskDto,
+  IncidentReportDto,
+  IncidentResponseHours,
+  MyTasksCountDto,
   TaskCommentDto,
   TaskCommentInput,
   TaskDto,
@@ -256,5 +260,69 @@ export function useAddIncidentComment(incidentId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: incidentCommentsKey(incidentId) });
     },
+  });
+}
+
+/** Las tareas creadas desde una incidencia. */
+export function useIncidentRepairTasks(incidentId: string) {
+  return useQuery({
+    queryKey: ['incidents', incidentId, 'tasks'],
+    queryFn: () => apiFetch<IncidentRepairTaskDto[]>(`/incidents/${incidentId}/tasks`),
+  });
+}
+
+export function useCreateIncidentRepairTask(incidentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<TaskDto>(`/incidents/${incidentId}/task`, { method: 'POST', json: {} }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['incidents'] });
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+}
+
+/** Responde al inquilino por su chat y lo deja en los comentarios. */
+export function useReplyIncident(incidentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: string) =>
+      apiFetch<void>(`/incidents/${incidentId}/reply`, { method: 'POST', json: { body } }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['incidents'] }),
+  });
+}
+
+export function useIncidentReport(from: string, to: string) {
+  return useQuery({
+    queryKey: ['incidents', 'report', from, to],
+    queryFn: () => apiFetch<IncidentReportDto>(`/incidents/report?from=${from}&to=${to}`),
+  });
+}
+
+export function useIncidentResponseHours() {
+  return useQuery({
+    queryKey: ['incidents', 'settings'],
+    queryFn: () => apiFetch<IncidentResponseHours>('/incidents/settings'),
+  });
+}
+
+export function useUpdateIncidentResponseHours() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (hours: IncidentResponseHours) =>
+      apiFetch<IncidentResponseHours>('/incidents/settings', { method: 'PUT', json: hours }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['incidents'] }),
+  });
+}
+
+/** Mis tareas atrasadas o para hoy (el número del menú). */
+export function useMyTasksCount(enabled: boolean) {
+  return useQuery({
+    queryKey: ['tasks', 'mine-count'],
+    queryFn: () => apiFetch<MyTasksCountDto>('/tasks/mine-count'),
+    enabled,
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false,
   });
 }

@@ -54,6 +54,7 @@ import {
   SendCustomerMessageSchema,
   MessageAttachmentUploadSchema,
   type MessageAttachmentUploadDto,
+  OpsFileUploadSchema,
   type CustomerDocumentDto,
   type CustomerDocumentUploadDto,
   type CustomerMessageDto,
@@ -168,6 +169,7 @@ class PortalGoCardlessMandateCompleteDto extends createZodDto(
 ) {}
 class RequestMoveOutDto extends createZodDto(RequestMoveOutSchema) {}
 class PortalReportIncidentDto extends createZodDto(PortalReportIncidentSchema) {}
+class PortalOpsFileUploadDto extends createZodDto(OpsFileUploadSchema) {}
 class PortalAiChatDto extends createZodDto(PortalAiChatSchema) {}
 class PortalUpdateProfileDto extends createZodDto(PortalUpdateProfileSchema) {}
 class PortalSetInsuranceDto extends createZodDto(PortalSetInsuranceSchema) {}
@@ -1092,6 +1094,19 @@ export class PortalController {
   ): Promise<PortalIncidentDto[]> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
     return this.incidents.listForCustomer(tenantId, customerId);
+  }
+
+  /** Subida de una foto para la incidencia que va a reportar (hasta 4). */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/incidents/photo-upload-url')
+  @HttpCode(HttpStatus.OK)
+  async incidentPhotoUploadUrl(
+    @Headers('authorization') auth: string | undefined,
+    @Body() input: PortalOpsFileUploadDto,
+  ): Promise<MessageAttachmentUploadDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    return this.incidents.portalPhotoUploadUrl(tenantId, customerId, input.mimeType);
   }
 
   @Public()
