@@ -251,6 +251,10 @@ export interface AnniversaryUpdateDto {
   anniversary: string;
   currentPrice: number;
   newPrice: number;
+  /** El aniversario pasó hace más de 30 días y sigue sin revisarse. */
+  late: boolean;
+  /** Ya tuvo una subida en los últimos 12 meses. */
+  raisedThisYear: boolean;
 }
 
 export const ApplyAnniversaryUpdatesSchema = z.object({
@@ -261,7 +265,10 @@ export const ApplyAnniversaryUpdatesSchema = z.object({
 export type ApplyAnniversaryUpdatesInput = z.infer<typeof ApplyAnniversaryUpdatesSchema>;
 
 export interface ApplyAnniversaryUpdatesResultDto {
+  /** Actualizadas ya o programadas para su aniversario. */
   applied: number;
+  /** De las anteriores, cuántas quedan programadas para su aniversario. */
+  scheduled?: number;
   skipped: number;
   failed: { contractId: string; error: string }[];
 }

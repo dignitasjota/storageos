@@ -1050,3 +1050,24 @@ DEPLOYMENT §130 (pasos a mano: `EMAIL_WEBHOOK_TOKEN` y el webhook de Brevo con 
 DEPLOYMENT §131–§133.
 
 **Por aclarar**: qué error dio la firma de un contrato en producción (2026-11-13). En local, la del inquilino existente con el enlace del correo funciona.
+
+### Subidas de precio y Renovaciones: revisión (2026-11-14, PR A)
+
+Decisiones de Jota: 30 días de preaviso configurables (con aviso si es la segunda del año), subidas siempre un día 1 y aplicadas antes de facturar, fuera las viviendas y los contratos con baja pedida, y los de prepago con su fecha real.
+
+Arreglado:
+
+- **Fecha**: la subida se cobraba un mes tarde; ahora las cuotas cambian a las 00:05 y 00:10 de Madrid y la factura usa la cuota del día.
+- **Cuota equivocada**: dos subidas, o un cambio a mano entre medias, acababan bajando la cuota.
+- **Validación**: no había control de fecha ni de importe.
+- **Aviso al inquilino**: sin IVA, sin idioma, sin constancia y sin el derecho a la baja sin preaviso.
+- **Actualización anual**: se aplicaba hoy, sin aviso, se perdía a los 60 días y se repetía.
+- **Renovar**: daba error a medias, renovaba dos veces y ponía fecha de fin a los contratos indefinidos.
+- **Política**: tope por subida y no por año; sin rastro en el registro de actividad.
+- **Pantallas**:
+  - el alcance por local de los ajustes de toda la empresa;
+  - los vencidos fuera de Renovaciones;
+  - errores pintados como vacío;
+  - el móvil y la jerga.
+
+**Sigue PR B** (mejoras).

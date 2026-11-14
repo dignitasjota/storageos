@@ -429,6 +429,8 @@ model Tenant {
   pricingMaxStepPct             Int                   @default(8) @map("pricing_max_step_pct")
   pricingMinDaysBetweenChanges  Int                   @default(30) @map("pricing_min_days_between_changes")
   rentIncreaseMinMonthsBetween Int                   @default(12) @map("rent_increase_min_months_between")
+  /// Días de preaviso mínimos de una subida de cuota (la condición 4 del contrato dice 30).
+  rentIncreaseNoticeDays       Int                   @default(30) @map("rent_increase_notice_days")
   reviewRequestDelayDays       Int                   @default(14) @map("review_request_delay_days")
   /// Link de "deja tu reseña" en Google Business Profile; se ofrece al promotor
   /// (NPS >= 9) tras valorar, para mejorar el ranking local.
@@ -2953,6 +2955,7 @@ model RentIncrease {
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   appliedAt       DateTime? @map("applied_at") @db.Timestamptz(6)
+  cancelledAt     DateTime? @map("cancelled_at") @db.Timestamptz(6)
 
   tenant Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   items  RentIncreaseItem[]
@@ -2974,13 +2977,21 @@ model RentIncreaseItem {
   status         String    @default("pending")
   skipReason     String?   @map("skip_reason")
   appliedAt      DateTime? @map("applied_at") @db.Timestamptz(6)
+  /// Día en que cambia la cuota: el de la tanda o, si paga por adelantado, el de su siguiente periodo.
+  effectiveDate  DateTime  @map("effective_date") @db.Date
+  /// sent | no_email | failed (null = sin aviso)
+  noticeStatus   String?   @map("notice_status")
+  noticeCommunicationId String? @map("notice_communication_id") @db.Uuid
+  noticeSentAt   DateTime? @map("notice_sent_at") @db.Timestamptz(6)
 
   tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   rentIncrease RentIncrease @relation(fields: [rentIncreaseId], references: [id], onDelete: Cascade)
   contract     Contract     @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  noticeCommunication Communication? @relation(fields: [noticeCommunicationId], references: [id], onDelete: SetNull)
 
   @@unique([rentIncreaseId, contractId])
   @@index([tenantId])
+  @@index([contractId])
   @@map("rent_increase_items")
 }
 
@@ -3907,6 +3918,7 @@ model Communication {
   lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
   contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull)
   invoice  Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  rentIncreaseNotices RentIncreaseItem[]
 
   sepaPrenotices SepaRemittanceItem[]
 

@@ -5,7 +5,8 @@ export type CalendarEventType =
   | 'contract_starting'
   | 'contract_ending'
   | 'reservation_expiring'
-  | 'business_reminder';
+  | 'business_reminder'
+  | 'price_change';
 
 /** Un evento del calendario operativo (vencimiento, tarea, mantenimiento…). */
 export interface CalendarEventDto {

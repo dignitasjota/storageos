@@ -2,10 +2,11 @@
 
 import { TrendingUp } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +21,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
+import { localDateString } from '@/lib/dates';
 import { formatDate } from '@/lib/format';
 import {
   useAnniversaryDue,
@@ -41,6 +43,7 @@ export function AnniversaryCard() {
   const settings = useAnniversarySettings();
   const save = useUpdateAnniversarySettings();
   const canManage = useHasPermission('contracts:manage');
+  const companyWide = useCompanyWide();
   const enabled = settings.data?.enabled ?? false;
   const due = useAnniversaryDue(enabled);
   const apply = useApplyAnniversaryUpdates();
@@ -54,7 +57,19 @@ export function AnniversaryCard() {
       setScope(settings.data.scope);
     }
   }, [settings.data]);
-  useEffect(() => setSelected(new Set((due.data ?? []).map((d) => d.contractId))), [due.data]);
+  // Lo nuevo entra marcado; lo que la persona desmarcó sigue desmarcado al refrescar.
+  const known = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const ids = (due.data ?? []).map((d) => d.contractId);
+    setSelected((prev) => {
+      const next = new Set<string>();
+      for (const id of ids) {
+        if (!known.current.has(id) || prev.has(id)) next.add(id);
+      }
+      return next;
+    });
+    known.current = new Set(ids);
+  }, [due.data]);
 
   if (!settings.data) return null;
 
@@ -79,18 +94,23 @@ export function AnniversaryCard() {
       action === 'apply' &&
       !(await ask({
         title: '¿Seguro?',
-        description: `¿Actualizar la renta de ${ids.length} contrato(s)? Se aplica a las próximas facturas.`,
+        description: `Se actualiza la renta de ${ids.length} ${ids.length === 1 ? 'contrato' : 'contratos'} desde su aniversario (si aún no ha llegado, queda programada) y se avisa a cada inquilino por correo.`,
       }))
     )
       return;
     try {
       const r = await apply.mutateAsync({ contractIds: ids, action });
       const ok = action === 'apply' ? r.applied : r.skipped;
-      if (r.failed.length) toast.warning(`${ok} hechos, ${r.failed.length} con problemas.`);
-      else
-        toast.success(
-          action === 'apply' ? `${ok} rentas actualizadas.` : `${ok} descartadas este año.`,
-        );
+      const scheduled = r.scheduled ?? 0;
+      const msg =
+        action === 'apply'
+          ? scheduled > 0
+            ? `${ok} rentas revisadas: ${scheduled} cambian en su aniversario y el resto ya. Se ha avisado a los inquilinos.`
+            : `${ok} rentas actualizadas. Se ha avisado a los inquilinos.`
+          : `${ok} descartadas este año.`;
+      if (r.failed.length) {
+        toast.warning(`${msg} ${r.failed.length} con problemas: ${r.failed[0]!.error}`);
+      } else toast.success(msg);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -112,7 +132,7 @@ export function AnniversaryCard() {
           indiques (el índice pactado en el contrato). Nada se aplica solo: tú decides cuáles.
           Comprueba los límites legales vigentes para viviendas.
         </p>
-        {canManage && (
+        {canManage && companyWide && (
           <div className="grid gap-3 sm:grid-cols-[auto_8rem_12rem_auto] sm:items-end">
             <label className="flex items-center gap-2 pb-2">
               <Checkbox
@@ -153,7 +173,9 @@ export function AnniversaryCard() {
           </div>
         )}
 
+        {enabled && due.isError && <SectionError onRetry={() => void due.refetch()} />}
         {enabled &&
+          !due.isError &&
           (items.length === 0 ? (
             <p className="text-muted-foreground">Ningún aniversario pendiente ahora mismo.</p>
           ) : (
@@ -191,6 +213,21 @@ export function AnniversaryCard() {
                           Vivienda
                         </Badge>
                       )}
+                      {d.late && (
+                        <Badge variant="destructive" className="ml-2">
+                          Atrasada
+                        </Badge>
+                      )}
+                      {d.anniversary > localDateString() && (
+                        <Badge variant="outline" className="ml-2">
+                          Se programa para su aniversario
+                        </Badge>
+                      )}
+                      {d.raisedThisYear && (
+                        <Badge variant="outline" className="ml-2">
+                          Ya subió este año
+                        </Badge>
+                      )}
                     </div>
                     <span>
                       {eur(d.currentPrice)} → <strong>{eur(d.newPrice)}</strong>
@@ -211,7 +248,7 @@ export function AnniversaryCard() {
                     onClick={() => void run('apply')}
                     disabled={apply.isPending || selected.size === 0}
                   >
-                    Actualizar {selected.size} renta(s)
+                    Actualizar {selected.size} {selected.size === 1 ? 'renta' : 'rentas'}
                   </Button>
                 </div>
               )}

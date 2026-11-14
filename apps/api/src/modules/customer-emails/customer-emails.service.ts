@@ -65,7 +65,7 @@ interface Recipient {
  * correo por defecto no se envía (para no mandar dos).
  */
 /** Qué pasó con un correo al inquilino (el preaviso SEPA lo anota en la remesa). */
-type SendOutcome =
+export type SendOutcome =
   | { status: 'sent'; communicationId: string; recipient: string; subject: string; text: string }
   | { status: 'disabled' | 'automation' | 'no_email' | 'failed' };
 
@@ -329,6 +329,7 @@ export class CustomerEmailsService {
           unitCode: c.unit.code,
           facilityName: c.unit.facility.name,
           endDate: p.newEndDate,
+          newPrice: p.newPrice ?? null,
         },
         contractId: c.id,
       });
@@ -348,6 +349,7 @@ export class CustomerEmailsService {
           facilityName: c.unit.facility.name,
           monthlyWithVat: p.monthlyWithVat,
           effectiveDate: p.effectiveDate,
+          canLeaveWithoutNotice: p.canLeaveWithoutNotice ?? false,
         },
         contractId: c.id,
       });
@@ -662,9 +664,36 @@ export class CustomerEmailsService {
   // Internos
   // -------------------------------------------------------------------------
 
+  /**
+   * Preaviso de una subida de cuota (o su anulación). Es un aviso que exige el
+   * contrato: sale aunque los correos automáticos estén apagados.
+   */
+  async sendRentIncreaseMail(args: {
+    tenantId: string;
+    customerId: string;
+    contractId: string;
+    data: Extract<
+      CustomerEmailData,
+      { kind: 'rent_increase_notice' } | { kind: 'rent_increase_cancelled' }
+    >;
+  }): Promise<SendOutcome> {
+    try {
+      return await this.send(args.tenantId, args.data.kind, null, args.customerId, {
+        data: args.data,
+        contractId: args.contractId,
+        ignoreSettings: true,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[customer-emails] ${args.data.kind} contrato ${args.contractId}: ${(err as Error).message}`,
+      );
+      return { status: 'failed' };
+    }
+  }
+
   private async send(
     tenantId: string,
-    kind: CustomerEmailKind,
+    kind: CustomerEmailKind | 'rent_increase_notice' | 'rent_increase_cancelled',
     /** Disparador de automatizaciones equivalente (para no duplicar), si lo hay. */
     trigger: AutomationTriggerValue | null,
     customerId: string,
@@ -679,7 +708,9 @@ export class CustomerEmailsService {
     },
   ): Promise<SendOutcome> {
     const settings = await this.getSettings(tenantId);
-    if (!settings[kind] && !args.ignoreSettings) return { status: 'disabled' };
+    if (!(settings as Record<string, boolean>)[kind] && !args.ignoreSettings) {
+      return { status: 'disabled' };
+    }
     if (trigger && (await this.hasActiveAutomation(tenantId, trigger))) {
       return { status: 'automation' };
     }

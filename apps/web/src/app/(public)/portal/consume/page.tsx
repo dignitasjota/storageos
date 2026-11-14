@@ -1229,6 +1229,26 @@ function PortalConsumeContent() {
                                 })
                               : ''}
                           </p>
+                          {c.upcomingPrice && c.status !== 'ending' && (
+                            <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                              {tContracts('upcomingPrice', {
+                                price: c.upcomingPrice.monthlyWithVat.toLocaleString(
+                                  intlLocaleForPortal(locale),
+                                  { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                                ),
+                                date: new Date(
+                                  `${c.upcomingPrice.date}T12:00:00Z`,
+                                ).toLocaleDateString(intlLocaleForPortal(locale), {
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric',
+                                }),
+                              })}{' '}
+                              {c.upcomingPrice.canLeaveWithoutNotice
+                                ? tContracts('upcomingPriceLeave')
+                                : ''}
+                            </p>
+                          )}
                         </div>
                         {c.preOpening && !c.preOpening.startedAt ? null : c.status === 'ending' ? (
                           <div className="flex items-center gap-2">
@@ -2050,8 +2070,16 @@ function MoveOutDialog({
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
     now.getDate(),
   ).padStart(2, '0')}`;
+  // Ante una subida anunciada puede irse antes sin preaviso (condición 4 del contrato).
+  const noNoticeUntil = contract?.upcomingPrice?.canLeaveWithoutNotice
+    ? contract.upcomingPrice.date
+    : null;
   // A final de mes: el último día del mes en que se cumple el preaviso (o uno posterior).
-  const minDate = earliestMoveOutDate({ today, noticeDays: notice, endOfMonth });
+  const minDate = noNoticeUntil
+    ? endOfMonth
+      ? monthEndOf(today)
+      : today
+    : earliestMoveOutDate({ today, noticeDays: notice, endOfMonth });
   const monthEnds = endOfMonth ? monthEndsFrom(minDate, 6) : [];
   const initial =
     change && contract?.endDate && contract.endDate >= minDate ? contract.endDate : minDate;
@@ -2077,10 +2105,12 @@ function MoveOutDialog({
           <DialogTitle>{change ? t('changeTitle') : t('title')}</DialogTitle>
           <DialogDescription>
             {contract ? `${contract.unitCode} · ${contract.facilityName}. ` : ''}
-            {t(endOfMonth ? 'descriptionEndOfMonth' : 'description', {
-              days: notice,
-              minDate: longDate(minDate),
-            })}
+            {noNoticeUntil
+              ? t('noNotice', { date: longDate(noNoticeUntil) })
+              : t(endOfMonth ? 'descriptionEndOfMonth' : 'description', {
+                  days: notice,
+                  minDate: longDate(minDate),
+                })}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">

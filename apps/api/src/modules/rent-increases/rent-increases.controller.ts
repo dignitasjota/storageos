@@ -56,7 +56,12 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: RentIncreasePolicyDto2,
   ): Promise<RentIncreasePolicyDto> {
-    return this.service.updatePolicy(user.tenantId, body);
+    return this.service.updatePolicy({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      input: body,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('contracts:read')
@@ -100,7 +105,7 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<RentIncreaseDto> {
-    return this.service.apply(user.tenantId, id, user.facilityScope ?? null);
+    return this.service.apply(user.tenantId, id, user.facilityScope ?? null, user.sub);
   }
 
   @RequirePermission('contracts:manage')
@@ -110,6 +115,6 @@ export class RentIncreasesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<RentIncreaseDto> {
-    return this.service.cancel(user.tenantId, id, user.facilityScope ?? null);
+    return this.service.cancel(user.tenantId, id, user.facilityScope ?? null, user.sub);
   }
 }

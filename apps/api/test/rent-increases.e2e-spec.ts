@@ -1,4 +1,8 @@
+import { earliestRentIncreaseDate } from '@storageos/shared';
 import request from 'supertest';
+
+import { todayInTimezone } from '../src/common/format';
+import { RentIncreasesService } from '../src/modules/rent-increases/rent-increases.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createCustomer } from './helpers/customer-fixtures';
@@ -50,7 +54,11 @@ describe('Rent increases / ECRI (e2e)', () => {
     expect(preview.body.contracts[0].oldPrice).toBe(100);
     expect(preview.body.contracts[0].newPrice).toBe(110);
 
-    // Programar.
+    // Programar: un día 1 con los 30 días de preaviso.
+    const effectiveDate = earliestRentIncreaseDate(
+      todayInTimezone('Europe/Madrid').toISOString().slice(0, 10),
+      30,
+    );
     const ri = await request(app.getHttpServer())
       .post('/rent-increases')
       .set(auth)
@@ -59,7 +67,7 @@ describe('Rent increases / ECRI (e2e)', () => {
         increaseType: 'percentage',
         increaseValue: 10,
         scope: { minMonthsSinceSigned: 0 },
-        effectiveDate: '2026-06-22',
+        effectiveDate,
       });
     expect(ri.status).toBe(201);
     expect(ri.body.status).toBe('scheduled');
@@ -70,15 +78,19 @@ describe('Rent increases / ECRI (e2e)', () => {
 
     // El preaviso llegó al outbox.
     const notices = await request(app.getHttpServer())
-      .get(`/communications?source=rent_increase:${id}`)
+      .get(`/communications?source=customer_email.rent_increase_notice&contractId=${contractId}`)
       .set(auth);
     expect(notices.body).toHaveLength(1);
     expect(notices.body[0].channel).toBe('email');
 
-    // Aplicar → contrato pasa a 110€ + evento price_changed.
-    const applied = await request(app.getHttpServer())
-      .post(`/rent-increases/${id}/apply`)
-      .set(auth);
+    // Antes de su fecha no se aplica: el inquilino tiene avisado ese día.
+    const early = await request(app.getHttpServer()).post(`/rent-increases/${id}/apply`).set(auth);
+    expect(early.status).toBe(400);
+    expect(early.body.code).toBe('rent_increase_not_due');
+
+    // Llega el día → contrato pasa a 110€ + evento price_changed.
+    await app.get(RentIncreasesService).applyDue(new Date(`${effectiveDate}T12:00:00Z`));
+    const applied = await request(app.getHttpServer()).get(`/rent-increases/${id}`).set(auth);
     expect(applied.status).toBe(200);
     expect(applied.body.status).toBe('applied');
     expect(applied.body.appliedCount).toBe(1);

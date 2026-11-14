@@ -101,6 +101,8 @@ export interface TodayDto {
    * plazo máximo (el inquilino puede cancelar con devolución total).
    */
   preOpeningSoon: { count: number; items: TodayItemDto[] };
+  /** Cuotas que cambian en los próximos 7 días (cambios programados y subidas). */
+  priceChangesSoon?: { count: number; items: TodayItemDto[] };
   /** Productos por debajo del stock mínimo en algún local. */
   lowStock: { count: number; items: TodayItemDto[] };
   /** Trasteros en mantenimiento o bloqueados hace más de 7 días o pasada su fecha prevista. */

@@ -40,7 +40,10 @@ export function useCreateRentIncrease() {
   return useMutation({
     mutationFn: (input: CreateRentIncreaseInput) =>
       apiFetch<RentIncreaseDto>('/rent-increases', { method: 'POST', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+    },
   });
 }
 
@@ -49,7 +52,10 @@ export function useApplyRentIncrease() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<RentIncreaseDto>(`/rent-increases/${id}/apply`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+    },
   });
 }
 
@@ -58,7 +64,10 @@ export function useCancelRentIncrease() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<RentIncreaseDto>(`/rent-increases/${id}/cancel`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: key });
+      void qc.invalidateQueries({ queryKey: ['contracts'] });
+    },
   });
 }
 

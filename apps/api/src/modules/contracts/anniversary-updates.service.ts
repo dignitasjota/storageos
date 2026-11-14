@@ -1,7 +1,10 @@
-import { HttpException, Injectable } from '@nestjs/common';
+import { ForbiddenException, HttpException, Injectable } from '@nestjs/common';
 
+import { todayInTimezone } from '../../common/format';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
+import { pendingPriceChanges } from '../../common/price-changes';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { ContractsService } from './contracts.service';
@@ -16,16 +19,18 @@ import type {
 } from '@storageos/shared';
 
 const DAY = 86_400_000;
-/** Se propone desde 30 días antes del aniversario hasta 60 días después. */
+/** Se propone desde 30 días antes del aniversario hasta que se revisa (o llega el siguiente). */
 const AHEAD_DAYS = 30;
-const BEHIND_DAYS = 60;
+/** Pasados estos días sin revisar, se marca como atrasado. */
+const LATE_DAYS = 30;
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 /**
  * Aniversario que toca revisar para un contrato que empezó en `start`: el más
- * reciente (1 año o más) dentro de la ventana [hoy − 60 d, hoy + 30 d], si aún
- * no se actualizó (o descartó). `null` si no toca. El 29 de febrero cae el 28
+ * reciente (1 año o más) que ya ha llegado o llega en 30 días, si aún no se
+ * actualizó (o descartó). No caduca: sigue propuesto hasta que se revisa o
+ * entra el del año siguiente. `null` si no toca. El 29 de febrero cae el 28
  * los años no bisiestos.
  */
 export function dueAnniversary(start: Date, lastUpdatedOn: Date | null, today: Date): Date | null {
@@ -39,8 +44,7 @@ export function dueAnniversary(start: Date, lastUpdatedOn: Date | null, today: D
     if (year <= start.getUTCFullYear()) continue;
     const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
     const anniversary = new Date(Date.UTC(year, month, Math.min(day, last)));
-    const diff = anniversary.getTime() - today.getTime();
-    if (diff > AHEAD_DAYS * DAY || diff < -BEHIND_DAYS * DAY) continue;
+    if (anniversary.getTime() - today.getTime() > AHEAD_DAYS * DAY) continue;
     if (lastUpdatedOn && lastUpdatedOn.getTime() >= anniversary.getTime()) return null;
     return anniversary;
   }
@@ -61,6 +65,7 @@ export function anniversaryPrice(current: number, pct: number): number {
 export class AnniversaryUpdatesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly contracts: ContractsService,
     private readonly audit: AuditService,
   ) {}
@@ -89,7 +94,15 @@ export class AnniversaryUpdatesService {
     tenantId: string;
     userId: string;
     input: UpdateAnniversarySettingsInput;
+    facilityScope?: string[] | null;
   }): Promise<AnniversarySettingsDto> {
+    if (args.facilityScope) {
+      throw new ForbiddenException({
+        code: 'requires_all_facilities',
+        message:
+          'Este ajuste es de toda la empresa: solo puede cambiarlo quien ve todos los locales',
+      });
+    }
     await this.prisma.withTenant(
       (tx) =>
         tx.tenant.update({
@@ -140,7 +153,10 @@ export class AnniversaryUpdatesService {
             id: true,
             contractNumber: true,
             customerId: true,
+            status: true,
             startDate: true,
+            endDate: true,
+            autoRenew: true,
             priceMonthly: true,
             lastAnniversaryUpdateOn: true,
             customer: {
@@ -151,10 +167,43 @@ export class AnniversaryUpdatesService {
         }),
       tenantId,
     );
+    const ids = rows.map((r) => r.id);
+    const [changes, raises] = await Promise.all([
+      pendingPriceChanges(this.admin, tenantId, { contractIds: ids }),
+      this.prisma.withTenant(
+        (tx) =>
+          tx.contractEvent.findMany({
+            where: {
+              contractId: { in: ids },
+              eventType: 'price_changed',
+              occurredAt: { gte: new Date(midnight.getTime() - 365 * DAY) },
+            },
+            select: { contractId: true, payload: true, occurredAt: true },
+          }),
+        tenantId,
+      ),
+    ]);
+    const raisesBy = new Map<string, Date[]>();
+    for (const e of raises) {
+      const p = (e.payload ?? {}) as { from?: unknown; to?: unknown };
+      if (!(Number(p.to) > Number(p.from))) continue;
+      raisesBy.set(e.contractId, [...(raisesBy.get(e.contractId) ?? []), e.occurredAt]);
+    }
     const due: AnniversaryUpdateDto[] = [];
     for (const r of rows) {
       const anniversary = dueAnniversary(r.startDate, r.lastAnniversaryUpdateOn, midnight);
       if (!anniversary) continue;
+      // Ya tiene otro cambio de cuota en marcha: no se propone otro encima.
+      if ((changes.get(r.id) ?? []).length > 0) continue;
+      // Se va antes del aniversario.
+      if (r.endDate && r.endDate < anniversary && (r.status === 'ending' || !r.autoRenew)) {
+        continue;
+      }
+      // Ya se le subió la cuota para este aniversario (al renovar, con una tanda…).
+      const contractRaises = raisesBy.get(r.id) ?? [];
+      if (contractRaises.some((at) => at.getTime() >= anniversary.getTime() - AHEAD_DAYS * DAY)) {
+        continue;
+      }
       const current = Number(r.priceMonthly);
       due.push({
         contractId: r.id,
@@ -169,6 +218,8 @@ export class AnniversaryUpdatesService {
         anniversary: iso(anniversary),
         currentPrice: current,
         newPrice: anniversaryPrice(current, settings.pct),
+        late: anniversary.getTime() < midnight.getTime() - LATE_DAYS * DAY,
+        raisedThisYear: contractRaises.length > 0,
       });
     }
     return due.sort((a, b) => a.anniversary.localeCompare(b.anniversary));
@@ -186,7 +237,13 @@ export class AnniversaryUpdatesService {
     const due = new Map(
       (await this.listDue(args.tenantId, args.facilityScope)).map((d) => [d.contractId, d]),
     );
-    const result: ApplyAnniversaryUpdatesResultDto = { applied: 0, skipped: 0, failed: [] };
+    const result: ApplyAnniversaryUpdatesResultDto = {
+      applied: 0,
+      scheduled: 0,
+      skipped: 0,
+      failed: [],
+    };
+    const today = iso(todayInTimezone('Europe/Madrid'));
     for (const contractId of [...new Set(args.input.contractIds)]) {
       const row = due.get(contractId);
       if (!row) {
@@ -194,6 +251,8 @@ export class AnniversaryUpdatesService {
         continue;
       }
       try {
+        // Desde el aniversario (programada si aún no ha llegado) y con aviso al inquilino.
+        const future = row.anniversary > today;
         if (args.input.action === 'apply' && row.newPrice !== row.currentPrice) {
           await this.contracts.changePrice({
             tenantId: args.tenantId,
@@ -203,9 +262,12 @@ export class AnniversaryUpdatesService {
             input: {
               priceMonthly: row.newPrice,
               reason: `Actualización anual (${settings.pct > 0 ? '+' : ''}${settings.pct} %) — aniversario ${row.anniversary}`,
+              ...(future ? { effectiveDate: row.anniversary } : {}),
+              notifyCustomer: true,
             },
             meta: args.meta,
           });
+          if (future) result.scheduled = (result.scheduled ?? 0) + 1;
         }
         await this.prisma.withTenant(
           (tx) =>
