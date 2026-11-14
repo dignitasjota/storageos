@@ -403,6 +403,8 @@ describe('Operaciones diarias: arreglos (e2e)', () => {
       contracts: false,
       reservations: false,
       reminders: false,
+      invoices: false,
+      facilities: false,
     });
 
     const { owner, auth, fac } = await setup('ops-cal');

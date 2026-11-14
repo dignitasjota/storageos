@@ -422,6 +422,8 @@ model Tenant {
   dailySummaryLastDate          DateTime?             @map("daily_summary_last_date") @db.Date
   /// Vencimientos: resumen semanal (los lunes) de lo que vence y último envío.
   remindersWeeklyDigest         Boolean               @default(false) @map("reminders_weekly_digest")
+  /// Horas para la primera respuesta a una incidencia por gravedad; null = las de serie.
+  incidentResponseHours         Json?                 @map("incident_response_hours")
   remindersDigestLastDate       DateTime?             @map("reminders_digest_last_date") @db.Date
   /// Enlace de calendario (ICS) de los vencimientos: hash para buscarlo y copia cifrada para enseñarlo.
   remindersIcsTokenHash         String?               @unique @map("reminders_ics_token_hash")
@@ -1980,6 +1982,7 @@ model Expense {
 
   businessReminderCompletions BusinessReminderCompletion[]
   bankTransactions            BankStatementTransaction[]
+  incidents                   Incident[]
 
   @@unique([tenantId, externalRef])
   @@index([tenantId, expenseDate(sort: Desc)])
@@ -2147,6 +2150,7 @@ model ExpenseSupplier {
   tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   expenses          Expense[]
   recurringExpenses RecurringExpense[]
+  maintenancePlans  MaintenancePlan[]
 
   @@index([tenantId, name])
   @@map("expense_suppliers")
@@ -4097,6 +4101,8 @@ model Task {
   createdByUserId   String?      @map("created_by_user_id") @db.Uuid
   maintenancePlanId String?      @map("maintenance_plan_id") @db.Uuid
   checklist         Json         @default("[]")
+  /// Fotos y documentos: [{id, key, mimeType, filename, createdAt}].
+  photos            Json         @default("[]")
   dueDate           DateTime?    @map("due_date") @db.Date
   startedAt         DateTime?    @map("started_at") @db.Timestamptz(6)
   completedAt       DateTime?    @map("completed_at") @db.Timestamptz(6)
@@ -4143,12 +4149,17 @@ model MaintenancePlan {
   nextRunDate       DateTime     @map("next_run_date") @db.Date
   lastGeneratedAt   DateTime?    @map("last_generated_at") @db.Timestamptz(6)
   isActive          Boolean      @default(true) @map("is_active")
+  /// La tarea se crea estos días antes de su fecha.
+  leadDays          Int          @default(0) @map("lead_days")
+  estimatedCost     Decimal?     @map("estimated_cost") @db.Decimal(12, 2)
+  supplierId        String?      @map("supplier_id") @db.Uuid
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  facility   Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
-  assignedTo User?     @relation("MaintenancePlanAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facility   Facility?        @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  assignedTo User?            @relation("MaintenancePlanAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  supplier   ExpenseSupplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   tasks      Task[]
 
   @@index([tenantId])
@@ -4193,6 +4204,19 @@ model Incident {
   reportedByExternal String?          @map("reported_by_external")
   /// El inquilino la ve en su área de clientes.
   visibleToCustomer  Boolean          @default(false) @map("visible_to_customer")
+  /// damage | water | lock | access | cleaning | pests | security | complaint | other
+  category           String           @default("other")
+  /// Fotos y documentos: [{id, key, mimeType, filename, createdAt}].
+  photos             Json             @default("[]")
+  /// Plazo de la primera respuesta, según la gravedad.
+  responseDueAt      DateTime?        @map("response_due_at") @db.Timestamptz(6)
+  firstResponseAt    DateTime?        @map("first_response_at") @db.Timestamptz(6)
+  cost               Decimal?         @db.Decimal(12, 2)
+  expenseId          String?          @map("expense_id") @db.Uuid
+  /// filed | accepted | rejected | paid
+  insuranceClaimStatus String?        @map("insurance_claim_status")
+  insuranceClaimRef  String?          @map("insurance_claim_ref")
+  insuranceClaimAmount Decimal?       @map("insurance_claim_amount") @db.Decimal(12, 2)
   occurredAt         DateTime?        @map("occurred_at") @db.Timestamptz(6)
   resolvedAt         DateTime?        @map("resolved_at") @db.Timestamptz(6)
   dismissedAt        DateTime?        @map("dismissed_at") @db.Timestamptz(6)
@@ -4209,6 +4233,7 @@ model Incident {
   contract     Contract?         @relation("IncidentContract", fields: [contractId], references: [id], onDelete: SetNull)
   assignedTo   User?             @relation("IncidentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   reportedBy   User?             @relation("IncidentReportedBy", fields: [reportedByUserId], references: [id], onDelete: SetNull)
+  expense      Expense?          @relation(fields: [expenseId], references: [id], onDelete: SetNull)
   comments     IncidentComment[]
   cameraEvents CameraEvent[]
 
@@ -7940,6 +7965,8 @@ model BusinessReminder {
   /// Día del mes en que se apuntó (para volver al 31 después de febrero).
   anchorDay         Int?      @map("anchor_day") @db.SmallInt
   templateKey       String?   @map("template_key")
+  /// Documentos: [{id, key, mimeType, filename, createdAt}].
+  attachments       Json      @default("[]")
   createdByUserId   String?   @map("created_by_user_id") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)

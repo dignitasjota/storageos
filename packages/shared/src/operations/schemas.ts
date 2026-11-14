@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { calendarDate } from '../common/calendar-date';
 
+import { IncidentCategoryEnum, InsuranceClaimStatusEnum } from './daily-ops';
+
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 // ============================================================================
@@ -98,6 +100,7 @@ export const CreateIncidentSchema = z.object({
   assignedToUserId: z.string().uuid().optional(),
   /** El inquilino la ve en su área de clientes (las del equipo, por defecto no). */
   visibleToCustomer: z.boolean().optional(),
+  category: IncidentCategoryEnum.optional(),
   metadata: z.record(z.unknown()).default({}),
 });
 export type CreateIncidentInput = z.infer<typeof CreateIncidentSchema>;
@@ -115,6 +118,12 @@ export const UpdateIncidentSchema = z
     occurredAt: z.string().datetime().nullable().optional(),
     assignedToUserId: z.string().uuid().nullable().optional(),
     visibleToCustomer: z.boolean().optional(),
+    category: IncidentCategoryEnum.optional(),
+    /** Coste de la reparación (sin apuntarlo como gasto). */
+    cost: z.number().min(0).finite().max(10_000_000).nullable().optional(),
+    insuranceClaimStatus: InsuranceClaimStatusEnum.nullable().optional(),
+    insuranceClaimRef: z.string().trim().max(100).nullable().optional(),
+    insuranceClaimAmount: z.number().min(0).finite().max(10_000_000).nullable().optional(),
     metadata: z.record(z.unknown()).optional(),
   })
   .refine((v) => Object.values(v).some((field) => field !== undefined), {

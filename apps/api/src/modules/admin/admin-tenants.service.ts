@@ -2599,7 +2599,7 @@ export class AdminTenantsService {
     await this.files.deleteObjects('uploads', counts.fileKeys);
     // Documentos de los inquilinos y adjuntos que quedaran sueltos (las facturas
     // y los contratos firmados se conservan, como en el RGPD de un inquilino).
-    for (const prefix of ['customers', 'chat', 'collections']) {
+    for (const prefix of ['customers', 'chat', 'collections', 'incidents']) {
       await this.files
         .deleteByPrefix('uploads', `${tenantId}/${prefix}/`)
         .catch((err: unknown) =>

@@ -1,3 +1,4 @@
+import type { IncidentCategory, InsuranceClaimStatus, OpsFileDto } from './daily-ops';
 import type {
   IncidentSeverityValue,
   IncidentStatusValue,
@@ -36,6 +37,14 @@ export interface TaskDto {
   maintenancePlanId: string | null;
   /** Puntos a marcar (rondas). Vacío si la tarea no tiene checklist. */
   checklist: ChecklistItemDto[];
+  /** Fotos y documentos (con URL firmada solo en la ficha). */
+  photos: OpsFileDto[];
+  /** Gasto apuntado desde la tarea. */
+  expenseId: string | null;
+  /** Coste previsto del plan de mantenimiento que la generó. */
+  estimatedCost: number | null;
+  /** Proveedor del plan de mantenimiento que la generó. */
+  supplierId: string | null;
   dueDate: string | null;
   startedAt: string | null;
   completedAt: string | null;
@@ -76,6 +85,19 @@ export interface IncidentDto {
   reportedByExternal: string | null;
   /** El inquilino la ve en su área de clientes. */
   visibleToCustomer: boolean;
+  category: IncidentCategory;
+  /** Fotos y documentos (con URL firmada solo en la ficha). */
+  photos: OpsFileDto[];
+  /** Plazo de la primera respuesta, según la gravedad. */
+  responseDueAt: string | null;
+  firstResponseAt: string | null;
+  /** Sin responder y con el plazo pasado. */
+  responseOverdue: boolean;
+  cost: number | null;
+  expenseId: string | null;
+  insuranceClaimStatus: InsuranceClaimStatus | null;
+  insuranceClaimRef: string | null;
+  insuranceClaimAmount: number | null;
   occurredAt: string | null;
   resolvedAt: string | null;
   dismissedAt: string | null;

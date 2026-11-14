@@ -8,7 +8,11 @@ export type CalendarEventType =
   | 'contract_renewing'
   | 'reservation_expiring'
   | 'business_reminder'
-  | 'price_change';
+  | 'price_change'
+  /** Factura emitida sin cobrar que vence ese día. */
+  | 'invoice_due'
+  /** Documento de un local (licencia, seguro, contrato…) que caduca. */
+  | 'document_expiring';
 
 /** Un evento del calendario operativo (vencimiento, tarea, mantenimiento…). */
 export interface CalendarEventDto {

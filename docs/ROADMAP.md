@@ -1101,4 +1101,10 @@ Calendario, tareas, mantenimiento, vencimientos e incidencias. Arreglado:
 
 ### Operaciones diarias: mejoras (2026-11-14, PR B)
 
-Pendiente (PR apilada): tareas con vista de pendientes, fotos y contador de «mis tareas»; mantenimiento con historial y antelación, cada N semanas y último día del mes, varios locales y coste con proveedor; calendario con filtros, alta de tarea pulsando un día, más eventos y enlace ICS; vencimientos con deshacer, documentos, convertir en tarea, previsión de 12 meses y filtros; incidencias con resolución obligatoria y respuesta al inquilino, fotos, trastero elegido por el inquilino, tipos con plazo, coste, parte al seguro, tarea de reparación e informe.
+- **Tareas**: vistas de pendientes, fotos y documentos, apuntar el gasto con el coste y el proveedor del plan, número de «mis tareas» en el menú.
+- **Mantenimiento**: cada N semanas, último día del mes, antelación, coste y proveedor, historial con «a tiempo» y copiar a otros locales.
+- **Calendario**: filtros por tipo, alta de tarea en un día, facturas que vencen y documentos que caducan, y el ICS con tareas y entradas.
+- **Vencimientos**: deshacer, documentos, convertir en tarea, previsión de 12 meses, filtros y número en el menú.
+- **Incidencias**: tipos, plazo de respuesta por gravedad, resolución obligatoria, fotos (también del inquilino, que elige su trastero), responder al inquilino, tarea de reparación, coste y gasto, parte al seguro e informe.
+
+Sin hacer: varios locales en un mismo plan (se copia uno por local) y el plazo de respuesta por tipo de incidencia (va por gravedad).

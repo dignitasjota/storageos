@@ -43,4 +43,26 @@ describe('Recurrencia de mantenimiento', () => {
       'Cada día',
     );
   });
+
+  it('weekly cada 2 semanas: salta una semana al cambiar de semana', () => {
+    // Lunes y jueves, cada 2 semanas. 2026-06-08 es lunes.
+    const spec: RecurrenceSpec = {
+      freq: 'weekly',
+      interval: 2,
+      weekdays: [1, 4],
+      dayOfMonth: null,
+    };
+    expect(iso(firstOccurrence(spec, d('2026-06-08')))).toBe('2026-06-08');
+    expect(iso(nextOccurrence(spec, d('2026-06-08')))).toBe('2026-06-11');
+    expect(iso(nextOccurrence(spec, d('2026-06-11')))).toBe('2026-06-22');
+    expect(scheduleLabel(spec)).toBe('Cada 2 semanas (Lun, Jue)');
+  });
+
+  it('monthly día 31: el último día de cada mes', () => {
+    const spec: RecurrenceSpec = { freq: 'monthly', interval: 1, weekdays: [], dayOfMonth: 31 };
+    expect(iso(firstOccurrence(spec, d('2027-02-10')))).toBe('2027-02-28');
+    expect(iso(nextOccurrence(spec, d('2027-02-28')))).toBe('2027-03-31');
+    expect(iso(nextOccurrence(spec, d('2027-03-31')))).toBe('2027-04-30');
+    expect(scheduleLabel(spec)).toBe('Cada mes, el último día');
+  });
 });

@@ -344,7 +344,22 @@
         "statusResolved": "Resuelta",
         "statusDismissed": "Cerrada",
         "closedOn": "Cerrada el {date}",
-        "resolution": "Respuesta del equipo"
+        "resolution": "Respuesta del equipo",
+        "category": "Tipo",
+        "whichUnit": "¿De qué trastero?",
+        "anyUnit": "De ninguno en concreto",
+        "attach": "Añadir fotos",
+        "attachType": "Añade una imagen (JPG, PNG o WebP) o un PDF.",
+        "attachSize": "Cada foto, como mucho 10 MB.",
+        "categories": {
+          "damage": "Daños",
+          "water": "Agua o humedad",
+          "lock": "Cerradura o puerta",
+          "access": "Acceso o código",
+          "cleaning": "Limpieza",
+          "pests": "Plagas",
+          "other": "Otro"
+        }
       },
       "facility": {
         "title": "Tu local",
