@@ -2284,3 +2284,16 @@ Migración `20270118100000_contract_specific_conditions` (`contracts.specific_co
 - Van en el texto que firma el inquilino, después de las condiciones generales («Condiciones específicas de este contrato:»). Por eso cuentan en la huella de la firma y salen en el PDF y en el área de clientes. Se ven en la tarjeta «Condiciones» de la ficha.
 - **Solo se cambian en borrador.** Tras la firma, `PATCH /contracts/:id` responde 400 `contract_not_draft` («añade un anexo»).
 - La app no aplica la condición sola: si se cumple, la cancelación sin coste se hace desde el panel, como cualquier otra.
+
+## 133. Anexos a un contrato firmado (2026-11-14)
+
+Migración `20270119100000_contract_annexes` (tabla `contract_annexes` con RLS, se aplica sola). Sin variables nuevas.
+
+- **Panel**: ficha del contrato → pestaña «Firma» → **«Anexos»** → «Nuevo anexo» (asunto y texto). Solo en contratos firmados; en un borrador, las condiciones van en el propio contrato (§132).
+  - El inquilino recibe un correo para firmarlo, en su idioma. El enlace vale 14 días.
+  - Mientras está pendiente se puede **reenviar** (enlace nuevo; el anterior deja de valer) o **cancelar**.
+  - Firmado, se ve la firma con la IP, el navegador y la huella del texto, y se descarga en PDF. El equipo recibe un aviso y queda en el historial del contrato.
+- **Área de clientes**: el anexo pendiente sale en «Pendiente de firmar» con «Firmar». Firmado, sale en «Anexos de tus contratos» con su PDF.
+- **Firma**: página `/sign/annex/<token>` (también con dominio propio). Se firma dibujando o escribiendo el nombre. El texto se congela al crear el anexo; para corregirlo hay que cancelarlo y crear otro.
+- **RGPD**: la exportación de datos del inquilino incluye sus anexos y anonimizar quita la IP, el navegador y el email. El vaciado de datos de prueba los borra.
+- El PDF se genera la primera vez que se pide y se guarda en el bucket `uploads` (`<tenant>/contracts/<contrato>/annexes/<anexo>.pdf`).
