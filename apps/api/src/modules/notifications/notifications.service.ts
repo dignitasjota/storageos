@@ -350,7 +350,7 @@ export class NotificationsService {
       contractId: incident?.contractId ?? null,
       type: 'incident.created',
       title: title ? `Nueva incidencia: ${title}` : 'Nueva incidencia',
-      link: '/incidents',
+      link: `/incidents?incident=${p.entityId}`,
     });
   }
 

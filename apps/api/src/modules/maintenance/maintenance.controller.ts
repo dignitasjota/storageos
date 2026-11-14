@@ -92,20 +92,20 @@ export class MaintenanceController {
     });
   }
 
-  /** Genera ahora la tarea del plan (si vencía), sin esperar al cron diario. */
+  /**
+   * Crea ya la siguiente tarea del plan (con su fecha), sin esperar al cron.
+   * No crea otra si la anterior sigue abierta (`reason: 'open_task'`).
+   */
   @RequirePermission('tasks:manage')
   @Post(':id/run')
   @HttpCode(HttpStatus.OK)
-  async run(
+  run(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<{ generated: boolean }> {
-    const generated = await this.service.generateFromPlan(
-      user.tenantId,
-      id,
-      user.facilityScope ?? null,
-    );
-    return { generated };
+  ): Promise<{ generated: boolean; dueDate: string | null; reason?: 'open_task' }> {
+    return this.service.generateFromPlan(user.tenantId, id, user.facilityScope ?? null, {
+      force: true,
+    });
   }
 
   @RequirePermission('tasks:manage')

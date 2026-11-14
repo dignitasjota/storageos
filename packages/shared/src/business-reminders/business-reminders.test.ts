@@ -21,6 +21,15 @@ describe('fechas de los vencimientos', () => {
     expect(nextReminderDueDate('2026-10-29', 'none', null)).toBeNull();
   });
 
+  it('un vencimiento del día 31 vuelve al 31 tras febrero', () => {
+    const feb = nextReminderDueDate('2027-01-31', 'monthly', null, 31)!;
+    expect(feb).toBe('2027-02-28');
+    expect(nextReminderDueDate(feb, 'monthly', null, 31)).toBe('2027-03-31');
+    expect(nextReminderDueDate('2027-03-31', 'monthly', null, 31)).toBe('2027-04-30');
+    // Sin ancla, como antes.
+    expect(nextReminderDueDate(feb, 'monthly', null)).toBe('2027-03-28');
+  });
+
   it('el estado depende de los días que faltan', () => {
     expect(reminderState('active', -1)).toBe('overdue');
     expect(reminderState('active', 7)).toBe('soon');

@@ -23,8 +23,8 @@ describe('Mantenimiento recurrente (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'maint');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
-    // Plan mensual día 1, cada 3 meses (trimestral), empezando hace tiempo →
-    // su nextRunDate cae en el pasado y debe poder generarse ya.
+    // Plan mensual día 1, cada 3 meses (trimestral). Un inicio pasado empieza
+    // hoy (no crea tareas ya vencidas).
     const create = await request(app.getHttpServer()).post('/maintenance-plans').set(auth).send({
       title: 'Revisión de extintores',
       type: 'inspection',
@@ -43,12 +43,15 @@ describe('Mantenimiento recurrente (e2e)', () => {
     const list = await request(app.getHttpServer()).get('/maintenance-plans').set(auth);
     expect(list.body).toHaveLength(1);
 
-    // Generar ahora (el cron hace lo mismo a diario).
+    expect(create.body.nextRunDate >= new Date().toISOString().slice(0, 10)).toBe(true);
+
+    // Generar ahora: crea ya la siguiente tarea, con su fecha.
     const run = await request(app.getHttpServer())
       .post(`/maintenance-plans/${planId}/run`)
       .set(auth);
     expect(run.status).toBe(200);
     expect(run.body.generated).toBe(true);
+    expect(run.body.dueDate).toBe(firstNext);
 
     // Se creó una tarea ligada al plan.
     const tasks = await request(app.getHttpServer()).get('/tasks').set(auth);
@@ -65,11 +68,11 @@ describe('Mantenimiento recurrente (e2e)', () => {
       new Date(firstNext).getTime(),
     );
 
-    // Re-ejecutar no duplica (la próxima ya está en el futuro).
+    // Otra vez no adelanta la siguiente mientras la anterior siga abierta.
     const run2 = await request(app.getHttpServer())
       .post(`/maintenance-plans/${planId}/run`)
       .set(auth);
-    expect(run2.body.generated).toBe(false);
+    expect(run2.body).toMatchObject({ generated: false, reason: 'open_task' });
 
     // Pausar el plan.
     const paused = await request(app.getHttpServer())

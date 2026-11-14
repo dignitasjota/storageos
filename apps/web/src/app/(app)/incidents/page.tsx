@@ -9,18 +9,21 @@ import {
   type IncidentStatusValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Loader2, Plus } from 'lucide-react';
+import { Eye, Loader2, Pencil, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +41,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -59,8 +63,10 @@ import {
   useIncident,
   useIncidentComments,
   useTransitionIncident,
+  useUpdateIncident,
 } from '@/lib/operations/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
+import { useUsers } from '@/lib/users/hooks';
 
 const SEVERITY_LABELS: Record<IncidentSeverityValue, { label: string; className: string }> = {
   low: {
@@ -126,6 +132,7 @@ export default function IncidentsPage() {
       severity: 'medium',
       title: '',
       description: '',
+      visibleToCustomer: false,
       metadata: {},
     },
   });
@@ -143,6 +150,7 @@ export default function IncidentsPage() {
         ...(values.contractId ? { contractId: values.contractId } : {}),
         ...(values.occurredAt ? { occurredAt: values.occurredAt } : {}),
         ...(values.assignedToUserId ? { assignedToUserId: values.assignedToUserId } : {}),
+        ...(values.customerId && values.visibleToCustomer ? { visibleToCustomer: true } : {}),
       };
       await create.mutateAsync(payload);
       toast.success('Incidencia creada.');
@@ -376,6 +384,26 @@ export default function IncidentsPage() {
                         </FormItem>
                       )}
                     />
+                    {form.watch('customerId') && (
+                      <FormField
+                        control={form.control}
+                        name="visibleToCustomer"
+                        render={({ field }) => (
+                          <label className="flex items-start gap-2 text-sm">
+                            <Checkbox
+                              checked={field.value === true}
+                              onCheckedChange={(v) => field.onChange(v === true)}
+                            />
+                            <span>
+                              Visible para el inquilino
+                              <span className="block text-xs text-muted-foreground">
+                                La verá en su área de clientes con el estado y la resolución.
+                              </span>
+                            </span>
+                          </label>
+                        )}
+                      />
+                    )}
                     <DialogFooter>
                       <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                         Cancelar
@@ -427,6 +455,8 @@ export default function IncidentsPage() {
         </Select>
       </div>
 
+      {incidents.isError && <SectionError onRetry={() => void incidents.refetch()} />}
+
       <DataTable
         filtersActive={!!status || !!severity}
         onClearFilters={() => {
@@ -453,15 +483,38 @@ export default function IncidentsPage() {
 }
 
 function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
+  const ask = useConfirm();
   const incident = useIncident(id);
   const comments = useIncidentComments(id);
   const transition = useTransitionIncident();
   const addComment = useAddIncidentComment(id);
+  const canWrite = useHasPermission('incidents:write');
   const [body, setBody] = useState('');
+  const [editing, setEditing] = useState(false);
+  const notFound = incident.error instanceof ApiError && incident.error.statusCode === 404;
 
   async function handleTransition(next: IncidentStatusValue) {
+    let resolution: string | undefined;
+    if (next === 'resolved' || next === 'dismissed') {
+      const shown = incident.data?.visibleToCustomer;
+      const res = await ask({
+        title: next === 'resolved' ? 'Marcar como resuelta' : 'Descartar la incidencia',
+        description: shown
+          ? 'El inquilino la ve en su área de clientes: escribe qué se ha hecho.'
+          : 'Queda en la ficha para saber cómo se cerró.',
+        input: {
+          label: next === 'resolved' ? '¿Qué se ha hecho?' : '¿Por qué se descarta?',
+        },
+        confirmLabel: next === 'resolved' ? 'Resolver' : 'Descartar',
+      });
+      if (!res) return;
+      resolution = res.value.trim() || undefined;
+    }
     try {
-      await transition.mutateAsync({ id, input: { status: next } });
+      await transition.mutateAsync({
+        id,
+        input: { status: next, ...(resolution ? { resolution } : {}) },
+      });
       toast.success('Estado actualizado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -482,12 +535,24 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{incident.data?.title ?? 'Cargando...'}</DialogTitle>
+          <DialogTitle>
+            {incident.data?.title ?? (incident.isError ? 'Incidencia' : 'Cargando...')}
+          </DialogTitle>
         </DialogHeader>
-        {incident.isLoading || !incident.data ? (
+        {incident.isError ? (
+          notFound ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Esta incidencia ya no existe o no es de tus locales.
+            </p>
+          ) : (
+            <SectionError onRetry={() => void incident.refetch()} />
+          )
+        ) : incident.isLoading || !incident.data ? (
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
+        ) : editing ? (
+          <IncidentEditForm incident={incident.data} onDone={() => setEditing(false)} />
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -514,6 +579,19 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
               <div>
                 <div className="text-muted-foreground">Inquilino</div>
                 <span>{incident.data.customerName ?? '—'}</span>
+                {incident.data.visibleToCustomer && (
+                  <Badge variant="outline" className="ml-2">
+                    <Eye className="mr-1 h-3 w-3" /> La ve el inquilino
+                  </Badge>
+                )}
+              </div>
+              <div>
+                <div className="text-muted-foreground">Trastero</div>
+                <span>{incident.data.unitCode ?? '—'}</span>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Responsable</div>
+                <span>{incident.data.assignedToName ?? '—'}</span>
               </div>
             </div>
             {incident.data.description && (
@@ -521,8 +599,17 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
                 {incident.data.description}
               </div>
             )}
+            {incident.data.resolution &&
+              (incident.data.status === 'resolved' || incident.data.status === 'dismissed') && (
+                <div className="rounded-md border p-3 text-sm">
+                  <div className="text-xs text-muted-foreground">
+                    {incident.data.status === 'resolved' ? 'Resolución' : 'Motivo'}
+                  </div>
+                  <div className="whitespace-pre-wrap">{incident.data.resolution}</div>
+                </div>
+              )}
 
-            {NEXT_STATUS[incident.data.status].length > 0 && (
+            {canWrite && (
               <div className="flex flex-wrap gap-2">
                 {NEXT_STATUS[incident.data.status].map((next) => (
                   <Button
@@ -537,6 +624,9 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
                       : `Marcar como ${STATUS_LABELS[next].label.toLowerCase()}`}
                   </Button>
                 ))}
+                <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+                  <Pencil className="mr-1 h-4 w-4" /> Editar
+                </Button>
               </div>
             )}
 
@@ -618,6 +708,141 @@ function CameraEventsSection({ incidentId }: { incidentId: string }) {
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function IncidentEditForm({ incident, onDone }: { incident: IncidentDto; onDone: () => void }) {
+  const update = useUpdateIncident(incident.id);
+  const facilities = useFacilities();
+  const users = useUsers();
+  const [title, setTitle] = useState(incident.title);
+  const [description, setDescription] = useState(incident.description ?? '');
+  const [severity, setSeverity] = useState<IncidentSeverityValue>(incident.severity);
+  const [facilityId, setFacilityId] = useState<string | undefined>(
+    incident.facilityId ?? undefined,
+  );
+  const [unitId, setUnitId] = useState<string | undefined>(incident.unitId ?? undefined);
+  const [assignee, setAssignee] = useState<string>(incident.assignedToUserId ?? 'none');
+  const [visible, setVisible] = useState(incident.visibleToCustomer);
+
+  async function save() {
+    if (!title.trim()) {
+      toast.error('El título no puede quedar vacío.');
+      return;
+    }
+    try {
+      await update.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || null,
+        severity,
+        facilityId: facilityId ?? null,
+        unitId: unitId ?? null,
+        assignedToUserId: assignee === 'none' ? null : assignee,
+        ...(incident.customerId ? { visibleToCustomer: visible } : {}),
+      });
+      toast.success('Incidencia guardada.');
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Label htmlFor="inc-edit-title">Título</Label>
+        <Input id="inc-edit-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label>Severidad</Label>
+          <Select value={severity} onValueChange={(v) => setSeverity(v as IncidentSeverityValue)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(SEVERITY_LABELS) as IncidentSeverityValue[]).map((s) => (
+                <SelectItem key={s} value={s}>
+                  {SEVERITY_LABELS[s].label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Responsable</Label>
+          <Select value={assignee} onValueChange={setAssignee}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">(sin asignar)</SelectItem>
+              {(users.data ?? [])
+                .filter((u) => u.isActive || u.id === incident.assignedToUserId)
+                .map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.fullName}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Local</Label>
+          <Select
+            value={facilityId ?? 'none'}
+            onValueChange={(v) => {
+              setFacilityId(v === 'none' ? undefined : v);
+              setUnitId(undefined);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">(sin local)</SelectItem>
+              {(facilities.data ?? []).map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Trastero</Label>
+          <IncidentUnitSelect facilityId={facilityId} value={unitId} onChange={setUnitId} />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="inc-edit-desc">Descripción</Label>
+        <Textarea
+          id="inc-edit-desc"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      {incident.customerId && (
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox checked={visible} onCheckedChange={(v) => setVisible(v === true)} />
+          <span>
+            Visible para el inquilino
+            <span className="block text-xs text-muted-foreground">
+              La verá en su área de clientes con el estado y la resolución.
+            </span>
+          </span>
+        </label>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onDone}>
+          Cancelar
+        </Button>
+        <Button onClick={() => void save()} disabled={update.isPending}>
+          Guardar
+        </Button>
       </div>
     </div>
   );

@@ -25,6 +25,7 @@ import { createZodDto } from 'nestjs-zod';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertAllFacilities } from '../../common/facility-scope';
 
 import { BusinessRemindersService } from './business-reminders.service';
 
@@ -86,7 +87,7 @@ export class BusinessRemindersController {
   @RequirePermission('reminders:read')
   @Get('settings')
   settings(@CurrentUser() user: AuthenticatedUser): Promise<BusinessReminderSettingsDto> {
-    return this.reminders.getSettings(user.tenantId);
+    return this.reminders.getSettings(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('reminders:manage')
@@ -95,19 +96,23 @@ export class BusinessRemindersController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() input: SettingsDto,
   ): Promise<BusinessReminderSettingsDto> {
-    return this.reminders.updateSettings(user.tenantId, input);
+    // De toda la empresa (el resumen y el calendario llevan todos los locales).
+    assertAllFacilities(user.facilityScope);
+    return this.reminders.updateSettings(user.tenantId, input, user.sub);
   }
 
   @RequirePermission('reminders:manage')
   @Post('settings/calendar')
   regenerateCalendar(@CurrentUser() user: AuthenticatedUser): Promise<BusinessReminderSettingsDto> {
-    return this.reminders.regenerateIcs(user.tenantId);
+    assertAllFacilities(user.facilityScope);
+    return this.reminders.regenerateIcs(user.tenantId, user.sub);
   }
 
   @RequirePermission('reminders:manage')
   @Delete('settings/calendar')
   revokeCalendar(@CurrentUser() user: AuthenticatedUser): Promise<BusinessReminderSettingsDto> {
-    return this.reminders.revokeIcs(user.tenantId);
+    assertAllFacilities(user.facilityScope);
+    return this.reminders.revokeIcs(user.tenantId, user.sub);
   }
 
   @RequirePermission('reminders:manage')
@@ -135,7 +140,7 @@ export class BusinessRemindersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: UpdateDto,
   ): Promise<BusinessReminderDto> {
-    return this.reminders.update(user.tenantId, id, user.facilityScope ?? null, input);
+    return this.reminders.update(user.tenantId, id, user.facilityScope ?? null, input, user.sub);
   }
 
   @RequirePermission('reminders:manage')
@@ -145,7 +150,7 @@ export class BusinessRemindersController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
-    await this.reminders.remove(user.tenantId, id, user.facilityScope ?? null);
+    await this.reminders.remove(user.tenantId, id, user.facilityScope ?? null, user.sub);
   }
 
   @RequirePermission('reminders:manage')
@@ -156,7 +161,13 @@ export class BusinessRemindersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: SnoozeDto,
   ): Promise<BusinessReminderDto> {
-    return this.reminders.snooze(user.tenantId, id, user.facilityScope ?? null, input.days);
+    return this.reminders.snooze(
+      user.tenantId,
+      id,
+      user.facilityScope ?? null,
+      input.days,
+      user.sub,
+    );
   }
 
   @RequirePermission('reminders:manage')

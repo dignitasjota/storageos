@@ -95,3 +95,13 @@ export function invoiceFacilityWhere(
   }
   return {};
 }
+
+/** Ajustes de toda la empresa: solo quien ve todos los locales puede cambiarlos. */
+export function assertAllFacilities(scope: FacilityScope): void {
+  if (scope) {
+    throw new ForbiddenException({
+      code: 'requires_all_facilities',
+      message: 'Este ajuste es de toda la empresa: solo puede cambiarlo quien ve todos los locales',
+    });
+  }
+}

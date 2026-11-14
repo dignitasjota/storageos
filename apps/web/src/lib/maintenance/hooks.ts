@@ -44,7 +44,10 @@ export function useRunMaintenancePlan() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<{ generated: boolean }>(`/maintenance-plans/${id}/run`, { method: 'POST' }),
+      apiFetch<{ generated: boolean; dueDate: string | null; reason?: 'open_task' }>(
+        `/maintenance-plans/${id}/run`,
+        { method: 'POST' },
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: key });
       void qc.invalidateQueries({ queryKey: ['tasks'] });
