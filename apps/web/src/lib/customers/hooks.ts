@@ -336,6 +336,27 @@ export function useContractSigning(id: string | undefined) {
   });
 }
 
+/** Amplía el plazo para firmar y pagar (el trastero sigue reservado). */
+export function useExtendPaymentDeadline(contractId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      days?: number;
+      until?: string;
+      reason?: string;
+      notifyCustomer: boolean;
+    }) =>
+      apiFetch<{ paymentDeadline: string; notified: boolean }>(
+        `/contracts/${contractId}/payment-deadline`,
+        { method: 'POST', json: input },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['contracts', contractId] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
 /** Anexos de un contrato firmado. */
 export function useContractAnnexes(contractId: string | undefined) {
   return useQuery({

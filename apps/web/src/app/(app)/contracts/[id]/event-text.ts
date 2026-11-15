@@ -1,6 +1,6 @@
 import type { ContractEventDto } from '@storageos/shared';
 
-import { formatDate, formatEur } from '@/lib/format';
+import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 
 const EVENT_LABELS: Record<string, string> = {
   created: 'Creado',
@@ -25,6 +25,7 @@ const CONDITION_LABELS: Record<string, string> = {
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v) || 0);
 const day = (v: unknown): string => (str(v) ? formatDate(str(v).slice(0, 10)) : '');
+const dayTime = (v: unknown): string => (str(v) ? formatDateTime(str(v)) : '');
 
 /** Título y detalle de una entrada del historial del contrato. */
 export function contractEventText(e: ContractEventDto): { title: string; detail: string | null } {
@@ -107,6 +108,11 @@ function noteText(p: Record<string, unknown>): { title: string; detail: string |
       };
     case 'renewed':
       return { title: 'Renovado', detail: `${num(p.months)} meses, hasta el ${day(p.newEndDate)}` };
+    case 'payment_deadline_extended':
+      return {
+        title: 'Plazo para firmar y pagar ampliado',
+        detail: [`Hasta el ${dayTime(p.to)}`, str(p.reason)].filter(Boolean).join(' · '),
+      };
     case 'deposit_settled':
       return {
         title: 'Fianza liquidada',

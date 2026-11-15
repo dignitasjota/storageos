@@ -141,6 +141,13 @@ export interface ContractSigningRecordDto {
   signingLinkExpiresAt: string | null;
   /** Reserva online: el trastero queda retenido hasta esta fecha si no se paga. */
   holdUntil: string | null;
+  /**
+   * Plazo para firmar y pagar (aunque ya haya pasado y la reserva aún no se
+   * haya cancelado). null = el contrato no tiene plazo (no caduca).
+   */
+  paymentDeadline: string | null;
+  /** Hasta cuándo se puede ampliar el plazo (null = no se puede ampliar). */
+  paymentDeadlineMax: string | null;
   /** Condiciones generales aceptadas para este contrato (más reciente primero). */
   generalTerms: LegalDocAcceptanceDto[];
   /** Firmado a distancia por un particular: último día para desistir. */
@@ -204,4 +211,10 @@ export interface BookingResultDto {
   signingToken: string | null;
   /** Email (enmascarado) al que se envió el enlace, o null. */
   signingLinkSentTo: string | null;
+}
+
+export interface ExtendPaymentDeadlineResultDto {
+  paymentDeadline: string;
+  /** Se envió el correo al inquilino. */
+  notified: boolean;
 }

@@ -19,6 +19,7 @@ import { AnnexPublicController, ContractAnnexesController } from './contract-ann
 import { ContractAnnexesService } from './contract-annexes.service';
 import { ContractSignaturesController } from './contract-signatures.controller';
 import { MoveInPublicController } from './move-in-public.controller';
+import { PaymentDeadlineService } from './payment-deadline.service';
 import { SignaturesService } from './signatures.service';
 
 /**
@@ -49,6 +50,7 @@ import { SignaturesService } from './signatures.service';
     ContractAnnexesService,
     BookingService,
     BookingRecoveryService,
+    PaymentDeadlineService,
     ...(WORKERS_ENABLED_IN_API ? [BookingExpiryCron, BookingRecoveryCron] : []),
   ],
   exports: [SignaturesService, ContractAnnexesService, BookingRecoveryService, BookingService],

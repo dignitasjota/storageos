@@ -2,12 +2,14 @@
 
 import { CheckCircle2, Clock, Loader2, ShieldAlert } from 'lucide-react';
 
+import { ExtendDeadlineButton } from './extend-deadline-dialog';
 import { GeneralTermsCard } from './general-terms-card';
 
 import type { ContractSignatureDetailDto } from '@storageos/shared';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useHasPermission } from '@/lib/auth/hooks';
 import { useContractSigning } from '@/lib/customers/hooks';
 import { formatDate, formatDateTime } from '@/lib/format';
 
@@ -24,6 +26,7 @@ const CHANNEL_LABEL: Record<string, string> = {
  */
 export function SigningCard({ contractId }: { contractId: string }) {
   const record = useContractSigning(contractId);
+  const canWrite = useHasPermission('contracts:write');
 
   if (record.isLoading || !record.data) {
     return (
@@ -70,12 +73,22 @@ export function SigningCard({ contractId }: { contractId: string }) {
                 : 'No pidió empezar antes de que acabara ese plazo.'}
             </p>
           )}
-          {r.holdUntil && (
-            <p className="text-muted-foreground">
-              Reserva online: el trastero queda retenido hasta el {formatDateTime(r.holdUntil)}. Si
-              para entonces no ha firmado y pagado, la reserva se cancela y el trastero vuelve a
-              estar libre.
-            </p>
+          {r.paymentDeadline && (
+            <div className="space-y-2">
+              <p className="text-muted-foreground">
+                {r.holdUntil
+                  ? `El trastero queda reservado hasta el ${formatDateTime(r.holdUntil)}. Si para entonces no ha ${draft ? 'firmado y pagado' : 'pagado'}, la reserva se cancela y el trastero vuelve a estar libre.`
+                  : `El plazo para ${draft ? 'firmar y pagar' : 'pagar'} venció el ${formatDateTime(r.paymentDeadline)}: la reserva se cancelará en breve si no lo amplías.`}
+              </p>
+              {canWrite && r.paymentDeadlineMax && (
+                <ExtendDeadlineButton
+                  contractId={contractId}
+                  deadline={r.paymentDeadline}
+                  max={r.paymentDeadlineMax}
+                  signed={!draft}
+                />
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
