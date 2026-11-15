@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
 import { utmFields } from '../communications/schemas';
 import { FirstPaymentMonthsSchema } from '../coupons';
 
@@ -101,3 +102,25 @@ export const CaptureBookingLeadSchema = z.object({
   ...utmFields,
 });
 export type CaptureBookingLeadInput = z.infer<typeof CaptureBookingLeadSchema>;
+
+/** Lo más que se puede alargar el plazo para firmar y pagar, desde la reserva o la firma. */
+export const PAYMENT_DEADLINE_MAX_DAYS = 30;
+
+/**
+ * Ampliar el plazo para firmar y pagar un contrato (reserva online o enviado
+ * por enlace): unos días más o hasta una fecha (fin de ese día en la hora del
+ * local).
+ */
+export const ExtendPaymentDeadlineSchema = z
+  .object({
+    days: z.number().int().min(1).max(PAYMENT_DEADLINE_MAX_DAYS).optional(),
+    /** YYYY-MM-DD */
+    until: calendarDate.optional(),
+    reason: z.string().trim().max(300).optional(),
+    /** Avisar al inquilino por correo (con el enlace para firmar o pagar). */
+    notifyCustomer: z.boolean().default(true),
+  })
+  .refine((v) => (v.days === undefined) !== (v.until === undefined), {
+    message: 'Indica los días o la fecha',
+  });
+export type ExtendPaymentDeadlineInput = z.infer<typeof ExtendPaymentDeadlineSchema>;

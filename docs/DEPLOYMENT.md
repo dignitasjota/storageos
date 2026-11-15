@@ -2446,3 +2446,18 @@ Sin variables nuevas. Las respuestas por correo de los contactos usan el mismo `
   - filtro por local, buscador y CSV.
 
 **Tras desplegar**: revisar en Leads → Atención si se quieren los correos automáticos y el plazo del recordatorio de presupuestos (3 días por defecto).
+
+## 140. Ampliar el plazo para firmar y pagar (2026-11-15)
+
+Sin migración ni variables nuevas.
+
+En la pestaña **Firma** de un contrato con el trastero reservado (reserva online, o contrato enviado por enlace y firmado sin pagar) aparece **«Ampliar plazo»**:
+
+- **+1, +3 o +7 días**, o hasta una fecha (fin de ese día en la hora del local);
+- como mucho **30 días** desde la reserva o la firma;
+- con motivo opcional, que queda en el historial del contrato;
+- se puede ampliar también cuando el plazo ya ha vencido, mientras la reserva no se haya cancelado.
+
+Mientras dure, el trastero sigue reservado y la reserva no se cancela. Opcionalmente, el inquilino recibe el correo «Te guardamos el trastero hasta el…» con el enlace para firmar (si aún no ha firmado, el enlace vale al menos hasta el plazo nuevo) o para pagar. Ese correo cuenta como el recordatorio automático, para no mandarle otro enseguida.
+
+Los contratos firmados en el local no tienen plazo: no caducan y no se pueden ampliar.

@@ -3109,3 +3109,20 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
   - `GET /opportunities/interested-count` → `{interested}`;
   - `kind` inválido en `draft` o `dismiss` → 400 `invalid_kind` (antes 500).
 - Área de clientes: `PortalOfferDto` gana `url` (enlace externo, p. ej. la reseña en Google).
+
+### Ampliar el plazo para firmar y pagar (2026-11-15)
+
+- `POST /contracts/:id/payment-deadline {days | until, reason?, notifyCustomer}` (`contracts:write`) → `{paymentDeadline, notified}`:
+  - `days`: de 1 a 30, contados desde el plazo actual (o desde ahora si ya venció);
+  - `until`: YYYY-MM-DD, hasta el final de ese día en la hora del local. Hay que mandar uno de los dos;
+  - `notifyCustomer` (por defecto `true`): correo «Te guardamos el trastero hasta el…» (`source: booking.deadline_extended`) con el enlace para firmar o pagar.
+  - Errores:
+    - sin plazo → 409 `no_payment_deadline`;
+    - contrato cerrado → 409 `payment_deadline_closed`;
+    - ya pagado → 409 `already_paid`;
+    - fecha no posterior al plazo actual → 400 `deadline_not_later`;
+    - más de 30 días desde la reserva o la firma → 400 `deadline_too_far`.
+  - Queda en el historial (`note_added`, `event: payment_deadline_extended`) y en el registro (`contract.payment_deadline_extended`).
+- `GET /contracts/:id/signing` gana:
+  - `paymentDeadline`: el plazo, también si ya venció y la reserva aún no se ha cancelado;
+  - `paymentDeadlineMax`: hasta cuándo se puede ampliar (`null` = no se puede).

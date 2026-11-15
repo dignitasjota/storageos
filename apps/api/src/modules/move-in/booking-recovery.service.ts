@@ -110,6 +110,20 @@ export class BookingRecoveryService {
   }
 
   private async remindBooking(tenantId: string, contractId: string): Promise<boolean> {
+    return this.sendHoldEmail(tenantId, contractId, 'reminder');
+  }
+
+  /**
+   * Correo «tu trastero sigue reservado» con el enlace para firmar (borrador)
+   * o pagar (firmado). `reminder`: el recordatorio automático, una sola vez.
+   * `extended`: el equipo ha ampliado el plazo; cuenta como recordatorio para
+   * que el automático no repita el correo enseguida.
+   */
+  async sendHoldEmail(
+    tenantId: string,
+    contractId: string,
+    mode: 'reminder' | 'extended',
+  ): Promise<boolean> {
     const contract = await this.admin.contract.findFirst({
       where: { id: contractId, tenantId },
       select: {
@@ -137,14 +151,22 @@ export class BookingRecoveryService {
     // Firmada y sin factura pendiente (pagada o con el cobro en marcha): nada que recordar.
     if (signed && !unpaid) return false;
     // Eligió transferencia, pago en el local o domiciliación: no se le pide pagar online.
-    if (signed && contract.offlinePaymentMethod) return false;
+    const offline = signed && !!contract.offlinePaymentMethod;
+    if (offline && mode === 'reminder') return false;
 
-    // Se marca ANTES de enviar: con varias réplicas, solo una lo envía.
-    const { count } = await this.admin.contract.updateMany({
-      where: { id: contractId, bookingReminderSentAt: null },
-      data: { bookingReminderSentAt: new Date() },
-    });
-    if (count === 0) return false;
+    if (mode === 'reminder') {
+      // Se marca ANTES de enviar: con varias réplicas, solo una lo envía.
+      const { count } = await this.admin.contract.updateMany({
+        where: { id: contractId, bookingReminderSentAt: null },
+        data: { bookingReminderSentAt: new Date() },
+      });
+      if (count === 0) return false;
+    } else {
+      await this.admin.contract.update({
+        where: { id: contractId },
+        data: { bookingReminderSentAt: new Date() },
+      });
+    }
 
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -175,14 +197,24 @@ export class BookingRecoveryService {
       url = `${base}/sign/${token}`;
       cta = 'Firmar el contrato';
       step = 'Solo te falta firmar el contrato y pagar la primera cuota.';
+    } else if (offline) {
+      url = tenantPortalLoginUrl(webBase, tenant);
+      cta = 'Ver mi reserva';
+      step = 'Ya has firmado; te esperamos para el pago que elegiste.';
     } else {
       url = tenantPortalLoginUrl(webBase, tenant);
       cta = 'Pagar ahora';
       const pending = Number(unpaid!.total) - Number(unpaid!.amountPaid);
       step = `Ya has firmado; solo te falta pagar la primera factura (${formatEur(pending)}) para activar tu acceso.`;
     }
-    const subject = `Tu trastero ${contract.unit.code} sigue reservado`;
-    const keep = `Lo tenemos reservado para ti hasta el ${deadline} a las ${hour}; después se libera para otros clientes.`;
+    const subject =
+      mode === 'extended'
+        ? `Te guardamos el trastero ${contract.unit.code} hasta el ${deadline}`
+        : `Tu trastero ${contract.unit.code} sigue reservado`;
+    const keep =
+      mode === 'extended'
+        ? `Hemos ampliado tu reserva: lo tenemos guardado para ti hasta el ${deadline} a las ${hour}; después se libera para otros clientes.`
+        : `Lo tenemos reservado para ti hasta el ${deadline} a las ${hour}; después se libera para otros clientes.`;
     const bodyText = `${hi}\n\nTu trastero ${unit} está reservado a tu nombre. ${step}\n\n${keep}\n\n${cta}: ${url}\n\nSi tienes cualquier duda, responde a este correo.\n\nUn saludo,\nEl equipo de ${tenant.name}`;
     const esc = (v: string) =>
       v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -200,7 +232,12 @@ export class BookingRecoveryService {
       bodyText,
       bodyHtml,
       contractId,
-      source: signed ? 'booking_recovery.unpaid' : 'booking_recovery.unsigned',
+      source:
+        mode === 'extended'
+          ? 'booking.deadline_extended'
+          : signed
+            ? 'booking_recovery.unpaid'
+            : 'booking_recovery.unsigned',
     });
     return true;
   }

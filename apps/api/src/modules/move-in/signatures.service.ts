@@ -25,6 +25,7 @@ import {
 
 import { todayInTimezone } from '../../common/format';
 import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
+import { paymentDeadlineMax } from '../../common/payment-deadline';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { DOMAIN_EVENTS, type BookingExpiredPayload } from '../automations/domain-events';
@@ -533,6 +534,7 @@ export class SignaturesService {
         signingTokenHash: true,
         signingTokenExpiresAt: true,
         firstPaymentDeadline: true,
+        createdAt: true,
         withdrawalDeadline: true,
         immediateStartRequestedAt: true,
         withdrawnAt: true,
@@ -599,10 +601,31 @@ export class SignaturesService {
           ? (c.signingTokenExpiresAt?.toISOString() ?? null)
           : null,
       holdUntil: holdActive ? c.firstPaymentDeadline!.toISOString() : null,
+      ...this.deadlineInfo(c, unpaid),
       generalTerms: await this.generalTerms.listForContract(tenantId, contractId),
       withdrawalDeadline: c.withdrawalDeadline?.toISOString().slice(0, 10) ?? null,
       immediateStartRequestedAt: c.immediateStartRequestedAt?.toISOString() ?? null,
       withdrawnAt: c.withdrawnAt?.toISOString() ?? null,
+    };
+  }
+
+  /** Plazo para firmar y pagar y hasta cuándo se puede ampliar (pestaña Firma). */
+  private deadlineInfo(
+    c: {
+      status: string;
+      firstPaymentDeadline: Date | null;
+      createdAt: Date;
+      signedAt: Date | null;
+    },
+    unpaid: boolean,
+  ): { paymentDeadline: string | null; paymentDeadlineMax: string | null } {
+    const pending = !!c.firstPaymentDeadline && (c.status === 'draft' || unpaid);
+    if (!pending) return { paymentDeadline: null, paymentDeadlineMax: null };
+    const max = paymentDeadlineMax(c);
+    const current = Math.max(c.firstPaymentDeadline!.getTime(), Date.now());
+    return {
+      paymentDeadline: c.firstPaymentDeadline!.toISOString(),
+      paymentDeadlineMax: max.getTime() > current ? max.toISOString() : null,
     };
   }
 
