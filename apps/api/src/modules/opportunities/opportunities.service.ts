@@ -7,7 +7,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   OPPORTUNITY_LABELS,
+  type DismissOpportunityInput,
   type OpportunitiesDto,
+  type OpportunityDismissalDto,
+  type ProposeBulkInput,
+  type ProposeBulkResultDto,
   type OpportunityDraftDto,
   type OpportunityDto,
   type OpportunityKind,
@@ -17,8 +21,9 @@ import {
   type ProposeOpportunityResultDto,
 } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import { type FacilityScope } from '../../common/facility-scope';
-import { formatEur, todayInTimezone } from '../../common/format';
+import { formatDateLong, formatEur, todayInTimezone } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
@@ -185,12 +190,21 @@ export class OpportunitiesService {
       ] = await Promise.all([
         tx.tenant.findUnique({
           where: { id: tenantId },
-          select: { nightPassEnabled: true, nightPassPrice: true },
+          select: {
+            nightPassEnabled: true,
+            nightPassPrice: true,
+            googleReviewUrl: true,
+            referralEnabled: true,
+            referralRewardType: true,
+            referralRewardValue: true,
+            timezone: true,
+          },
         }),
         tx.contract.findMany({
           where: {
             deletedAt: null,
-            status: 'active',
+            // Las bajas pedidas, solo para ofrecer un trastero más pequeño.
+            status: { in: ['active', 'ending'] },
             ...(onlyCustomerId ? { customerId: onlyCustomerId } : {}),
             // Las propuestas son comunicaciones comerciales: no a quien se dio de
             // baja. El inquilino de prueba de la puesta en marcha tampoco.
@@ -200,6 +214,11 @@ export class OpportunitiesService {
           select: {
             id: true,
             customerId: true,
+            status: true,
+            signedAt: true,
+            endDate: true,
+            autoRenew: true,
+            billingIntervalMonths: true,
             insurancePlanId: true,
             unit: { select: { code: true, facilityId: true, areaM2: true } },
             priceMonthly: true,
@@ -211,6 +230,8 @@ export class OpportunitiesService {
                 customerType: true,
                 email: true,
                 phone: true,
+                documentNumber: true,
+                address: true,
               },
             },
           },
@@ -272,6 +293,33 @@ export class OpportunitiesService {
           select: { customerId: true, status: true, dueDate: true, paidAt: true },
         }),
       ]);
+
+      const [promoterRows, referrerRows, dismissalRows] = await Promise.all([
+        tx.review.findMany({
+          where: {
+            status: 'submitted',
+            npsScore: { gte: 9 },
+            googleRequestedAt: null,
+            submittedAt: { gte: new Date(now.getTime() - 365 * DAY) },
+            ...(onlyCustomerId ? { customerId: onlyCustomerId } : {}),
+          },
+          select: { customerId: true },
+        }),
+        tx.referral.findMany({
+          where: onlyCustomerId ? { referrerCustomerId: onlyCustomerId } : {},
+          select: { referrerCustomerId: true },
+          distinct: ['referrerCustomerId'],
+        }),
+        onlyCustomerId
+          ? Promise.resolve([])
+          : tx.opportunityDismissal.findMany({
+              where: { OR: [{ until: null }, { until: { gt: now } }] },
+              select: { customerId: true, kind: true },
+            }),
+      ]);
+      const promoters = new Set(promoterRows.map((r) => r.customerId));
+      const referrers = new Set(referrerRows.map((r) => r.referrerCustomerId));
+      const dismissed = new Set(dismissalRows.map((d) => `${d.customerId}:${d.kind}`));
 
       // Trasteros libres por local, para proponer otro o uno mayor.
       const facilityIds = [...new Set(contracts.map((c) => c.unit.facilityId))];
@@ -340,6 +388,7 @@ export class OpportunitiesService {
         > & { offerMetadata?: Record<string, unknown> },
       ) => {
         const c = rows[0]!;
+        if (dismissed.has(`${c.customerId}:${kind}`)) return;
         const last = proposedBy.get(`${c.customerId}:${kind}`) ?? null;
         out.push({
           id: `${c.customerId}:${kind}`,
@@ -349,6 +398,7 @@ export class OpportunitiesService {
           email: c.customer.email,
           phone: c.customer.phone,
           units: rows.map((r) => r.unit.code),
+          facilityIds: [...new Set(rows.map((r) => r.unit.facilityId))],
           ...o,
           // Lo propuesto hace poco baja: no insistir.
           score:
@@ -361,8 +411,132 @@ export class OpportunitiesService {
 
       const plan = plans[0];
       const nightPrice = Number(tenant?.nightPassPrice ?? 0);
-      for (const [customerId, rows] of byCustomer) {
+      const reward =
+        tenant && Number(tenant.referralRewardValue) > 0
+          ? tenant.referralRewardType === 'percentage'
+            ? `un ${Number(tenant.referralRewardValue)} % de descuento`
+            : `${formatEur(Number(tenant.referralRewardValue))} de descuento`
+          : null;
+      for (const [customerId, allRows] of byCustomer) {
         const interest = (k: string) => interestBy.get(`${customerId}:${k}`);
+        const rows = allRows.filter((r) => r.status === 'active');
+        const ending = allRows.filter((r) => r.status === 'ending');
+
+        // Baja pedida: un trastero más pequeño y más barato del mismo local.
+        for (const current of ending) {
+          const area = Number(current.unit.areaM2 ?? 0);
+          const smaller = available
+            .filter(
+              (u) =>
+                u.facilityId === current.unit.facilityId &&
+                Number(u.areaM2 ?? 0) > 0 &&
+                Number(u.areaM2 ?? 0) < area &&
+                Number(u.basePriceMonthly) < Number(current.priceMonthly) &&
+                u.unitType.propertyKind !== 'housing',
+            )
+            .sort((a, b) => Number(b.areaM2 ?? 0) - Number(a.areaM2 ?? 0))[0];
+          if (!smaller) continue;
+          push([current], 'smaller_unit', {
+            reason: `Ha pedido la baja de ${current.unit.code}${
+              current.endDate ? ` (se va el ${formatDateLong(current.endDate)})` : ''
+            }.`,
+            offer: `${smaller.unitType.name} (${Number(smaller.areaM2 ?? 0)} m²) en ${smaller.facility.name} por ${formatEur(gross(Number(smaller.basePriceMonthly)))}/mes (IVA incl.)`,
+            priceMonthlyGross: gross(Number(smaller.basePriceMonthly)),
+            monthlyValue: Number(smaller.basePriceMonthly),
+            score: 65,
+            offerMetadata: { contractId: current.id },
+          });
+          break;
+        }
+        if (!rows.length) continue;
+        const customer = rows[0]!.customer;
+        const signedLongAgo = (days: number) =>
+          rows.some((r) => r.signedAt && now.getTime() - r.signedAt.getTime() > days * DAY);
+        const lastProposed = (k: OpportunityKind) => proposedBy.get(`${customerId}:${k}`) ?? null;
+
+        // Renovar: contratos que terminan en 60 días sin renovación automática.
+        for (const r of rows) {
+          if (r.autoRenew || !r.endDate) continue;
+          const left = (r.endDate.getTime() - now.getTime()) / DAY;
+          if (left < 0 || left > 60) continue;
+          push([r], 'renewal', {
+            reason: `Su contrato de ${r.unit.code} termina el ${formatDateLong(r.endDate)} y no se renueva solo.`,
+            offer: `Renovar el contrato (termina el ${formatDateLong(r.endDate)})`,
+            priceMonthlyGross: gross(Number(r.priceMonthly)),
+            monthlyValue: Number(r.priceMonthly),
+            score: 55 + (left < 30 ? 15 : 0),
+            offerMetadata: { contractId: r.id, endDate: r.endDate.toISOString() },
+          });
+          break;
+        }
+
+        // Pagar el año por adelantado: clientes de más de 6 meses que pagan al día.
+        const monthly = rows.filter((r) => r.billingIntervalMonths === 1);
+        if (monthly.length && signedLongAgo(180) && !hadOverdue.has(customerId)) {
+          const value = monthly.reduce((sum, r) => sum + Number(r.priceMonthly), 0);
+          push(monthly, 'annual_prepay', {
+            reason: 'Lleva más de 6 meses y paga al día cada mes.',
+            offer: 'Pagar los próximos 12 meses de una vez',
+            priceMonthlyGross: gross(value),
+            // Adelanta caja, no suma cuota.
+            monthlyValue: 0,
+            score: 25,
+            offerMetadata: { contractIds: monthly.map((r) => r.id) },
+          });
+        }
+
+        // Completar sus datos: sin teléfono, documento o dirección (facturas, contrato).
+        const missing = [
+          !customer.phone ? 'teléfono' : null,
+          !customer.documentNumber ? 'DNI o NIE' : null,
+          !customer.address ? 'dirección' : null,
+        ].filter((x): x is string => !!x);
+        if (missing.length) {
+          push(rows, 'incomplete_data', {
+            reason: `Le falta${missing.length > 1 ? 'n' : ''} ${missing.join(', ')}.`,
+            offer: missing.join(', '),
+            priceMonthlyGross: null,
+            monthlyValue: 0,
+            score: 15 + missing.length * 5,
+          });
+        }
+
+        // Reseña en Google: puntuó 9 o 10 y no se le ha pedido (una sola vez).
+        if (
+          tenant?.googleReviewUrl &&
+          promoters.has(customerId) &&
+          !lastProposed('google_review')
+        ) {
+          push(rows, 'google_review', {
+            reason: 'Nos puso un 9 o un 10 en la encuesta de satisfacción.',
+            offer: 'Dejar una reseña en Google',
+            priceMonthlyGross: null,
+            monthlyValue: 0,
+            score: 30,
+            offerMetadata: { url: tenant.googleReviewUrl },
+          });
+        }
+
+        // Recomendar: contento, más de 3 meses, al día y aún no ha traído a nadie.
+        const lastReferral = lastProposed('referral');
+        if (
+          tenant?.referralEnabled &&
+          reward &&
+          signedLongAgo(90) &&
+          !hadOverdue.has(customerId) &&
+          !referrers.has(customerId) &&
+          (!lastReferral || now.getTime() - lastReferral.getTime() > 180 * DAY)
+        ) {
+          push(rows, 'referral', {
+            reason: promoters.has(customerId)
+              ? 'Está contento (nos puso un 9 o un 10) y aún no ha recomendado a nadie.'
+              : 'Lleva más de 3 meses, paga al día y aún no ha recomendado a nadie.',
+            offer: `Recomendar con su código: ${reward} por cada amigo`,
+            priceMonthlyGross: null,
+            monthlyValue: 0,
+            score: 20 + (promoters.has(customerId) ? 15 : 0),
+          });
+        }
 
         // Seguro: contratos sin protección.
         const uninsured = rows.filter((r) => !r.insurancePlanId);
@@ -472,7 +646,12 @@ export class OpportunitiesService {
       return out;
     }, tenantId);
 
-    items.sort((a, b) => b.score - a.score || b.monthlyValue - a.monthlyValue);
+    // Primero quien ha dicho «me interesa»: es una venta casi hecha.
+    const interested = (o: Computed) => (o.lastOfferStatus === 'interested' ? 1 : 0);
+    items.sort(
+      (a, b) =>
+        interested(b) - interested(a) || b.score - a.score || b.monthlyValue - a.monthlyValue,
+    );
     return items;
   }
 
@@ -485,12 +664,13 @@ export class OpportunitiesService {
     return this.buildDraft(tenantId, await this.findOne(tenantId, customerId, kind, scope));
   }
 
-  private async buildDraft(tenantId: string, opp: OpportunityDto): Promise<OpportunityDraftDto> {
+  private async buildDraft(tenantId: string, opp: Computed): Promise<OpportunityDraftDto> {
     const kind = opp.kind;
     const tenant = await this.admin.tenant.findUniqueOrThrow({
       where: { id: tenantId },
       select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
     });
+    const reviewUrl = typeof opp.offerMetadata.url === 'string' ? opp.offerMetadata.url : null;
     const customer = await this.admin.customer.findUniqueOrThrow({
       where: { id: opp.customerId },
       select: { firstName: true, lastName: true, companyName: true, customerType: true },
@@ -520,6 +700,30 @@ export class OpportunitiesService {
       autopay: {
         subject: 'Paga tu trastero sin preocuparte',
         line: 'Si guardas tu tarjeta o tu IBAN en tu área de clientes, cobraremos cada mes de forma automática y no tendrás que estar pendiente de los plazos.',
+      },
+      annual_prepay: {
+        subject: 'Paga tu trastero de una vez y olvídate',
+        line: 'Si lo prefieres, puedes pagar los próximos 12 meses de una vez y olvidarte de los recibos de cada mes. Respóndenos y te lo preparamos.',
+      },
+      renewal: {
+        subject: 'Tu contrato está a punto de terminar',
+        line: `${opp.offer.replace(/^Renovar el contrato \(termina el (.+)\)$/, 'Tu contrato termina el $1')}. Si quieres seguir con nosotros, respóndenos y lo renovamos sin papeleo.`,
+      },
+      incomplete_data: {
+        subject: 'Nos faltan algunos datos tuyos',
+        line: `Para tus facturas y tu contrato nos falta: ${opp.offer}. Puedes completarlo en un minuto en tu área de clientes (Mis datos).`,
+      },
+      google_review: {
+        subject: '¿Nos ayudas con una reseña?',
+        line: `Nos alegra mucho que estés contento con nosotros. ¿Nos dejas una reseña en Google? Solo te llevará un minuto${reviewUrl ? `: ${reviewUrl}` : '.'}`,
+      },
+      referral: {
+        subject: 'Recomienda y gana',
+        line: `${opp.offer.replace(/^Recomendar con su código: /, 'Si un amigo alquila un trastero con tu código, te llevas ')}. Encontrarás tu código en tu área de clientes.`,
+      },
+      smaller_unit: {
+        subject: '¿Y si te quedas con uno más pequeño?',
+        line: `Hemos visto que vas a dejar tu trastero. Si lo que necesitas es menos espacio, tenemos ${opp.offer.charAt(0).toLowerCase()}${opp.offer.slice(1)}. Respóndenos y te lo cambiamos.`,
       },
     };
     const p = pitch[kind];
@@ -618,6 +822,19 @@ export class OpportunitiesService {
       );
       followupId = f.id;
     }
+    if (input.kind === 'google_review') {
+      // No pedírsela otra vez desde Valoraciones.
+      await this.admin.review.updateMany({
+        where: {
+          tenantId,
+          customerId: input.customerId,
+          status: 'submitted',
+          npsScore: { gte: 9 },
+          googleRequestedAt: null,
+        },
+        data: { googleRequestedAt: new Date() },
+      });
+    }
     await this.audit.write({
       tenantId,
       userId,
@@ -627,5 +844,159 @@ export class OpportunitiesService {
       changes: { kind: input.kind, emailSent, channel: input.channel },
     });
     return { emailSent, followupId };
+  }
+
+  /**
+   * Proponer a varios a la vez: por correo, con el texto sugerido. Los que no
+   * aplican, no tienen email o se acaban de proponer se saltan con su motivo.
+   */
+  async proposeBulk(
+    tenantId: string,
+    userId: string,
+    input: ProposeBulkInput,
+    scope: FacilityScope,
+  ): Promise<ProposeBulkResultDto> {
+    let sent = 0;
+    const skipped: ProposeBulkResultDto['skipped'] = [];
+    const withEmail = new Set(
+      (
+        await this.admin.customer.findMany({
+          where: {
+            tenantId,
+            id: { in: [...new Set(input.items.map((i) => i.customerId))] },
+            deletedAt: null,
+            email: { not: null },
+          },
+          select: { id: true },
+        })
+      ).map((c) => c.id),
+    );
+    for (const item of input.items) {
+      if (!withEmail.has(item.customerId)) {
+        skipped.push({ customerId: item.customerId, kind: item.kind, reason: 'No tiene email' });
+        continue;
+      }
+      try {
+        await this.propose(
+          tenantId,
+          userId,
+          {
+            customerId: item.customerId,
+            kind: item.kind,
+            channel: 'email',
+            followupInDays: input.followupInDays,
+          },
+          scope,
+        );
+        sent += 1;
+      } catch (err) {
+        const body = (err as { getResponse?: () => unknown }).getResponse?.() as
+          | { message?: string }
+          | undefined;
+        skipped.push({
+          customerId: item.customerId,
+          kind: item.kind,
+          reason: body?.message ?? 'No se ha podido enviar',
+        });
+      }
+    }
+    return { sent, skipped };
+  }
+
+  /** Descartar (para siempre) o posponer unos días una oportunidad. */
+  async dismiss(
+    tenantId: string,
+    userId: string,
+    input: DismissOpportunityInput,
+    scope: FacilityScope,
+  ): Promise<void> {
+    await this.assertCustomerVisible(tenantId, input.customerId, scope);
+    const until = input.days ? new Date(Date.now() + input.days * DAY) : null;
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.opportunityDismissal.upsert({
+          where: {
+            tenantId_customerId_kind: {
+              tenantId,
+              customerId: input.customerId,
+              kind: input.kind,
+            },
+          },
+          create: {
+            tenantId,
+            customerId: input.customerId,
+            kind: input.kind,
+            until,
+            reason: input.reason?.trim() || null,
+            userId,
+          },
+          update: { until, reason: input.reason?.trim() || null, userId, createdAt: new Date() },
+        }),
+      tenantId,
+    );
+  }
+
+  async undismiss(
+    tenantId: string,
+    customerId: string,
+    kind: OpportunityKind,
+    scope: FacilityScope,
+  ): Promise<void> {
+    await this.assertCustomerVisible(tenantId, customerId, scope);
+    await this.prisma.withTenant(
+      (tx) => tx.opportunityDismissal.deleteMany({ where: { customerId, kind } }),
+      tenantId,
+    );
+  }
+
+  async listDismissed(tenantId: string, scope: FacilityScope): Promise<OpportunityDismissalDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.opportunityDismissal.findMany({
+          where: {
+            OR: [{ until: null }, { until: { gt: new Date() } }],
+            customer: { deletedAt: null, ...customerScopeWhere(scope ?? null) },
+          },
+          include: {
+            customer: {
+              select: { firstName: true, lastName: true, companyName: true, customerType: true },
+            },
+            user: { select: { fullName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 300,
+        }),
+      tenantId,
+    );
+    return rows.map((r) => ({
+      customerId: r.customerId,
+      customerName: nameOf(r.customer),
+      kind: r.kind as OpportunityKind,
+      until: r.until?.toISOString() ?? null,
+      reason: r.reason,
+      userName: r.user?.fullName ?? null,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
+  private async assertCustomerVisible(
+    tenantId: string,
+    customerId: string,
+    scope: FacilityScope,
+  ): Promise<void> {
+    const c = await this.prisma.withTenant(
+      (tx) =>
+        tx.customer.findFirst({
+          where: { id: customerId, deletedAt: null, ...customerScopeWhere(scope ?? null) },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    if (!c) {
+      throw new NotFoundException({
+        code: 'customer_not_found',
+        message: 'Inquilino no encontrado',
+      });
+    }
   }
 }

@@ -12,11 +12,30 @@ export const CreateLeadFollowupSchema = z.object({
   note: z.string().trim().max(2000).optional(),
   /** YYYY-MM-DD */
   dueDate: calendarDate,
+  /** Responsable (si no, quien lo crea). */
+  assignedToUserId: z.string().uuid().optional(),
 });
 export type CreateLeadFollowupInput = z.infer<typeof CreateLeadFollowupSchema>;
 
-export const UpdateLeadFollowupSchema = z.object({ status: z.enum(['pending', 'done']) });
-export type UpdateLeadFollowupInput = z.infer<typeof UpdateLeadFollowupSchema>;
+/**
+ * Cambiar un seguimiento: marcarlo hecho (con lo que pasó), reabrirlo,
+ * posponerlo (otra fecha), editarlo o cambiar el responsable.
+ */
+export const UpdateFollowupSchema = z
+  .object({
+    status: z.enum(['pending', 'done']).optional(),
+    outcome: z.string().trim().max(2000).optional(),
+    dueDate: calendarDate.optional(),
+    title: z.string().trim().min(2).max(200).optional(),
+    note: z.string().trim().max(2000).nullable().optional(),
+    assignedToUserId: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
+export type UpdateFollowupInput = z.infer<typeof UpdateFollowupSchema>;
+export const UpdateLeadFollowupSchema = UpdateFollowupSchema;
+export type UpdateLeadFollowupInput = UpdateFollowupInput;
 
 export interface LeadFollowupDto {
   id: string;
@@ -29,6 +48,9 @@ export interface LeadFollowupDto {
   status: 'pending' | 'done' | 'cancelled';
   completedAt: string | null;
   authorName: string | null;
+  assignedToUserId: string | null;
+  assignedToName: string | null;
+  outcome: string | null;
   createdAt: string;
 }
 
@@ -67,6 +89,12 @@ export const UpdateLeadSettingsSchema = z
     autoAssign: LeadAutoAssignEnum.optional(),
     /** Meses que se guardan los contactos perdidos sin actividad (después se anonimizan). */
     retentionMonths: z.number().int().min(3).max(60).optional(),
+    /** Correos automáticos a los contactos nuevos (precios, a los 2 y a los 7 días). */
+    nurtureEnabled: z.boolean().optional(),
+    /** El plazo de «sin atender» cuenta solo en el horario de atención. */
+    useBusinessHours: z.boolean().optional(),
+    /** Recordar un presupuesto sin reservar a los N días (0 = no). */
+    quoteReminderDays: z.number().int().min(0).max(30).optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'Debes enviar al menos un campo',
@@ -77,6 +105,11 @@ export interface LeadSettingsDto {
   responseHours: number;
   autoAssign: LeadAutoAssign;
   retentionMonths: number;
+  nurtureEnabled: boolean;
+  useBusinessHours: boolean;
+  /** ¿Hay horario de atención configurado (Configuración → Mensajes)? */
+  businessHoursConfigured: boolean;
+  quoteReminderDays: number;
 }
 
 export interface LeadResponseUserDto {
@@ -230,4 +263,154 @@ export function leadDisplayName(l: {
     l.phone?.trim() ||
     'Contacto sin nombre'
   );
+}
+
+// ============================================================================
+// Mejoras (2026-11-15): filtros, cronología, presupuestos, visitas, informe
+// ============================================================================
+
+/** Orígenes de la web que reciben la secuencia automática de correos. */
+export const LEAD_NURTURE_SOURCES = ['web', 'widget', 'landing', 'web_chat'] as const;
+
+/** Cuántos contactos y cuánto suman (al mes) en cada fase del tablero. */
+export interface LeadSummaryDto {
+  byStatus: Record<string, { count: number; value: number }>;
+}
+
+export type LeadTimelineKind =
+  | 'created'
+  | 'email_out'
+  | 'email_in'
+  | 'whatsapp_in'
+  | 'whatsapp_out'
+  | 'webchat_in'
+  | 'webchat_out'
+  | 'activity'
+  | 'quote'
+  | 'visit'
+  | 'status'
+  | 'followup';
+
+/** Todo lo que ha pasado con un contacto, por orden. */
+export interface LeadTimelineItemDto {
+  id: string;
+  kind: LeadTimelineKind;
+  at: string;
+  title: string;
+  body: string | null;
+  /** Quién lo hizo (persona del equipo) o null si fue el contacto o el sistema. */
+  by: string | null;
+  /** Estado de entrega de un correo (sent, delivered, bounced…). */
+  status: string | null;
+}
+
+export interface LeadQuoteRecordDto {
+  id: string;
+  sentAt: string;
+  channel: 'email' | 'whatsapp';
+  facilityName: string | null;
+  unitTypeName: string | null;
+  months: number;
+  couponCode: string | null;
+  totalToPay: number;
+  monthlyWithVat: number;
+  bookUrl: string;
+  sentByName: string | null;
+  reminderSentAt: string | null;
+  bookedAt: string | null;
+}
+
+export const LeadVisitStatusEnum = z.enum(['scheduled', 'done', 'no_show', 'cancelled']);
+export type LeadVisitStatus = z.infer<typeof LeadVisitStatusEnum>;
+export const LEAD_VISIT_STATUS_LABELS: Record<LeadVisitStatus, string> = {
+  scheduled: 'Programada',
+  done: 'Hecha',
+  no_show: 'No vino',
+  cancelled: 'Cancelada',
+};
+
+export const CreateLeadVisitSchema = z.object({
+  facilityId: z.string().uuid().optional(),
+  scheduledAt: z.string().datetime({ offset: true }),
+  notes: z.string().trim().max(1000).optional(),
+  userId: z.string().uuid().optional(),
+});
+export type CreateLeadVisitInput = z.infer<typeof CreateLeadVisitSchema>;
+
+export const UpdateLeadVisitSchema = z
+  .object({
+    status: LeadVisitStatusEnum.optional(),
+    scheduledAt: z.string().datetime({ offset: true }).optional(),
+    notes: z.string().trim().max(1000).nullable().optional(),
+    userId: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
+export type UpdateLeadVisitInput = z.infer<typeof UpdateLeadVisitSchema>;
+
+export interface LeadVisitDto {
+  id: string;
+  leadId: string;
+  leadName: string;
+  facilityId: string | null;
+  facilityName: string | null;
+  scheduledAt: string;
+  status: LeadVisitStatus;
+  notes: string | null;
+  userId: string | null;
+  userName: string | null;
+}
+
+export interface LeadFunnelRowDto {
+  key: string;
+  label: string;
+  leads: number;
+  contacted: number;
+  qualified: number;
+  won: number;
+  lost: number;
+  /** Ganados / contactos (%). */
+  conversionPct: number | null;
+  /** Días medios desde que llegó hasta que se ganó. */
+  avgDaysToWin: number | null;
+}
+
+export interface LeadFunnelReportDto {
+  from: string;
+  to: string;
+  totals: LeadFunnelRowDto;
+  bySource: LeadFunnelRowDto[];
+  byUser: LeadFunnelRowDto[];
+  byFacility: LeadFunnelRowDto[];
+}
+
+// --- Bandeja de seguimientos (inquilinos y contactos) ------------------------
+
+export const FollowupInboxTabEnum = z.enum(['today', 'overdue', 'upcoming', 'done']);
+export type FollowupInboxTab = z.infer<typeof FollowupInboxTabEnum>;
+
+export interface FollowupInboxItemDto {
+  id: string;
+  kind: 'customer' | 'lead';
+  targetId: string;
+  targetName: string;
+  title: string;
+  note: string | null;
+  dueDate: string;
+  status: 'pending' | 'done' | 'cancelled';
+  outcome: string | null;
+  completedAt: string | null;
+  authorName: string | null;
+  assignedToUserId: string | null;
+  assignedToName: string | null;
+}
+
+export interface FollowupInboxDto {
+  items: FollowupInboxItemDto[];
+  counts: Record<FollowupInboxTab, number>;
+}
+
+export interface FollowupDueCountDto {
+  due: number;
 }

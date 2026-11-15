@@ -6,6 +6,7 @@ import {
   MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_ATTACHMENT_MIME_TYPES,
   MESSAGE_MAX_ATTACHMENTS,
+  leadDisplayName,
   parseReplyAddress,
   stripQuotedReply,
   type EmailInboundInput,
@@ -17,6 +18,7 @@ import { SupportTicketsService } from '../admin/support-tickets.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PlatformService } from '../platform/platform.service';
 
 import type { Env } from '../../config/env.schema';
@@ -42,6 +44,7 @@ export class InboundMessagesService {
     private readonly tickets: SupportTicketsService,
     private readonly files: FilesService,
     private readonly config: ConfigService<Env, true>,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Últimos 9 dígitos (número nacional español) para casar formatos variados. */
@@ -134,6 +137,7 @@ export class InboundMessagesService {
     const target = parseReplyAddress(input.to, domain);
     if (!target) return null;
     const body = stripQuotedReply(input.text).slice(0, 5000);
+    if (target.kind === 'l') return this.recordLeadReply(target.token, input, body);
     if (target.kind === 't') {
       const ticket = await this.admin.supportTicket.findUnique({
         where: { replyToken: target.token },
@@ -174,6 +178,62 @@ export class InboundMessagesService {
       senderVerified && sameSender,
       attachments,
     );
+    return true;
+  }
+
+  /**
+   * Un contacto (aún no inquilino) contesta a un correo nuestro: queda en su
+   * ficha y se avisa a su responsable (o a todo el equipo si no tiene).
+   */
+  private async recordLeadReply(
+    token: string,
+    input: EmailInboundInput,
+    body: string,
+  ): Promise<boolean> {
+    const lead = await this.admin.lead.findUnique({
+      where: { replyToken: token },
+      select: {
+        id: true,
+        tenantId: true,
+        deletedAt: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        companyName: true,
+        phone: true,
+        assignedToUserId: true,
+        preferredFacilityId: true,
+        status: true,
+      },
+    });
+    if (!lead || lead.deletedAt) return false;
+    const text = body.trim();
+    if (!text) return false;
+    const sameSender = lead.email?.toLowerCase() === input.from.toLowerCase();
+    await this.admin.leadActivity.create({
+      data: {
+        tenantId: lead.tenantId,
+        leadId: lead.id,
+        userId: null,
+        type: 'email_in',
+        content: sameSender ? text : `[De ${input.from}] ${text}`,
+      },
+    });
+    // Un perdido que vuelve a escribir sale como «ha vuelto a escribir».
+    await this.admin.lead.update({
+      where: { id: lead.id },
+      data: { returnedAt: new Date() },
+    });
+    await this.notifications
+      .create(lead.tenantId, {
+        type: 'lead.reply',
+        title: `${leadDisplayName(lead)} ha respondido`,
+        body: text.slice(0, 200),
+        link: `/leads?lead=${lead.id}`,
+        facilityId: lead.preferredFacilityId,
+        ...(lead.assignedToUserId ? { userId: lead.assignedToUserId } : {}),
+      })
+      .catch(() => undefined);
     return true;
   }
 

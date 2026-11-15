@@ -220,7 +220,11 @@ function ActivityBlock({ leadId }: { leadId: string }) {
             <li key={a.id} className="flex gap-2 rounded-md border p-2 text-sm">
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <Badge variant="secondary">{TYPE_LABELS[a.type] ?? a.type}</Badge>
+                  <Badge variant="secondary">
+                    {a.type === 'email_in'
+                      ? 'Respondió por correo'
+                      : (TYPE_LABELS[a.type] ?? a.type)}
+                  </Badge>
                   {formatDateTime(a.occurredAt)}
                   {a.userName ? ` · ${a.userName}` : ''}
                 </p>

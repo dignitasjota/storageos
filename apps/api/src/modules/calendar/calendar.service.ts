@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { nextOccurrence, type RecurrenceSpec } from '@storageos/shared';
+import { leadDisplayName, nextOccurrence, type RecurrenceSpec } from '@storageos/shared';
 
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
 import { formatEur } from '../../common/format';
@@ -19,6 +19,7 @@ interface CalendarAccess {
   reminders: boolean;
   invoices: boolean;
   facilities: boolean;
+  leads: boolean;
 }
 
 /** `AAAA-MM-DD` y un día que existe (no el 31 de febrero). */
@@ -39,6 +40,7 @@ export function calendarAccess(
     reminders: has('reminders:read'),
     invoices: has('invoices:read'),
     facilities: has('facilities:read'),
+    leads: has('leads:read'),
   };
 }
 
@@ -274,6 +276,52 @@ export class CalendarService {
           detail: r.unit?.code ?? null,
           href: '/reservations',
         });
+      }
+      // Visitas programadas de contactos (las de su local o sin local).
+      if (access.leads) {
+        const visits = await tx.leadVisit.findMany({
+          where: {
+            status: 'scheduled',
+            scheduledAt: range,
+            lead: { deletedAt: null },
+            ...(ids ? { OR: [{ facilityId: { in: ids } }, { facilityId: null }] } : {}),
+          },
+          select: {
+            id: true,
+            leadId: true,
+            scheduledAt: true,
+            lead: {
+              select: {
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                email: true,
+                phone: true,
+              },
+            },
+            facility: { select: { name: true } },
+          },
+          take: 300,
+        });
+        for (const v of visits) {
+          events.push({
+            id: `visit-${v.id}`,
+            type: 'lead_visit',
+            date: v.scheduledAt.toISOString(),
+            label: `Visita: ${leadDisplayName(v.lead)}`,
+            detail: [
+              v.scheduledAt.toLocaleTimeString('es-ES', {
+                timeZone: 'Europe/Madrid',
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              v.facility?.name,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+            href: `/leads?lead=${v.leadId}`,
+          });
+        }
       }
       // Cambios de cuota programados y subidas de una tanda.
       const priceChanges = access.contracts

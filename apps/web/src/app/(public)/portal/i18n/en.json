@@ -657,14 +657,26 @@
           "larger_unit": "A larger unit",
           "additional_unit": "Another unit",
           "night_pass": "Out-of-hours access",
-          "autopay": "Automatic payment"
+          "autopay": "Automatic payment",
+          "annual_prepay": "Pay the year in one go",
+          "renewal": "Renew your contract",
+          "incomplete_data": "Complete your details",
+          "google_review": "A Google review",
+          "referral": "Refer a friend",
+          "smaller_unit": "A smaller unit"
         },
         "cta": {
           "insurance": "Add protection",
           "larger_unit": "Request the change",
           "additional_unit": "See available units",
           "night_pass": "See the night pass",
-          "autopay": "Set up direct debit"
+          "autopay": "Set up direct debit",
+          "annual_prepay": "See my invoices",
+          "renewal": "See my contract",
+          "incomplete_data": "Complete my details",
+          "google_review": "Leave the review",
+          "referral": "See my code",
+          "smaller_unit": "Request the change"
         },
         "interested": "I'm interested",
         "interestedBadge": "We told your manager you are interested",

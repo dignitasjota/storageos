@@ -11,6 +11,7 @@ import { ContractsImportService } from './contracts-import.service';
 import { ExpensesImportService } from './expenses-import.service';
 import { ImportsController } from './imports.controller';
 import { ImportsService } from './imports.service';
+import { LeadsImportService } from './leads-import.service';
 import { SepaMandatesImportService } from './sepa-mandates-import.service';
 import { UnitsImportService } from './units-import.service';
 
@@ -30,6 +31,7 @@ import { UnitsImportService } from './units-import.service';
     ContractsImportService,
     SepaMandatesImportService,
     ExpensesImportService,
+    LeadsImportService,
   ],
 })
 export class ImportsModule {}

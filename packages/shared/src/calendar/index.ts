@@ -12,7 +12,9 @@ export type CalendarEventType =
   /** Factura emitida sin cobrar que vence ese día. */
   | 'invoice_due'
   /** Documento de un local (licencia, seguro, contrato…) que caduca. */
-  | 'document_expiring';
+  | 'document_expiring'
+  /** Un contacto viene a ver el local. */
+  | 'lead_visit';
 
 /** Un evento del calendario operativo (vencimiento, tarea, mantenimiento…). */
 export interface CalendarEventDto {

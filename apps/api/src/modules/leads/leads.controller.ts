@@ -18,6 +18,7 @@ import {
   CreateLeadSchema,
   type CommunicationDto,
   type LeadDto,
+  calendarDate,
   LeadStatusEnum,
   type LeadStatusValue,
   LeadReplySchema,
@@ -54,18 +55,29 @@ class ConvertLeadDto extends createZodDto(ConvertLeadSchema) {}
 class LeadQuoteDto extends createZodDto(LeadQuoteSchema) {}
 class SendLeadQuoteDto extends createZodDto(SendLeadQuoteSchema) {}
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Filtros de la lista: un valor que no existe da 400 (antes, 500). */
-function listFilters(
+export function listFilters(
   user: AuthenticatedUser,
   q: {
     status?: string | undefined;
     assignedToUserId?: string | undefined;
     source?: string | undefined;
     search?: string | undefined;
+    facilityId?: string | undefined;
+    from?: string | undefined;
+    to?: string | undefined;
   },
 ) {
+  if (q.facilityId && q.facilityId !== 'none' && !UUID.test(q.facilityId)) {
+    throw new BadRequestException({ code: 'invalid_facility', message: 'Local no válido' });
+  }
+  for (const d of [q.from, q.to]) {
+    if (d && !isCalendarDay(d)) {
+      throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+    }
+  }
   if (q.status && !LeadStatusEnum.safeParse(q.status).success) {
     throw new BadRequestException({ code: 'invalid_status', message: 'Fase no válida' });
   }
@@ -84,7 +96,14 @@ function listFilters(
     ...(assigned !== undefined ? { assignedToUserId: assigned } : {}),
     ...(q.source ? { source: q.source.slice(0, 60) } : {}),
     ...(q.search ? { search: q.search.slice(0, 120) } : {}),
+    ...(q.facilityId ? { facilityId: q.facilityId } : {}),
+    ...(q.from ? { from: q.from } : {}),
+    ...(q.to ? { to: q.to } : {}),
   };
+}
+
+function isCalendarDay(v: string): boolean {
+  return calendarDate.safeParse(v).success;
 }
 
 function extractMeta(req: Request): RequestMeta {
@@ -114,11 +133,14 @@ export class LeadsController {
     @Query('search') search?: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ): Promise<PageDto<LeadDto>> {
     const page = parsePageRequest(cursor, limit);
     const rows = await this.service.list(user.tenantId, {
       page,
-      ...listFilters(user, { status, assignedToUserId, source, search }),
+      ...listFilters(user, { status, assignedToUserId, source, search, facilityId, from, to }),
     });
     return toPage(rows, page);
   }
@@ -131,10 +153,13 @@ export class LeadsController {
     @Query('assignedToUserId') assignedToUserId?: string,
     @Query('source') source?: string,
     @Query('search') search?: string,
+    @Query('facilityId') facilityId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ): Promise<LeadDto[]> {
     return this.service.list(
       user.tenantId,
-      listFilters(user, { status, assignedToUserId, source, search }),
+      listFilters(user, { status, assignedToUserId, source, search, facilityId, from, to }),
     );
   }
 

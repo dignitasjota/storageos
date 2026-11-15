@@ -8,8 +8,10 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { emailKey, LeadAutoAssignEnum, leadDisplayName, phoneKey } from '@storageos/shared';
 
+import { addBusinessHours } from '../../common/business-hours';
 import { customerScopeWhere } from '../../common/customer-scope';
 import { type FacilityScope } from '../../common/facility-scope';
+import { assertTeamMember, followupUpdateData } from '../../common/followup-update';
 import { anonymizeLeadsTx } from '../../common/lead-anonymize';
 import { leadScopeWhere } from '../../common/lead-scope';
 import { AuditService } from '../auth/audit.service';
@@ -23,6 +25,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { DomainEventPayload } from '../automations/domain-events';
 import type { Prisma } from '@storageos/database';
 import type {
+  OpeningHours,
   CreateLeadActivityInput,
   CreateLeadFollowupInput,
   LeadActivityDto,
@@ -42,6 +45,7 @@ const followupInclude = {
     select: { firstName: true, lastName: true, companyName: true, email: true, phone: true },
   },
   user: { select: { fullName: true } },
+  assignedTo: { select: { fullName: true } },
 } satisfies Prisma.LeadFollowupInclude;
 type FollowupRow = Prisma.LeadFollowupGetPayload<{ include: typeof followupInclude }>;
 
@@ -88,6 +92,9 @@ function toFollowupDto(r: FollowupRow): LeadFollowupDto {
     status: r.status as LeadFollowupDto['status'],
     completedAt: r.completedAt?.toISOString() ?? null,
     authorName: r.user?.fullName ?? null,
+    assignedToUserId: r.assignedToUserId,
+    assignedToName: r.assignedTo?.fullName ?? null,
+    outcome: r.outcome,
     createdAt: r.createdAt.toISOString(),
   };
 }
@@ -156,44 +163,61 @@ export class LeadCrmService {
     scope?: FacilityScope;
   }): Promise<LeadFollowupDto> {
     await this.assertLead(args.tenantId, args.leadId, args.scope);
-    const row = await this.prisma.withTenant(
-      (tx) =>
-        tx.leadFollowup.create({
-          data: {
-            tenantId: args.tenantId,
-            leadId: args.leadId,
-            userId: args.userId,
-            title: args.input.title,
-            note: args.input.note ?? null,
-            dueDate: new Date(args.input.dueDate),
-          },
-          include: followupInclude,
-        }),
-      args.tenantId,
-    );
+    const row = await this.prisma.withTenant(async (tx) => {
+      await assertTeamMember(tx, args.input.assignedToUserId);
+      return tx.leadFollowup.create({
+        data: {
+          tenantId: args.tenantId,
+          leadId: args.leadId,
+          userId: args.userId,
+          assignedToUserId: args.input.assignedToUserId ?? null,
+          title: args.input.title,
+          note: args.input.note ?? null,
+          dueDate: new Date(args.input.dueDate),
+        },
+        include: followupInclude,
+      });
+    }, args.tenantId);
     return toFollowupDto(row);
   }
 
+  /**
+   * Marcar hecho (con su resultado, que queda en la actividad del contacto),
+   * reabrir, posponer, editar o cambiar el responsable.
+   */
   async setFollowupStatus(
     tenantId: string,
     id: string,
     input: UpdateLeadFollowupInput,
     scope?: FacilityScope,
+    userId?: string,
   ): Promise<LeadFollowupDto> {
     const row = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.leadFollowup.findFirst({
         where: { id, lead: { deletedAt: null, ...leadScopeWhere(scope) } },
-        select: { id: true },
+        select: { id: true, leadId: true, title: true, status: true },
       });
       if (!existing) throw this.followupNotFound();
-      return tx.leadFollowup.update({
+      await assertTeamMember(tx, input.assignedToUserId);
+      const updated = await tx.leadFollowup.update({
         where: { id },
-        data: {
-          status: input.status,
-          completedAt: input.status === 'done' ? new Date() : null,
-        },
+        data: followupUpdateData(input),
         include: followupInclude,
       });
+      if (input.status === 'done' && existing.status !== 'done') {
+        await tx.leadActivity.create({
+          data: {
+            tenantId,
+            leadId: existing.leadId,
+            userId: userId ?? null,
+            type: 'note',
+            content: `Seguimiento hecho: ${existing.title}${
+              input.outcome?.trim() ? ` — ${input.outcome.trim()}` : ''
+            }`,
+          },
+        });
+      }
+      return updated;
     }, tenantId);
     return toFollowupDto(row);
   }
@@ -276,6 +300,8 @@ export class LeadCrmService {
           where: { id: args.leadId },
           data: {
             returnedAt: null,
+            // Lo ha tomado una persona: se acaba la secuencia automática.
+            nurtureStep: 3,
             ...(lead.contactedAt ? {} : { contactedAt: occurredAt }),
             ...(lead.status === 'new' ? { status: 'contacted' as const } : {}),
           },
@@ -318,12 +344,24 @@ export class LeadCrmService {
   async getSettings(tenantId: string): Promise<LeadSettingsDto> {
     const t = await this.admin.tenant.findUniqueOrThrow({
       where: { id: tenantId },
-      select: { leadResponseHours: true, leadAutoAssign: true, leadRetentionMonths: true },
+      select: {
+        leadResponseHours: true,
+        leadAutoAssign: true,
+        leadRetentionMonths: true,
+        leadNurtureEnabled: true,
+        leadUseBusinessHours: true,
+        leadQuoteReminderDays: true,
+        messageHours: true,
+      },
     });
     return {
       responseHours: t.leadResponseHours,
       autoAssign: LeadAutoAssignEnum.catch('off').parse(t.leadAutoAssign),
       retentionMonths: t.leadRetentionMonths,
+      nurtureEnabled: t.leadNurtureEnabled,
+      useBusinessHours: t.leadUseBusinessHours,
+      businessHoursConfigured: !!t.messageHours,
+      quoteReminderDays: t.leadQuoteReminderDays,
     };
   }
 
@@ -342,6 +380,15 @@ export class LeadCrmService {
         ...(args.input.autoAssign !== undefined ? { leadAutoAssign: args.input.autoAssign } : {}),
         ...(args.input.retentionMonths !== undefined
           ? { leadRetentionMonths: args.input.retentionMonths }
+          : {}),
+        ...(args.input.nurtureEnabled !== undefined
+          ? { leadNurtureEnabled: args.input.nurtureEnabled }
+          : {}),
+        ...(args.input.useBusinessHours !== undefined
+          ? { leadUseBusinessHours: args.input.useBusinessHours }
+          : {}),
+        ...(args.input.quoteReminderDays !== undefined
+          ? { leadQuoteReminderDays: args.input.quoteReminderDays }
           : {}),
       },
     });
@@ -443,10 +490,19 @@ export class LeadCrmService {
   async notifyUnattended(now: Date = new Date()): Promise<number> {
     const tenants = await this.admin.tenant.findMany({
       where: { deletedAt: null, status: { in: ['active', 'trial'] } },
-      select: { id: true, leadResponseHours: true },
+      select: {
+        id: true,
+        leadResponseHours: true,
+        leadUseBusinessHours: true,
+        messageHours: true,
+        timezone: true,
+      },
     });
     let notified = 0;
     for (const t of tenants) {
+      // Con horario de atención, el plazo solo corre en horas de atención.
+      const schedule =
+        t.leadUseBusinessHours && t.messageHours ? (t.messageHours as OpeningHours) : null;
       const limit = new Date(now.getTime() - t.leadResponseHours * 3_600_000);
       const leads = await this.admin.lead.findMany({
         where: {
@@ -466,11 +522,18 @@ export class LeadCrmService {
           phone: true,
           preferredFacilityId: true,
           assignedToUserId: true,
+          createdAt: true,
           assignedTo: { select: { fullName: true } },
         },
         take: 100,
       });
       for (const l of leads) {
+        if (
+          schedule &&
+          addBusinessHours(l.createdAt, t.leadResponseHours, schedule, t.timezone) > now
+        ) {
+          continue;
+        }
         const { count } = await this.admin.lead.updateMany({
           where: { id: l.id, unattendedNotifiedAt: null },
           data: { unattendedNotifiedAt: now },
@@ -754,6 +817,15 @@ export class LeadCrmService {
         data: { leadId: target.id },
       });
       await tx.webChatConversation.updateMany({
+        where: { leadId: source.id },
+        data: { leadId: target.id },
+      });
+      // Presupuestos y visitas también: si no, se quedarían en la ficha borrada.
+      await tx.leadQuote.updateMany({
+        where: { leadId: source.id },
+        data: { leadId: target.id },
+      });
+      await tx.leadVisit.updateMany({
         where: { leadId: source.id },
         data: { leadId: target.id },
       });

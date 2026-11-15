@@ -2,12 +2,14 @@
 
 import { LEAD_AUTO_ASSIGN_LABELS, type LeadAutoAssign } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { BackLink } from '@/components/layout/back-link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -36,12 +38,18 @@ export default function LeadResponsePage() {
   const [responseHours, setResponseHours] = useState('4');
   const [autoAssign, setAutoAssign] = useState<LeadAutoAssign>('off');
   const [retentionMonths, setRetentionMonths] = useState('12');
+  const [nurture, setNurture] = useState(false);
+  const [businessHours, setBusinessHours] = useState(false);
+  const [quoteReminderDays, setQuoteReminderDays] = useState('3');
 
   useEffect(() => {
     if (!settings.data) return;
     setResponseHours(String(settings.data.responseHours));
     setAutoAssign(settings.data.autoAssign);
     setRetentionMonths(String(settings.data.retentionMonths));
+    setNurture(settings.data.nurtureEnabled);
+    setBusinessHours(settings.data.useBusinessHours);
+    setQuoteReminderDays(String(settings.data.quoteReminderDays));
   }, [settings.data]);
 
   const retentionValid = Number(retentionMonths) >= 3 && Number(retentionMonths) <= 60;
@@ -52,6 +60,9 @@ export default function LeadResponsePage() {
         responseHours: Number(responseHours),
         autoAssign,
         retentionMonths: Number(retentionMonths),
+        nurtureEnabled: nurture,
+        useBusinessHours: businessHours,
+        quoteReminderDays: Number(quoteReminderDays),
       });
       toast.success('Guardado.');
     } catch (err) {
@@ -125,6 +136,68 @@ export default function LeadResponsePage() {
                 className="text-base sm:text-sm"
               />
             </div>
+          </div>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={businessHours}
+              onCheckedChange={(v) => setBusinessHours(v === true)}
+              disabled={!canManage || !settings.data?.businessHoursConfigured}
+              className="mt-0.5"
+            />
+            <span>
+              Contar el plazo solo en el horario de atención
+              <span className="block text-xs text-muted-foreground">
+                {settings.data?.businessHoursConfigured ? (
+                  'Un contacto que escribe de noche no cuenta como «sin atender» hasta que abrís.'
+                ) : (
+                  <>
+                    Primero pon el horario en{' '}
+                    <Link href="/settings/messages" className="underline">
+                      Configuración → Mensajes
+                    </Link>
+                    .
+                  </>
+                )}
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={nurture}
+              onCheckedChange={(v) => setNurture(v === true)}
+              disabled={!canManage}
+              className="mt-0.5"
+            />
+            <span>
+              Correos automáticos a los contactos de la web
+              <span className="block text-xs text-muted-foreground">
+                Al llegar, los tamaños y precios con el enlace para reservar; a los 2 días, «¿te
+                ayudamos?», y a los 7, el último. Se paran en cuanto alguien del equipo le atiende,
+                reserva o se da de baja. El 2.º y el 3.º solo a quien aceptó recibir ofertas.
+              </span>
+            </span>
+          </label>
+          <div className="space-y-1">
+            <Label htmlFor="lead-quote-reminder">Recordar los presupuestos sin reservar</Label>
+            <Select
+              value={quoteReminderDays}
+              onValueChange={setQuoteReminderDays}
+              disabled={!canManage}
+            >
+              <SelectTrigger id="lead-quote-reminder" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">No</SelectItem>
+                <SelectItem value="2">A los 2 días</SelectItem>
+                <SelectItem value="3">A los 3 días</SelectItem>
+                <SelectItem value="5">A los 5 días</SelectItem>
+                <SelectItem value="7">A la semana</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Un correo con el mismo enlace de reserva, una vez por presupuesto.
+            </p>
           </div>
           <p className="text-xs text-muted-foreground">
             Pasado el plazo, el equipo recibe un aviso (también en el móvil si lo tiene activado).

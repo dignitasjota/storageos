@@ -5,12 +5,20 @@ import { apiFetch } from '../auth/api';
 import type {
   CreateLeadActivityInput,
   CreateLeadFollowupInput,
+  CreateLeadVisitInput,
   LeadActivityDto,
   LeadDuplicateGroupDto,
   LeadFollowupDto,
+  LeadFunnelReportDto,
+  LeadQuoteRecordDto,
   LeadResponseStatsDto,
   LeadSettingsDto,
+  LeadSummaryDto,
+  LeadTimelineItemDto,
+  LeadVisitDto,
+  UpdateFollowupInput,
   UpdateLeadSettingsInput,
+  UpdateLeadVisitInput,
 } from '@storageos/shared';
 
 /** Todo cuelga de `['leads', …]`: las mutaciones de contactos lo refrescan. */
@@ -42,13 +50,11 @@ export function useCreateLeadFollowup(leadId: string) {
 export function useUpdateLeadFollowup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: string; status: 'pending' | 'done' }) =>
-      apiFetch<LeadFollowupDto>(`/leads/followups/${args.id}`, {
-        method: 'PATCH',
-        json: { status: args.status },
-      }),
+    mutationFn: ({ id, ...input }: { id: string } & UpdateFollowupInput) =>
+      apiFetch<LeadFollowupDto>(`/leads/followups/${id}`, { method: 'PATCH', json: input }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['leads', 'crm', 'followups'] });
+      void qc.invalidateQueries({ queryKey: ['leads', 'crm'] });
+      void qc.invalidateQueries({ queryKey: ['followups'] });
       void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
@@ -148,5 +154,101 @@ export function useDeleteLead() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/leads/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
+  });
+}
+
+/** Filtros del tablero (la misma forma que la lista). */
+export interface LeadBoardFilters {
+  mine?: boolean;
+  assignedToUserId?: string;
+  source?: string;
+  facilityId?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+}
+
+export function leadFilterQuery(f: LeadBoardFilters): Record<string, string> {
+  const q: Record<string, string> = {};
+  if (f.mine) q.assignedToUserId = 'me';
+  else if (f.assignedToUserId) q.assignedToUserId = f.assignedToUserId;
+  if (f.source) q.source = f.source;
+  if (f.facilityId) q.facilityId = f.facilityId;
+  if (f.from) q.from = f.from;
+  if (f.to) q.to = f.to;
+  if (f.search) q.search = f.search;
+  return q;
+}
+
+export function useLeadSummary(f: LeadBoardFilters) {
+  const qs = new URLSearchParams(leadFilterQuery(f)).toString();
+  return useQuery({
+    queryKey: key('summary', qs),
+    queryFn: () => apiFetch<LeadSummaryDto>(`/leads/summary${qs ? `?${qs}` : ''}`),
+  });
+}
+
+export function useLeadReport(from: string, to: string) {
+  return useQuery({
+    queryKey: key('report', from, to),
+    queryFn: () => apiFetch<LeadFunnelReportDto>(`/leads/report?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  });
+}
+
+export function useLeadTimeline(leadId: string) {
+  return useQuery({
+    queryKey: key('timeline', leadId),
+    queryFn: () => apiFetch<LeadTimelineItemDto[]>(`/leads/${leadId}/timeline`),
+  });
+}
+
+export function useLeadQuotes(leadId: string) {
+  return useQuery({
+    queryKey: key('quotes', leadId),
+    queryFn: () => apiFetch<LeadQuoteRecordDto[]>(`/leads/${leadId}/quotes`),
+  });
+}
+
+export function useLeadVisits(leadId: string) {
+  return useQuery({
+    queryKey: key('visits', leadId),
+    queryFn: () => apiFetch<LeadVisitDto[]>(`/leads/${leadId}/visits`),
+  });
+}
+
+export function useCreateLeadVisit(leadId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateLeadVisitInput) =>
+      apiFetch<LeadVisitDto>(`/leads/${leadId}/visits`, { method: 'POST', json: input }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['leads'] });
+      void qc.invalidateQueries({ queryKey: ['calendar'] });
+    },
+  });
+}
+
+export function useUpdateLeadVisit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: { id: string } & UpdateLeadVisitInput) =>
+      apiFetch<LeadVisitDto>(`/leads/visits/${id}`, { method: 'PATCH', json: input }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['leads'] });
+      void qc.invalidateQueries({ queryKey: ['followups'] });
+      void qc.invalidateQueries({ queryKey: ['calendar'] });
+    },
+  });
+}
+
+export function useDeleteLeadVisit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/leads/visits/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['leads'] });
+      void qc.invalidateQueries({ queryKey: ['calendar'] });
+    },
   });
 }

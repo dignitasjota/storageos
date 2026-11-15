@@ -9,7 +9,13 @@ import type {
   ImportPreviewDto,
 } from '@storageos/shared';
 
-export type ImportEntity = 'customers' | 'units' | 'contracts' | 'sepa-mandates' | 'expenses';
+export type ImportEntity =
+  | 'customers'
+  | 'units'
+  | 'contracts'
+  | 'sepa-mandates'
+  | 'expenses'
+  | 'leads';
 
 /** Query keys a invalidar tras importar cada entidad. */
 const INVALIDATE_KEYS: Record<ImportEntity, string[]> = {
@@ -18,6 +24,7 @@ const INVALIDATE_KEYS: Record<ImportEntity, string[]> = {
   contracts: ['contracts'],
   'sepa-mandates': ['sepa'],
   expenses: ['expenses'],
+  leads: ['leads'],
 };
 
 export function useImportPreview(entity: ImportEntity) {

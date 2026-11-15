@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText } from 'lucide-react';
+import { FileText, MessageCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -22,6 +22,7 @@ import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useLeadQuotePreview, useSendLeadQuote } from '@/lib/communications/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
+import { useLeadQuotes } from '@/lib/leads/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const NONE = 'none';
@@ -48,6 +49,9 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
   const [result, setResult] = useState<LeadQuoteDto | null>(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [followupDays, setFollowupDays] = useState('3');
+  const history = useLeadQuotes(lead.id);
+  const waPhone = (lead.phone ?? '').replace(/\D/g, '');
 
   // Un local desactivado no admite reservas: el enlace del presupuesto no iría a ningún lado.
   const activeFacilities = (facilities.data ?? []).filter((f) => f.isActive);
@@ -77,16 +81,61 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
     }
   }
 
-  async function submit() {
+  async function submit(channel: 'email' | 'whatsapp') {
     try {
-      const r = await send.mutateAsync({ ...input, subject, body });
-      toast.success(`Presupuesto enviado a ${r.sentTo}.`);
+      const r = await send.mutateAsync({
+        ...input,
+        subject,
+        body,
+        channel,
+        followupInDays: Number(followupDays),
+      });
+      if (channel === 'whatsapp' && r.whatsappText) {
+        // Se abre WhatsApp con el texto; el presupuesto queda registrado.
+        const to = waPhone.length === 9 ? `34${waPhone}` : waPhone;
+        window.open(
+          `https://wa.me/${to}?text=${encodeURIComponent(r.whatsappText)}`,
+          '_blank',
+          'noopener',
+        );
+        toast.success('Presupuesto registrado: termina de enviarlo en WhatsApp.');
+      } else {
+        toast.success(`Presupuesto enviado a ${r.sentTo}.`);
+      }
       setOpen(false);
       setResult(null);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
     }
   }
+
+  const sent = history.data ?? [];
+  const historyBlock =
+    sent.length > 0 ? (
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">Presupuestos enviados</p>
+        <ul className="space-y-1">
+          {sent.slice(0, 5).map((q) => (
+            <li key={q.id} className="flex flex-wrap items-center gap-x-2 text-xs">
+              <span className="tabular-nums text-muted-foreground">
+                {new Date(q.sentAt).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+              </span>
+              <span>
+                {[q.unitTypeName, q.facilityName].filter(Boolean).join(' · ')} ·{' '}
+                <span className="tabular-nums">{eur(q.totalToPay)}</span>
+                {q.months > 1 ? ` (${q.months} meses)` : ''}
+                {q.channel === 'whatsapp' ? ' · WhatsApp' : ''}
+              </span>
+              {q.bookedAt ? (
+                <span className="font-medium text-green-700 dark:text-green-400">Reservó</span>
+              ) : q.reminderSentAt ? (
+                <span className="text-muted-foreground">Recordado</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+    ) : null;
 
   if (!canSend) return null;
   if (!open) {
@@ -95,11 +144,12 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
         <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
           <FileText className="mr-1 size-4" /> Preparar presupuesto
         </Button>
-        {!lead.email && (
+        {!lead.email && !waPhone && (
           <span className="ml-2 text-xs text-muted-foreground">
-            Sin email: podrás calcularlo pero no enviarlo.
+            Sin email ni teléfono: podrás calcularlo pero no enviarlo.
           </span>
         )}
+        {historyBlock && <div className="mt-3">{historyBlock}</div>}
       </div>
     );
   }
@@ -238,15 +288,42 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
               onChange={(e) => setBody(e.target.value)}
             />
           </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="quote-followup" className="text-xs font-normal">
+              Recordarme llamarle
+            </Label>
+            <Select value={followupDays} onValueChange={setFollowupDays}>
+              <SelectTrigger id="quote-followup" className="h-8 w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">No</SelectItem>
+                <SelectItem value="1">Mañana</SelectItem>
+                <SelectItem value="3">En 3 días</SelectItem>
+                <SelectItem value="7">En una semana</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
               disabled={!lead.email || send.isPending}
-              onClick={() => void submit()}
+              onClick={() => void submit('email')}
             >
-              Enviar presupuesto
+              Enviar por correo
             </Button>
+            {waPhone.length >= 9 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={send.isPending}
+                onClick={() => void submit('whatsapp')}
+              >
+                <MessageCircle className="mr-1 size-4" /> Mandar por WhatsApp
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"

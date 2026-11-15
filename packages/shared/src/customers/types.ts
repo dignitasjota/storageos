@@ -391,6 +391,9 @@ export interface CustomerFollowupDto {
   status: 'pending' | 'done' | 'cancelled';
   completedAt: string | null;
   authorName: string | null;
+  assignedToUserId: string | null;
+  assignedToName: string | null;
+  outcome: string | null;
   createdAt: string;
 }
 

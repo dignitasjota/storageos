@@ -1,13 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   OPPORTUNITY_LABELS,
+  OpportunityKindEnum,
   type CustomerOfferStatus,
   type OpportunityKind,
+  type OpportunityResultsDto,
   type PortalOfferDto,
   type PortalRespondOfferInput,
 } from '@storageos/shared';
 
-import { customerVisibilityFacilities } from '../../common/customer-scope';
+import { customerScopeWhere, customerVisibilityFacilities } from '../../common/customer-scope';
+import { type FacilityScope } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -171,6 +174,7 @@ export class CustomerOffersService {
       message: r.message,
       priceGross: r.priceGross != null ? Number(r.priceGross) : null,
       status: r.status as CustomerOfferStatus,
+      url: safeUrl((r.metadata as Record<string, unknown> | null)?.url),
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt.toISOString(),
     }));
@@ -344,6 +348,166 @@ export class CustomerOffersService {
         ]);
         return methods + mandates > 0;
       }
+      case 'annual_prepay': {
+        const ids = contractIdsOf(meta);
+        return (
+          (await this.admin.contract.count({
+            where: {
+              tenantId,
+              customerId,
+              deletedAt: null,
+              billingIntervalMonths: { gt: 1 },
+              ...(ids ? { id: { in: ids } } : { updatedAt: { gt: since } }),
+            },
+          })) > 0
+        );
+      }
+      case 'renewal': {
+        // Se prorrogó (fecha de fin posterior) o pasó a renovación automática.
+        const contractId = typeof meta.contractId === 'string' ? meta.contractId : null;
+        const endDate = typeof meta.endDate === 'string' ? new Date(meta.endDate) : null;
+        if (!contractId) return false;
+        const c = await this.admin.contract.findFirst({
+          where: { id: contractId, tenantId },
+          select: { endDate: true, autoRenew: true, status: true },
+        });
+        if (!c || c.status === 'ended' || c.status === 'cancelled') return false;
+        return c.autoRenew || !c.endDate || (!!endDate && c.endDate > endDate);
+      }
+      case 'incomplete_data': {
+        const c = await this.admin.customer.findFirst({
+          where: { id: customerId, tenantId },
+          select: { phone: true, documentNumber: true, address: true },
+        });
+        return !!(c?.phone && c.documentNumber && c.address);
+      }
+      case 'referral':
+        return (
+          (await this.admin.referral.count({
+            where: { tenantId, referrerCustomerId: customerId, createdAt: { gt: since } },
+          })) > 0
+        );
+      case 'smaller_unit': {
+        // Se quedó: le cambiamos el trastero o anuló la baja.
+        const contractId = typeof meta.contractId === 'string' ? meta.contractId : null;
+        if (!contractId) return false;
+        const [moved, stayed] = await Promise.all([
+          this.admin.contractEvent.count({
+            where: {
+              tenantId,
+              contractId,
+              eventType: 'unit_changed',
+              occurredAt: { gt: since },
+            },
+          }),
+          this.admin.contract.count({ where: { id: contractId, tenantId, status: 'active' } }),
+        ]);
+        return moved + stayed > 0;
+      }
+      case 'google_review':
+        // No hay forma de saber si la dejó: se queda abierta hasta caducar.
+        return false;
     }
   }
+
+  /** Revisa las propuestas abiertas por si ya lo contrató (las del área de clientes lo hacen al abrirse). */
+  async refreshAccepted(tenantId: string): Promise<void> {
+    await this.expireDue(tenantId);
+    const rows = await this.admin.customerOffer.findMany({
+      where: { tenantId, status: { in: LIVE } },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      select: { id: true, customerId: true, kind: true, createdAt: true, metadata: true },
+    });
+    const accepted: string[] = [];
+    for (const r of rows) {
+      if (
+        await this.fulfilled(
+          tenantId,
+          r.customerId,
+          r.kind as OpportunityKind,
+          r.createdAt,
+          (r.metadata as Record<string, unknown> | null) ?? {},
+        )
+      ) {
+        accepted.push(r.id);
+      }
+    }
+    if (accepted.length) {
+      await this.admin.customerOffer.updateMany({
+        where: { id: { in: accepted } },
+        data: { status: 'accepted', acceptedAt: new Date() },
+      });
+    }
+  }
+
+  /** Cuántas propuestas ha marcado el inquilino como «me interesa» y siguen abiertas. */
+  async interestedCount(tenantId: string, scope: FacilityScope): Promise<number> {
+    return this.admin.customerOffer.count({
+      where: {
+        tenantId,
+        status: 'interested',
+        expiresAt: { gt: new Date() },
+        customer: { deletedAt: null, ...customerScopeWhere(scope ?? null) },
+      },
+    });
+  }
+
+  /** Qué ha pasado con las propuestas de los últimos días, por tipo. */
+  async results(
+    tenantId: string,
+    days: number,
+    scope: FacilityScope,
+  ): Promise<OpportunityResultsDto> {
+    await this.refreshAccepted(tenantId);
+    const rows = await this.admin.customerOffer.findMany({
+      where: {
+        tenantId,
+        createdAt: { gte: new Date(Date.now() - days * 86_400_000) },
+        customer: { deletedAt: null, ...customerScopeWhere(scope ?? null) },
+      },
+      select: { kind: true, status: true, seenAt: true, priceGross: true },
+      take: 20_000,
+    });
+    const empty = () => ({
+      proposed: 0,
+      seen: 0,
+      interested: 0,
+      accepted: 0,
+      declined: 0,
+      monthlyValue: 0,
+    });
+    const totals = empty();
+    const byKind = Object.fromEntries(
+      OpportunityKindEnum.options.map((k) => [k, empty()]),
+    ) as OpportunityResultsDto['byKind'];
+    for (const r of rows) {
+      const k = byKind[r.kind as OpportunityKind];
+      for (const row of k ? [totals, k] : [totals]) {
+        row.proposed += 1;
+        if (r.seenAt) row.seen += 1;
+        if (r.status === 'interested') row.interested += 1;
+        if (r.status === 'accepted') {
+          row.accepted += 1;
+          // Cuotas (no el pase nocturno, que es un pago suelto).
+          if (r.priceGross != null && r.kind !== 'night_pass') {
+            row.monthlyValue =
+              Math.round((row.monthlyValue + Number(r.priceGross) / 1.21) * 100) / 100;
+          }
+        }
+        if (r.status === 'declined') row.declined += 1;
+      }
+    }
+    return { days, totals, byKind };
+  }
+}
+
+function contractIdsOf(meta: Record<string, unknown>): string[] | null {
+  if (Array.isArray(meta.contractIds)) return meta.contractIds as string[];
+  if (typeof meta.contractId === 'string') return [meta.contractId];
+  return null;
+}
+
+function safeUrl(v: unknown): string | null {
+  return typeof v === 'string' && /^https:\/\//i.test(v) ? v : null;
 }

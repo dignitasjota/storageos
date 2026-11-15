@@ -85,7 +85,9 @@ import { useWebChatPending } from '@/lib/ai/web-chat-hooks';
 import { useCompanyWide, useFeatures, usePanelBrand, usePermissions } from '@/lib/auth/hooks';
 import { useRemindersDueCount } from '@/lib/business-reminders/hooks';
 import { useCustomerUnreadSummary } from '@/lib/customers/hooks';
+import { useFollowupDueCount } from '@/lib/followups/hooks';
 import { useIncidentPendingCounts, useMyTasksCount } from '@/lib/operations/hooks';
+import { useOpportunityInterestedCount } from '@/lib/opportunities/hooks';
 import { appInitials, appName, brandColorOf, textColorOn } from '@/lib/portal/tenant-app';
 import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
 import { useSupportWaitingCount } from '@/lib/support/hooks';
@@ -537,6 +539,13 @@ export function AppSidebar() {
     useRemindersDueCount(
       permissions.includes('reminders:read') && features.includes('business_reminders'),
     ).data?.due ?? 0;
+  // Seguimientos de hoy o atrasados, y propuestas a las que han dicho «me interesa».
+  const followupsDue =
+    useFollowupDueCount(
+      permissions.includes('customers:read') || permissions.includes('leads:read'),
+    ).data?.due ?? 0;
+  const offersInterested =
+    useOpportunityInterestedCount(permissions.includes('customers:read')).data?.interested ?? 0;
   // Mensajes de inquilinos sin leer (total, para el item «Inquilinos»).
   const unreadMessages =
     useCustomerUnreadSummary(permissions.includes('customers:read')).data?.total ?? 0;
@@ -602,6 +611,8 @@ export function AppSidebar() {
     if (href === '/incidents') return incidentCounts.reported + incidentCounts.investigating;
     if (href === '/tasks') return myTasks;
     if (href === '/reminders') return remindersDue;
+    if (href === '/followups') return followupsDue;
+    if (href === '/opportunities') return offersInterested;
     return 0;
   }
 
@@ -650,6 +661,23 @@ export function AppSidebar() {
           title="Tus tareas atrasadas o de hoy"
         >
           {myTasks}
+        </SidebarMenuBadge>
+      );
+    }
+    if (href === '/followups' && followupsDue > 0) {
+      return (
+        <SidebarMenuBadge className="bg-amber-500 text-white" title="Para hoy o atrasados">
+          {followupsDue}
+        </SidebarMenuBadge>
+      );
+    }
+    if (href === '/opportunities' && offersInterested > 0) {
+      return (
+        <SidebarMenuBadge
+          className="bg-emerald-600 text-white"
+          title="Inquilinos que han dicho «me interesa»"
+        >
+          {offersInterested}
         </SidebarMenuBadge>
       );
     }

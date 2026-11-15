@@ -36,6 +36,7 @@ const TYPE_COLOR: Record<CalendarEventType, string> = {
   price_change: 'bg-pink-500',
   invoice_due: 'bg-stone-700 dark:bg-stone-300',
   document_expiring: 'bg-lime-600',
+  lead_visit: 'bg-orange-500',
 };
 
 const TYPE_LABEL: Record<CalendarEventType, string> = {
@@ -49,6 +50,7 @@ const TYPE_LABEL: Record<CalendarEventType, string> = {
   price_change: 'Cambio de cuota',
   invoice_due: 'Factura que vence',
   document_expiring: 'Documento que caduca',
+  lead_visit: 'Visita de un contacto',
 };
 
 const HIDDEN_KEY = 'storageos.calendar.hidden';
