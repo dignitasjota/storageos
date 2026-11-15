@@ -230,6 +230,9 @@ export interface PortalIncidentDto {
   status: string;
   severity: string;
   createdAt: string;
+  /** Qué se hizo, al resolverla o descartarla. */
+  resolution: string | null;
+  closedAt: string | null;
 }
 
 /** Acceso adicional que el inquilino se crea desde el portal (familiar, etc.). */

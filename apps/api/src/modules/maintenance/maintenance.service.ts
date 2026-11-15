@@ -12,9 +12,11 @@ import {
 } from '@storageos/shared';
 
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
+import { todayInTimezone } from '../../common/format';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { MaintenancePlan, Prisma } from '@storageos/database';
@@ -29,10 +31,22 @@ const INCLUDE = {
   assignedTo: { select: { fullName: true } },
 } as const;
 
-function toDateOnly(iso: string | undefined): Date {
-  if (iso) return new Date(`${iso}T00:00:00.000Z`);
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+function toDateOnly(iso: string): Date {
+  return new Date(`${iso}T00:00:00.000Z`);
+}
+
+const sameDay = (a: Date | null, b: Date) =>
+  !!a && a.toISOString().slice(0, 10) === b.toISOString().slice(0, 10);
+
+/** ¿La frecuencia enviada es distinta de la que tiene el plan? */
+function scheduleDiffers(current: RecurrenceSpec, next: RecurrenceSpec): boolean {
+  const days = (d: number[]) => [...d].sort((a, b) => a - b).join(',');
+  return (
+    current.freq !== next.freq ||
+    (next.freq !== 'weekly' && current.interval !== next.interval) ||
+    (next.freq === 'weekly' && days(current.weekdays) !== days(next.weekdays)) ||
+    (next.freq === 'monthly' && current.dayOfMonth !== next.dayOfMonth)
+  );
 }
 
 function specOf(plan: {
@@ -61,7 +75,46 @@ export class MaintenanceService {
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  /** Hoy en la zona horaria del negocio (a medianoche UTC, como las fechas de la base). */
+  private async today(tenantId: string): Promise<Date> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    return todayInTimezone(t?.timezone ?? 'Europe/Madrid');
+  }
+
+  /** El local exista y sea del usuario; el responsable, del equipo y activo. */
+  private async checkRefs(
+    tenantId: string,
+    scope: string[] | null | undefined,
+    refs: { facilityId?: string | null | undefined; assignedToUserId?: string | null | undefined },
+  ): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      if (refs.facilityId) {
+        assertFacilityAllowed(scope, refs.facilityId);
+        const f = await tx.facility.count({ where: { id: refs.facilityId, deletedAt: null } });
+        if (f === 0) {
+          throw new BadRequestException({
+            code: 'facility_not_found',
+            message: 'Local no encontrado',
+          });
+        }
+      }
+      if (refs.assignedToUserId) {
+        const u = await tx.user.count({ where: { id: refs.assignedToUserId, isActive: true } });
+        if (u === 0) {
+          throw new BadRequestException({
+            code: 'assignee_not_found',
+            message: 'La persona elegida no está en el equipo o está desactivada',
+          });
+        }
+      }
+    }, tenantId);
+  }
 
   async list(
     tenantId: string,
@@ -89,8 +142,11 @@ export class MaintenanceService {
     facilityScope?: string[] | null;
   }): Promise<MaintenancePlanDto> {
     const { input } = args;
-    if (input.facilityId) assertFacilityAllowed(args.facilityScope, input.facilityId);
-    const startDate = toDateOnly(input.startDate);
+    await this.checkRefs(args.tenantId, args.facilityScope, input);
+    // Empieza hoy como pronto: un inicio pasado no crea tareas ya vencidas.
+    const today = await this.today(args.tenantId);
+    const asked = input.startDate ? toDateOnly(input.startDate) : today;
+    const startDate = asked < today ? today : asked;
     const spec = specOf({
       freq: input.freq,
       interval: input.interval,
@@ -145,22 +201,20 @@ export class MaintenanceService {
   }): Promise<MaintenancePlanDto> {
     const current = await this.findOrThrow(args.tenantId, args.planId, args.facilityScope);
     const i = args.input;
-    if (i.facilityId) assertFacilityAllowed(args.facilityScope, i.facilityId);
+    await this.checkRefs(args.tenantId, args.facilityScope, i);
     const data: Prisma.MaintenancePlanUncheckedUpdateInput = {};
-    // Frecuencia nueva: valida como en el alta y recalcula la próxima fecha.
-    const scheduleChanged =
-      i.freq !== undefined ||
-      i.interval !== undefined ||
-      i.weekdays !== undefined ||
-      i.dayOfMonth !== undefined ||
-      i.startDate !== undefined;
+    const today = await this.today(args.tenantId);
+    const currentSpec = specOf(current);
+    const spec = specOf({
+      freq: i.freq ?? current.freq,
+      interval: i.interval ?? current.interval,
+      weekdays: i.weekdays ?? current.weekdays,
+      dayOfMonth: i.dayOfMonth !== undefined ? i.dayOfMonth : current.dayOfMonth,
+    });
+    // Solo se recalcula la próxima fecha si cambia la frecuencia o la fecha de
+    // inicio (antes, cambiar el título la movía y podía crear una tarea de más).
+    const scheduleChanged = scheduleDiffers(currentSpec, spec) || i.startDate !== undefined;
     if (scheduleChanged) {
-      const spec = specOf({
-        freq: i.freq ?? current.freq,
-        interval: i.interval ?? current.interval,
-        weekdays: i.weekdays ?? current.weekdays,
-        dayOfMonth: i.dayOfMonth !== undefined ? i.dayOfMonth : current.dayOfMonth,
-      });
       if (spec.freq === 'weekly' && spec.weekdays.length === 0) {
         throw new BadRequestException({
           code: 'weekdays_required',
@@ -173,13 +227,28 @@ export class MaintenanceService {
           message: 'Indica el día del mes',
         });
       }
-      const from = i.startDate ? toDateOnly(i.startDate) : toDateOnly(undefined);
+      const asked = i.startDate ? toDateOnly(i.startDate) : today;
+      const from = asked < today ? today : asked;
       data.freq = spec.freq;
       data.interval = spec.interval;
       data.weekdays = spec.weekdays;
       data.dayOfMonth = spec.dayOfMonth;
       if (i.startDate) data.startDate = from;
-      data.nextRunDate = firstOccurrence(spec, from);
+      let next = firstOccurrence(spec, from);
+      // La de hoy ya se generó: la siguiente.
+      if (sameDay(current.lastGeneratedAt, today) && next.getTime() <= today.getTime()) {
+        next = nextOccurrence(spec, today);
+      }
+      data.nextRunDate = next;
+    }
+    // Reactivar un plan parado: sigue desde hoy, sin la fecha que se quedó atrás.
+    if (
+      i.isActive === true &&
+      !current.isActive &&
+      !scheduleChanged &&
+      current.nextRunDate.getTime() < today.getTime()
+    ) {
+      data.nextRunDate = firstOccurrence(spec, today);
     }
     if (i.title !== undefined) data.title = i.title.trim();
     if (i.description !== undefined) data.description = i.description?.trim() || null;
@@ -238,11 +307,12 @@ export class MaintenanceService {
    * Devuelve cuántas tareas creó.
    */
   async generateDue(): Promise<{ generated: number }> {
-    const today = toDateOnly(undefined);
+    // Un día de margen: cada plan se compara luego con el día de su negocio.
+    const tomorrow = new Date(Date.now() + 86_400_000);
     const duePlans = await this.admin.maintenancePlan.findMany({
       where: {
         isActive: true,
-        nextRunDate: { lte: today },
+        nextRunDate: { lte: tomorrow },
         // Los de toda la empresa no tienen local; los de un local borrado no siguen.
         OR: [{ facilityId: null }, { facility: { deletedAt: null } }],
       },
@@ -253,8 +323,7 @@ export class MaintenanceService {
     let generated = 0;
     for (const plan of duePlans) {
       try {
-        await this.generateFromPlan(plan.tenantId, plan.id);
-        generated += 1;
+        if ((await this.generateFromPlan(plan.tenantId, plan.id)).generated) generated += 1;
       } catch (err) {
         this.logger.warn(
           `[maintenance] fallo generando plan ${plan.id}: ${err instanceof Error ? err.message : String(err)}`,
@@ -266,20 +335,35 @@ export class MaintenanceService {
   }
 
   /**
-   * Genera una tarea para el plan si su `nextRunDate` venció y pone el plan al
-   * día (avanza `nextRunDate` hasta el futuro sin acumular tareas atrasadas).
+   * Genera la tarea del plan si su fecha ya llegó y pone el plan al día (avanza
+   * `nextRunDate` hasta el futuro sin acumular tareas atrasadas). Con `force`
+   * («Generar ahora») crea ya la siguiente aunque su fecha esté por llegar.
    */
   async generateFromPlan(
     tenantId: string,
     planId: string,
     facilityScope?: string[] | null,
-  ): Promise<boolean> {
+    opts: { force?: boolean } = {},
+  ): Promise<{ generated: boolean; dueDate: string | null; reason?: 'open_task' }> {
     if (facilityScope) await this.findOrThrow(tenantId, planId, facilityScope);
-    const today = toDateOnly(undefined);
-    return this.prisma.withTenant(async (tx) => {
+    const today = await this.today(tenantId);
+    const result = await this.prisma.withTenant(async (tx) => {
+      // Bloqueo: el cron y «Generar ahora» a la vez no crean dos tareas.
+      await tx.$queryRaw`SELECT id FROM maintenance_plans WHERE id = ${planId}::uuid FOR UPDATE`;
       const plan = await tx.maintenancePlan.findUnique({ where: { id: planId } });
-      if (!plan || !plan.isActive) return false;
-      if (plan.nextRunDate.getTime() > today.getTime()) return false; // aún no toca
+      if (!plan || !plan.isActive) return null;
+      if (!opts.force && plan.nextRunDate.getTime() > today.getTime()) return null;
+      if (opts.force) {
+        // A mano: no se adelanta otra si la anterior sigue sin hacer.
+        const open = await tx.task.count({
+          where: {
+            maintenancePlanId: plan.id,
+            deletedAt: null,
+            status: { in: ['open', 'in_progress'] },
+          },
+        });
+        if (open > 0) return 'open_task' as const;
+      }
 
       // Instancia el checklist de la plantilla (cada punto con id + estado).
       const template = (plan.checklistTemplate as { label: string }[] | null) ?? [];
@@ -290,8 +374,7 @@ export class MaintenanceService {
         note: null,
       }));
 
-      // Crea la tarea con vencimiento en la fecha que tocaba.
-      await tx.task.create({
+      const task = await tx.task.create({
         data: {
           tenantId,
           type: plan.type,
@@ -304,6 +387,7 @@ export class MaintenanceService {
           checklist: checklist as Prisma.InputJsonValue,
           dueDate: plan.nextRunDate,
         },
+        select: { id: true, title: true, assignedToUserId: true, facilityId: true },
       });
 
       // Avanza nextRunDate hasta el futuro (catch-up sin generar más tareas).
@@ -318,8 +402,23 @@ export class MaintenanceService {
         where: { id: plan.id },
         data: { nextRunDate: next, lastGeneratedAt: new Date() },
       });
-      return true;
+      return { task, dueDate: plan.nextRunDate.toISOString().slice(0, 10) };
     }, tenantId);
+    if (!result) return { generated: false, dueDate: null };
+    if (result === 'open_task') return { generated: false, dueDate: null, reason: 'open_task' };
+    if (result.task.assignedToUserId) {
+      await this.notifications
+        .create(tenantId, {
+          type: 'task.assigned',
+          title: 'Tienes una tarea de mantenimiento',
+          body: result.task.title,
+          link: `/tasks?task=${result.task.id}`,
+          facilityId: result.task.facilityId,
+          userId: result.task.assignedToUserId,
+        })
+        .catch(() => undefined);
+    }
+    return { generated: true, dueDate: result.dueDate };
   }
 
   private async findOrThrow(

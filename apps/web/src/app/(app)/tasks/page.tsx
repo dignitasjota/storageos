@@ -10,15 +10,28 @@ import {
   type TaskStatusValue,
   type TaskTypeValue,
 } from '@storageos/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { type ColumnDef } from '@tanstack/react-table';
-import { AlertTriangle, Check, Loader2, Plus, Settings2, UserCheck } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  Loader2,
+  Pencil,
+  Plus,
+  Settings2,
+  Trash2,
+  UserCheck,
+} from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -38,6 +51,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -60,10 +74,12 @@ import {
   useAddTaskComment,
   useCreateIncident,
   useCreateTask,
+  useDeleteTask,
   useTask,
   useTaskComments,
   useTransitionTask,
   useUpdateChecklistItem,
+  useUpdateTask,
 } from '@/lib/operations/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useOpenFromUrl } from '@/lib/use-open-from-url';
@@ -107,10 +123,15 @@ const PRIORITY_LABELS: Record<TaskPriorityValue, { label: string; className: str
 
 const NEXT_STATUS: Record<TaskStatusValue, TaskStatusValue[]> = {
   open: ['in_progress', 'done', 'cancelled'],
-  in_progress: ['done', 'cancelled'],
-  done: [],
-  cancelled: [],
+  in_progress: ['done', 'open', 'cancelled'],
+  done: ['open'],
+  cancelled: ['open'],
 };
+
+function transitionLabel(from: TaskStatusValue, to: TaskStatusValue): string {
+  if (to === 'open') return from === 'in_progress' ? 'Volver a abierta' : 'Reabrir';
+  return `Marcar como ${STATUS_LABELS[to].label.toLowerCase()}`;
+}
 
 export default function TasksPage() {
   const [status, setStatus] = useState<TaskStatusValue | undefined>();
@@ -428,11 +449,13 @@ export default function TasksPage() {
                               </FormControl>
                               <SelectContent>
                                 <SelectItem value="none">(sin asignar)</SelectItem>
-                                {(users.data ?? []).map((u) => (
-                                  <SelectItem key={u.id} value={u.id}>
-                                    {u.fullName}
-                                  </SelectItem>
-                                ))}
+                                {(users.data ?? [])
+                                  .filter((u) => u.isActive)
+                                  .map((u) => (
+                                    <SelectItem key={u.id} value={u.id}>
+                                      {u.fullName}
+                                    </SelectItem>
+                                  ))}
                               </SelectContent>
                             </Select>
                           </FormItem>
@@ -445,14 +468,23 @@ export default function TasksPage() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Fecha límite</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="date"
-                              {...field}
-                              value={field.value ?? ''}
-                              onChange={(e) => field.onChange(e.target.value || undefined)}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <DateSelect
+                              around
+                              value={field.value ?? undefined}
+                              onChange={(v) => field.onChange(v)}
                             />
-                          </FormControl>
+                            {field.value && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => field.onChange(undefined)}
+                              >
+                                Quitar
+                              </Button>
+                            )}
+                          </div>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -582,6 +614,8 @@ export default function TasksPage() {
           </Button>
         </div>
       )}
+
+      {tasks.isError && <SectionError onRetry={() => void tasks.refetch()} />}
 
       <DataTable
         filtersActive={!!status || !!type || !!assignedToUserId}
@@ -739,18 +773,54 @@ function AutoRulesDialog({ onClose }: { onClose: () => void }) {
 }
 
 function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
+  const ask = useConfirm();
   const task = useTask(id);
   const comments = useTaskComments(id);
   const transition = useTransitionTask();
+  const remove = useDeleteTask();
   const addComment = useAddTaskComment(id);
+  const canWrite = useHasPermission('tasks:write');
+  const canManage = useHasPermission('tasks:manage');
   const [body, setBody] = useState('');
+  const [editing, setEditing] = useState(false);
+  const notFound = task.error instanceof ApiError && task.error.statusCode === 404;
 
   async function handleTransition(status: TaskStatusValue) {
+    let reason: string | undefined;
+    if (status === 'cancelled') {
+      const res = await ask({
+        title: '¿Cancelar la tarea?',
+        input: { label: 'Motivo (opcional)' },
+        confirmLabel: 'Cancelar la tarea',
+        destructive: true,
+      });
+      if (!res) return;
+      reason = res.value || undefined;
+    }
     try {
-      await transition.mutateAsync({ id, input: { status } });
+      await transition.mutateAsync({ id, input: { status, ...(reason ? { reason } : {}) } });
       toast.success('Estado actualizado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function handleDelete() {
+    if (
+      !(await ask({
+        title: '¿Borrar la tarea?',
+        description: 'Desaparece de la lista y del calendario.',
+        confirmLabel: 'Borrar',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await remove.mutateAsync(id);
+      toast.success('Tarea borrada.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo borrar.');
     }
   }
 
@@ -768,12 +838,22 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{task.data?.title ?? 'Cargando...'}</DialogTitle>
+          <DialogTitle>{task.data?.title ?? (task.isError ? 'Tarea' : 'Cargando...')}</DialogTitle>
         </DialogHeader>
-        {task.isLoading || !task.data ? (
+        {task.isError ? (
+          notFound ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Esta tarea ya no existe o no es de tus locales.
+            </p>
+          ) : (
+            <SectionError onRetry={() => void task.refetch()} />
+          )
+        ) : task.isLoading || !task.data ? (
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
+        ) : editing ? (
+          <TaskEditForm task={task.data} onDone={() => setEditing(false)} />
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -816,19 +896,33 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
               </div>
             )}
 
-            {NEXT_STATUS[task.data.status].length > 0 && (
+            {canWrite && (
               <div className="flex flex-wrap gap-2">
                 {NEXT_STATUS[task.data.status].map((next) => (
                   <Button
                     key={next}
                     size="sm"
-                    variant={next === 'cancelled' ? 'outline' : 'default'}
-                    onClick={() => handleTransition(next)}
+                    variant={next === 'cancelled' || next === 'open' ? 'outline' : 'default'}
+                    onClick={() => void handleTransition(next)}
                     disabled={transition.isPending}
                   >
-                    Marcar como {STATUS_LABELS[next].label.toLowerCase()}
+                    {transitionLabel(task.data!.status, next)}
                   </Button>
                 ))}
+                <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+                  <Pencil className="mr-1 h-4 w-4" /> Editar
+                </Button>
+                {canManage && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => void handleDelete()}
+                    disabled={remove.isPending}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" /> Borrar
+                  </Button>
+                )}
               </div>
             )}
 
@@ -878,6 +972,146 @@ function TaskDetailDialog({ id, onClose }: { id: string; onClose: () => void }) 
   );
 }
 
+function TaskEditForm({ task, onDone }: { task: TaskDto; onDone: () => void }) {
+  const update = useUpdateTask(task.id);
+  const facilities = useFacilities();
+  const users = useUsers();
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description ?? '');
+  const [type, setType] = useState<TaskTypeValue>(task.type);
+  const [priority, setPriority] = useState<TaskPriorityValue>(task.priority);
+  const [facilityId, setFacilityId] = useState<string>(task.facilityId ?? 'none');
+  const [assignee, setAssignee] = useState<string>(task.assignedToUserId ?? 'none');
+  const [dueDate, setDueDate] = useState(task.dueDate?.slice(0, 10) ?? '');
+
+  async function save() {
+    if (!title.trim()) {
+      toast.error('El título no puede quedar vacío.');
+      return;
+    }
+    try {
+      await update.mutateAsync({
+        title: title.trim(),
+        description: description.trim() || null,
+        type,
+        priority,
+        facilityId: facilityId === 'none' ? null : facilityId,
+        // Cambiar de local quita el trastero si era de otro (el servidor lo comprueba).
+        ...(facilityId !== (task.facilityId ?? 'none') ? { unitId: null } : {}),
+        assignedToUserId: assignee === 'none' ? null : assignee,
+        dueDate: dueDate || null,
+      });
+      toast.success('Tarea guardada.');
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <Label htmlFor="task-edit-title">Título</Label>
+        <Input id="task-edit-title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label>Tipo</Label>
+          <Select value={type} onValueChange={(v) => setType(v as TaskTypeValue)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(TYPE_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Prioridad</Label>
+          <Select value={priority} onValueChange={(v) => setPriority(v as TaskPriorityValue)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(PRIORITY_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Local</Label>
+          <Select value={facilityId} onValueChange={setFacilityId}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">(sin local)</SelectItem>
+              {(facilities.data ?? []).map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>Asignada a</Label>
+          <Select value={assignee} onValueChange={setAssignee}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">(sin asignar)</SelectItem>
+              {(users.data ?? [])
+                .filter((u) => u.isActive || u.id === task.assignedToUserId)
+                .map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.fullName}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label>Fecha límite</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          <DateSelect around value={dueDate || undefined} onChange={(v) => setDueDate(v ?? '')} />
+          {dueDate && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setDueDate('')}>
+              Quitar
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="task-edit-desc">Descripción</Label>
+        <Textarea
+          id="task-edit-desc"
+          rows={3}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onDone}>
+          Cancelar
+        </Button>
+        <Button onClick={() => void save()} disabled={update.isPending}>
+          Guardar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ChecklistSection({
   taskId,
   facilityId,
@@ -890,6 +1124,7 @@ function ChecklistSection({
   const ask = useConfirm();
   const updateItem = useUpdateChecklistItem(taskId);
   const createIncident = useCreateIncident();
+  const qc = useQueryClient();
   const doneCount = checklist.filter((it) => it.status !== 'pending').length;
 
   async function mark(item: ChecklistItemDto, status: 'ok' | 'issue') {
@@ -918,8 +1153,15 @@ function ChecklistSection({
         ...(facilityId ? { facilityId } : {}),
         metadata: { source: 'checklist', taskId, checklistItemId: item.id },
       });
+      // El punto queda enlazado a la incidencia: se vuelve a leer la tarea.
+      void qc.invalidateQueries({ queryKey: ['tasks'] });
       toast.success('Incidencia creada.');
     } catch (err) {
+      if (err instanceof ApiError && err.body.code === 'incident_already_open') {
+        toast.info('Este punto ya tiene una incidencia abierta.');
+        void qc.invalidateQueries({ queryKey: ['tasks'] });
+        return;
+      }
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear la incidencia.');
     }
   }
@@ -975,17 +1217,22 @@ function ChecklistSection({
               >
                 <AlertTriangle className="h-4 w-4" />
               </Button>
-              {item.status === 'issue' && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs"
-                  disabled={createIncident.isPending}
-                  onClick={() => void openIncident(item)}
-                >
-                  Abrir incidencia
-                </Button>
-              )}
+              {item.status === 'issue' &&
+                (item.incidentId ? (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
+                    <Link href={`/incidents?incident=${item.incidentId}`}>Ver incidencia</Link>
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    disabled={createIncident.isPending}
+                    onClick={() => void openIncident(item)}
+                  >
+                    Abrir incidencia
+                  </Button>
+                ))}
             </div>
           </li>
         ))}

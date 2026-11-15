@@ -457,6 +457,7 @@ Planes de seguro / protección de contenido (catálogo del tenant). RLS por `ten
 ### `incidents`
 
 - id, tenant_id, facility_id, unit_id (nullable), reported_by_user_id, type (water_damage/lock_broken/cleaning/security/other), description, severity (low/medium/high/critical), status (open/in_progress/resolved/closed), photos (array de URLs MinIO), resolved_at, resolution_notes
+- `visible_to_customer` (2026-11-14, migración `20270122100000_daily_ops_review`): el inquilino la ve en su área de clientes. Las que él reporta nacen visibles; las del equipo, no salvo que se marque.
 
 ### `products`
 
@@ -1057,6 +1058,7 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `business_reminder_notices` (RLS): avisos enviados, único por (`reminder_id`, `due_date`, `kind`); `kind` = `d<días>`, `overdue:<fecha>` o `snooze:<fecha>`.
 - `tenants.reminders_weekly_digest` (false), `reminders_digest_last_date`, `reminders_ics_token_hash` (único, sha256 del token del calendario) y `reminders_ics_token_encrypted` (AES-GCM, AAD = tenant, para volver a enseñar el enlace).
 - Planes: la migración añade `business_reminders` a `subscription_plans.tenant_features` de `starter`, `pro` y `administrador`.
+- `business_reminders.anchor_day` (SMALLINT, 2026-11-14, migración `20270122100000_daily_ops_review`): día del mes de un vencimiento que se repite; la siguiente fecha vuelve a ese día (31 → 28 de febrero → 31 de marzo).
 
 ### Negocio del panel admin (2026-10-29)
 

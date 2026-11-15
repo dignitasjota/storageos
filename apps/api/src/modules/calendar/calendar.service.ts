@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { nextOccurrence, type RecurrenceSpec } from '@storageos/shared';
 
 import { optionalFacilityWhere, resolveFacilityFilter } from '../../common/facility-scope';
 import { formatEur } from '../../common/format';
@@ -8,7 +9,34 @@ import { tenantFeatures } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
-import type { CalendarEventDto } from '@storageos/shared';
+import type { CalendarEventDto, Permission } from '@storageos/shared';
+
+/** Lo que cada persona ve en el calendario, según sus permisos de lectura. */
+interface CalendarAccess {
+  tasks: boolean;
+  contracts: boolean;
+  reservations: boolean;
+  reminders: boolean;
+}
+
+/** `AAAA-MM-DD` y un día que existe (no el 31 de febrero). */
+function isCalendarDate(value: string | undefined): boolean {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+export function calendarAccess(
+  permissions: readonly Permission[] | null | undefined,
+): CalendarAccess {
+  const has = (p: Permission) => !permissions || permissions.includes(p);
+  return {
+    tasks: has('tasks:read'),
+    contracts: has('contracts:read'),
+    reservations: has('reservations:read'),
+    reminders: has('reminders:read'),
+  };
+}
 
 const MAX_RANGE_DAYS = 92; // ~3 meses
 
@@ -40,8 +68,16 @@ export class CalendarService {
     tenantId: string,
     fromStr: string,
     toStr: string,
-    filters: { facilityId?: string; facilityScope?: string[] | null } = {},
+    filters: {
+      facilityId?: string;
+      facilityScope?: string[] | null;
+      permissions?: readonly Permission[] | null;
+    } = {},
   ): Promise<CalendarEventDto[]> {
+    if (!isCalendarDate(fromStr) || !isCalendarDate(toStr)) {
+      throw new BadRequestException({ code: 'invalid_range', message: 'Rango de fechas inválido' });
+    }
+    const access = calendarAccess(filters.permissions);
     // Local elegido / locales del usuario: tareas y mantenimiento sin local son
     // de toda la empresa; contratos y reservas, del local de su trastero.
     const own = optionalFacilityWhere(filters.facilityScope, filters.facilityId);
@@ -57,7 +93,10 @@ export class CalendarService {
       throw new BadRequestException({ code: 'range_too_wide', message: 'Rango demasiado amplio' });
     }
     const range = { gte: from, lte: to };
-    const remindersOn = (await tenantFeatures(this.admin, tenantId)).includes('business_reminders');
+    const remindersOn =
+      access.reminders &&
+      (await tenantFeatures(this.admin, tenantId)).includes('business_reminders');
+    const none = Promise.resolve([]);
 
     return this.prisma.withTenant(async (tx) => {
       const reminders = remindersOn
@@ -67,18 +106,49 @@ export class CalendarService {
           })
         : [];
       const [tasks, maintenance, contracts, reservations, starting] = await Promise.all([
-        tx.task.findMany({
-          where: { status: { in: ['open', 'in_progress'] }, dueDate: range, ...own },
-          select: { id: true, title: true, dueDate: true },
-        }),
-        tx.maintenancePlan.findMany({
-          where: { isActive: true, nextRunDate: range, ...own },
-          select: { id: true, title: true, nextRunDate: true },
-        }),
+        access.tasks
+          ? tx.task.findMany({
+              where: {
+                status: { in: ['open', 'in_progress'] },
+                deletedAt: null,
+                dueDate: range,
+                ...own,
+              },
+              select: { id: true, title: true, dueDate: true },
+            })
+          : none,
+        // Todas las repeticiones del rango salen de la próxima fecha de cada plan.
+        access.tasks
+          ? tx.maintenancePlan.findMany({
+              where: {
+                isActive: true,
+                nextRunDate: { lte: to },
+                ...own,
+                OR: [{ facilityId: null }, { facility: { deletedAt: null } }],
+              },
+              select: {
+                id: true,
+                title: true,
+                nextRunDate: true,
+                freq: true,
+                interval: true,
+                weekdays: true,
+                dayOfMonth: true,
+              },
+            })
+          : none,
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, endDate: range, ...byUnit },
+          where: {
+            status: { in: ['active', 'ending'] },
+            deletedAt: null,
+            endDate: range,
+            ...byUnit,
+            ...(access.contracts ? {} : { id: '00000000-0000-0000-0000-000000000000' }),
+          },
           select: {
             id: true,
+            status: true,
+            autoRenew: true,
             endDate: true,
             customer: {
               select: { customerType: true, firstName: true, lastName: true, companyName: true },
@@ -88,7 +158,12 @@ export class CalendarService {
         }),
         tx.reservation.findMany({
           // Las confirmadas también retienen el trastero hasta su fecha.
-          where: { status: { in: ['pending', 'confirmed'] }, validUntil: range, ...byUnit },
+          where: {
+            status: { in: ['pending', 'confirmed'] },
+            validUntil: range,
+            ...byUnit,
+            ...(access.reservations ? {} : { id: '00000000-0000-0000-0000-000000000000' }),
+          },
           select: {
             id: true,
             validUntil: true,
@@ -106,6 +181,7 @@ export class CalendarService {
             startDate: range,
             ...CONFIRMED_START_WHERE,
             ...byUnit,
+            ...(access.contracts ? {} : { id: '00000000-0000-0000-0000-000000000000' }),
           },
           select: {
             id: true,
@@ -151,20 +227,34 @@ export class CalendarService {
         });
       }
       for (const m of maintenance) {
-        events.push({
-          id: m.id,
-          type: 'maintenance',
-          date: m.nextRunDate.toISOString(),
-          label: m.title,
-          detail: null,
-          href: '/maintenance',
-        });
+        const spec: RecurrenceSpec = {
+          freq: m.freq as RecurrenceSpec['freq'],
+          interval: m.interval,
+          weekdays: m.weekdays,
+          dayOfMonth: m.dayOfMonth,
+        };
+        let day = m.nextRunDate;
+        for (let n = 0; n < 100 && day.getTime() <= to.getTime(); n++) {
+          if (day.getTime() >= from.getTime()) {
+            events.push({
+              id: `${m.id}:${day.toISOString().slice(0, 10)}`,
+              type: 'maintenance',
+              date: day.toISOString(),
+              label: m.title,
+              detail: null,
+              href: '/maintenance',
+            });
+          }
+          day = nextOccurrence(spec, day);
+        }
       }
       for (const c of contracts) {
         if (!c.endDate) continue;
+        // Con renovación automática y sin baja pedida no termina: se prorroga.
+        const renews = c.autoRenew && c.status === 'active';
         events.push({
           id: c.id,
-          type: 'contract_ending',
+          type: renews ? 'contract_renewing' : 'contract_ending',
           date: c.endDate.toISOString(),
           label: customerName(c.customer),
           detail: c.unit?.code ?? null,
@@ -182,7 +272,9 @@ export class CalendarService {
         });
       }
       // Cambios de cuota programados y subidas de una tanda.
-      const priceChanges = await pendingPriceChanges(tx, tenantId, { from, until: to });
+      const priceChanges = access.contracts
+        ? await pendingPriceChanges(tx, tenantId, { from, until: to })
+        : new Map();
       if (priceChanges.size > 0) {
         const withChanges = await tx.contract.findMany({
           where: { id: { in: [...priceChanges.keys()] }, ...byUnit },

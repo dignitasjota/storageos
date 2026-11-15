@@ -7,6 +7,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertAllFacilities } from '../../common/facility-scope';
 
 import { TaskRulesService } from './task-rules.service';
 
@@ -32,6 +33,8 @@ export class TaskRulesController {
     @Body() body: TaskAutoRulesDto,
     @Req() req: Request,
   ): Promise<TaskAutoRules> {
+    // Son de toda la empresa: solo quien ve todos los locales.
+    assertAllFacilities(user.facilityScope);
     const ua = req.headers['user-agent'];
     return this.service.update({
       tenantId: user.tenantId,

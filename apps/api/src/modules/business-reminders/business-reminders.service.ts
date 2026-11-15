@@ -24,6 +24,7 @@ import {
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
 import { todayInTimezone } from '../../common/format';
+import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { ExpensesService } from '../expenses/expenses.service';
@@ -97,7 +98,27 @@ export class BusinessRemindersService {
     private readonly crypto: CryptoService,
     private readonly expenses: ExpensesService,
     private readonly config: ConfigService<Env, true>,
+    private readonly audit: AuditService,
   ) {}
+
+  private async log(
+    tenantId: string,
+    userId: string | null | undefined,
+    action: string,
+    entityId: string,
+    changes: Record<string, unknown> = {},
+  ): Promise<void> {
+    await this.audit
+      .write({
+        tenantId,
+        userId: userId ?? null,
+        action,
+        entityType: 'BusinessReminder',
+        entityId,
+        changes: changes as Prisma.InputJsonValue,
+      })
+      .catch(() => undefined);
+  }
 
   private async today(tenantId: string): Promise<string> {
     const t = await this.admin.tenant.findUnique({
@@ -257,12 +278,17 @@ export class BusinessRemindersService {
             link: emptyToNull(input.link),
             notes: emptyToNull(input.notes),
             templateKey,
+            anchorDay: input.recurrence === 'none' ? null : Number(input.dueDate.slice(8, 10)),
             createdByUserId: userId,
           },
           include: INCLUDE,
         }),
       tenantId,
     );
+    await this.log(tenantId, userId, 'business_reminder.created', row.id, {
+      title: row.title,
+      dueDate: input.dueDate,
+    });
     return this.toDto(row, await this.today(tenantId));
   }
 
@@ -271,6 +297,7 @@ export class BusinessRemindersService {
     id: string,
     scope: FacilityScope,
     input: UpdateBusinessReminderInput,
+    userId?: string | null,
   ): Promise<BusinessReminderDto> {
     const current = await this.findOrThrow(tenantId, id, scope);
     await this.validateRefs(tenantId, scope, input);
@@ -300,12 +327,22 @@ export class BusinessRemindersService {
         message: 'Elige al menos una persona',
       });
     }
+    // Solo una fecha nueva quita el «pospuesto» (guardar otra cosa no).
+    const dueChanged = input.dueDate !== undefined && input.dueDate !== dateStr(current.dueDate);
+    const due = input.dueDate ?? dateStr(current.dueDate);
+    const anchorDay =
+      recurrence === 'none'
+        ? null
+        : dueChanged || current.anchorDay === null
+          ? Number(due.slice(8, 10))
+          : current.anchorDay;
+    // Reabrir uno hecho (marcado por error): vuelve a activo con su última fecha.
+    const reopen = input.status === 'active' && current.status === 'done';
     const data: Prisma.BusinessReminderUncheckedUpdateInput = {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.category !== undefined ? { category: input.category } : {}),
-      ...(input.dueDate !== undefined
-        ? { dueDate: dateOf(input.dueDate), snoozedUntil: null }
-        : {}),
+      ...(dueChanged ? { dueDate: dateOf(due), snoozedUntil: null } : {}),
+      anchorDay,
       recurrence,
       intervalMonths: recurrence === 'custom' ? intervalMonths : null,
       ...(input.notifyDaysBefore !== undefined ? { notifyDaysBefore: input.notifyDaysBefore } : {}),
@@ -322,17 +359,31 @@ export class BusinessRemindersService {
       ...(input.link !== undefined ? { link: emptyToNull(input.link) } : {}),
       ...(input.notes !== undefined ? { notes: emptyToNull(input.notes) } : {}),
       ...(input.facilityId !== undefined ? { facilityId: input.facilityId ?? null } : {}),
-      ...(input.status !== undefined && current.status !== 'done' ? { status: input.status } : {}),
+      ...(input.status !== undefined && (current.status !== 'done' || reopen)
+        ? { status: input.status }
+        : {}),
     };
     const row = await this.prisma.withTenant(
       (tx) => tx.businessReminder.update({ where: { id }, data, include: INCLUDE }),
       tenantId,
     );
+    await this.log(
+      tenantId,
+      userId,
+      reopen ? 'business_reminder.reopened' : 'business_reminder.updated',
+      id,
+      { fields: Object.keys(input) },
+    );
     return this.toDto(row, await this.today(tenantId));
   }
 
-  async remove(tenantId: string, id: string, scope: FacilityScope): Promise<void> {
-    await this.findOrThrow(tenantId, id, scope);
+  async remove(
+    tenantId: string,
+    id: string,
+    scope: FacilityScope,
+    userId?: string | null,
+  ): Promise<void> {
+    const current = await this.findOrThrow(tenantId, id, scope);
     const receipts = await this.prisma.withTenant(
       (tx) =>
         tx.businessReminderCompletion.findMany({
@@ -344,6 +395,7 @@ export class BusinessRemindersService {
     await this.prisma.withTenant((tx) => tx.businessReminder.delete({ where: { id } }), tenantId);
     const keys = receipts.map((r) => r.receiptKey).filter((k): k is string => !!k);
     if (keys.length > 0) await this.files.deleteObjects('uploads', keys).catch(() => undefined);
+    await this.log(tenantId, userId, 'business_reminder.deleted', id, { title: current.title });
   }
 
   /** Pospone los avisos unos días (no cambia la fecha del vencimiento). */
@@ -352,6 +404,7 @@ export class BusinessRemindersService {
     id: string,
     scope: FacilityScope,
     days: number,
+    userId?: string | null,
   ): Promise<BusinessReminderDto> {
     const current = await this.findOrThrow(tenantId, id, scope);
     if (current.status !== 'active') {
@@ -372,6 +425,7 @@ export class BusinessRemindersService {
         }),
       tenantId,
     );
+    await this.log(tenantId, userId, 'business_reminder.snoozed', id, { days });
     return this.toDto(row, today);
   }
 
@@ -422,28 +476,17 @@ export class BusinessRemindersService {
     }
     const amount = input.amount ?? (current.amount === null ? null : Number(current.amount));
     const dueDate = dateStr(current.dueDate);
-    let expenseId: string | null = null;
-    if (input.registerExpense && amount && amount > 0) {
-      const expense = await this.expenses.create(tenantId, userId, {
-        facilityId: current.facilityId,
-        category: BUSINESS_REMINDER_EXPENSE_CATEGORY[current.category as BusinessReminderCategory],
-        description: current.title,
-        amount,
-        expenseDate: await this.today(tenantId),
-        vendor: current.vendor ?? '',
-        notes: input.note ?? '',
-      });
-      expenseId = expense.id;
-    }
     const next =
       fiscalNextDueDate(current.templateKey, dueDate) ??
       nextReminderDueDate(
         dueDate,
         current.recurrence as BusinessReminderRecurrence,
         current.intervalMonths,
+        current.anchorDay,
       );
-    const row = await this.prisma.withTenant(async (tx) => {
-      // Reserva: si dos personas lo marcan a la vez, solo vale una.
+    // Primero se reserva (dos clics a la vez: solo vale uno) y después se apunta
+    // el gasto, para que el segundo clic no deje un gasto de más.
+    const completion = await this.prisma.withTenant(async (tx) => {
       const claimed = await tx.businessReminder.updateMany({
         where: { id, status: { not: 'done' }, dueDate: current.dueDate },
         data: next
@@ -456,7 +499,7 @@ export class BusinessRemindersService {
           message: 'Ya está marcado como hecho',
         });
       }
-      await tx.businessReminderCompletion.create({
+      return tx.businessReminderCompletion.create({
         data: {
           tenantId,
           reminderId: id,
@@ -464,14 +507,41 @@ export class BusinessRemindersService {
           completedByUserId: userId,
           note: emptyToNull(input.note),
           amount,
-          expenseId,
           receiptKey: input.receiptKey ?? null,
           receiptName: input.receiptKey ? (input.receiptName ?? 'Justificante') : null,
           receiptMime: input.receiptKey ? (input.receiptMime ?? null) : null,
         },
+        select: { id: true },
       });
-      return tx.businessReminder.findUniqueOrThrow({ where: { id }, include: INCLUDE });
     }, tenantId);
+    if (input.registerExpense && amount && amount > 0) {
+      const expense = await this.expenses.create(tenantId, userId, {
+        facilityId: current.facilityId,
+        category: BUSINESS_REMINDER_EXPENSE_CATEGORY[current.category as BusinessReminderCategory],
+        description: current.title,
+        amount,
+        expenseDate: await this.today(tenantId),
+        vendor: current.vendor ?? '',
+        notes: input.note ?? '',
+      });
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.businessReminderCompletion.update({
+            where: { id: completion.id },
+            data: { expenseId: expense.id },
+          }),
+        tenantId,
+      );
+    }
+    await this.log(tenantId, userId, 'business_reminder.completed', id, {
+      dueDate,
+      amount,
+      next,
+    });
+    const row = await this.prisma.withTenant(
+      (tx) => tx.businessReminder.findUniqueOrThrow({ where: { id }, include: INCLUDE }),
+      tenantId,
+    );
     return this.toDto(row, await this.today(tenantId));
   }
 
@@ -558,6 +628,27 @@ export class BusinessRemindersService {
       throw new NotFoundException({
         code: 'template_not_found',
         message: 'Plantilla no encontrada',
+      });
+    }
+    // Una plantilla se añade una vez (las fiscales crean varias filas cada vez).
+    const already = await this.prisma.withTenant(
+      (tx) =>
+        tx.businessReminder.count({
+          where: {
+            tenantId,
+            status: { in: ['active', 'paused'] },
+            OR: [
+              { templateKey: template.key },
+              { templateKey: { startsWith: `${template.key}:` } },
+            ],
+          },
+        }),
+      tenantId,
+    );
+    if (already > 0) {
+      throw new ConflictException({
+        code: 'template_already_applied',
+        message: 'Ya tienes estos vencimientos: edítalos desde la lista',
       });
     }
     const base = {
@@ -713,13 +804,14 @@ export class BusinessRemindersService {
     return `${base}/v1/public/reminders-calendar/${token}`;
   }
 
-  async getSettings(tenantId: string): Promise<BusinessReminderSettingsDto> {
+  async getSettings(tenantId: string, scope?: FacilityScope): Promise<BusinessReminderSettingsDto> {
     const t = await this.admin.tenant.findUniqueOrThrow({
       where: { id: tenantId },
       select: { remindersWeeklyDigest: true, remindersIcsTokenEncrypted: true },
     });
     let icsUrl: string | null = null;
-    if (t.remindersIcsTokenEncrypted) {
+    // El calendario lleva los vencimientos de todos los locales.
+    if (t.remindersIcsTokenEncrypted && !scope) {
       try {
         icsUrl = this.icsUrl(this.crypto.decryptString(t.remindersIcsTokenEncrypted, tenantId));
       } catch {
@@ -732,16 +824,21 @@ export class BusinessRemindersService {
   async updateSettings(
     tenantId: string,
     input: { weeklyDigest: boolean },
+    userId?: string | null,
   ): Promise<BusinessReminderSettingsDto> {
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: { remindersWeeklyDigest: input.weeklyDigest },
     });
+    await this.log(tenantId, userId, 'business_reminder.settings_changed', tenantId, input);
     return this.getSettings(tenantId);
   }
 
   /** Crea (o cambia, invalidando el anterior) el enlace de calendario. */
-  async regenerateIcs(tenantId: string): Promise<BusinessReminderSettingsDto> {
+  async regenerateIcs(
+    tenantId: string,
+    userId?: string | null,
+  ): Promise<BusinessReminderSettingsDto> {
     const token = randomBytes(24).toString('base64url');
     await this.admin.tenant.update({
       where: { id: tenantId },
@@ -750,14 +847,16 @@ export class BusinessRemindersService {
         remindersIcsTokenEncrypted: this.crypto.encryptString(token, tenantId),
       },
     });
+    await this.log(tenantId, userId, 'business_reminder.calendar_link_created', tenantId);
     return this.getSettings(tenantId);
   }
 
-  async revokeIcs(tenantId: string): Promise<BusinessReminderSettingsDto> {
+  async revokeIcs(tenantId: string, userId?: string | null): Promise<BusinessReminderSettingsDto> {
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: { remindersIcsTokenHash: null, remindersIcsTokenEncrypted: null },
     });
+    await this.log(tenantId, userId, 'business_reminder.calendar_link_revoked', tenantId);
     return this.getSettings(tenantId);
   }
 

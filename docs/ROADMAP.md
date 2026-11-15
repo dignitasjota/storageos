@@ -1087,3 +1087,18 @@ Arreglado:
 - **Visión de conjunto**: pantalla «Cuotas previstas» e historial de la cuota en la ficha del contrato.
 
 Sin hacer: la plantilla del aviso no admite HTML; el resultado de una subida mide las bajas pedidas tras el aviso, no si se van por la subida.
+
+### Operaciones diarias: revisión (2026-11-14, PR A)
+
+Calendario, tareas, mantenimiento, vencimientos e incidencias. Arreglado:
+
+- **Tareas**: hecha sin pasar por «En curso» (el botón ya estaba y el servidor la rechazaba), reabrir, editar y borrar desde la ficha, quitar la fecha, responsable activo y trastero del local; la ronda no pierde puntos marcados a la vez.
+- **Tareas automáticas**: solo para quien ve todos los locales; «llamar para renovar» en cada vencimiento.
+- **Incidencias**: el inquilino ya no ve las notas internas del equipo sobre él (decisión de Jota: solo las suyas y las marcadas «visible para el inquilino»), ve la respuesta al cerrarse; validación de local, trastero, inquilino y contrato; una sola incidencia por punto de una ronda; contador del menú por local; el aviso abre la ficha.
+- **Mantenimiento**: empieza desde hoy (decisión de Jota), editar no mueve la próxima fecha ni crea tareas de más, reactivar sin atrasos, «Generar ahora» crea la siguiente, responsable con aviso, fecha del negocio.
+- **Calendario**: cada tipo con su permiso (decisión de Jota), «Se prorroga» para la renovación automática, todas las repeticiones del mantenimiento, sin tareas borradas, «+N más» que se abre, colores distintos.
+- **Vencimientos**: un solo gasto con doble clic, día 31 tras febrero, pospuesto que no se pierde al editar, plantilla una vez, reabrir y registro de actividad.
+
+### Operaciones diarias: mejoras (2026-11-14, PR B)
+
+Pendiente (PR apilada): tareas con vista de pendientes, fotos y contador de «mis tareas»; mantenimiento con historial y antelación, cada N semanas y último día del mes, varios locales y coste con proveedor; calendario con filtros, alta de tarea pulsando un día, más eventos y enlace ICS; vencimientos con deshacer, documentos, convertir en tarea, previsión de 12 meses y filtros; incidencias con resolución obligatoria y respuesta al inquilino, fotos, trastero elegido por el inquilino, tipos con plazo, coste, parte al seguro, tarea de reparación e informe.

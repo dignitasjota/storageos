@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
+
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 // ============================================================================
@@ -39,18 +41,27 @@ export const CreateTaskSchema = z.object({
   facilityId: z.string().uuid().optional(),
   unitId: z.string().uuid().optional(),
   assignedToUserId: z.string().uuid().optional(),
-  dueDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  dueDate: calendarDate.optional(),
   metadata: z.record(z.unknown()).default({}),
 });
 export type CreateTaskInput = z.infer<typeof CreateTaskSchema>;
 
-export const UpdateTaskSchema = CreateTaskSchema.partial().refine(
-  (v) => Object.values(v).some((field) => field !== undefined),
-  { message: 'Debes enviar al menos un campo' },
-);
+/** Editar: `null` quita el local, el trastero, el responsable o la fecha. */
+export const UpdateTaskSchema = z
+  .object({
+    type: TaskTypeEnum.optional(),
+    priority: TaskPriorityEnum.optional(),
+    title: z.string().trim().min(1).max(200).optional(),
+    description: optionalText(2000).or(z.null()),
+    facilityId: z.string().uuid().nullable().optional(),
+    unitId: z.string().uuid().nullable().optional(),
+    assignedToUserId: z.string().uuid().nullable().optional(),
+    dueDate: calendarDate.nullable().optional(),
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .refine((v) => Object.values(v).some((field) => field !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
 export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
 
 export const TransitionTaskSchema = z.object({
@@ -85,14 +96,30 @@ export const CreateIncidentSchema = z.object({
   contractId: z.string().uuid().optional(),
   occurredAt: z.string().datetime().optional(),
   assignedToUserId: z.string().uuid().optional(),
+  /** El inquilino la ve en su área de clientes (las del equipo, por defecto no). */
+  visibleToCustomer: z.boolean().optional(),
   metadata: z.record(z.unknown()).default({}),
 });
 export type CreateIncidentInput = z.infer<typeof CreateIncidentSchema>;
 
-export const UpdateIncidentSchema = CreateIncidentSchema.partial().refine(
-  (v) => Object.values(v).some((field) => field !== undefined),
-  { message: 'Debes enviar al menos un campo' },
-);
+/** Editar: `null` quita el local, el trastero, el inquilino, el contrato o el responsable. */
+export const UpdateIncidentSchema = z
+  .object({
+    severity: IncidentSeverityEnum.optional(),
+    title: z.string().trim().min(1).max(200).optional(),
+    description: optionalText(2000).or(z.null()),
+    facilityId: z.string().uuid().nullable().optional(),
+    unitId: z.string().uuid().nullable().optional(),
+    customerId: z.string().uuid().nullable().optional(),
+    contractId: z.string().uuid().nullable().optional(),
+    occurredAt: z.string().datetime().nullable().optional(),
+    assignedToUserId: z.string().uuid().nullable().optional(),
+    visibleToCustomer: z.boolean().optional(),
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .refine((v) => Object.values(v).some((field) => field !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
 export type UpdateIncidentInput = z.infer<typeof UpdateIncidentSchema>;
 
 export const TransitionIncidentSchema = z.object({

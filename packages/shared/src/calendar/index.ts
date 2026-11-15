@@ -4,6 +4,8 @@ export type CalendarEventType =
   | 'maintenance'
   | 'contract_starting'
   | 'contract_ending'
+  /** Contrato con renovación automática que llega a su fecha: se prorroga solo. */
+  | 'contract_renewing'
   | 'reservation_expiring'
   | 'business_reminder'
   | 'price_change';

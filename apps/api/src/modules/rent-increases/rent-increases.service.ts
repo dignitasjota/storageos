@@ -30,6 +30,7 @@ import {
   type RentIncreaseScopeInput,
 } from '@storageos/shared';
 
+import { assertAllFacilities } from '../../common/facility-scope';
 import { formatDateLong, todayInTimezone } from '../../common/format';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 import { AuditService } from '../auth/audit.service';
@@ -1349,14 +1350,7 @@ export class RentIncreasesService {
 }
 
 /** Ajustes de toda la empresa: solo quien ve todos los locales. */
-export function assertAllFacilities(facilityScope: string[] | null | undefined): void {
-  if (facilityScope) {
-    throw new ForbiddenException({
-      code: 'requires_all_facilities',
-      message: 'Este ajuste es de toda la empresa: solo puede cambiarlo quien ve todos los locales',
-    });
-  }
-}
+export { assertAllFacilities };
 
 /** Qué pasó con el correo del aviso, a partir del estado de la comunicación. */
 function deliveryOf(status: string | null): RentIncreaseItemDto['noticeDelivery'] {

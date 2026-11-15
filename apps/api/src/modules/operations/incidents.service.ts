@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
@@ -22,6 +27,7 @@ import type {
   Prisma,
 } from '@storageos/database';
 import type {
+  ChecklistItemDto,
   CreateIncidentInput,
   IncidentCommentDto,
   IncidentContextDto,
@@ -117,15 +123,121 @@ export class IncidentsService {
       .catch(() => undefined);
   }
 
-  /** Nº de incidencias abiertas por estado (para los badges del menú). */
-  async countOpenByStatus(tenantId: string): Promise<{ reported: number; investigating: number }> {
+  /** Nº de incidencias abiertas por estado (para los badges del menú), de los locales del usuario. */
+  async countOpenByStatus(
+    tenantId: string,
+    facilityScope?: string[] | null,
+  ): Promise<{ reported: number; investigating: number }> {
+    const facility = optionalFacilityWhere(facilityScope) ?? {};
     return this.prisma.withTenant(async (tx) => {
       const [reported, investigating] = await Promise.all([
-        tx.incident.count({ where: { tenantId, deletedAt: null, status: 'reported' } }),
-        tx.incident.count({ where: { tenantId, deletedAt: null, status: 'investigating' } }),
+        tx.incident.count({
+          where: { tenantId, deletedAt: null, status: 'reported', ...facility },
+        }),
+        tx.incident.count({
+          where: { tenantId, deletedAt: null, status: 'investigating', ...facility },
+        }),
       ]);
       return { reported, investigating };
     }, tenantId);
+  }
+
+  /**
+   * Comprueba el local, el trastero, el inquilino, el contrato y el responsable:
+   * que existan, que sean de los locales del usuario y que encajen entre sí
+   * (el trastero del local, el contrato del inquilino). Lo que falte se toma del
+   * contrato o del trastero.
+   */
+  private async checkRefs(
+    tenantId: string,
+    scope: string[] | null | undefined,
+    refs: {
+      facilityId?: string | null | undefined;
+      unitId?: string | null | undefined;
+      customerId?: string | null | undefined;
+      contractId?: string | null | undefined;
+      assignedToUserId?: string | null | undefined;
+    },
+  ): Promise<{
+    facilityId: string | null | undefined;
+    unitId: string | null | undefined;
+    customerId: string | null | undefined;
+  }> {
+    let { facilityId, unitId, customerId } = refs;
+    await this.prisma.withTenant(async (tx) => {
+      if (refs.contractId) {
+        const contract = await tx.contract.findFirst({
+          where: { id: refs.contractId, deletedAt: null },
+          select: { customerId: true, unitId: true, unit: { select: { facilityId: true } } },
+        });
+        if (!contract) {
+          throw new BadRequestException({
+            code: 'contract_not_found',
+            message: 'Contrato no encontrado',
+          });
+        }
+        if (customerId && contract.customerId !== customerId) {
+          throw new BadRequestException({
+            code: 'contract_not_for_customer',
+            message: 'Ese contrato no es de este inquilino',
+          });
+        }
+        assertFacilityAllowed(scope, contract.unit.facilityId);
+        customerId = customerId ?? contract.customerId;
+        unitId = unitId ?? contract.unitId;
+      }
+      if (customerId) {
+        const c = await tx.customer.count({ where: { id: customerId, deletedAt: null } });
+        if (c === 0) {
+          throw new BadRequestException({
+            code: 'customer_not_found',
+            message: 'Inquilino no encontrado',
+          });
+        }
+      }
+      if (unitId) {
+        const unit = await tx.unit.findFirst({
+          where: { id: unitId },
+          select: { facilityId: true },
+        });
+        if (!unit) {
+          throw new BadRequestException({
+            code: 'unit_not_found',
+            message: 'Trastero no encontrado',
+          });
+        }
+        assertFacilityAllowed(scope, unit.facilityId);
+        if (facilityId && unit.facilityId !== facilityId) {
+          throw new BadRequestException({
+            code: 'unit_not_in_facility',
+            message: 'Ese trastero no es del local elegido',
+          });
+        }
+        facilityId = facilityId ?? unit.facilityId;
+      }
+      if (facilityId) {
+        assertFacilityAllowed(scope, facilityId);
+        const f = await tx.facility.count({ where: { id: facilityId, deletedAt: null } });
+        if (f === 0) {
+          throw new BadRequestException({
+            code: 'facility_not_found',
+            message: 'Local no encontrado',
+          });
+        }
+      }
+      if (refs.assignedToUserId) {
+        const user = await tx.user.count({
+          where: { id: refs.assignedToUserId, isActive: true },
+        });
+        if (user === 0) {
+          throw new BadRequestException({
+            code: 'assignee_not_found',
+            message: 'La persona elegida no está en el equipo o está desactivada',
+          });
+        }
+      }
+    }, tenantId);
+    return { facilityId, unitId, customerId };
   }
 
   async list(tenantId: string, filters: ListFilters): Promise<IncidentDto[]> {
@@ -169,25 +281,60 @@ export class IncidentsService {
     /** Locales del usuario (null = todos). */
     facilityScope?: string[] | null;
   }): Promise<IncidentDto> {
-    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
+    const refs = await this.checkRefs(args.tenantId, args.facilityScope, args.input);
+    const fromChecklist = checklistOrigin(args.input.metadata);
     const data: Prisma.IncidentUncheckedCreateInput = {
       tenantId: args.tenantId,
       severity: args.input.severity,
       title: args.input.title,
       description: args.input.description || null,
-      facilityId: args.input.facilityId ?? null,
-      unitId: args.input.unitId ?? null,
-      customerId: args.input.customerId ?? null,
+      facilityId: refs.facilityId ?? null,
+      unitId: refs.unitId ?? null,
+      customerId: refs.customerId ?? null,
       contractId: args.input.contractId ?? null,
       assignedToUserId: args.input.assignedToUserId ?? null,
       reportedByUserId: args.userId,
+      visibleToCustomer: !!refs.customerId && args.input.visibleToCustomer === true,
       occurredAt: args.input.occurredAt ? new Date(args.input.occurredAt) : null,
       metadata: args.input.metadata as Prisma.InputJsonValue,
     };
-    const created = await this.prisma.withTenant(
-      (tx) => tx.incident.create({ data, include: INCLUDE }),
-      args.tenantId,
-    );
+    const created = await this.prisma.withTenant(async (tx) => {
+      if (!fromChecklist) return tx.incident.create({ data, include: INCLUDE });
+      // Desde un punto de una ronda: una sola incidencia por punto, y el punto la enlaza.
+      await tx.$queryRaw`SELECT id FROM tasks WHERE id = ${fromChecklist.taskId}::uuid FOR UPDATE`;
+      const task = await tx.task.findFirst({
+        where: { id: fromChecklist.taskId, deletedAt: null },
+        select: { checklist: true },
+      });
+      const items = (task?.checklist as ChecklistItemDto[] | null) ?? [];
+      const item = items.find((it) => it.id === fromChecklist.itemId);
+      if (!item) {
+        throw new BadRequestException({
+          code: 'checklist_item_not_found',
+          message: 'Ese punto de la ronda ya no existe',
+        });
+      }
+      if (item.incidentId) {
+        const open = await tx.incident.count({ where: { id: item.incidentId, deletedAt: null } });
+        if (open > 0) {
+          throw new ConflictException({
+            code: 'incident_already_open',
+            message: 'Ya hay una incidencia abierta para este punto',
+            details: { incidentId: item.incidentId },
+          });
+        }
+      }
+      const row = await tx.incident.create({ data, include: INCLUDE });
+      await tx.task.update({
+        where: { id: fromChecklist.taskId },
+        data: {
+          checklist: items.map((it) =>
+            it.id === fromChecklist.itemId ? { ...it, incidentId: row.id } : it,
+          ) as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return row;
+    }, args.tenantId);
     await this.writeAudit('incident.created', args, created.id);
     await this.notifyAssignee(args.tenantId, args.userId, created);
 
@@ -253,22 +400,37 @@ export class IncidentsService {
         ? (customer.companyName ?? 'Empresa')
         : [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() || 'Inquilino';
 
-    const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.incident.create({
-          data: {
-            tenantId: args.tenantId,
-            severity: 'medium',
-            title: args.input.title,
-            description: args.input.description || null,
-            customerId: args.customerId,
-            reportedByUserId: null,
-            reportedByExternal: `Portal: ${reporter}`,
-          },
-          include: INCLUDE,
-        }),
-      args.tenantId,
-    );
+    const created = await this.prisma.withTenant(async (tx) => {
+      // Con un solo trastero, la incidencia va a su local, trastero y contrato;
+      // con varios en el mismo local, al menos al local.
+      const live = await tx.contract.findMany({
+        where: {
+          customerId: args.customerId,
+          deletedAt: null,
+          status: { in: ['active', 'ending'] },
+        },
+        select: { id: true, unitId: true, unit: { select: { facilityId: true } } },
+        take: 20,
+      });
+      const facilities = new Set(live.map((c) => c.unit.facilityId));
+      const only = live.length === 1 ? live[0]! : null;
+      return tx.incident.create({
+        data: {
+          tenantId: args.tenantId,
+          severity: 'medium',
+          title: args.input.title,
+          description: args.input.description || null,
+          customerId: args.customerId,
+          facilityId: facilities.size === 1 ? [...facilities][0]! : null,
+          unitId: only?.unitId ?? null,
+          contractId: only?.id ?? null,
+          reportedByUserId: null,
+          reportedByExternal: `Portal: ${reporter}`,
+          visibleToCustomer: true,
+        },
+        include: INCLUDE,
+      });
+    }, args.tenantId);
 
     const dto = this.toDto(created as IncidentWithIncludes);
     const payload: DomainEventPayload = {
@@ -310,7 +472,8 @@ export class IncidentsService {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.incident.findMany({
-          where: { tenantId, customerId, deletedAt: null },
+          // Solo las suyas o las que el equipo deja ver (nunca las notas internas).
+          where: { tenantId, customerId, deletedAt: null, visibleToCustomer: true },
           orderBy: { createdAt: 'desc' },
           select: {
             id: true,
@@ -319,6 +482,9 @@ export class IncidentsService {
             status: true,
             severity: true,
             createdAt: true,
+            resolution: true,
+            resolvedAt: true,
+            dismissedAt: true,
           },
         }),
       tenantId,
@@ -333,7 +499,11 @@ export class IncidentsService {
     status: string;
     severity: string;
     createdAt: Date;
+    resolution?: string | null;
+    resolvedAt?: Date | null;
+    dismissedAt?: Date | null;
   }): PortalIncidentDto {
+    const closed = i.status === 'resolved' || i.status === 'dismissed';
     return {
       id: i.id,
       title: i.title,
@@ -341,6 +511,8 @@ export class IncidentsService {
       status: i.status,
       severity: i.severity,
       createdAt: i.createdAt.toISOString(),
+      resolution: closed ? (i.resolution ?? null) : null,
+      closedAt: closed ? ((i.resolvedAt ?? i.dismissedAt)?.toISOString() ?? null) : null,
     };
   }
 
@@ -354,15 +526,28 @@ export class IncidentsService {
     facilityScope?: string[] | null;
   }): Promise<IncidentDto> {
     const before = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
-    if (args.input.facilityId) assertFacilityAllowed(args.facilityScope, args.input.facilityId);
+    const pick = <K extends 'facilityId' | 'unitId' | 'customerId' | 'contractId'>(k: K) =>
+      args.input[k] !== undefined ? args.input[k] : before[k];
+    const refs = await this.checkRefs(args.tenantId, args.facilityScope, {
+      facilityId: pick('facilityId'),
+      unitId: pick('unitId'),
+      customerId: pick('customerId'),
+      contractId: pick('contractId'),
+      assignedToUserId: args.input.assignedToUserId,
+    });
     const data: Prisma.IncidentUncheckedUpdateInput = {};
     if (args.input.severity !== undefined) data.severity = args.input.severity;
     if (args.input.title !== undefined) data.title = args.input.title;
     if (args.input.description !== undefined) data.description = args.input.description || null;
-    if (args.input.facilityId !== undefined) data.facilityId = args.input.facilityId ?? null;
-    if (args.input.unitId !== undefined) data.unitId = args.input.unitId ?? null;
-    if (args.input.customerId !== undefined) data.customerId = args.input.customerId ?? null;
+    if (refs.facilityId !== before.facilityId) data.facilityId = refs.facilityId ?? null;
+    if (refs.unitId !== before.unitId) data.unitId = refs.unitId ?? null;
+    if (refs.customerId !== before.customerId) data.customerId = refs.customerId ?? null;
     if (args.input.contractId !== undefined) data.contractId = args.input.contractId ?? null;
+    if (args.input.visibleToCustomer !== undefined) {
+      data.visibleToCustomer = !!(refs.customerId ?? null) && args.input.visibleToCustomer;
+    } else if (!refs.customerId && before.visibleToCustomer) {
+      data.visibleToCustomer = false;
+    }
     if (args.input.assignedToUserId !== undefined)
       data.assignedToUserId = args.input.assignedToUserId ?? null;
     if (args.input.occurredAt !== undefined)
@@ -408,20 +593,31 @@ export class IncidentsService {
       if (args.input.resolution) data.resolution = args.input.resolution;
     }
     if (args.input.status === 'reported') {
-      // Reabrir: limpiar timestamps de cierre.
+      // Reabrir: fuera el cierre y lo que se escribió al cerrarla.
       data.resolvedAt = null;
       data.dismissedAt = null;
+      data.resolution = null;
     }
-    const updated = await this.prisma.withTenant(
-      (tx) => tx.incident.update({ where: { id: args.id }, data, include: INCLUDE }),
-      args.tenantId,
-    );
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const moved = await tx.incident.updateMany({
+        where: { id: args.id, status: existing.status },
+        data,
+      });
+      if (moved.count === 0) {
+        throw new ConflictException({
+          code: 'incident_changed',
+          message: 'La incidencia acaba de cambiar: vuelve a abrirla',
+        });
+      }
+      return tx.incident.findUniqueOrThrow({ where: { id: args.id }, include: INCLUDE });
+    }, args.tenantId);
     await this.writeAudit(`incident.${args.input.status}`, args, args.id);
     // Cierra el loop: si la incidencia era de un inquilino, avísale por push de
     // la resolución (antes solo se enteraba entrando al portal).
     if (
       (args.input.status === 'resolved' || args.input.status === 'dismissed') &&
-      updated.customerId
+      updated.customerId &&
+      updated.visibleToCustomer
     ) {
       this.events.emit(DOMAIN_EVENTS.incident_resolved, {
         tenantId: args.tenantId,
@@ -674,6 +870,7 @@ export class IncidentsService {
       reportedByUserId: i.reportedByUserId,
       reportedByName: i.reportedBy?.fullName ?? null,
       reportedByExternal: i.reportedByExternal,
+      visibleToCustomer: i.visibleToCustomer,
       occurredAt: i.occurredAt?.toISOString() ?? null,
       resolvedAt: i.resolvedAt?.toISOString() ?? null,
       dismissedAt: i.dismissedAt?.toISOString() ?? null,
@@ -696,4 +893,16 @@ export class IncidentsService {
       createdAt: c.createdAt.toISOString(),
     };
   }
+}
+
+/** La incidencia sale de un punto de una ronda (`metadata.source = 'checklist'`). */
+function checklistOrigin(
+  metadata: Record<string, unknown> | undefined,
+): { taskId: string; itemId: string } | null {
+  const m = metadata ?? {};
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (m.source !== 'checklist') return null;
+  const taskId = typeof m.taskId === 'string' ? m.taskId : '';
+  const itemId = typeof m.checklistItemId === 'string' ? m.checklistItemId : '';
+  return uuid.test(taskId) && uuid.test(itemId) ? { taskId, itemId } : null;
 }

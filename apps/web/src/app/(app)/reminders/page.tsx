@@ -28,6 +28,7 @@ import {
   Pencil,
   Play,
   Plus,
+  RotateCcw,
   Settings2,
   Sparkles,
   Trash2,
@@ -38,6 +39,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -61,7 +63,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import {
   openReminderReceipt,
   useApplyReminderTemplate,
@@ -158,6 +160,15 @@ function RemindersContent() {
     }
   }
 
+  async function reopen(r: BusinessReminderDto) {
+    try {
+      await update.mutateAsync({ id: r.id, input: { status: 'active' } });
+      toast.success('Reabierto con su última fecha');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
   async function remove(r: BusinessReminderDto) {
     const ok = await ask({
       title: '¿Borrar este vencimiento?',
@@ -175,7 +186,7 @@ function RemindersContent() {
   }
 
   const system = list.data?.system ?? [];
-  const empty = !list.isLoading && (list.data?.items.length ?? 0) === 0;
+  const empty = !list.isLoading && !list.isError && (list.data?.items.length ?? 0) === 0;
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -206,6 +217,8 @@ function RemindersContent() {
           )}
         </div>
       </div>
+
+      {list.isError && <SectionError onRetry={() => void list.refetch()} />}
 
       {list.isLoading && (
         <div className="flex justify-center py-10">
@@ -279,6 +292,11 @@ function RemindersContent() {
                     {canManage && r.status === 'active' && (
                       <Button size="sm" variant="outline" onClick={() => setSnoozing(r)}>
                         <Clock className="mr-1 h-4 w-4" /> Posponer
+                      </Button>
+                    )}
+                    {canManage && r.status === 'done' && (
+                      <Button size="sm" variant="outline" onClick={() => void reopen(r)}>
+                        <RotateCcw className="mr-1 h-4 w-4" /> Reabrir
                       </Button>
                     )}
                     <Button
@@ -1052,8 +1070,17 @@ function TemplatesDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SettingsDialog({ canManage, onClose }: { canManage: boolean; onClose: () => void }) {
+function SettingsDialog({
+  canManage: canManageRole,
+  onClose,
+}: {
+  canManage: boolean;
+  onClose: () => void;
+}) {
   const ask = useConfirm();
+  // Son de toda la empresa: solo quien ve todos los locales los cambia.
+  const companyWide = useCompanyWide();
+  const canManage = canManageRole && companyWide;
   const settings = useReminderSettings();
   const updateSettings = useUpdateReminderSettings();
   const calendar = useReminderCalendar();
@@ -1157,7 +1184,11 @@ function SettingsDialog({ canManage, onClose }: { canManage: boolean; onClose: (
                 Crear enlace de calendario
               </Button>
             ) : (
-              <p className="text-xs text-muted-foreground">Aún no se ha creado.</p>
+              <p className="text-xs text-muted-foreground">
+                {companyWide
+                  ? 'Aún no se ha creado.'
+                  : 'Lleva los vencimientos de todos los locales: lo crea quien los ve todos.'}
+              </p>
             )}
           </div>
         </div>

@@ -1700,17 +1700,35 @@ function PortalConsumeContent() {
                 {(incidents ?? []).length > 0 && (
                   <ul className="space-y-2 border-t pt-3">
                     {(incidents ?? []).map((i) => (
-                      <li key={i.id} className="flex items-center justify-between gap-2 text-sm">
-                        <span className="line-clamp-1">{i.title}</span>
-                        <Badge variant={i.status === 'resolved' ? 'default' : 'secondary'}>
-                          {i.status === 'reported'
-                            ? tIncidents('statusReported')
-                            : i.status === 'investigating'
-                              ? tIncidents('statusInvestigating')
-                              : i.status === 'resolved'
-                                ? tIncidents('statusResolved')
-                                : tIncidents('statusDismissed')}
-                        </Badge>
+                      <li key={i.id} className="space-y-1 text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="line-clamp-1">{i.title}</span>
+                          <Badge variant={i.status === 'resolved' ? 'default' : 'secondary'}>
+                            {i.status === 'reported'
+                              ? tIncidents('statusReported')
+                              : i.status === 'investigating'
+                                ? tIncidents('statusInvestigating')
+                                : i.status === 'resolved'
+                                  ? tIncidents('statusResolved')
+                                  : tIncidents('statusDismissed')}
+                          </Badge>
+                        </div>
+                        {i.closedAt && (
+                          <p className="text-xs text-muted-foreground">
+                            {tIncidents('closedOn', {
+                              date: new Date(i.closedAt).toLocaleDateString(
+                                intlLocaleForPortal(locale),
+                                { day: 'numeric', month: 'long', year: 'numeric' },
+                              ),
+                            })}
+                          </p>
+                        )}
+                        {i.resolution && (
+                          <p className="whitespace-pre-wrap rounded-md bg-muted/50 p-2 text-xs">
+                            <span className="font-medium">{tIncidents('resolution')}: </span>
+                            {i.resolution}
+                          </p>
+                        )}
                       </li>
                     ))}
                   </ul>

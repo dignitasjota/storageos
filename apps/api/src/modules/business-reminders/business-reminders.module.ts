@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module';
 import { ExpensesModule } from '../expenses/expenses.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
@@ -15,7 +16,12 @@ import { BusinessRemindersService } from './business-reminders.service';
  * resumen del día): son ligeros y se reservan uno a uno en BD.
  */
 @Module({
-  imports: [ExpensesModule, NotificationsModule, BullModule.registerQueue({ name: QUEUE_EMAIL })],
+  imports: [
+    AuthModule,
+    ExpensesModule,
+    NotificationsModule,
+    BullModule.registerQueue({ name: QUEUE_EMAIL }),
+  ],
   controllers: [BusinessRemindersController, BusinessRemindersCalendarController],
   providers: [BusinessRemindersService, BusinessReminderNoticesService],
   exports: [BusinessRemindersService],

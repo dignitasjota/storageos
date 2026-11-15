@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 import { MaintenanceController } from './maintenance.controller';
 import { MaintenanceCron } from './maintenance.cron';
@@ -12,7 +13,7 @@ import { MaintenanceService } from './maintenance.service';
  * cron solo se monta donde corren los workers (en el worker en producción).
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, NotificationsModule],
   controllers: [MaintenanceController],
   providers: [MaintenanceService, ...(WORKERS_ENABLED_IN_API ? [MaintenanceCron] : [])],
   exports: [MaintenanceService],

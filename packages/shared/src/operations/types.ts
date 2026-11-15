@@ -14,6 +14,8 @@ export interface ChecklistItemDto {
   label: string;
   status: 'pending' | 'ok' | 'issue';
   note: string | null;
+  /** Incidencia abierta desde este punto. */
+  incidentId?: string | null;
 }
 
 export interface TaskDto {
@@ -72,6 +74,8 @@ export interface IncidentDto {
   reportedByUserId: string | null;
   reportedByName: string | null;
   reportedByExternal: string | null;
+  /** El inquilino la ve en su área de clientes. */
+  visibleToCustomer: boolean;
   occurredAt: string | null;
   resolvedAt: string | null;
   dismissedAt: string | null;

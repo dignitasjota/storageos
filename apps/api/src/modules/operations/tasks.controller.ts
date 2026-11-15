@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -19,7 +20,9 @@ import {
   type TaskCommentDto,
   TaskCommentSchema,
   type TaskDto,
+  TaskStatusEnum,
   type TaskStatusValue,
+  TaskTypeEnum,
   type TaskTypeValue,
   TransitionTaskSchema,
   UpdateChecklistItemSchema,
@@ -32,7 +35,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
-import { parsePageRequest, toPage } from '../../common/pagination';
+import { assertUuid, parsePageRequest, toPage } from '../../common/pagination';
 
 import { TasksService } from './tasks.service';
 
@@ -53,6 +56,37 @@ function extractMeta(req: Request): RequestMeta {
   return {
     ...(ua ? { userAgent: ua } : {}),
     ...(ip ? { ipAddress: ip } : {}),
+  };
+}
+
+/** Filtros de la lista: un valor que no existe es un 400, no un error del servidor. */
+function listFilters(q: {
+  status?: string | undefined;
+  type?: string | undefined;
+  facilityId?: string | undefined;
+  unitId?: string | undefined;
+  assignedToUserId?: string | undefined;
+}): {
+  status?: TaskStatusValue;
+  type?: TaskTypeValue;
+  facilityId?: string;
+  unitId?: string;
+  assignedToUserId?: string;
+} {
+  const status = q.status ? TaskStatusEnum.safeParse(q.status) : null;
+  const type = q.type ? TaskTypeEnum.safeParse(q.type) : null;
+  if ((status && !status.success) || (type && !type.success)) {
+    throw new BadRequestException({ code: 'invalid_filter', message: 'Filtro no válido' });
+  }
+  assertUuid(q.facilityId);
+  assertUuid(q.unitId);
+  assertUuid(q.assignedToUserId);
+  return {
+    ...(status?.success ? { status: status.data } : {}),
+    ...(type?.success ? { type: type.data } : {}),
+    ...(q.facilityId ? { facilityId: q.facilityId } : {}),
+    ...(q.unitId ? { unitId: q.unitId } : {}),
+    ...(q.assignedToUserId ? { assignedToUserId: q.assignedToUserId } : {}),
   };
 }
 
@@ -78,11 +112,7 @@ export class TasksController {
     const rows = await this.service.list(user.tenantId, {
       ...(search ? { search } : {}),
       page,
-      ...(status ? { status: status as TaskStatusValue } : {}),
-      ...(type ? { type: type as TaskTypeValue } : {}),
-      ...(facilityId ? { facilityId } : {}),
-      ...(unitId ? { unitId } : {}),
-      ...(assignedToUserId ? { assignedToUserId } : {}),
+      ...listFilters({ status, type, facilityId, unitId, assignedToUserId }),
       facilityScope: user.facilityScope ?? null,
     });
     return toPage(rows, page);
@@ -99,11 +129,7 @@ export class TasksController {
     @Query('assignedToUserId') assignedToUserId?: string,
   ): Promise<TaskDto[]> {
     return this.service.list(user.tenantId, {
-      ...(status ? { status: status as TaskStatusValue } : {}),
-      ...(type ? { type: type as TaskTypeValue } : {}),
-      ...(facilityId ? { facilityId } : {}),
-      ...(unitId ? { unitId } : {}),
-      ...(assignedToUserId ? { assignedToUserId } : {}),
+      ...listFilters({ status, type, facilityId, unitId, assignedToUserId }),
       facilityScope: user.facilityScope ?? null,
     });
   }

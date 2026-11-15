@@ -8,8 +8,10 @@ import { toast } from 'sonner';
 
 import type { CalendarEventDto, CalendarEventType } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCalendar } from '@/lib/calendar/hooks';
@@ -19,9 +21,10 @@ const TYPE_COLOR: Record<CalendarEventType, string> = {
   maintenance: 'bg-violet-500',
   contract_starting: 'bg-emerald-500',
   contract_ending: 'bg-amber-500',
+  contract_renewing: 'bg-slate-400',
   reservation_expiring: 'bg-red-500',
   business_reminder: 'bg-cyan-600',
-  price_change: 'bg-violet-600',
+  price_change: 'bg-pink-500',
 };
 
 const TYPE_LABEL: Record<CalendarEventType, string> = {
@@ -29,6 +32,7 @@ const TYPE_LABEL: Record<CalendarEventType, string> = {
   maintenance: 'Mantenimiento',
   contract_starting: 'Entrada',
   contract_ending: 'Fin de contrato',
+  contract_renewing: 'Se prorroga',
   reservation_expiring: 'Fin de reserva',
   business_reminder: 'Vencimiento',
   price_change: 'Cambio de cuota',
@@ -60,6 +64,8 @@ export default function CalendarPage() {
   });
   const [weekStart, setWeekStart] = useState(() => startOfWeekMonday(new Date()));
   const [dragOver, setDragOver] = useState<string | null>(null);
+  // Día abierto con «+N más».
+  const [openDay, setOpenDay] = useState<string | null>(null);
 
   const firstOfMonth = cursor;
   const gridStart = mode === 'week' ? weekStart : startOfWeekMonday(firstOfMonth);
@@ -96,7 +102,8 @@ export default function CalendarPage() {
     if (id && fromKey !== key) moveTask.mutate({ id, dueDate: key });
   }
 
-  const { data } = useCalendar(from, to);
+  const calendar = useCalendar(from, to);
+  const { data } = calendar;
 
   const byDay = useMemo(() => {
     const map = new Map<string, CalendarEventDto[]>();
@@ -196,6 +203,8 @@ export default function CalendarPage() {
         ))}
       </div>
 
+      {calendar.isError && <SectionError onRetry={() => void calendar.refetch()} />}
+
       {/* Móvil: vista agenda (el grid de 7 columnas es ilegible en 360px). */}
       <div className="space-y-4 md:hidden">
         {agenda.length === 0 ? (
@@ -294,9 +303,13 @@ export default function CalendarPage() {
                       </Link>
                     ))}
                     {dayEvents.length > limit && (
-                      <span className="px-1 text-[10px] text-muted-foreground">
+                      <button
+                        type="button"
+                        onClick={() => setOpenDay(key)}
+                        className="rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
                         +{dayEvents.length - limit} más
-                      </span>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -305,6 +318,41 @@ export default function CalendarPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!openDay} onOpenChange={(o) => !o && setOpenDay(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="capitalize">
+              {openDay
+                ? new Date(`${openDay}T12:00:00`).toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                  })
+                : ''}
+            </DialogTitle>
+          </DialogHeader>
+          <ul className="max-h-[60vh] space-y-1.5 overflow-y-auto">
+            {(openDay ? (byDay.get(openDay) ?? []) : []).map((e) => (
+              <li key={`${e.type}-${e.id}`}>
+                <Link
+                  href={e.href}
+                  className="flex items-start gap-2 rounded-md border p-2.5 text-sm hover:bg-muted"
+                >
+                  <span className={`mt-1 size-2.5 shrink-0 rounded-full ${TYPE_COLOR[e.type]}`} />
+                  <span className="min-w-0">
+                    <span className="block font-medium">{e.label}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {TYPE_LABEL[e.type]}
+                      {e.detail ? ` · ${e.detail}` : ''}
+                    </span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
