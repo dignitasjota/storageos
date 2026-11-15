@@ -535,6 +535,7 @@ model Tenant {
   winbackSecondCouponCode      String?               @map("winback_second_coupon_code")
   /// Horas sin atender un contacto nuevo antes de avisar al equipo.
   leadResponseHours            Int                   @default(4) @map("lead_response_hours")
+  leadRetentionMonths          Int                   @default(12) @map("lead_retention_months")
   /// Reparto automático de contactos nuevos: off | round_robin | facility.
   leadAutoAssign               String                @default("off") @map("lead_auto_assign")
   deletedAt                    DateTime?             @map("deleted_at") @db.Timestamptz(6)
@@ -3767,6 +3768,10 @@ model Lead {
   bookingReminderSentAt   DateTime?  @map("booking_reminder_sent_at") @db.Timestamptz(6)
   /// Aviso de «contacto sin atender» ya enviado.
   unattendedNotifiedAt    DateTime?  @map("unattended_notified_at") @db.Timestamptz(6)
+  /// Reserva online hecha desde este contacto (se gana al firmar).
+  bookedAt                DateTime?  @map("booked_at") @db.Timestamptz(6)
+  /// Volvió a escribir y nadie le ha atendido aún.
+  returnedAt              DateTime?  @map("returned_at") @db.Timestamptz(6)
   convertedCustomerId     String?    @map("converted_customer_id") @db.Uuid
   convertedContractId     String?    @map("converted_contract_id") @db.Uuid
   convertedReservationId  String?    @map("converted_reservation_id") @db.Uuid
@@ -3802,7 +3807,7 @@ model LeadFollowup {
   title       String
   note        String?
   dueDate     DateTime  @map("due_date") @db.Date
-  /// "pending" | "done".
+  /// "pending" | "done" | "cancelled".
   status      String    @default("pending")
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -6428,7 +6433,7 @@ model CustomerFollowup {
   title       String
   note        String?
   dueDate     DateTime  @map("due_date") @db.Date
-  /// "pending" | "done".
+  /// "pending" | "done" | "cancelled".
   status      String    @default("pending")
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -7875,6 +7880,8 @@ model CustomerOffer {
   acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(6)
   expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  /// Lo propuesto: `contractIds` (seguro), `contractId` (trastero mayor).
+  metadata        Json      @default("{}")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

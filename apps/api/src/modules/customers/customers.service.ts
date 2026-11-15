@@ -331,15 +331,16 @@ export class CustomersService {
         details: { amount: pending },
       });
     }
-    // Sin contratos vivos: el borrado es lógico y conserva el historial.
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.customer.update({
-          where: { id: args.customerId },
-          data: { deletedAt: new Date() },
-        }),
-      args.tenantId,
-    );
+    // Sin contratos vivos: el borrado es lógico y conserva el historial. Sus
+    // seguimientos pendientes se cancelan (seguían saliendo en la bandeja).
+    await this.prisma.withTenant(async (tx) => {
+      const now = new Date();
+      await tx.customer.update({ where: { id: args.customerId }, data: { deletedAt: now } });
+      await tx.customerFollowup.updateMany({
+        where: { customerId: args.customerId, status: 'pending' },
+        data: { status: 'cancelled', completedAt: now },
+      });
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

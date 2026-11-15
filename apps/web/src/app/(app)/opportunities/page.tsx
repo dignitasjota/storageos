@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -106,7 +107,9 @@ export default function OpportunitiesPage() {
 
       <Card>
         <CardContent className="p-0">
-          {opps.isLoading ? (
+          {opps.isError ? (
+            <SectionError onRetry={() => void opps.refetch()} />
+          ) : opps.isLoading ? (
             <p className="p-6 text-sm text-muted-foreground">Cargando…</p>
           ) : rows.length === 0 ? (
             <p className="p-6 text-center text-sm text-muted-foreground">
@@ -131,9 +134,13 @@ export default function OpportunitiesPage() {
                     <p className="text-sm text-muted-foreground">Ofrecer: {o.offer}</p>
                   </div>
                   <div className="w-40 text-sm">
-                    {o.monthlyValue > 0 && (
+                    {o.monthlyValue > 0 ? (
                       <p className="font-medium tabular-nums">+{eur(o.monthlyValue)}/mes</p>
-                    )}
+                    ) : o.kind === 'night_pass' && o.priceMonthlyGross ? (
+                      <p className="font-medium tabular-nums">
+                        {eur(o.priceMonthlyGross)} <span className="text-xs">(pago suelto)</span>
+                      </p>
+                    ) : null}
                     <p className="text-xs text-muted-foreground">
                       {o.lastProposedAt ? `Propuesto el ${day(o.lastProposedAt)}` : 'Sin proponer'}
                     </p>
@@ -174,6 +181,23 @@ function ProposeDialog({ opp, onClose }: { opp: OpportunityDto; onClose: () => v
   }, [draft.data]);
   const wa = waNumber(opp.phone);
 
+  /** Por WhatsApp desde el móvil: se abre WhatsApp y la propuesta queda registrada. */
+  async function sendWhatsapp(url: string) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    try {
+      await propose.mutateAsync({
+        customerId: opp.customerId,
+        kind: opp.kind,
+        followupInDays: followup,
+        channel: 'whatsapp',
+      });
+      toast.success('Propuesta registrada: le sale también en su área de clientes.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo registrar.');
+    }
+  }
+
   async function send() {
     try {
       const res = await propose.mutateAsync({
@@ -182,6 +206,7 @@ function ProposeDialog({ opp, onClose }: { opp: OpportunityDto; onClose: () => v
         subject,
         body,
         followupInDays: followup,
+        channel: 'email',
       });
       toast.success(
         res.emailSent
@@ -205,7 +230,13 @@ function ProposeDialog({ opp, onClose }: { opp: OpportunityDto; onClose: () => v
             (te avisamos si lo pulsa).
           </DialogDescription>
         </DialogHeader>
-        {draft.isLoading ? (
+        {draft.isError ? (
+          <p className="text-sm text-amber-600 dark:text-amber-400">
+            {draft.error instanceof ApiError
+              ? draft.error.body.message
+              : 'No se ha podido preparar el texto.'}
+          </p>
+        ) : draft.isLoading ? (
           <p className="text-sm text-muted-foreground">Preparando el texto…</p>
         ) : (
           <div className="space-y-3">
@@ -248,19 +279,21 @@ function ProposeDialog({ opp, onClose }: { opp: OpportunityDto; onClose: () => v
         )}
         <DialogFooter className="gap-2">
           {wa && draft.data && (
-            <Button variant="outline" asChild>
-              <a
-                href={`https://wa.me/${wa}?text=${encodeURIComponent(draft.data.whatsappText)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <MessageCircle className="mr-1 size-4" /> WhatsApp
-              </a>
+            <Button
+              variant="outline"
+              disabled={propose.isPending}
+              onClick={() =>
+                void sendWhatsapp(
+                  `https://wa.me/${wa}?text=${encodeURIComponent(draft.data!.whatsappText)}`,
+                )
+              }
+            >
+              <MessageCircle className="mr-1 size-4" /> WhatsApp
             </Button>
           )}
           <Button
             onClick={() => void send()}
-            disabled={propose.isPending || draft.isLoading || (!opp.email && followup === 0)}
+            disabled={propose.isPending || !draft.data || (!opp.email && followup === 0)}
           >
             {opp.email ? 'Enviar por correo' : 'Crear seguimiento'}
           </Button>

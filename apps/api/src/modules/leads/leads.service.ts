@@ -6,9 +6,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { LEAD_SOURCE_SUGGESTIONS, leadScore, leadSourceLabel } from '@storageos/shared';
+import { Prisma } from '@storageos/database';
+import {
+  LEAD_SOURCE_SUGGESTIONS,
+  LEAD_STATUS_LABELS,
+  LEAD_TRANSITIONS,
+  leadDisplayName,
+  leadScore,
+  leadSourceLabel,
+  phoneKey,
+} from '@storageos/shared';
 
-import { assertFacilityAllowed } from '../../common/facility-scope';
+import { customerScopeWhere } from '../../common/customer-scope';
+import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { anonymizeLeadsTx } from '../../common/lead-anonymize';
+import { leadScopeWhere } from '../../common/lead-scope';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isReservationOverlap } from '../../common/reservation-overlap';
 import { unitHeldByOther } from '../../common/unit-holds';
@@ -16,10 +28,12 @@ import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { DomainEventPayload } from '../automations/domain-events';
-import type { Lead, LeadStatus, Prisma } from '@storageos/database';
+import type { BookingExpiredPayload, DomainEventPayload } from '../automations/domain-events';
+import type { Lead, LeadStatus } from '@storageos/database';
 import type {
   ConvertLeadInput,
   CreateLeadInput,
@@ -35,24 +49,33 @@ import type {
 
 interface ListFilters {
   status?: LeadStatusValue;
-  assignedToUserId?: string;
+  /** Un usuario, o `null` = sin responsable. */
+  assignedToUserId?: string | null;
   source?: string;
   search?: string;
   page?: PageRequest;
+  scope?: FacilityScope;
+}
+
+const LEAD_INCLUDE = {
+  preferredFacility: { select: { name: true } },
+  preferredUnitType: { select: { name: true } },
+  assignedTo: { select: { fullName: true } },
+} satisfies Prisma.LeadInclude;
+
+/** Lo que cuenta como haber atendido al contacto: fecha de la primera respuesta. */
+function attendedData(lead: { status: string; contactedAt: Date | null }, at = new Date()) {
+  return {
+    returnedAt: null,
+    ...(lead.contactedAt ? {} : { contactedAt: at }),
+    ...(lead.status === 'new' ? { status: 'contacted' as const } : {}),
+  };
 }
 
 type LeadWithIncludes = Lead & {
   preferredFacility?: { name: string } | null;
   preferredUnitType?: { name: string } | null;
   assignedTo?: { fullName: string } | null;
-};
-
-const ALLOWED_TRANSITIONS: Record<LeadStatusValue, LeadStatusValue[]> = {
-  new: ['contacted', 'qualified', 'lost'],
-  contacted: ['qualified', 'lost', 'new'],
-  qualified: ['won', 'lost', 'contacted'],
-  won: [],
-  lost: ['new'],
 };
 
 @Injectable()
@@ -64,7 +87,101 @@ export class LeadsService {
     private readonly audit: AuditService,
     private readonly events: EventEmitter2,
     private readonly communications: CommunicationsService,
+    private readonly notifications: NotificationsService,
+    private readonly files: FilesService,
   ) {}
+
+  /**
+   * Comprueba que el local, el tamaño y el responsable son de esta empresa (y
+   * el local, de los que ve el usuario). Un id de otra empresa daba 201.
+   */
+  private async assertRefs(
+    tenantId: string,
+    refs: {
+      preferredFacilityId?: string | null | undefined;
+      preferredUnitTypeId?: string | null | undefined;
+      assignedToUserId?: string | null | undefined;
+    },
+    scope: FacilityScope,
+  ): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      if (refs.preferredFacilityId) {
+        const f = await tx.facility.findFirst({
+          where: { id: refs.preferredFacilityId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!f) {
+          throw new BadRequestException({
+            code: 'facility_not_found',
+            message: 'El local no existe',
+          });
+        }
+        assertFacilityAllowed(scope, f.id);
+      }
+      if (refs.preferredUnitTypeId) {
+        const t = await tx.unitType.findFirst({
+          where: { id: refs.preferredUnitTypeId },
+          select: { id: true },
+        });
+        if (!t) {
+          throw new BadRequestException({
+            code: 'unit_type_not_found',
+            message: 'El tamaño no existe',
+          });
+        }
+      }
+      if (refs.assignedToUserId) {
+        const u = await tx.user.findFirst({
+          where: { id: refs.assignedToUserId, isActive: true },
+          select: { id: true },
+        });
+        if (!u) {
+          throw new BadRequestException({
+            code: 'user_not_found',
+            message: 'Esa persona no está en tu equipo',
+          });
+        }
+      }
+    }, tenantId);
+  }
+
+  /** Avisa a la persona a la que se le asigna el contacto (no a todo el equipo). */
+  private async notifyAssigned(
+    tenantId: string,
+    lead: { id: string; preferredFacilityId: string | null } & Parameters<
+      typeof leadDisplayName
+    >[0],
+    userId: string,
+  ): Promise<void> {
+    await this.notifications
+      .create(tenantId, {
+        type: 'lead.assigned',
+        title: `Te han asignado un contacto: ${leadDisplayName(lead)}`,
+        link: `/leads?lead=${lead.id}`,
+        facilityId: lead.preferredFacilityId,
+        userId,
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * El equipo ha atendido al contacto fuera de la ficha (respondió por WhatsApp
+   * o por el chat de la web): cuenta como primera respuesta.
+   */
+  async markAttended(tenantId: string, leadId: string): Promise<void> {
+    await this.prisma
+      .withTenant(async (tx) => {
+        const lead = await tx.lead.findFirst({
+          where: { id: leadId, deletedAt: null },
+          select: { status: true, contactedAt: true },
+        });
+        if (!lead) return;
+        await tx.lead.update({ where: { id: leadId }, data: attendedData(lead) });
+      }, tenantId)
+      .catch((err: unknown) =>
+        this.logger.warn(`[leads] markAttended ${leadId}: ${(err as Error).message}`),
+      );
+  }
 
   /**
    * Responde al contacto por email desde el panel: sale con el remitente del
@@ -77,8 +194,9 @@ export class LeadsService {
     id: string;
     input: LeadReplyInput;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<CommunicationDto> {
-    const lead = await this.findOrThrow(args.tenantId, args.id);
+    const lead = await this.findOrThrow(args.tenantId, args.id, false, args.scope);
     if (!lead.email) {
       throw new BadRequestException({
         code: 'lead_without_email',
@@ -94,16 +212,10 @@ export class LeadsService {
       leadId: lead.id,
       source: 'lead.reply',
     });
-    if (lead.status === 'new') {
-      await this.prisma.withTenant(
-        (tx) =>
-          tx.lead.updateMany({
-            where: { id: lead.id, status: 'new' },
-            data: { status: 'contacted', contactedAt: new Date() },
-          }),
-        args.tenantId,
-      );
-    }
+    await this.prisma.withTenant(
+      (tx) => tx.lead.update({ where: { id: lead.id }, data: attendedData(lead) }),
+      args.tenantId,
+    );
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -117,31 +229,35 @@ export class LeadsService {
   }
 
   async list(tenantId: string, filters: ListFilters): Promise<LeadDto[]> {
-    const where: Prisma.LeadWhereInput = { deletedAt: null };
-    if (filters.status) where.status = filters.status as LeadStatus;
-    if (filters.assignedToUserId) where.assignedToUserId = filters.assignedToUserId;
-    if (filters.source) {
-      where.source = filters.source as NonNullable<Prisma.LeadWhereInput['source']>;
+    const and: Prisma.LeadWhereInput[] = [{ deletedAt: null }, leadScopeWhere(filters.scope)];
+    if (filters.status) and.push({ status: filters.status as LeadStatus });
+    if (filters.assignedToUserId !== undefined) {
+      and.push({ assignedToUserId: filters.assignedToUserId });
     }
-    if (filters.search) {
-      const q = filters.search;
-      where.OR = [
-        { firstName: { contains: q, mode: 'insensitive' } },
-        { lastName: { contains: q, mode: 'insensitive' } },
-        { companyName: { contains: q, mode: 'insensitive' } },
-        { email: { contains: q, mode: 'insensitive' } },
-        { phone: { contains: q, mode: 'insensitive' } },
-      ];
+    if (filters.source) and.push({ source: filters.source });
+    // Por palabras: «Ana García» encuentra a Ana con apellido García.
+    const words = (filters.search ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
+    for (const w of words) {
+      const digits = w.replace(/\D/g, '');
+      and.push({
+        OR: [
+          { firstName: { contains: w, mode: 'insensitive' } },
+          { lastName: { contains: w, mode: 'insensitive' } },
+          { companyName: { contains: w, mode: 'insensitive' } },
+          { email: { contains: w, mode: 'insensitive' } },
+          { phone: { contains: w, mode: 'insensitive' } },
+          ...(digits.length >= 3 && digits !== w
+            ? [{ phone: { contains: digits, mode: 'insensitive' as const } }]
+            : []),
+        ],
+      });
     }
+    const where: Prisma.LeadWhereInput = { AND: and };
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.lead.findMany({
           where,
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
           orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
           ...(filters.page ? pageArgs(filters.page) : { take: 500 }),
         }),
@@ -150,8 +266,8 @@ export class LeadsService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async detail(tenantId: string, id: string): Promise<LeadDto> {
-    const row = await this.findOrThrow(tenantId, id, true);
+  async detail(tenantId: string, id: string, scope?: FacilityScope): Promise<LeadDto> {
+    const row = await this.findOrThrow(tenantId, id, true, scope);
     return this.toDto(row);
   }
 
@@ -183,20 +299,17 @@ export class LeadsService {
     userId: string;
     input: CreateLeadInput;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<LeadDto> {
+    await this.assertRefs(args.tenantId, args.input, args.scope);
     const data = this.buildCreateData(args.tenantId, args.input);
     const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.lead.create({
-          data,
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
-        }),
+      (tx) => tx.lead.create({ data, include: LEAD_INCLUDE }),
       args.tenantId,
     );
+    if (created.assignedToUserId && created.assignedToUserId !== args.userId) {
+      await this.notifyAssigned(args.tenantId, created, created.assignedToUserId);
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -232,6 +345,25 @@ export class LeadsService {
       marketingConsent: !!args.input.acceptsMarketing,
     });
     if (repeated) return repeated;
+    // Del formulario público: un local o tamaño que no es de esta empresa se ignora.
+    const [facility, unitType] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          args.input.preferredFacilityId
+            ? tx.facility.findFirst({
+                where: { id: args.input.preferredFacilityId, deletedAt: null },
+                select: { id: true },
+              })
+            : null,
+          args.input.preferredUnitTypeId
+            ? tx.unitType.findFirst({
+                where: { id: args.input.preferredUnitTypeId },
+                select: { id: true },
+              })
+            : null,
+        ]),
+      args.tenantId,
+    );
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.lead.create({
@@ -243,8 +375,8 @@ export class LeadsService {
             email: args.input.email,
             phone: args.input.phone,
             message: args.input.message || null,
-            preferredFacilityId: args.input.preferredFacilityId ?? null,
-            preferredUnitTypeId: args.input.preferredUnitTypeId ?? null,
+            preferredFacilityId: facility?.id ?? null,
+            preferredUnitTypeId: unitType?.id ?? null,
             preferredStartDate: args.input.preferredStartDate
               ? new Date(args.input.preferredStartDate)
               : null,
@@ -260,11 +392,7 @@ export class LeadsService {
               ipAddress: args.meta.ipAddress ?? null,
             } satisfies Prisma.InputJsonValue,
           },
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
         }),
       args.tenantId,
     );
@@ -329,11 +457,7 @@ export class LeadsService {
               ipAddress: args.meta.ipAddress ?? null,
             } satisfies Prisma.InputJsonValue,
           },
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
         }),
       args.tenantId,
     );
@@ -380,11 +504,7 @@ export class LeadsService {
             message: args.message.slice(0, 2000),
             metadata: { origin: 'whatsapp' } satisfies Prisma.InputJsonValue,
           },
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
         }),
       args.tenantId,
     );
@@ -455,11 +575,7 @@ export class LeadsService {
               ipAddress: args.meta.ipAddress ?? null,
             } satisfies Prisma.InputJsonValue,
           },
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
         }),
       args.tenantId,
     );
@@ -510,11 +626,7 @@ export class LeadsService {
               ipAddress: args.meta.ipAddress ?? null,
             } satisfies Prisma.InputJsonValue,
           },
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
         }),
       args.tenantId,
     );
@@ -534,8 +646,10 @@ export class LeadsService {
     id: string;
     input: UpdateLeadInput;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<LeadDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    const before = await this.findOrThrow(args.tenantId, args.id, false, args.scope);
+    await this.assertRefs(args.tenantId, args.input, args.scope);
     const data: Prisma.LeadUncheckedUpdateInput = {};
     const set = <K extends keyof UpdateLeadInput>(key: K) => {
       const v = args.input[key];
@@ -561,18 +675,16 @@ export class LeadsService {
     if (args.input.metadata !== undefined)
       data.metadata = args.input.metadata as Prisma.InputJsonValue;
     const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.lead.update({
-          where: { id: args.id },
-          data,
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
-        }),
+      (tx) => tx.lead.update({ where: { id: args.id }, data, include: LEAD_INCLUDE }),
       args.tenantId,
     );
+    if (
+      updated.assignedToUserId &&
+      updated.assignedToUserId !== before.assignedToUserId &&
+      updated.assignedToUserId !== args.userId
+    ) {
+      await this.notifyAssigned(args.tenantId, updated, updated.assignedToUserId);
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -591,8 +703,9 @@ export class LeadsService {
     id: string;
     input: TransitionLeadInput;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<LeadDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.id);
+    const existing = await this.findOrThrow(args.tenantId, args.id, false, args.scope);
     // «Ganado» = convertido en cliente: un contacto ganado sin ficha de
     // inquilino contaba como venta en analítica y marketing sin serlo.
     if (args.input.status === 'won') {
@@ -601,40 +714,46 @@ export class LeadsService {
         message: 'Para marcarlo como ganado, conviértelo en cliente.',
       });
     }
-    const allowed = ALLOWED_TRANSITIONS[existing.status as LeadStatusValue];
-    if (!allowed.includes(args.input.status)) {
+    const from = existing.status as LeadStatusValue;
+    if (from === args.input.status)
+      return this.toDto(await this.findOrThrow(args.tenantId, args.id, true));
+    if (!LEAD_TRANSITIONS[from].includes(args.input.status)) {
       throw new ConflictException({
         code: 'invalid_lead_transition',
-        message: `No se puede pasar de ${existing.status} a ${args.input.status}`,
+        message: `No se puede pasar de «${LEAD_STATUS_LABELS[from]}» a «${LEAD_STATUS_LABELS[args.input.status]}»`,
       });
     }
     const now = new Date();
-    const data: Prisma.LeadUncheckedUpdateInput = { status: args.input.status };
-    if (args.input.status === 'contacted') data.contactedAt = now;
-    if (args.input.status === 'qualified') data.qualifiedAt = now;
+    const data: Prisma.LeadUncheckedUpdateInput = { status: args.input.status, returnedAt: null };
+    // La primera respuesta no se pisa: volver a «Contactado» no la mueve.
+    if (
+      (args.input.status === 'contacted' || args.input.status === 'qualified') &&
+      !existing.contactedAt
+    ) {
+      data.contactedAt = now;
+    }
+    if (args.input.status === 'qualified' && !existing.qualifiedAt) data.qualifiedAt = now;
     if (args.input.status === 'lost') {
       data.lostAt = now;
-      if (args.input.reason) data.lostReason = args.input.reason;
+      data.lostReason = args.input.reason || null;
       data.lostReasonCode = args.input.lostReasonCode ?? 'other';
     }
     // Reabierto: deja de contar como perdido (precios e informes).
     if (existing.status === 'lost' && args.input.status !== 'lost') {
       data.lostAt = null;
+      data.lostReason = null;
       data.lostReasonCode = null;
     }
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.lead.update({
-          where: { id: args.id },
-          data,
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
-        }),
-      args.tenantId,
-    );
+    const updated = await this.prisma.withTenant(async (tx) => {
+      // Perdido: sus recordatorios pendientes ya no tienen sentido.
+      if (args.input.status === 'lost') {
+        await tx.leadFollowup.updateMany({
+          where: { leadId: args.id, status: 'pending' },
+          data: { status: 'cancelled', completedAt: now },
+        });
+      }
+      return tx.lead.update({ where: { id: args.id }, data, include: LEAD_INCLUDE });
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -661,15 +780,42 @@ export class LeadsService {
     meta: RequestMeta;
     facilityScope?: string[] | null;
   }): Promise<LeadDto> {
-    const existing = await this.findOrThrow(args.tenantId, args.id);
-    if (existing.status === 'won') {
-      throw new ConflictException({
-        code: 'lead_already_won',
-        message: 'Lead ya convertido',
-      });
-    }
+    await this.findOrThrow(args.tenantId, args.id, false, args.facilityScope);
+    let createdCustomer: {
+      id: string;
+      firstName: string | null;
+      lastName: string | null;
+      companyName: string | null;
+      email: string | null;
+      phone: string | null;
+    } | null = null;
     const result = await this.prisma.withTenant(async (tx) => {
+      // La fila bloqueada: dos clics a la vez no crean dos inquilinos.
+      await tx.$queryRaw`SELECT id FROM leads WHERE id = ${args.id}::uuid FOR UPDATE`;
+      const existing = await tx.lead.findFirstOrThrow({ where: { id: args.id } });
+      if (existing.status === 'won') {
+        throw new ConflictException({
+          code: 'lead_already_won',
+          message: 'Este contacto ya es cliente',
+        });
+      }
       let customerId = args.input.customerId ?? null;
+      if (customerId) {
+        const chosen = await tx.customer.findFirst({
+          where: {
+            id: customerId,
+            deletedAt: null,
+            ...customerScopeWhere(args.facilityScope ?? null),
+          },
+          select: { id: true },
+        });
+        if (!chosen) {
+          throw new NotFoundException({
+            code: 'customer_not_found',
+            message: 'Inquilino no encontrado',
+          });
+        }
+      }
       // Si ya hay un inquilino con ese email, se enlaza a él (como la reserva
       // online, que trata el email como identidad) en vez de duplicarlo.
       if (!customerId && existing.email) {
@@ -690,9 +836,17 @@ export class LeadsService {
             companyName: existing.companyName,
             email: existing.email,
             phone: existing.phone,
+            // Si se dio de baja de las ofertas, sigue de baja como inquilino.
+            marketingOptOutAt: existing.marketingOptOutAt,
           },
         });
         customerId = customer.id;
+        createdCustomer = customer;
+      } else if (existing.marketingOptOutAt) {
+        await tx.customer.updateMany({
+          where: { id: customerId, marketingOptOutAt: null },
+          data: { marketingOptOutAt: existing.marketingOptOutAt },
+        });
       }
       let reservationId: string | null = null;
       if (args.input.reservation) {
@@ -750,14 +904,16 @@ export class LeadsService {
           wonAt: new Date(),
           convertedCustomerId: customerId,
           convertedReservationId: reservationId,
+          // Ya no está perdido: sin motivo de pérdida.
+          lostAt: null,
+          lostReason: null,
+          lostReasonCode: null,
+          returnedAt: null,
         },
-        include: {
-          preferredFacility: { select: { name: true } },
-          preferredUnitType: { select: { name: true } },
-          assignedTo: { select: { fullName: true } },
-        },
+        include: LEAD_INCLUDE,
       });
     }, args.tenantId);
+    if (createdCustomer) this.emitCustomerCreated(args.tenantId, createdCustomer);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -774,17 +930,25 @@ export class LeadsService {
     return this.toDto(result);
   }
 
+  /**
+   * Borra el contacto y sus datos (derecho al olvido): nombre, email, teléfono,
+   * mensajes, actividad, seguimientos, correos, WhatsApp y chat de la web.
+   */
   async remove(args: {
     tenantId: string;
     userId: string;
     id: string;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<void> {
-    await this.findOrThrow(args.tenantId, args.id);
-    await this.prisma.withTenant(
-      (tx) => tx.lead.update({ where: { id: args.id }, data: { deletedAt: new Date() } }),
+    await this.findOrThrow(args.tenantId, args.id, false, args.scope);
+    const { mediaKeys } = await this.prisma.withTenant(
+      (tx) => anonymizeLeadsTx(tx, [args.id]),
       args.tenantId,
     );
+    if (mediaKeys.length > 0) {
+      await this.files.deleteObjects('uploads', mediaKeys).catch(() => undefined);
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -808,8 +972,9 @@ export class LeadsService {
     id: string;
     consent: boolean;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<LeadDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    await this.findOrThrow(args.tenantId, args.id, false, args.scope);
     const now = new Date();
     const updated = await this.prisma.withTenant(
       (tx) =>
@@ -818,11 +983,7 @@ export class LeadsService {
           data: args.consent
             ? { marketingConsentAt: now, marketingOptOutAt: null }
             : { marketingOptOutAt: now },
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
         }),
       args.tenantId,
     );
@@ -852,26 +1013,37 @@ export class LeadsService {
       marketingConsent: boolean;
     },
   ): Promise<LeadDto | null> {
-    const email = c.email?.trim() || null;
+    const email = c.email?.trim().toLowerCase() || null;
     const phone = c.phone?.replace(/\s+/g, '') || null;
-    if (!email && !phone) return null;
-    const existing = await this.prisma.withTenant(
-      (tx) =>
-        tx.lead.findFirst({
-          where: {
-            deletedAt: null,
-            status: { in: ['new', 'contacted', 'qualified'] },
-            OR: [
-              ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
-              ...(phone ? [{ phone }] : []),
-            ],
-          },
-          orderBy: { updatedAt: 'desc' },
-        }),
+    // El teléfono se compara por sus 9 últimas cifras («600 555 444» = «+34600555444»).
+    const key = phoneKey(phone);
+    if (!email && !key) return null;
+    const match = await this.prisma.withTenant(
+      (tx) => tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM leads
+         WHERE deleted_at IS NULL
+           AND status IN ('new', 'contacted', 'qualified')
+           AND (
+             ${email ? Prisma.sql`lower(email) = ${email}` : Prisma.sql`FALSE`}
+             OR ${
+               key
+                 ? Prisma.sql`right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 9) = ${key}`
+                 : Prisma.sql`FALSE`
+             }
+           )
+         ORDER BY updated_at DESC
+         LIMIT 1`,
       tenantId,
     );
+    const existing = match[0]
+      ? await this.prisma.withTenant(
+          (tx) => tx.lead.findFirst({ where: { id: match[0]!.id } }),
+          tenantId,
+        )
+      : null;
     if (!existing) return null;
-    const stamp = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const stamp = now.toISOString().slice(0, 10);
     const note = c.message?.trim()
       ? `[${stamp} · ${c.channel}] ${c.message.trim()}`
       : `[${stamp} · ${c.channel}] Ha vuelto a contactar.`;
@@ -883,15 +1055,13 @@ export class LeadsService {
             message: existing.message ? `${existing.message}\n\n${note}`.slice(-8000) : note,
             ...(email && !existing.email ? { email } : {}),
             ...(phone && !existing.phone ? { phone } : {}),
-            ...(c.marketingConsent && !existing.marketingConsentAt
-              ? { marketingConsentAt: new Date() }
+            ...(c.marketingConsent && !existing.marketingConsentAt && !existing.marketingOptOutAt
+              ? { marketingConsentAt: now }
               : {}),
+            // Se marca en la tarjeta hasta que alguien le atienda.
+            returnedAt: now,
           },
-          include: {
-            preferredFacility: { select: { name: true } },
-            preferredUnitType: { select: { name: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: LEAD_INCLUDE,
         }),
       tenantId,
     );
@@ -902,6 +1072,17 @@ export class LeadsService {
       entityId: existing.id,
       changes: { channel: c.channel },
     });
+    // Aviso a su responsable (o al equipo si no tiene).
+    await this.notifications
+      .create(tenantId, {
+        type: 'lead.returned',
+        title: `${leadDisplayName(existing)} ha vuelto a escribir`,
+        ...(c.message?.trim() ? { body: c.message.trim().slice(0, 200) } : {}),
+        link: `/leads?lead=${existing.id}`,
+        facilityId: existing.preferredFacilityId,
+        ...(existing.assignedToUserId ? { userId: existing.assignedToUserId } : {}),
+      })
+      .catch(() => undefined);
     return this.toDto(updated);
   }
 
@@ -915,22 +1096,81 @@ export class LeadsService {
     const customerId = p.customerId;
     if (!customerId || p.entityType !== 'contract') return;
     try {
-      await this.prisma.withTenant(
-        (tx) =>
-          tx.lead.updateMany({
-            where: {
-              convertedCustomerId: customerId,
-              convertedContractId: null,
-              status: 'won',
-              deletedAt: null,
-            },
-            data: { convertedContractId: p.entityId },
-          }),
-        p.tenantId,
-      );
+      await this.prisma.withTenant(async (tx) => {
+        // Reserva online: el contacto se gana al firmar.
+        await tx.lead.updateMany({
+          where: { convertedContractId: p.entityId, status: { not: 'won' }, deletedAt: null },
+          data: {
+            status: 'won',
+            wonAt: new Date(),
+            convertedCustomerId: customerId,
+            lostAt: null,
+            lostReason: null,
+            lostReasonCode: null,
+          },
+        });
+        await tx.lead.updateMany({
+          where: {
+            convertedCustomerId: customerId,
+            convertedContractId: null,
+            status: 'won',
+            deletedAt: null,
+          },
+          data: { convertedContractId: p.entityId },
+        });
+      }, p.tenantId);
     } catch (err) {
       this.logger.warn(
         `[leads] no se pudo enlazar el contrato ${p.entityId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * La reserva online caducó sin firmar o sin pagar: el contacto vuelve a estar
+   * abierto, con una nota, y se avisa a su responsable para llamarle.
+   */
+  @OnEvent(DOMAIN_EVENTS.booking_expired, { async: true, promisify: true })
+  async onBookingExpired(p: BookingExpiredPayload): Promise<void> {
+    try {
+      const leads = await this.prisma.withTenant(
+        (tx) =>
+          tx.lead.findMany({
+            where: { convertedContractId: p.contractId, deletedAt: null },
+          }),
+        p.tenantId,
+      );
+      const stamp = new Date().toISOString().slice(0, 10);
+      for (const lead of leads) {
+        const note = `[${stamp} · reserva] La reserva online caducó sin completarse.`;
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.lead.update({
+              where: { id: lead.id },
+              data: {
+                status: 'qualified',
+                qualifiedAt: lead.qualifiedAt ?? new Date(),
+                wonAt: null,
+                convertedCustomerId: null,
+                message: lead.message ? `${lead.message}\n\n${note}`.slice(-8000) : note,
+              },
+            }),
+          p.tenantId,
+        );
+        await this.notifications
+          .create(p.tenantId, {
+            type: 'lead.booking_expired',
+            title: `Reserva caducada: llama a ${leadDisplayName(lead)}`,
+            body: 'Empezó una reserva online y no la terminó.',
+            link: `/leads?lead=${lead.id}`,
+            facilityId: lead.preferredFacilityId,
+            ...(lead.assignedToUserId ? { userId: lead.assignedToUserId } : {}),
+          })
+          .catch(() => undefined);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[leads] reserva caducada ${p.contractId}: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -939,19 +1179,14 @@ export class LeadsService {
     tenantId: string,
     id: string,
     includeRelations = false,
+    scope?: FacilityScope,
   ): Promise<LeadWithIncludes> {
+    const where = { id, deletedAt: null, ...leadScopeWhere(scope) };
     const row = await this.prisma.withTenant(
       (tx) =>
         includeRelations
-          ? tx.lead.findFirst({
-              where: { id, deletedAt: null },
-              include: {
-                preferredFacility: { select: { name: true } },
-                preferredUnitType: { select: { name: true } },
-                assignedTo: { select: { fullName: true } },
-              },
-            })
-          : tx.lead.findFirst({ where: { id, deletedAt: null } }),
+          ? tx.lead.findFirst({ where, include: LEAD_INCLUDE })
+          : tx.lead.findFirst({ where }),
       tenantId,
     );
     if (!row) {
@@ -987,9 +1222,40 @@ export class LeadsService {
     };
   }
 
+  /** El contacto pasa a ser inquilino: salta la bienvenida y las automatizaciones de alta. */
+  private emitCustomerCreated(
+    tenantId: string,
+    c: {
+      id: string;
+      firstName: string | null;
+      lastName: string | null;
+      companyName: string | null;
+      email: string | null;
+      phone: string | null;
+    },
+  ): void {
+    const payload: DomainEventPayload = {
+      tenantId,
+      entityType: 'customer',
+      entityId: c.id,
+      recipientEmail: c.email,
+      recipientPhone: c.phone,
+      customerId: c.id,
+      scope: {
+        customer: {
+          firstName: c.firstName ?? '',
+          lastName: c.lastName ?? '',
+          displayName: leadDisplayName(c),
+          email: c.email ?? '',
+          phone: c.phone ?? '',
+        },
+      },
+    };
+    this.events.emit(DOMAIN_EVENTS.customer_created, payload);
+  }
+
   private emitLeadCreated(tenantId: string, lead: Lead): void {
-    const displayName =
-      lead.companyName ?? `${lead.firstName ?? ''} ${lead.lastName ?? ''}`.trim() ?? 'Lead';
+    const displayName = leadDisplayName(lead);
     const payload: DomainEventPayload = {
       tenantId,
       entityType: 'lead',
@@ -1011,8 +1277,7 @@ export class LeadsService {
   }
 
   private toDto(l: LeadWithIncludes): LeadDto {
-    const displayName =
-      l.companyName ?? `${l.firstName ?? ''} ${l.lastName ?? ''}`.trim() ?? 'Lead';
+    const displayName = leadDisplayName(l);
     const scored = leadScore({
       status: l.status,
       source: l.source,
@@ -1056,6 +1321,8 @@ export class LeadsService {
       convertedCustomerId: l.convertedCustomerId,
       convertedContractId: l.convertedContractId,
       convertedReservationId: l.convertedReservationId,
+      bookedAt: l.bookedAt?.toISOString() ?? null,
+      returnedAt: l.returnedAt?.toISOString() ?? null,
       utmSource: l.utmSource,
       utmMedium: l.utmMedium,
       utmCampaign: l.utmCampaign,

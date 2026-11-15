@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { leadSourceLabel } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import {
   invoiceFacilityWhere,
   optionalFacilityWhere,
   resolveFacilityFilter,
 } from '../../common/facility-scope';
 import { formatEur, todayInTimezone } from '../../common/format';
+import { leadScopeWhere } from '../../common/lead-scope';
 import { CONFIRMED_START_WHERE } from '../../common/pre-opening';
 import { nextPriceChange, pendingPriceChanges } from '../../common/price-changes';
 import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
@@ -198,8 +200,13 @@ export class TodayService {
     // a él y seguimientos que creó. Lo demás (cobros, entradas…) es del local.
     const me = mine && userId ? userId : null;
     const facTaskIncident = me ? { ...facOwn, assignedToUserId: me } : facOwn;
-    const mineLead = me ? { assignedToUserId: me } : {};
-    const mineFollowup = me ? { userId: me } : {};
+    // Contactos de los locales que ve el usuario (y los que no eligieron local);
+    // seguimientos de inquilinos que puede abrir.
+    const mineLead = { ...(me ? { assignedToUserId: me } : {}), ...leadScopeWhere(facilityScope) };
+    const mineFollowup = {
+      ...(me ? { userId: me } : {}),
+      customer: { deletedAt: null, ...customerScopeWhere(facilityScope) },
+    };
     const chargeableTypes: ('card' | 'sepa_debit')[] = ['card', 'sepa_debit'];
     const invoiceItemSelect = {
       id: true,
@@ -746,7 +753,7 @@ export class TodayService {
               status: 'pending',
               dueDate: { lt: startOfTomorrow },
               ...notSnoozed('lead_followup'),
-              lead: { deletedAt: null, ...mineLead },
+              lead: { deletedAt: null, status: { not: 'lost' }, ...mineLead },
             },
             orderBy: [{ dueDate: 'asc' }],
             take: TAKE_LIST,
@@ -757,7 +764,7 @@ export class TodayService {
               status: 'pending',
               dueDate: { lt: startOfTomorrow },
               ...notSnoozed('lead_followup'),
-              lead: { deletedAt: null, ...mineLead },
+              lead: { deletedAt: null, status: { not: 'lost' }, ...mineLead },
             },
           }),
           tx.lead.findMany({

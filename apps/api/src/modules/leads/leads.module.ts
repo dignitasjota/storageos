@@ -7,6 +7,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { LeadCrmController } from './lead-crm.controller';
 import { LeadCrmService } from './lead-crm.service';
 import { LeadQuotesService } from './lead-quotes.service';
+import { LeadRetentionCron } from './lead-retention.cron';
 import { LeadUnattendedCron } from './lead-unattended.cron';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
@@ -14,7 +15,13 @@ import { LeadsService } from './leads.service';
 @Module({
   imports: [AuthModule, CouponsModule, NotificationsModule],
   controllers: [LeadCrmController, LeadsController],
-  providers: [LeadsService, LeadQuotesService, LeadCrmService, LeadUnattendedCron],
+  providers: [
+    LeadsService,
+    LeadQuotesService,
+    LeadCrmService,
+    LeadUnattendedCron,
+    LeadRetentionCron,
+  ],
   exports: [LeadsService, LeadCrmService],
 })
 export class LeadsModule {}

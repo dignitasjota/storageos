@@ -39,7 +39,7 @@ export class FollowupsController {
   @RequirePermission('customers:read')
   @Get('followups')
   listPending(@CurrentUser() user: AuthenticatedUser): Promise<CustomerFollowupDto[]> {
-    return this.followups.listPending(user.tenantId);
+    return this.followups.listPending(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('customers:read')
@@ -70,7 +70,12 @@ export class FollowupsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateFollowupDto,
   ): Promise<CustomerFollowupDto> {
-    return this.followups.setStatus({ tenantId: user.tenantId, id, input });
+    return this.followups.setStatus({
+      tenantId: user.tenantId,
+      id,
+      input,
+      scope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('customers:write')
@@ -80,6 +85,6 @@ export class FollowupsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.followups.remove(user.tenantId, id);
+    await this.followups.remove(user.tenantId, id, user.facilityScope ?? null);
   }
 }

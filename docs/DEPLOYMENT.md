@@ -2360,3 +2360,44 @@ Migración `20270123100000_daily_ops_features` (se aplica sola): `tasks.photos`,
 - **Incidencias**: tipo (daños, agua, cerradura…), plazo de la primera respuesta según la gravedad (Incidencias → Plazos; las que se pasan salen «Fuera de plazo»), resolución obligatoria al cerrar, fotos (también las que sube el inquilino al reportar, eligiendo su trastero), responder al inquilino por su chat, tarea de reparación, coste y gasto, parte al seguro e informe por tipo, gravedad y local.
 - **RGPD**: anonimizar a un inquilino borra las fotos de sus incidencias.
 - **Menú**: los números de los subapartados (Incidencias, Tareas, Vencimientos…) salen en su fila; antes caían una fila más abajo.
+
+## 138. Revisión de Leads, Seguimientos y Oportunidades (2026-11-15)
+
+Migración `20270124100000_leads_review` (se aplica sola): `leads.booked_at` y `leads.returned_at`, `tenants.lead_retention_months` (12), `customer_offers.metadata`. Al aplicarla:
+
+- los contactos «ganados» por una reserva online que nunca se firmó vuelven a «Cualificado»;
+- los seguimientos pendientes de contactos perdidos o borrados y de inquilinos borrados se cancelan.
+
+Sin variables nuevas. Cron nuevo `leads.retention` (04:40, en el API).
+
+**Qué cambia para el negocio**
+
+- **Reserva online**:
+  - el contacto se gana al firmar (antes, al reservar). Si la reserva caduca, vuelve a abierto con una nota y su responsable recibe un aviso para llamarle;
+  - el contacto conserva su primer origen: el de un presupuesto o el de otra visita se guardan aparte;
+  - dejar el email en la reserva ya no crea un contacto repetido.
+- **Locales**: quien solo ve unos locales ve los contactos de sus locales y los que no eligieron local. Lo mismo en Seguimientos, «Hoy», Duplicados y tiempos de respuesta, y los seguimientos de inquilinos de otros locales dejan de verse.
+- **Bajas comerciales**: se mantienen al convertir en cliente y al fusionar duplicados.
+- **Conversión**: el doble clic en «A cliente» crea un solo inquilino. Convertir lanza las automatizaciones de alta y borra el motivo de pérdida.
+- **Contactos repetidos**:
+  - el teléfono se compara por sus cifras («600 555 444» es «+34600555444»);
+  - quien vuelve a escribir avisa a su responsable y sale marcado en la tarjeta.
+- **Responsable** visible y editable en la ficha, con filtro «Solo los míos». Los avisos de reparto y de «sin atender» van a esa persona.
+- **Tiempos de respuesta**:
+  - la primera respuesta no se pisa;
+  - no se admite una llamada con fecha futura;
+  - responder por WhatsApp o por el chat de la web cuenta como atendido;
+  - las reservas online no cuentan.
+- **Ficha del lead**:
+  - se pueden vaciar campos;
+  - «Borrar» elimina sus datos (nombre, email, teléfono, mensajes, notas, seguimientos y conversaciones);
+  - las fases que ofrece son solo las permitidas.
+- **Datos de los perdidos**: los contactos perdidos sin actividad en 12 meses se anonimizan solos (plazo en Leads → Atención).
+- **Oportunidades**:
+  - «Ha tenido facturas vencidas» solo si las tuvo de verdad;
+  - fuera el inquilino de prueba;
+  - no se manda dos veces la misma propuesta;
+  - lo enviado por WhatsApp queda registrado;
+  - el pase nocturno no suma al potencial mensual;
+  - «Me interesa» crea un seguimiento para quien la propuso.
+- **Errores 500**: se acabaron los de filtros y fechas imposibles (también en el formulario público), y los datos de otra empresa se rechazan.

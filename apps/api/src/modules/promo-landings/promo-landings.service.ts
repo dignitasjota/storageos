@@ -229,7 +229,10 @@ export class PromoLandingsService {
             utmCampaign: promoCampaign(landing.slug),
             convertedContractId: { not: null },
             deletedAt: null,
-            ...(since ? { wonAt: { gte: since } } : {}),
+            // Por el día de la reserva (el contacto se gana al firmar).
+            ...(since
+              ? { OR: [{ bookedAt: { gte: since } }, { bookedAt: null, wonAt: { gte: since } }] }
+              : {}),
           },
           select: { utmSource: true, convertedContractId: true },
         }),

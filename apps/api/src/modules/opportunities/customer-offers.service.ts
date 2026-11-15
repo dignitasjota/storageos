@@ -7,8 +7,12 @@ import {
   type PortalRespondOfferInput,
 } from '@storageos/shared';
 
+import { customerVisibilityFacilities } from '../../common/customer-scope';
+import { todayInTimezone } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { NotificationsService } from '../notifications/notifications.service';
+
+import type { Prisma } from '@storageos/database';
 
 const DAY = 86_400_000;
 /** Lo que dura una propuesta en el área de clientes. */
@@ -27,16 +31,51 @@ export class CustomerOffersService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  /** Crea la propuesta (sustituye a la anterior del mismo tipo aún viva). */
-  async create(args: {
+  /**
+   * Crea la propuesta salvo que se haya hecho la misma hace menos de `guardMs`
+   * (devuelve null). El inquilino y el tipo se bloquean mientras se comprueba:
+   * dos peticiones a la vez no crean dos propuestas.
+   */
+  async createOnce(args: {
     tenantId: string;
     customerId: string;
     kind: OpportunityKind;
     message: string;
     priceGross: number | null;
     userId: string | null;
-  }): Promise<string> {
-    await this.admin.customerOffer.updateMany({
+    metadata: Record<string, unknown>;
+    guardMs: number;
+  }): Promise<string | null> {
+    return this.admin.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`offer:${args.tenantId}:${args.customerId}:${args.kind}`}))`;
+      const recent = await tx.customerOffer.findFirst({
+        where: {
+          tenantId: args.tenantId,
+          customerId: args.customerId,
+          kind: args.kind,
+          createdAt: { gte: new Date(Date.now() - args.guardMs) },
+        },
+        select: { id: true },
+      });
+      if (recent) return null;
+      return this.create(args, tx);
+    });
+  }
+
+  /** Crea la propuesta (sustituye a la anterior del mismo tipo aún viva). */
+  async create(
+    args: {
+      tenantId: string;
+      customerId: string;
+      kind: OpportunityKind;
+      message: string;
+      priceGross: number | null;
+      userId: string | null;
+      metadata?: Record<string, unknown>;
+    },
+    db: Prisma.TransactionClient | PrismaAdminService = this.admin,
+  ): Promise<string> {
+    await db.customerOffer.updateMany({
       where: {
         tenantId: args.tenantId,
         customerId: args.customerId,
@@ -45,7 +84,7 @@ export class CustomerOffersService {
       },
       data: { status: 'expired' },
     });
-    const row = await this.admin.customerOffer.create({
+    const row = await db.customerOffer.create({
       data: {
         tenantId: args.tenantId,
         customerId: args.customerId,
@@ -55,25 +94,34 @@ export class CustomerOffersService {
         priceGross: args.priceGross,
         expiresAt: new Date(Date.now() + OFFER_DAYS * DAY),
         createdByUserId: args.userId,
+        metadata: (args.metadata ?? {}) as Prisma.InputJsonValue,
       },
       select: { id: true },
     });
     return row.id;
   }
 
-  /** Último estado de las propuestas, por `<customerId>:<kind>` (para Oportunidades). */
-  async lastStatusByCustomerKind(tenantId: string): Promise<Map<string, CustomerOfferStatus>> {
-    await this.expireDue(tenantId);
+  /**
+   * Última propuesta por `<customerId>:<kind>` (para Oportunidades): su estado
+   * y cuándo se hizo (también las registradas por WhatsApp).
+   */
+  async lastStatusByCustomerKind(
+    tenantId: string,
+    customerId?: string,
+  ): Promise<Map<string, { status: CustomerOfferStatus; createdAt: Date }>> {
+    await this.expireDue(tenantId, customerId);
     const rows = await this.admin.customerOffer.findMany({
-      where: { tenantId },
-      select: { customerId: true, kind: true, status: true },
+      where: { tenantId, ...(customerId ? { customerId } : {}) },
+      select: { customerId: true, kind: true, status: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
       take: 5000,
     });
-    const out = new Map<string, CustomerOfferStatus>();
+    const out = new Map<string, { status: CustomerOfferStatus; createdAt: Date }>();
     for (const r of rows) {
       const key = `${r.customerId}:${r.kind}`;
-      if (!out.has(key)) out.set(key, r.status as CustomerOfferStatus);
+      if (!out.has(key)) {
+        out.set(key, { status: r.status as CustomerOfferStatus, createdAt: r.createdAt });
+      }
     }
     return out;
   }
@@ -90,7 +138,15 @@ export class CustomerOffersService {
     });
     const accepted: string[] = [];
     for (const r of rows) {
-      if (await this.fulfilled(tenantId, customerId, r.kind as OpportunityKind, r.createdAt)) {
+      if (
+        await this.fulfilled(
+          tenantId,
+          customerId,
+          r.kind as OpportunityKind,
+          r.createdAt,
+          (r.metadata as Record<string, unknown> | null) ?? {},
+        )
+      ) {
         accepted.push(r.id);
       }
     }
@@ -148,14 +204,40 @@ export class CustomerOffersService {
         c.customerType === 'business'
           ? (c.companyName ?? 'Un inquilino')
           : [c.firstName, c.lastName].filter(Boolean).join(' ') || 'Un inquilino';
-      await this.notifications
-        .create(tenantId, {
-          type: 'customer.offer_interested',
-          title: `${name} quiere: ${offer.title.toLowerCase()}`,
-          body: 'Respondió «Me interesa» a tu propuesta en su área de clientes.',
-          link: `/customers/${customerId}`,
+      // No se pierde: un seguimiento para hoy a nombre de quien la propuso, y
+      // el aviso a esa persona (o a quien ve al inquilino, si no hay autor).
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      await this.admin.customerFollowup
+        .create({
+          data: {
+            tenantId,
+            customerId,
+            userId: offer.createdByUserId,
+            title: `Contactar: le interesa ${offer.title.toLowerCase()}`,
+            note: 'Respondió «Me interesa» en su área de clientes.',
+            dueDate: todayInTimezone(tenant?.timezone ?? 'Europe/Madrid'),
+          },
         })
         .catch(() => undefined);
+      const notice = {
+        type: 'customer.offer_interested',
+        title: `${name} quiere: ${offer.title.toLowerCase()}`,
+        body: 'Respondió «Me interesa» a tu propuesta en su área de clientes.',
+        link: `/customers/${customerId}`,
+      };
+      if (offer.createdByUserId) {
+        await this.notifications
+          .create(tenantId, { ...notice, userId: offer.createdByUserId })
+          .catch(() => undefined);
+      } else {
+        const facilities = await customerVisibilityFacilities(this.admin, tenantId, customerId);
+        await this.notifications
+          .createForFacilities(tenantId, facilities, notice)
+          .catch(() => undefined);
+      }
     }
     return this.listForPortal(tenantId, customerId);
   }
@@ -178,9 +260,13 @@ export class CustomerOffersService {
     customerId: string,
     kind: OpportunityKind,
     since: Date,
+    meta: Record<string, unknown>,
   ): Promise<boolean> {
     switch (kind) {
-      case 'insurance':
+      case 'insurance': {
+        // Los contratos que no tenían seguro al proponerlo (antes bastaba con
+        // tocar cualquier contrato que ya lo tuviera).
+        const ids = Array.isArray(meta.contractIds) ? (meta.contractIds as string[]) : null;
         return (
           (await this.admin.contract.count({
             where: {
@@ -189,12 +275,36 @@ export class CustomerOffersService {
               deletedAt: null,
               status: { in: ['active', 'ending'] },
               insurancePlanId: { not: null },
-              updatedAt: { gt: since },
+              ...(ids ? { id: { in: ids } } : { updatedAt: { gt: since } }),
             },
           })) > 0
         );
+      }
+      case 'larger_unit': {
+        // Contrató otro trastero o se le cambió el suyo.
+        const contractId = typeof meta.contractId === 'string' ? meta.contractId : null;
+        const [newContracts, moved] = await Promise.all([
+          this.admin.contract.count({
+            where: {
+              tenantId,
+              customerId,
+              deletedAt: null,
+              status: { in: ['draft', 'active', 'ending'] },
+              createdAt: { gt: since },
+            },
+          }),
+          this.admin.contractEvent.count({
+            where: {
+              tenantId,
+              eventType: 'unit_changed',
+              occurredAt: { gt: since },
+              contract: contractId ? { id: contractId } : { customerId },
+            },
+          }),
+        ]);
+        return newContracts + moved > 0;
+      }
       case 'additional_unit':
-      case 'larger_unit':
         return (
           (await this.admin.contract.count({
             where: {

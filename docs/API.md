@@ -3038,3 +3038,36 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - `POST /incidents/:id/task` (`tasks:write`) → tarea de reparación (`metadata.incidentId`); `GET /incidents/:id/tasks`.
 - `POST /incidents/:id/expense {amount, supplierId?}` (`expenses:manage`) → `ExpenseDto`; guarda `cost` y `expenseId` (409 `expense_already_registered`).
 - `GET /incidents/report?from=&to=` (por defecto 90 días) → totales, horas hasta resolver, % respondidas a tiempo, coste, partes al seguro y desglose por tipo, gravedad y local.
+
+### Leads, Seguimientos y Oportunidades: revisión (2026-11-15)
+
+- **Alcance por local**: `/leads/*`, `/leads/followups/*`, `/leads/duplicates`, `/leads/response-stats` y `/followups` aplican el alcance del usuario. Quien solo ve unos locales ve los contactos de esos locales y los que no tienen local. Un contacto fuera de su alcance da 404; un seguimiento de un inquilino que no ve, también.
+- `GET /leads` y `/leads/page`:
+  - `status` inválido → 400 `invalid_status`;
+  - `assignedToUserId` admite `me` (los míos) y `none` (sin responsable); cualquier otro valor que no sea un uuid → 400 `invalid_user`;
+  - `search` busca por palabras.
+- `POST /leads` y `PATCH /leads/:id`:
+  - local, tamaño y responsable de otra empresa → 400 `facility_not_found`, `unit_type_not_found`, `user_not_found`;
+  - en el `PATCH`, `''` o `null` vacían un campo (email, teléfono, local, tamaño, fecha, presupuesto, responsable…);
+  - asignar a otra persona le manda el aviso `lead.assigned` solo a ella.
+- Fechas (`preferredStartDate`, `dueDate` de seguimientos de contactos e inquilinos) con día real: `2026-13-45` → 400.
+- `POST /leads/:id/transition`:
+  - solo las fases de `LEAD_TRANSITIONS` (shared); el mensaje de error usa los nombres de las fases;
+  - no pisa `contactedAt`;
+  - pasar a perdido cancela los seguimientos pendientes (`status: 'cancelled'`).
+- `POST /leads/:id/convert`:
+  - la fila se bloquea (409 `lead_already_won` al segundo clic);
+  - `customerId` de otra empresa o fuera de su alcance → 404;
+  - copia la baja comercial y borra el motivo de pérdida;
+  - emite `customer_created` si crea el inquilino.
+- `POST /leads/:id/link-customer`: si ya estaba enlazado a otro inquilino → 409 `lead_already_linked`.
+- `POST /leads/:id/activities`: fecha más de 5 min en el futuro → 400 `occurred_in_future`.
+- `DELETE /leads/:id`: borra sus datos (los anonimiza y deja la fila para los recuentos).
+- `GET|PUT /leads/settings` gana `retentionMonths` (3-60): meses que se guardan los perdidos sin actividad.
+- `LeadDto` gana `bookedAt` (reserva online hecha, sin firmar todavía) y `returnedAt` (volvió a escribir y aún no se le ha atendido).
+- Seguimientos (`LeadFollowupDto`, `CustomerFollowupDto`): `status` puede ser `cancelled`.
+- `GET /opportunities/draft`: `customerId` que no sea un uuid → 400.
+- `POST /opportunities/propose`:
+  - gana `channel: 'email' | 'whatsapp'`: con `whatsapp` no se envía correo, solo se registra;
+  - la misma propuesta en menos de 10 min → 409 `already_proposed`.
+- `OpportunityDto.lastProposedAt` incluye las registradas por WhatsApp.

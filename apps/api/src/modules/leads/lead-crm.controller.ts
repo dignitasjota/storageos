@@ -86,19 +86,19 @@ export class LeadCrmController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('days') days?: string,
   ): Promise<LeadResponseStatsDto> {
-    return this.crm.responseStats(user.tenantId, Number(days ?? 30));
+    return this.crm.responseStats(user.tenantId, Number(days ?? 30), user.facilityScope ?? null);
   }
 
   @Get('duplicates')
   @RequirePermission('leads:read')
   duplicates(@CurrentUser() user: AuthenticatedUser): Promise<LeadDuplicateGroupDto[]> {
-    return this.crm.duplicates(user.tenantId);
+    return this.crm.duplicates(user.tenantId, user.facilityScope ?? null);
   }
 
   @Get('followups/pending')
   @RequirePermission('leads:read')
   pendingFollowups(@CurrentUser() user: AuthenticatedUser): Promise<LeadFollowupDto[]> {
-    return this.crm.listPendingFollowups(user.tenantId);
+    return this.crm.listPendingFollowups(user.tenantId, user.facilityScope ?? null);
   }
 
   @Patch('followups/:followupId')
@@ -108,7 +108,7 @@ export class LeadCrmController {
     @Param('followupId', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateLeadFollowupDto,
   ): Promise<LeadFollowupDto> {
-    return this.crm.setFollowupStatus(user.tenantId, id, input);
+    return this.crm.setFollowupStatus(user.tenantId, id, input, user.facilityScope ?? null);
   }
 
   @Delete('followups/:followupId')
@@ -118,7 +118,7 @@ export class LeadCrmController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('followupId', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.crm.removeFollowup(user.tenantId, id);
+    await this.crm.removeFollowup(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Get(':id/followups')
@@ -127,7 +127,7 @@ export class LeadCrmController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<LeadFollowupDto[]> {
-    return this.crm.listFollowups(user.tenantId, id);
+    return this.crm.listFollowups(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post(':id/followups')
@@ -142,6 +142,7 @@ export class LeadCrmController {
       userId: user.sub,
       leadId: id,
       input,
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -151,7 +152,7 @@ export class LeadCrmController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<LeadActivityDto[]> {
-    return this.crm.listActivities(user.tenantId, id);
+    return this.crm.listActivities(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post(':id/activities')
@@ -166,6 +167,7 @@ export class LeadCrmController {
       userId: user.sub,
       leadId: id,
       input,
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -177,7 +179,7 @@ export class LeadCrmController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Param('activityId', new ParseUUIDPipe()) activityId: string,
   ): Promise<void> {
-    await this.crm.removeActivity(user.tenantId, id, activityId);
+    await this.crm.removeActivity(user.tenantId, id, activityId, user.facilityScope ?? null);
   }
 
   @Post(':id/merge')
@@ -195,6 +197,7 @@ export class LeadCrmController {
       sourceId: id,
       intoLeadId: input.intoLeadId,
       meta: meta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -213,6 +216,7 @@ export class LeadCrmController {
       leadId: id,
       customerId: input.customerId,
       meta: meta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 }

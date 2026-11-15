@@ -1,11 +1,22 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { emailKey, LeadAutoAssignEnum, phoneKey } from '@storageos/shared';
+import { emailKey, LeadAutoAssignEnum, leadDisplayName, phoneKey } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
+import { type FacilityScope } from '../../common/facility-scope';
+import { anonymizeLeadsTx } from '../../common/lead-anonymize';
+import { leadScopeWhere } from '../../common/lead-scope';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -27,21 +38,19 @@ import type {
 } from '@storageos/shared';
 
 const followupInclude = {
-  lead: { select: { firstName: true, lastName: true, companyName: true } },
+  lead: {
+    select: { firstName: true, lastName: true, companyName: true, email: true, phone: true },
+  },
   user: { select: { fullName: true } },
 } satisfies Prisma.LeadFollowupInclude;
 type FollowupRow = Prisma.LeadFollowupGetPayload<{ include: typeof followupInclude }>;
 
 /** Actividades que cuentan como haber atendido al contacto. */
 const CONTACT_ACTIVITY_TYPES = new Set(['call', 'visit', 'meeting', 'whatsapp', 'email']);
+/** Margen para el reloj del navegador al anotar algo «ahora». */
+const FUTURE_TOLERANCE_MS = 5 * 60_000;
 
-function leadName(l: {
-  firstName: string | null;
-  lastName: string | null;
-  companyName: string | null;
-}): string {
-  return l.companyName || [l.firstName, l.lastName].filter(Boolean).join(' ').trim() || 'Contacto';
-}
+const leadName = (l: Parameters<typeof leadDisplayName>[0]): string => leadDisplayName(l);
 
 function customerLabel(c: {
   customerType: string;
@@ -51,6 +60,13 @@ function customerLabel(c: {
 }): string {
   if (c.customerType === 'business') return c.companyName ?? 'Empresa';
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
+}
+
+/** La más reciente de dos fechas (o la que haya). */
+function latest(a: Date | null, b: Date | null): Date | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
 }
 
 function median(values: number[]): number | null {
@@ -69,7 +85,7 @@ function toFollowupDto(r: FollowupRow): LeadFollowupDto {
     title: r.title,
     note: r.note,
     dueDate: r.dueDate.toISOString().slice(0, 10),
-    status: r.status as 'pending' | 'done',
+    status: r.status as LeadFollowupDto['status'],
     completedAt: r.completedAt?.toISOString() ?? null,
     authorName: r.user?.fullName ?? null,
     createdAt: r.createdAt.toISOString(),
@@ -89,14 +105,19 @@ export class LeadCrmService {
     private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly files: FilesService,
   ) {}
 
   // --------------------------------------------------------------------------
   // Seguimientos
   // --------------------------------------------------------------------------
 
-  async listFollowups(tenantId: string, leadId: string): Promise<LeadFollowupDto[]> {
-    await this.assertLead(tenantId, leadId);
+  async listFollowups(
+    tenantId: string,
+    leadId: string,
+    scope?: FacilityScope,
+  ): Promise<LeadFollowupDto[]> {
+    await this.assertLead(tenantId, leadId, scope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.leadFollowup.findMany({
@@ -109,12 +130,15 @@ export class LeadCrmService {
     return rows.map(toFollowupDto);
   }
 
-  /** Bandeja: seguimientos pendientes de contactos vivos. */
-  async listPendingFollowups(tenantId: string): Promise<LeadFollowupDto[]> {
+  /** Bandeja: seguimientos pendientes de contactos vivos (de los locales que ve). */
+  async listPendingFollowups(tenantId: string, scope?: FacilityScope): Promise<LeadFollowupDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.leadFollowup.findMany({
-          where: { status: 'pending', lead: { deletedAt: null } },
+          where: {
+            status: 'pending',
+            lead: { deletedAt: null, status: { not: 'lost' }, ...leadScopeWhere(scope) },
+          },
           orderBy: [{ dueDate: 'asc' }],
           include: followupInclude,
           take: 200,
@@ -129,8 +153,9 @@ export class LeadCrmService {
     userId: string;
     leadId: string;
     input: CreateLeadFollowupInput;
+    scope?: FacilityScope;
   }): Promise<LeadFollowupDto> {
-    await this.assertLead(args.tenantId, args.leadId);
+    await this.assertLead(args.tenantId, args.leadId, args.scope);
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.leadFollowup.create({
@@ -153,9 +178,13 @@ export class LeadCrmService {
     tenantId: string,
     id: string,
     input: UpdateLeadFollowupInput,
+    scope?: FacilityScope,
   ): Promise<LeadFollowupDto> {
     const row = await this.prisma.withTenant(async (tx) => {
-      const existing = await tx.leadFollowup.findFirst({ where: { id }, select: { id: true } });
+      const existing = await tx.leadFollowup.findFirst({
+        where: { id, lead: { deletedAt: null, ...leadScopeWhere(scope) } },
+        select: { id: true },
+      });
       if (!existing) throw this.followupNotFound();
       return tx.leadFollowup.update({
         where: { id },
@@ -169,9 +198,11 @@ export class LeadCrmService {
     return toFollowupDto(row);
   }
 
-  async removeFollowup(tenantId: string, id: string): Promise<void> {
+  async removeFollowup(tenantId: string, id: string, scope?: FacilityScope): Promise<void> {
     await this.prisma.withTenant(async (tx) => {
-      const { count } = await tx.leadFollowup.deleteMany({ where: { id } });
+      const { count } = await tx.leadFollowup.deleteMany({
+        where: { id, lead: { deletedAt: null, ...leadScopeWhere(scope) } },
+      });
       if (count === 0) throw this.followupNotFound();
     }, tenantId);
   }
@@ -180,8 +211,12 @@ export class LeadCrmService {
   // Actividad
   // --------------------------------------------------------------------------
 
-  async listActivities(tenantId: string, leadId: string): Promise<LeadActivityDto[]> {
-    await this.assertLead(tenantId, leadId);
+  async listActivities(
+    tenantId: string,
+    leadId: string,
+    scope?: FacilityScope,
+  ): Promise<LeadActivityDto[]> {
+    await this.assertLead(tenantId, leadId, scope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.leadActivity.findMany({
@@ -211,9 +246,17 @@ export class LeadCrmService {
     userId: string;
     leadId: string;
     input: CreateLeadActivityInput;
+    scope?: FacilityScope;
   }): Promise<LeadActivityDto> {
-    const lead = await this.assertLead(args.tenantId, args.leadId);
+    const lead = await this.assertLead(args.tenantId, args.leadId, args.scope);
     const occurredAt = args.input.occurredAt ? new Date(args.input.occurredAt) : new Date();
+    // Una llamada «del jueves que viene» contaba como respuesta inmediata.
+    if (occurredAt.getTime() > Date.now() + FUTURE_TOLERANCE_MS) {
+      throw new BadRequestException({
+        code: 'occurred_in_future',
+        message: 'La fecha no puede ser futura: para lo que está por hacer, crea un seguimiento.',
+      });
+    }
     const row = await this.prisma.withTenant(async (tx) => {
       const created = await tx.leadActivity.create({
         data: {
@@ -226,11 +269,14 @@ export class LeadCrmService {
         },
         include: { user: { select: { fullName: true } } },
       });
-      if (CONTACT_ACTIVITY_TYPES.has(args.input.type) && !lead.contactedAt) {
+      if (CONTACT_ACTIVITY_TYPES.has(args.input.type)) {
+        // Primera respuesta (si no la había), «Nuevo» → «Contactado» y deja de
+        // estar marcado como «volvió a escribir».
         await tx.lead.update({
           where: { id: args.leadId },
           data: {
-            contactedAt: occurredAt,
+            returnedAt: null,
+            ...(lead.contactedAt ? {} : { contactedAt: occurredAt }),
             ...(lead.status === 'new' ? { status: 'contacted' as const } : {}),
           },
         });
@@ -247,7 +293,13 @@ export class LeadCrmService {
     };
   }
 
-  async removeActivity(tenantId: string, leadId: string, id: string): Promise<void> {
+  async removeActivity(
+    tenantId: string,
+    leadId: string,
+    id: string,
+    scope?: FacilityScope,
+  ): Promise<void> {
+    await this.assertLead(tenantId, leadId, scope);
     await this.prisma.withTenant(async (tx) => {
       const { count } = await tx.leadActivity.deleteMany({ where: { id, leadId } });
       if (count === 0) {
@@ -266,11 +318,12 @@ export class LeadCrmService {
   async getSettings(tenantId: string): Promise<LeadSettingsDto> {
     const t = await this.admin.tenant.findUniqueOrThrow({
       where: { id: tenantId },
-      select: { leadResponseHours: true, leadAutoAssign: true },
+      select: { leadResponseHours: true, leadAutoAssign: true, leadRetentionMonths: true },
     });
     return {
       responseHours: t.leadResponseHours,
       autoAssign: LeadAutoAssignEnum.catch('off').parse(t.leadAutoAssign),
+      retentionMonths: t.leadRetentionMonths,
     };
   }
 
@@ -287,6 +340,9 @@ export class LeadCrmService {
           ? { leadResponseHours: args.input.responseHours }
           : {}),
         ...(args.input.autoAssign !== undefined ? { leadAutoAssign: args.input.autoAssign } : {}),
+        ...(args.input.retentionMonths !== undefined
+          ? { leadRetentionMonths: args.input.retentionMonths }
+          : {}),
       },
     });
     await this.audit.write({
@@ -367,12 +423,14 @@ export class LeadCrmService {
       data: { assignedToUserId: chosen },
     });
     if (count === 0) return null;
+    // Solo a quien lo recibe (antes le llegaba a todo el equipo).
     await this.notifications
       .create(tenantId, {
         type: 'lead.assigned',
         title: `Te han asignado un contacto: ${leadName(lead)}`,
-        link: '/leads',
+        link: `/leads?lead=${leadId}`,
         facilityId: lead.preferredFacilityId,
+        userId: chosen,
       })
       .catch(() => undefined);
     return chosen;
@@ -404,7 +462,10 @@ export class LeadCrmService {
           firstName: true,
           lastName: true,
           companyName: true,
+          email: true,
+          phone: true,
           preferredFacilityId: true,
+          assignedToUserId: true,
           assignedTo: { select: { fullName: true } },
         },
         take: 100,
@@ -421,8 +482,10 @@ export class LeadCrmService {
             type: 'lead.unattended',
             title: `${leadName(l)} lleva más de ${t.leadResponseHours} h sin atender`,
             ...(l.assignedTo ? { body: `Asignado a ${l.assignedTo.fullName}` } : {}),
-            link: '/leads',
+            link: `/leads?lead=${l.id}`,
             facilityId: l.preferredFacilityId,
+            // A su responsable; sin responsable, a quien ve su local.
+            ...(l.assignedToUserId ? { userId: l.assignedToUserId } : {}),
           })
           .catch(() => undefined);
       }
@@ -431,7 +494,11 @@ export class LeadCrmService {
   }
 
   /** Tiempo hasta la primera respuesta, en total y por persona. */
-  async responseStats(tenantId: string, days: number): Promise<LeadResponseStatsDto> {
+  async responseStats(
+    tenantId: string,
+    days: number,
+    scope?: FacilityScope,
+  ): Promise<LeadResponseStatsDto> {
     const span = Math.min(Math.max(Math.trunc(days) || 30, 1), 365);
     const { responseHours } = await this.getSettings(tenantId);
     const since = new Date(Date.now() - span * 86_400_000);
@@ -439,10 +506,11 @@ export class LeadCrmService {
       (tx) =>
         Promise.all([
           tx.lead.findMany({
-            where: { createdAt: { gte: since }, deletedAt: null },
+            where: { createdAt: { gte: since }, deletedAt: null, ...leadScopeWhere(scope) },
             select: {
               createdAt: true,
               contactedAt: true,
+              metadata: true,
               assignedToUserId: true,
               assignedTo: { select: { fullName: true } },
             },
@@ -453,6 +521,7 @@ export class LeadCrmService {
               contactedAt: null,
               deletedAt: null,
               createdAt: { lte: new Date(Date.now() - responseHours * 3_600_000) },
+              ...leadScopeWhere(scope),
             },
           }),
         ]),
@@ -477,8 +546,12 @@ export class LeadCrmService {
           : null,
       };
     };
+    // Quien reservó online solo no esperaba respuesta: no cuenta.
+    const attended = leads.filter(
+      (l) => l.contactedAt || (l.metadata as { selfBooked?: boolean } | null)?.selfBooked !== true,
+    );
     const byUserMap = new Map<string | null, typeof leads>();
-    for (const l of leads) {
+    for (const l of attended) {
       const list = byUserMap.get(l.assignedToUserId) ?? [];
       list.push(l);
       byUserMap.set(l.assignedToUserId, list);
@@ -496,7 +569,7 @@ export class LeadCrmService {
       days: span,
       responseHours,
       unattended,
-      overall: summarize(leads, null, 'Todo el equipo'),
+      overall: summarize(attended, null, 'Todo el equipo'),
       byUser,
     };
   }
@@ -505,7 +578,7 @@ export class LeadCrmService {
   // Duplicados
   // --------------------------------------------------------------------------
 
-  async duplicates(tenantId: string): Promise<LeadDuplicateGroupDto[]> {
+  async duplicates(tenantId: string, scope?: FacilityScope): Promise<LeadDuplicateGroupDto[]> {
     const [leads, customers] = await this.prisma.withTenant(
       (tx) =>
         Promise.all([
@@ -513,7 +586,10 @@ export class LeadCrmService {
             where: {
               deletedAt: null,
               status: { notIn: ['won', 'lost'] },
-              OR: [{ email: { not: null } }, { phone: { not: null } }],
+              AND: [
+                { OR: [{ email: { not: null } }, { phone: { not: null } }] },
+                leadScopeWhere(scope),
+              ],
             },
             select: {
               id: true,
@@ -529,7 +605,14 @@ export class LeadCrmService {
             take: 5000,
           }),
           tx.customer.findMany({
-            where: { deletedAt: null, OR: [{ email: { not: null } }, { phone: { not: null } }] },
+            // Solo inquilinos que puede ver (si no, se le enseñaban sus nombres).
+            where: {
+              deletedAt: null,
+              AND: [
+                { OR: [{ email: { not: null } }, { phone: { not: null } }] },
+                customerScopeWhere(scope ?? null),
+              ],
+            },
             select: {
               id: true,
               customerType: true,
@@ -602,14 +685,16 @@ export class LeadCrmService {
     sourceId: string;
     intoLeadId: string;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<void> {
     if (args.sourceId === args.intoLeadId) {
       throw new BadRequestException({ code: 'same_lead', message: 'Elige otro contacto' });
     }
     await this.prisma.withTenant(async (tx) => {
+      const visible = { deletedAt: null, ...leadScopeWhere(args.scope) };
       const [source, target] = await Promise.all([
-        tx.lead.findFirst({ where: { id: args.sourceId, deletedAt: null } }),
-        tx.lead.findFirst({ where: { id: args.intoLeadId, deletedAt: null } }),
+        tx.lead.findFirst({ where: { id: args.sourceId, ...visible } }),
+        tx.lead.findFirst({ where: { id: args.intoLeadId, ...visible } }),
       ]);
       if (!source || !target) {
         throw new NotFoundException({ code: 'lead_not_found', message: 'Contacto no encontrado' });
@@ -641,6 +726,10 @@ export class LeadCrmService {
           utmCampaign: target.utmCampaign ?? source.utmCampaign,
           assignedToUserId: target.assignedToUserId ?? source.assignedToUserId,
           marketingConsentAt: target.marketingConsentAt ?? source.marketingConsentAt,
+          // Si cualquiera de los dos se dio de baja de las ofertas, sigue de baja.
+          marketingOptOutAt: latest(target.marketingOptOutAt, source.marketingOptOutAt),
+          returnedAt: latest(target.returnedAt, source.returnedAt),
+          bookedAt: target.bookedAt ?? source.bookedAt,
           contactedAt:
             target.contactedAt && source.contactedAt
               ? new Date(Math.min(target.contactedAt.getTime(), source.contactedAt.getTime()))
@@ -661,6 +750,10 @@ export class LeadCrmService {
         data: { leadId: target.id },
       });
       await tx.whatsappConversation.updateMany({
+        where: { leadId: source.id },
+        data: { leadId: target.id },
+      });
+      await tx.webChatConversation.updateMany({
         where: { leadId: source.id },
         data: { leadId: target.id },
       });
@@ -694,13 +787,20 @@ export class LeadCrmService {
     leadId: string;
     customerId: string;
     meta: RequestMeta;
+    scope?: FacilityScope;
   }): Promise<void> {
     await this.prisma.withTenant(async (tx) => {
       const [lead, customer] = await Promise.all([
-        tx.lead.findFirst({ where: { id: args.leadId, deletedAt: null } }),
+        tx.lead.findFirst({
+          where: { id: args.leadId, deletedAt: null, ...leadScopeWhere(args.scope) },
+        }),
         tx.customer.findFirst({
-          where: { id: args.customerId, deletedAt: null },
-          select: { id: true },
+          where: {
+            id: args.customerId,
+            deletedAt: null,
+            ...customerScopeWhere(args.scope ?? null),
+          },
+          select: { id: true, marketingOptOutAt: true },
         }),
       ]);
       if (!lead) {
@@ -712,14 +812,31 @@ export class LeadCrmService {
           message: 'Inquilino no encontrado',
         });
       }
+      // Ya enlazado con otro inquilino: no se pisa sin avisar.
+      if (lead.convertedCustomerId && lead.convertedCustomerId !== customer.id) {
+        throw new ConflictException({
+          code: 'lead_already_linked',
+          message: 'Este contacto ya está enlazado con otro inquilino',
+        });
+      }
       await tx.lead.update({
         where: { id: lead.id },
         data: {
           convertedCustomerId: customer.id,
           status: 'won',
           wonAt: lead.wonAt ?? new Date(),
+          lostAt: null,
+          lostReason: null,
+          lostReasonCode: null,
+          returnedAt: null,
         },
       });
+      if (lead.marketingOptOutAt && !customer.marketingOptOutAt) {
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: { marketingOptOutAt: lead.marketingOptOutAt },
+        });
+      }
     }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
@@ -733,11 +850,54 @@ export class LeadCrmService {
     });
   }
 
-  private async assertLead(tenantId: string, leadId: string) {
+  /**
+   * Borra los datos de los contactos perdidos que llevan más de lo que guarda
+   * cada empresa sin actividad (12 meses por defecto).
+   */
+  async anonymizeStale(now: Date = new Date()): Promise<number> {
+    const tenants = await this.admin.tenant.findMany({
+      where: { deletedAt: null },
+      select: { id: true, leadRetentionMonths: true },
+    });
+    let total = 0;
+    for (const t of tenants) {
+      const limit = new Date(now);
+      limit.setUTCMonth(limit.getUTCMonth() - t.leadRetentionMonths);
+      const stale = await this.admin.lead.findMany({
+        where: {
+          tenantId: t.id,
+          deletedAt: null,
+          status: 'lost',
+          lostAt: { lt: limit },
+          updatedAt: { lt: limit },
+          activities: { none: { occurredAt: { gte: limit } } },
+          communications: { none: { createdAt: { gte: limit } } },
+        },
+        select: { id: true },
+        take: 500,
+      });
+      if (stale.length === 0) continue;
+      const { count, mediaKeys } = await this.prisma.withTenant(
+        (tx) =>
+          anonymizeLeadsTx(
+            tx,
+            stale.map((l) => l.id),
+          ),
+        t.id,
+      );
+      if (mediaKeys.length > 0) {
+        await this.files.deleteObjects('uploads', mediaKeys).catch(() => undefined);
+      }
+      total += count;
+    }
+    return total;
+  }
+
+  private async assertLead(tenantId: string, leadId: string, scope?: FacilityScope) {
     const lead = await this.prisma.withTenant(
       (tx) =>
         tx.lead.findFirst({
-          where: { id: leadId, deletedAt: null },
+          where: { id: leadId, deletedAt: null, ...leadScopeWhere(scope) },
           select: { id: true, status: true, contactedAt: true },
         }),
       tenantId,

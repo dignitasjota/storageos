@@ -43,6 +43,10 @@ export interface LeadDto {
   convertedCustomerId: string | null;
   convertedContractId: string | null;
   convertedReservationId: string | null;
+  /** Reserva online hecha desde el contacto (se gana al firmarla). */
+  bookedAt: string | null;
+  /** Volvió a escribir y aún no se le ha atendido. */
+  returnedAt: string | null;
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;

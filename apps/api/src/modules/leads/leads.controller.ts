@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -17,7 +18,7 @@ import {
   CreateLeadSchema,
   type CommunicationDto,
   type LeadDto,
-  type LeadSourceValue,
+  LeadStatusEnum,
   type LeadStatusValue,
   LeadReplySchema,
   LeadQuoteSchema,
@@ -53,6 +54,39 @@ class ConvertLeadDto extends createZodDto(ConvertLeadSchema) {}
 class LeadQuoteDto extends createZodDto(LeadQuoteSchema) {}
 class SendLeadQuoteDto extends createZodDto(SendLeadQuoteSchema) {}
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Filtros de la lista: un valor que no existe da 400 (antes, 500). */
+function listFilters(
+  user: AuthenticatedUser,
+  q: {
+    status?: string | undefined;
+    assignedToUserId?: string | undefined;
+    source?: string | undefined;
+    search?: string | undefined;
+  },
+) {
+  if (q.status && !LeadStatusEnum.safeParse(q.status).success) {
+    throw new BadRequestException({ code: 'invalid_status', message: 'Fase no válida' });
+  }
+  let assigned: string | null | undefined;
+  if (q.assignedToUserId === 'me') assigned = user.sub;
+  else if (q.assignedToUserId === 'none') assigned = null;
+  else if (q.assignedToUserId) {
+    if (!UUID.test(q.assignedToUserId)) {
+      throw new BadRequestException({ code: 'invalid_user', message: 'Responsable no válido' });
+    }
+    assigned = q.assignedToUserId;
+  }
+  return {
+    scope: user.facilityScope ?? null,
+    ...(q.status ? { status: q.status as LeadStatusValue } : {}),
+    ...(assigned !== undefined ? { assignedToUserId: assigned } : {}),
+    ...(q.source ? { source: q.source.slice(0, 60) } : {}),
+    ...(q.search ? { search: q.search.slice(0, 120) } : {}),
+  };
+}
+
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
   const ip = req.ip;
@@ -84,10 +118,7 @@ export class LeadsController {
     const page = parsePageRequest(cursor, limit);
     const rows = await this.service.list(user.tenantId, {
       page,
-      ...(status ? { status: status as LeadStatusValue } : {}),
-      ...(assignedToUserId ? { assignedToUserId } : {}),
-      ...(source ? { source: source as LeadSourceValue } : {}),
-      ...(search ? { search } : {}),
+      ...listFilters(user, { status, assignedToUserId, source, search }),
     });
     return toPage(rows, page);
   }
@@ -101,12 +132,10 @@ export class LeadsController {
     @Query('source') source?: string,
     @Query('search') search?: string,
   ): Promise<LeadDto[]> {
-    return this.service.list(user.tenantId, {
-      ...(status ? { status: status as LeadStatusValue } : {}),
-      ...(assignedToUserId ? { assignedToUserId } : {}),
-      ...(source ? { source: source as LeadSourceValue } : {}),
-      ...(search ? { search } : {}),
-    });
+    return this.service.list(
+      user.tenantId,
+      listFilters(user, { status, assignedToUserId, source, search }),
+    );
   }
 
   /** Orígenes disponibles (sugeridos + los que el tenant ya usó). Antes de `:id`. */
@@ -122,7 +151,7 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<LeadDto> {
-    return this.service.detail(user.tenantId, id);
+    return this.service.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post()
@@ -137,6 +166,7 @@ export class LeadsController {
       userId: user.sub,
       input: body,
       meta: extractMeta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -154,6 +184,7 @@ export class LeadsController {
       id,
       input: body,
       meta: extractMeta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -166,7 +197,7 @@ export class LeadsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: LeadQuoteDto,
   ): Promise<LeadQuoteResultDto> {
-    return this.quotes.preview(user.tenantId, id, body);
+    return this.quotes.preview(user.tenantId, id, body, user.facilityScope ?? null);
   }
 
   /** Envía el presupuesto por correo con el enlace a la reserva ya rellenada. */
@@ -178,10 +209,14 @@ export class LeadsController {
     @Body() body: SendLeadQuoteDto,
     @Req() req: Request,
   ): Promise<SendLeadQuoteResultDto> {
-    return this.quotes.send(user.tenantId, user.sub, id, body, {
-      ipAddress: req.ip ?? null,
-      userAgent: req.headers['user-agent'] ?? null,
-    });
+    return this.quotes.send(
+      user.tenantId,
+      user.sub,
+      id,
+      body,
+      { ipAddress: req.ip ?? null, userAgent: req.headers['user-agent'] ?? null },
+      user.facilityScope ?? null,
+    );
   }
 
   /** Responde al contacto por email (queda en Comunicaciones). */
@@ -199,6 +234,7 @@ export class LeadsController {
       id,
       input: body,
       meta: extractMeta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -218,6 +254,7 @@ export class LeadsController {
       id,
       consent: body.consent,
       meta: extractMeta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -235,6 +272,7 @@ export class LeadsController {
       id,
       input: body,
       meta: extractMeta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 
@@ -269,6 +307,7 @@ export class LeadsController {
       userId: user.sub,
       id,
       meta: extractMeta(req),
+      scope: user.facilityScope ?? null,
     });
   }
 }

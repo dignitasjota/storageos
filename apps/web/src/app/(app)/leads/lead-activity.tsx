@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import type { LeadDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,6 +63,7 @@ export function LeadActivity({ lead }: { lead: LeadDto }) {
 }
 
 function FollowupsBlock({ leadId }: { leadId: string }) {
+  const ask = useConfirm();
   const list = useLeadFollowups(leadId);
   const create = useCreateLeadFollowup(leadId);
   const update = useUpdateLeadFollowup();
@@ -96,8 +99,9 @@ function FollowupsBlock({ leadId }: { leadId: string }) {
             return (
               <li key={f.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
                 <div className="min-w-0 flex-1">
-                  <p className={f.status === 'done' ? 'text-muted-foreground line-through' : ''}>
+                  <p className={f.status !== 'pending' ? 'text-muted-foreground line-through' : ''}>
                     {f.title}
+                    {f.status === 'cancelled' ? ' (cancelado)' : ''}
                   </p>
                   <p className={`text-xs ${overdue ? 'text-red-600' : 'text-muted-foreground'}`}>
                     {formatDate(f.dueDate)}
@@ -110,15 +114,15 @@ function FollowupsBlock({ leadId }: { leadId: string }) {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    aria-label={f.status === 'done' ? 'Reabrir' : 'Marcar hecho'}
+                    aria-label={f.status !== 'pending' ? 'Reabrir' : 'Marcar hecho'}
                     onClick={() =>
                       update.mutate(
-                        { id: f.id, status: f.status === 'done' ? 'pending' : 'done' },
+                        { id: f.id, status: f.status !== 'pending' ? 'pending' : 'done' },
                         { onError: (err) => toast.error(errorMessage(err, 'No se pudo cambiar')) },
                       )
                     }
                   >
-                    {f.status === 'done' ? (
+                    {f.status !== 'pending' ? (
                       <RotateCcw className="h-4 w-4" />
                     ) : (
                       <Check className="h-4 w-4" />
@@ -129,7 +133,20 @@ function FollowupsBlock({ leadId }: { leadId: string }) {
                     variant="ghost"
                     size="icon"
                     aria-label="Borrar seguimiento"
-                    onClick={() => remove.mutate(f.id)}
+                    onClick={async () => {
+                      if (
+                        await ask({
+                          title: '¿Borrar este seguimiento?',
+                          description: f.title,
+                          confirmLabel: 'Borrar',
+                          destructive: true,
+                        })
+                      ) {
+                        remove.mutate(f.id, {
+                          onError: (err) => toast.error(errorMessage(err, 'No se pudo borrar')),
+                        });
+                      }
+                    }}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -154,16 +171,8 @@ function FollowupsBlock({ leadId }: { leadId: string }) {
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="lead-followup-date" className="text-xs">
-              Día
-            </Label>
-            <Input
-              id="lead-followup-date"
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="text-base sm:text-sm"
-            />
+            <Label className="text-xs">Día</Label>
+            <DateSelect future value={dueDate} onChange={(v) => setDueDate(v ?? '')} />
           </div>
           <Button
             type="button"
@@ -180,6 +189,7 @@ function FollowupsBlock({ leadId }: { leadId: string }) {
 }
 
 function ActivityBlock({ leadId }: { leadId: string }) {
+  const ask = useConfirm();
   const list = useLeadActivities(leadId);
   const create = useCreateLeadActivity(leadId);
   const remove = useDeleteLeadActivity(leadId);
@@ -222,7 +232,20 @@ function ActivityBlock({ leadId }: { leadId: string }) {
                   variant="ghost"
                   size="icon"
                   aria-label="Borrar"
-                  onClick={() => remove.mutate(a.id)}
+                  onClick={async () => {
+                    if (
+                      await ask({
+                        title: '¿Borrar esta anotación?',
+                        description: a.content.slice(0, 120),
+                        confirmLabel: 'Borrar',
+                        destructive: true,
+                      })
+                    ) {
+                      remove.mutate(a.id, {
+                        onError: (err) => toast.error(errorMessage(err, 'No se pudo borrar')),
+                      });
+                    }
+                  }}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

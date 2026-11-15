@@ -387,7 +387,8 @@ export interface CustomerFollowupDto {
   note: string | null;
   /** Fecha de vencimiento (ISO date). */
   dueDate: string;
-  status: 'pending' | 'done';
+  /** `cancelled`: el inquilino se borró. */
+  status: 'pending' | 'done' | 'cancelled';
   completedAt: string | null;
   authorName: string | null;
   createdAt: string;

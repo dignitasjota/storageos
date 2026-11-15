@@ -78,19 +78,24 @@ export class BookingService {
       const tenantId = tenant.id;
 
       await this.prisma.withTenant(async (tx) => {
-        // Dedup: un lead `new` del mismo email creado en las últimas 24 h (evita
-        // duplicar mientras el visitante teclea/reintenta).
-        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        // Si ya es un contacto abierto (de cualquier origen y antigüedad), se
+        // completa ese: antes se creaba otro y el original quedaba abierto.
         const existing = await tx.lead.findFirst({
-          where: { email: input.email, status: 'new', createdAt: { gte: since }, deletedAt: null },
-          orderBy: { createdAt: 'desc' },
+          where: {
+            email: { equals: input.email.trim(), mode: 'insensitive' },
+            status: { in: ['new', 'contacted', 'qualified'] },
+            deletedAt: null,
+          },
+          orderBy: { updatedAt: 'desc' },
         });
-        const data = {
-          ...(input.facilityId ? { preferredFacilityId: input.facilityId } : {}),
-          ...(input.unitTypeId ? { preferredUnitTypeId: input.unitTypeId } : {}),
-          ...(input.firstName?.trim() ? { firstName: input.firstName.trim() } : {}),
-        };
         if (existing) {
+          const data = {
+            ...(input.facilityId ? { preferredFacilityId: input.facilityId } : {}),
+            ...(input.unitTypeId ? { preferredUnitTypeId: input.unitTypeId } : {}),
+            ...(input.firstName?.trim() && !existing.firstName
+              ? { firstName: input.firstName.trim() }
+              : {}),
+          };
           if (Object.keys(data).length > 0) {
             await tx.lead.update({ where: { id: existing.id }, data });
           }
@@ -100,7 +105,7 @@ export class BookingService {
           data: {
             tenantId,
             source: 'widget',
-            email: input.email,
+            email: input.email.trim().toLowerCase(),
             firstName: input.firstName?.trim() || null,
             preferredFacilityId: input.facilityId ?? null,
             preferredUnitTypeId: input.unitTypeId ?? null,
@@ -512,14 +517,18 @@ export class BookingService {
       throw err;
     }
 
-    // Marketing: si había un lead sin convertir para este email (captureLead
-    // email-first, u otro origen), se marca `won` con la conversión — así el
-    // informe de rendimiento de marketing cuenta esta reserva. Si no había
-    // ninguno (el visitante saltó el paso email-first), se crea ya `won` para
-    // no perder la atribución UTM del enlace por el que llegó. Best-effort en
-    // su propia transacción: nunca debe bloquear ni revertir la reserva.
+    // Marketing: el contacto con este email (o uno nuevo) queda enlazado a la
+    // reserva. Se da por ganado al firmar (antes se ganaba al reservar, aunque
+    // luego caducara) y conserva su primer origen: el de un presupuesto o el de
+    // otra visita se guardan aparte. Best-effort en su propia transacción.
+    const bookingUtm = {
+      source: input.utmSource ?? null,
+      medium: input.utmMedium ?? null,
+      campaign: input.utmCampaign ?? null,
+    };
     try {
       await this.prisma.withTenant(async (tx) => {
+        const now = new Date();
         const existingLead = await tx.lead.findFirst({
           where: {
             email: { equals: input.customer.email.trim(), mode: 'insensitive' },
@@ -529,22 +538,30 @@ export class BookingService {
           orderBy: { createdAt: 'desc' },
         });
         if (existingLead) {
+          const firstTouch =
+            !existingLead.utmSource &&
+            !existingLead.utmCampaign &&
+            input.utmSource !== 'presupuesto';
           await tx.lead.update({
             where: { id: existingLead.id },
             data: {
-              status: 'won',
-              wonAt: new Date(),
+              status: 'qualified',
+              qualifiedAt: existingLead.qualifiedAt ?? now,
               convertedCustomerId: customerId,
               convertedContractId: contract.id,
-              // La reserva cuenta para el origen por el que llegó (anuncio,
-              // flyer, landing…), aunque el contacto ya existiera de antes.
-              ...(input.utmSource || input.utmMedium || input.utmCampaign
+              bookedAt: now,
+              ...(firstTouch && (input.utmSource || input.utmMedium || input.utmCampaign)
                 ? {
                     utmSource: input.utmSource ?? null,
                     utmMedium: input.utmMedium ?? null,
                     utmCampaign: input.utmCampaign ?? null,
                   }
                 : {}),
+              metadata: {
+                ...((existingLead.metadata as Record<string, unknown> | null) ?? {}),
+                selfBooked: true,
+                bookingUtm,
+              },
             },
           });
         } else {
@@ -555,13 +572,16 @@ export class BookingService {
               email: input.customer.email.trim().toLowerCase(),
               firstName: input.customer.firstName.trim(),
               lastName: input.customer.lastName.trim(),
-              status: 'won',
-              wonAt: new Date(),
+              phone: input.customer.phone?.trim() || null,
+              status: 'qualified',
+              qualifiedAt: now,
+              bookedAt: now,
               convertedCustomerId: customerId,
               convertedContractId: contract.id,
               utmSource: input.utmSource ?? null,
               utmMedium: input.utmMedium ?? null,
               utmCampaign: input.utmCampaign ?? null,
+              metadata: { origin: 'booking', selfBooked: true, bookingUtm },
             },
           });
         }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import {
   OpportunityKindEnum,
   ProposeOpportunitySchema,
@@ -33,7 +33,7 @@ export class OpportunitiesController {
   @RequirePermission('customers:read')
   draft(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('customerId') customerId: string,
+    @Query('customerId', new ParseUUIDPipe()) customerId: string,
     @Query('kind') kind: string,
   ): Promise<OpportunityDraftDto> {
     return this.service.draft(

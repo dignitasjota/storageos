@@ -381,6 +381,8 @@ export class WhatsappInboxService {
     if (error) {
       throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
     }
+    // Una persona del equipo le ha respondido: el contacto cuenta como atendido.
+    if (conversation.leadId) await this.leads.markAttended(args.tenantId, conversation.leadId);
     return this.toMessageDto(message);
   }
 
@@ -452,6 +454,7 @@ export class WhatsappInboxService {
       return created;
     }, args.tenantId);
     if (error) throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
+    if (conversation.leadId) await this.leads.markAttended(args.tenantId, conversation.leadId);
     return this.toMessageDto(message);
   }
 
@@ -671,6 +674,7 @@ export class WhatsappInboxService {
     }, args.tenantId);
     if (error) throw new BadGatewayException({ code: 'whatsapp_send_failed', message: error });
     const url = await this.files.getPresignedGetUrl('uploads', input.key, 600);
+    if (conversation.leadId) await this.leads.markAttended(args.tenantId, conversation.leadId);
     return this.toMessageDto(message, url);
   }
 

@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   OPPORTUNITY_LABELS,
@@ -13,7 +18,7 @@ import {
 } from '@storageos/shared';
 
 import { type FacilityScope } from '../../common/facility-scope';
-import { formatEur } from '../../common/format';
+import { formatEur, todayInTimezone } from '../../common/format';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { CHARGEABLE_MANDATE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
@@ -39,6 +44,12 @@ const nameOf = (c: NameRow) =>
     : [c.firstName, c.lastName].filter(Boolean).join(' ') || '—';
 const firstNameOf = (c: NameRow) =>
   c.customerType === 'business' ? (c.companyName ?? '') : (c.firstName ?? '');
+
+/** Lo que se guarda con la propuesta para saber después si lo contrató. */
+type Computed = OpportunityDto & { offerMetadata: Record<string, unknown> };
+
+/** Una misma propuesta no se repite antes de este tiempo (doble clic, dos personas). */
+const REPROPOSE_GUARD_MS = 10 * 60_000;
 
 /**
  * Oportunidades sobre los inquilinos: qué ofrecer a quién y por qué, a partir
@@ -115,6 +126,46 @@ export class OpportunitiesService {
   }
 
   async list(tenantId: string, scope: FacilityScope, now = new Date()): Promise<OpportunitiesDto> {
+    const items = (await this.compute(tenantId, scope, now)).map(
+      ({ offerMetadata: _meta, ...o }) => o,
+    );
+    const byKind = Object.fromEntries(
+      OpportunityKindEnum.options.map((k) => {
+        const of = items.filter((i) => i.kind === k);
+        return [
+          k,
+          { count: of.length, monthlyValue: round2(of.reduce((s, i) => s + i.monthlyValue, 0)) },
+        ];
+      }),
+    ) as OpportunitiesDto['byKind'];
+    return { items, byKind };
+  }
+
+  /** La oportunidad de un inquilino (calcula solo la suya). */
+  private async findOne(
+    tenantId: string,
+    customerId: string,
+    kind: OpportunityKind,
+    scope: FacilityScope,
+  ): Promise<Computed> {
+    const opp = (await this.compute(tenantId, scope, new Date(), customerId)).find(
+      (i) => i.kind === kind,
+    );
+    if (!opp) {
+      throw new NotFoundException({
+        code: 'opportunity_not_found',
+        message: 'Esta oportunidad ya no aplica a este inquilino.',
+      });
+    }
+    return opp;
+  }
+
+  private async compute(
+    tenantId: string,
+    scope: FacilityScope,
+    now: Date,
+    onlyCustomerId?: string,
+  ): Promise<Computed[]> {
     const [hasInsurance, autopayAvailable] = await Promise.all([
       tenantHasFeature(this.admin, tenantId, 'insurance'),
       this.canAutopay(tenantId),
@@ -140,11 +191,14 @@ export class OpportunitiesService {
           where: {
             deletedAt: null,
             status: 'active',
-            // Las propuestas son comunicaciones comerciales: no a quien se dio de baja.
-            customer: { marketingOptOutAt: null, deletedAt: null },
+            ...(onlyCustomerId ? { customerId: onlyCustomerId } : {}),
+            // Las propuestas son comunicaciones comerciales: no a quien se dio de
+            // baja. El inquilino de prueba de la puesta en marcha tampoco.
+            customer: { marketingOptOutAt: null, deletedAt: null, isTest: false },
             ...(scope ? { unit: { facilityId: { in: scope } } } : {}),
           },
           select: {
+            id: true,
             customerId: true,
             insurancePlanId: true,
             unit: { select: { code: true, facilityId: true, areaM2: true } },
@@ -169,7 +223,10 @@ export class OpportunitiesService {
         }),
         tx.customerInterestEvent.groupBy({
           by: ['customerId', 'kind'],
-          where: { createdAt: { gte: new Date(now.getTime() - 60 * DAY) } },
+          where: {
+            createdAt: { gte: new Date(now.getTime() - 60 * DAY) },
+            ...(onlyCustomerId ? { customerId: onlyCustomerId } : {}),
+          },
           _count: { _all: true },
           _max: { createdAt: true },
         }),
@@ -191,24 +248,28 @@ export class OpportunitiesService {
           select: { customerId: true },
         }),
         tx.unitChangeRequest.findMany({
-          where: { status: 'pending' },
-          select: { customerId: true },
+          where: { status: 'pending', ...(onlyCustomerId ? { customerId: onlyCustomerId } : {}) },
+          select: { customerId: true, contractId: true, targetUnitId: true },
         }),
         tx.communication.groupBy({
           by: ['customerId', 'source'],
-          where: { customerId: { not: null }, source: { startsWith: 'opportunity:' } },
+          where: {
+            customerId: onlyCustomerId ?? { not: null },
+            source: { startsWith: 'opportunity:' },
+          },
           _max: { createdAt: true },
         }),
-        tx.invoice.groupBy({
-          by: ['customerId'],
+        // Facturas vencidas ahora o pagadas tarde en 90 días (antes contaba
+        // cualquier factura pagada, también las pagadas a tiempo).
+        tx.invoice.findMany({
           where: {
-            customerId: { not: null },
+            customerId: onlyCustomerId ?? { not: null },
             deletedAt: null,
-            status: { in: ['overdue', 'paid'] },
+            kind: 'invoice',
             dueDate: { gte: new Date(now.getTime() - 90 * DAY) },
-            OR: [{ status: 'overdue' }, { paidAt: { not: null } }],
+            OR: [{ status: 'overdue' }, { status: 'paid', paidAt: { not: null } }],
           },
-          _count: { _all: true },
+          select: { customerId: true, status: true, dueDate: true, paidAt: true },
         }),
       ]);
 
@@ -239,32 +300,44 @@ export class OpportunitiesService {
       const deniedBy = new Map(denied.map((d) => [d.customerId!, d._count._all]));
       const chargeable = new Set(methods.map((m) => m.customerId));
       const mandate = new Set(mandates.map((m) => m.customerId));
-      const wantsChange = new Set(changeRequests.map((r) => r.customerId));
-      const offerStatus = await this.offers.lastStatusByCustomerKind(tenantId);
+      const changeBy = new Map(changeRequests.map((r) => [r.customerId, r]));
+      const offerStatus = await this.offers.lastStatusByCustomerKind(tenantId, onlyCustomerId);
+      // Última propuesta: por correo o registrada (WhatsApp) en el área de clientes.
       const proposedBy = new Map<string, Date>();
+      const mark = (key: string, at: Date) => {
+        const prev = proposedBy.get(key);
+        if (!prev || at > prev) proposedBy.set(key, at);
+      };
       for (const p of proposed) {
         if (p.customerId && p._max.createdAt) {
-          proposedBy.set(
-            `${p.customerId}:${p.source!.slice('opportunity:'.length)}`,
-            p._max.createdAt,
-          );
+          mark(`${p.customerId}:${p.source!.slice('opportunity:'.length)}`, p._max.createdAt);
         }
       }
-      const hadOverdue = new Set(overdue.map((o) => o.customerId!));
+      for (const [key, o] of offerStatus) mark(key, o.createdAt);
+      const DAY_GRACE = DAY;
+      const hadOverdue = new Set(
+        overdue
+          .filter(
+            (i) =>
+              i.status === 'overdue' ||
+              (i.paidAt && i.dueDate && i.paidAt.getTime() > i.dueDate.getTime() + DAY_GRACE),
+          )
+          .map((i) => i.customerId!),
+      );
 
       type Row = (typeof contracts)[number];
       const byCustomer = new Map<string, Row[]>();
       for (const c of contracts)
         byCustomer.set(c.customerId, [...(byCustomer.get(c.customerId) ?? []), c]);
 
-      const out: OpportunityDto[] = [];
+      const out: Computed[] = [];
       const push = (
         rows: Row[],
         kind: OpportunityKind,
         o: Pick<
           OpportunityDto,
           'reason' | 'offer' | 'priceMonthlyGross' | 'monthlyValue' | 'score'
-        >,
+        > & { offerMetadata?: Record<string, unknown> },
       ) => {
         const c = rows[0]!;
         const last = proposedBy.get(`${c.customerId}:${kind}`) ?? null;
@@ -281,7 +354,8 @@ export class OpportunitiesService {
           score:
             last && now.getTime() - last.getTime() < 30 * DAY ? Math.round(o.score / 3) : o.score,
           lastProposedAt: last?.toISOString() ?? null,
-          lastOfferStatus: offerStatus.get(`${c.customerId}:${kind}`) ?? null,
+          lastOfferStatus: offerStatus.get(`${c.customerId}:${kind}`)?.status ?? null,
+          offerMetadata: o.offerMetadata ?? {},
         });
       };
 
@@ -303,30 +377,44 @@ export class OpportunitiesService {
             priceMonthlyGross: gross(price, Number(plan.taxRate)),
             monthlyValue: round2(price * uninsured.length),
             score: 30 + (seen ? 40 : 0),
+            offerMetadata: { contractIds: uninsured.map((r) => r.id) },
           });
         }
 
-        // Trastero mayor: lo ha mirado o ha pedido cambiar.
+        // Trastero mayor: lo ha mirado o ha pedido cambiar. Si ya pidió uno
+        // concreto, el cambio está en marcha y no se propone otro.
         const larger = interest('larger_unit');
-        if (larger || wantsChange.has(customerId)) {
-          const current = rows[0]!;
+        const change = changeBy.get(customerId);
+        if ((larger || change) && !change?.targetUnitId) {
+          // El contrato del que pidió cambiar o, si no, el trastero más pequeño.
+          const current =
+            rows.find((r) => r.id === change?.contractId) ??
+            [...rows].sort((a, b) => Number(a.unit.areaM2 ?? 0) - Number(b.unit.areaM2 ?? 0))[0]!;
           const area = Number(current.unit.areaM2 ?? 0);
-          const next = available.find(
-            (u) =>
-              u.facilityId === current.unit.facilityId &&
-              Number(u.areaM2 ?? 0) > area &&
-              u.unitType.propertyKind !== 'housing',
-          );
+          // El más pequeño de los mayores (y, a igual tamaño, el más barato).
+          const next = available
+            .filter(
+              (u) =>
+                u.facilityId === current.unit.facilityId &&
+                Number(u.areaM2 ?? 0) > area &&
+                u.unitType.propertyKind !== 'housing',
+            )
+            .sort(
+              (a, b) =>
+                Number(a.areaM2 ?? 0) - Number(b.areaM2 ?? 0) ||
+                Number(a.basePriceMonthly) - Number(b.basePriceMonthly),
+            )[0];
           if (next) {
             const diff = round2(Number(next.basePriceMonthly) - Number(current.priceMonthly));
             push([current], 'larger_unit', {
-              reason: wantsChange.has(customerId)
+              reason: change
                 ? 'Ha pedido cambiar de trastero.'
                 : 'Miró trasteros más grandes en su área de clientes.',
               offer: `${next.unitType.name} (${Number(next.areaM2 ?? 0)} m²) en ${next.facility.name} por ${formatEur(gross(Number(next.basePriceMonthly)))}/mes (IVA incl.)`,
               priceMonthlyGross: gross(Number(next.basePriceMonthly)),
               monthlyValue: Math.max(0, diff),
               score: 60,
+              offerMetadata: { contractId: current.id },
             });
           }
         }
@@ -361,7 +449,8 @@ export class OpportunitiesService {
                 : 'Miró el pase nocturno en su área de clientes.',
             offer: `Pase nocturno por ${formatEur(gross(nightPrice))} (IVA incl.)`,
             priceMonthlyGross: gross(nightPrice),
-            monthlyValue: nightPrice,
+            // Es un pago suelto, no una cuota: no suma al potencial mensual.
+            monthlyValue: 0,
             score: 35 + Math.min(30, deniedCount * 10),
           });
         }
@@ -384,16 +473,7 @@ export class OpportunitiesService {
     }, tenantId);
 
     items.sort((a, b) => b.score - a.score || b.monthlyValue - a.monthlyValue);
-    const byKind = Object.fromEntries(
-      OpportunityKindEnum.options.map((k) => {
-        const of = items.filter((i) => i.kind === k);
-        return [
-          k,
-          { count: of.length, monthlyValue: round2(of.reduce((s, i) => s + i.monthlyValue, 0)) },
-        ];
-      }),
-    ) as OpportunitiesDto['byKind'];
-    return { items, byKind };
+    return items;
   }
 
   async draft(
@@ -402,20 +482,17 @@ export class OpportunitiesService {
     kind: OpportunityKind,
     scope: FacilityScope,
   ): Promise<OpportunityDraftDto> {
-    const { items } = await this.list(tenantId, scope);
-    const opp = items.find((i) => i.customerId === customerId && i.kind === kind);
-    if (!opp) {
-      throw new NotFoundException({
-        code: 'opportunity_not_found',
-        message: 'Esta oportunidad ya no aplica a este inquilino.',
-      });
-    }
+    return this.buildDraft(tenantId, await this.findOne(tenantId, customerId, kind, scope));
+  }
+
+  private async buildDraft(tenantId: string, opp: OpportunityDto): Promise<OpportunityDraftDto> {
+    const kind = opp.kind;
     const tenant = await this.admin.tenant.findUniqueOrThrow({
       where: { id: tenantId },
       select: { name: true, slug: true, customDomain: true, customDomainVerifiedAt: true },
     });
     const customer = await this.admin.customer.findUniqueOrThrow({
-      where: { id: customerId },
+      where: { id: opp.customerId },
       select: { firstName: true, lastName: true, companyName: true, customerType: true },
     });
     const portalUrl = tenantPortalLoginUrl(
@@ -461,7 +538,8 @@ export class OpportunitiesService {
     input: ProposeOpportunityInput,
     scope: FacilityScope,
   ): Promise<ProposeOpportunityResultDto> {
-    const draft = await this.draft(tenantId, input.customerId, input.kind, scope);
+    const opp = await this.findOne(tenantId, input.customerId, input.kind, scope);
+    const draft = await this.buildDraft(tenantId, opp);
     const customer = await this.admin.customer.findFirst({
       where: { id: input.customerId, tenantId, deletedAt: null },
       select: { email: true },
@@ -471,14 +549,33 @@ export class OpportunitiesService {
         code: 'customer_not_found',
         message: 'Inquilino no encontrado',
       });
-    if (!customer.email && input.followupInDays === 0) {
+    const byEmail = input.channel === 'email';
+    if (byEmail && !customer.email && input.followupInDays === 0) {
       throw new BadRequestException({
         code: 'customer_without_email',
         message: 'El inquilino no tiene email: envíalo por WhatsApp o crea un seguimiento.',
       });
     }
+    // La propuesta se reserva antes de enviar nada: dos clics (o dos personas)
+    // a la vez mandaban dos correos y creaban dos seguimientos.
+    const created = await this.offers.createOnce({
+      tenantId,
+      customerId: input.customerId,
+      kind: input.kind,
+      message: draft.offerText,
+      priceGross: opp.priceMonthlyGross,
+      userId,
+      metadata: { ...opp.offerMetadata, channel: input.channel },
+      guardMs: REPROPOSE_GUARD_MS,
+    });
+    if (!created) {
+      throw new ConflictException({
+        code: 'already_proposed',
+        message: 'Esta propuesta se acaba de enviar: espera unos minutos para repetirla.',
+      });
+    }
     let emailSent = false;
-    if (customer.email) {
+    if (byEmail && customer.email) {
       await this.communications.enqueue({
         tenantId,
         channel: 'email',
@@ -492,21 +589,14 @@ export class OpportunitiesService {
       });
       emailSent = true;
     }
-    // También le sale en su área de clientes, con «Me interesa».
-    const opp = (await this.list(tenantId, scope)).items.find(
-      (i) => i.customerId === input.customerId && i.kind === input.kind,
-    );
-    await this.offers.create({
-      tenantId,
-      customerId: input.customerId,
-      kind: input.kind,
-      message: draft.offerText,
-      priceGross: opp?.priceMonthlyGross ?? null,
-      userId,
-    });
     let followupId: string | null = null;
     if (input.followupInDays > 0) {
-      const due = new Date(Date.now() + input.followupInDays * DAY).toISOString().slice(0, 10);
+      const tz = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      const due = todayInTimezone(tz?.timezone ?? 'Europe/Madrid');
+      due.setUTCDate(due.getUTCDate() + input.followupInDays);
       const f = await this.prisma.withTenant(
         (tx) =>
           tx.customerFollowup.create({
@@ -515,8 +605,12 @@ export class OpportunitiesService {
               customerId: input.customerId,
               userId,
               title: `Seguimiento: ${OPPORTUNITY_LABELS[input.kind].toLowerCase()}`,
-              note: emailSent ? 'Propuesta enviada por correo.' : 'Proponer al inquilino.',
-              dueDate: new Date(due),
+              note: emailSent
+                ? 'Propuesta enviada por correo.'
+                : input.channel === 'whatsapp'
+                  ? 'Propuesta enviada por WhatsApp.'
+                  : 'Proponer al inquilino.',
+              dueDate: due,
             },
             select: { id: true },
           }),
@@ -530,7 +624,7 @@ export class OpportunitiesService {
       action: 'opportunity.proposed',
       entityType: 'Customer',
       entityId: input.customerId,
-      changes: { kind: input.kind, emailSent },
+      changes: { kind: input.kind, emailSent, channel: input.channel },
     });
     return { emailSent, followupId };
   }

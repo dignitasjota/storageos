@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
 import { FirstPaymentMonthsSchema } from '../coupons';
 import { MESSAGE_MAX_ATTACHMENTS, MessageAttachmentSchema } from '../messages';
 
@@ -516,7 +517,7 @@ export const CreateCustomerFollowupSchema = z.object({
   title: z.string().trim().min(2).max(200),
   note: z.string().trim().max(2000).optional(),
   /** Fecha de vencimiento (YYYY-MM-DD). */
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+  dueDate: calendarDate,
 });
 export type CreateCustomerFollowupInput = z.infer<typeof CreateCustomerFollowupSchema>;
 

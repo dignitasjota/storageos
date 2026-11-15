@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 
+import { customerScopeWhere } from '../../common/customer-scope';
+import { type FacilityScope } from '../../common/facility-scope';
 import { PrismaService } from '../database/prisma.service';
 
 import type {
@@ -31,7 +33,7 @@ function toDto(r: Row): CustomerFollowupDto {
     title: r.title,
     note: r.note,
     dueDate: r.dueDate.toISOString().slice(0, 10),
-    status: r.status as 'pending' | 'done',
+    status: r.status as CustomerFollowupDto['status'],
     completedAt: r.completedAt ? r.completedAt.toISOString() : null,
     authorName: r.user?.fullName ?? null,
     createdAt: r.createdAt.toISOString(),
@@ -43,12 +45,17 @@ function toDto(r: Row): CustomerFollowupDto {
 export class FollowupsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Bandeja: todos los pendientes del tenant, los más urgentes primero. */
-  async listPending(tenantId: string): Promise<CustomerFollowupDto[]> {
+  /** Que el usuario pueda ver al inquilino (alcance por local) y que no esté borrado. */
+  private visible(scope: FacilityScope) {
+    return { customer: { deletedAt: null, ...customerScopeWhere(scope ?? null) } };
+  }
+
+  /** Bandeja: los pendientes de los inquilinos que ve, los más urgentes primero. */
+  async listPending(tenantId: string, scope?: FacilityScope): Promise<CustomerFollowupDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.customerFollowup.findMany({
-          where: { status: 'pending' },
+          where: { status: 'pending', ...this.visible(scope) },
           orderBy: [{ dueDate: 'asc' }],
           include,
           take: 200,
@@ -99,9 +106,14 @@ export class FollowupsService {
     tenantId: string;
     id: string;
     input: UpdateCustomerFollowupInput;
+    scope?: FacilityScope;
   }): Promise<CustomerFollowupDto> {
     const existing = await this.prisma.withTenant(
-      (tx) => tx.customerFollowup.findFirst({ where: { id: args.id }, select: { id: true } }),
+      (tx) =>
+        tx.customerFollowup.findFirst({
+          where: { id: args.id, ...this.visible(args.scope) },
+          select: { id: true },
+        }),
       args.tenantId,
     );
     if (!existing) {
@@ -125,9 +137,13 @@ export class FollowupsService {
     return toDto(updated);
   }
 
-  async remove(tenantId: string, id: string): Promise<void> {
+  async remove(tenantId: string, id: string, scope?: FacilityScope): Promise<void> {
     const existing = await this.prisma.withTenant(
-      (tx) => tx.customerFollowup.findFirst({ where: { id }, select: { id: true } }),
+      (tx) =>
+        tx.customerFollowup.findFirst({
+          where: { id, ...this.visible(scope) },
+          select: { id: true },
+        }),
       tenantId,
     );
     if (!existing) {
