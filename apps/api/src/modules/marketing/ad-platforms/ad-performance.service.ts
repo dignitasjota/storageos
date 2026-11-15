@@ -85,14 +85,25 @@ export class AdPerformanceService {
                 OR: [
                   { createdAt: { gte: fromD, lte: toEnd } },
                   { wonAt: { gte: fromD, lte: toEnd } },
+                  { bookedAt: { gte: fromD, lte: toEnd } },
                 ],
               },
-              select: { utmSource: true, createdAt: true, wonAt: true, convertedContractId: true },
+              select: {
+                utmSource: true,
+                createdAt: true,
+                wonAt: true,
+                bookedAt: true,
+                convertedContractId: true,
+              },
             })
           : Promise.resolve([]),
       ]);
+      const bookedIn = (l: { bookedAt: Date | null; wonAt: Date | null }) => {
+        const at = l.bookedAt ?? l.wonAt;
+        return !!at && at >= fromD && at <= toEnd;
+      };
       const contractIds = leads
-        .filter((l) => l.convertedContractId && l.wonAt && l.wonAt >= fromD && l.wonAt <= toEnd)
+        .filter((l) => l.convertedContractId && bookedIn(l))
         .map((l) => l.convertedContractId!);
       const signed = contractIds.length
         ? await tx.contract.findMany({
@@ -128,7 +139,8 @@ export class AdPerformanceService {
         if (l.utmSource?.toLowerCase() !== source) continue;
         if (l.createdAt >= fromD && l.createdAt <= toEnd) f.contacts += 1;
         const cid = l.convertedContractId;
-        if (cid && l.wonAt && l.wonAt >= fromD && l.wonAt <= toEnd && !seen.has(cid)) {
+        const bookedAt = l.bookedAt ?? l.wonAt;
+        if (cid && bookedAt && bookedAt >= fromD && bookedAt <= toEnd && !seen.has(cid)) {
           seen.add(cid);
           f.bookings += 1;
           if (signedIds.has(cid)) f.signed += 1;

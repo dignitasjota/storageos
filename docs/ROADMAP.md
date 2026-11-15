@@ -1108,3 +1108,20 @@ Calendario, tareas, mantenimiento, vencimientos e incidencias. Arreglado:
 - **Incidencias**: tipos, plazo de respuesta por gravedad, resolución obligatoria, fotos (también del inquilino, que elige su trastero), responder al inquilino, tarea de reparación, coste y gasto, parte al seguro e informe.
 
 Sin hacer: varios locales en un mismo plan (se copia uno por local) y el plazo de respuesta por tipo de incidencia (va por gravedad).
+
+### Leads, Seguimientos y Oportunidades: revisión (2026-11-15, PR A)
+
+Arreglado:
+
+- **Reserva online**: el contacto se gana al firmar y vuelve a abierto si caduca; no se duplica y conserva su primer origen.
+- **Alcance por local** en contactos, seguimientos, «Hoy» y Duplicados.
+- **Bajas comerciales** que se perdían al convertir y al fusionar.
+- **Conversión**: doble conversión, datos de otra empresa y 500 por filtros y fechas.
+- **Contactos repetidos** por teléfono, con aviso.
+- **Responsable** editable, «Solo los míos» y avisos solo a quien toca.
+- **Tiempos de respuesta** fieles.
+- **Ficha**: vaciar campos y borrar datos (con anonimizado automático de los perdidos a los 12 meses).
+- **Seguimientos huérfanos**.
+- **Oportunidades**: motivo de impago, inquilino de prueba, propuestas dobles, WhatsApp registrado, «Trastero más grande» y «Me interesa» con seguimiento.
+
+Decisiones de Jota: las siete recomendaciones del análisis (alcance como Analítica, ganado al firmar, primer origen, aviso al volver a escribir, WhatsApp de una persona cuenta, borrar datos y retención de 12 meses, seguimientos cancelados al cerrar).

@@ -2,13 +2,26 @@
 
 import {
   LEAD_LOST_REASON_LABELS,
+  LEAD_STATUS_LABELS,
+  LEAD_TRANSITIONS,
   LeadLostReasonEnum,
   type LeadDto,
   type LeadLostReason,
   type LeadStatusValue,
   leadSourceLabel,
 } from '@storageos/shared';
-import { Copy, Gauge, Loader2, Pencil, Plus, Timer, UserPlus } from 'lucide-react';
+import {
+  Copy,
+  Gauge,
+  Loader2,
+  MessageSquareReply,
+  Pencil,
+  Plus,
+  Timer,
+  Trash2,
+  User,
+  UserPlus,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
@@ -53,7 +66,9 @@ import {
   useUpdateLead,
 } from '@/lib/communications/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
+import { useDeleteLead } from '@/lib/leads/hooks';
 import { usePagedList } from '@/lib/pagination';
+import { useUsers } from '@/lib/users/hooks';
 
 const COLUMNS: { status: LeadStatusValue; label: string }[] = [
   { status: 'new', label: 'Nuevos' },
@@ -77,6 +92,7 @@ function LeadsBoard() {
   const convert = useConvertLead();
   const router = useRouter();
   const canWrite = useHasPermission('leads:write');
+  const [mine, setMine] = useState(false);
   const [dragging, setDragging] = useState<LeadDto | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [editing, setEditing] = useState<LeadDto | null>(null);
@@ -102,7 +118,7 @@ function LeadsBoard() {
     if (
       !(await ask({
         title: '¿Seguro?',
-        description: `¿Convertir a «${lead.displayName}» en cliente? Se creará una ficha de inquilino con sus datos y el lead pasará a «Ganados».`,
+        description: `¿Convertir a «${lead.displayName}» en cliente? Si ya hay un inquilino con su email se enlaza con él; si no, se crea uno con sus datos. El contacto pasará a «Ganados».`,
       }))
     ) {
       return;
@@ -122,11 +138,14 @@ function LeadsBoard() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="text-sm text-muted-foreground">
-            Pipeline de personas interesadas en alquilar. Arrastra entre fases (en escritorio) o usa
-            el selector de cada tarjeta.
+            Personas interesadas en alquilar. Arrastra la tarjeta a otra fase (en escritorio) o
+            cámbiala desde «Editar».
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant={mine ? 'default' : 'outline'} onClick={() => setMine((v) => !v)}>
+            <User className="mr-1 h-4 w-4" /> {mine ? 'Solo los míos' : 'Todos'}
+          </Button>
           <Button variant="outline" asChild>
             <Link href="/leads/response">
               <Timer className="mr-1 h-4 w-4" /> Atención
@@ -155,12 +174,20 @@ function LeadsBoard() {
             key={col.status}
             status={col.status}
             label={col.label}
+            mine={mine}
             canWrite={canWrite}
             onDrop={() => {
               if (!dragging) return;
               const lead = dragging;
               if (lead.status === col.status) {
                 // Soltado en su misma columna.
+              } else if (
+                col.status !== 'won' &&
+                !LEAD_TRANSITIONS[lead.status].includes(col.status)
+              ) {
+                toast.error(
+                  `No se puede pasar de «${LEAD_STATUS_LABELS[lead.status]}» a «${LEAD_STATUS_LABELS[col.status]}».`,
+                );
               } else if (col.status === 'lost') {
                 setLosing(lead.id);
               } else if (col.status === 'won') {
@@ -196,6 +223,7 @@ function LeadsBoard() {
 function LeadsColumn({
   status,
   label,
+  mine,
   canWrite,
   onDrop,
   onDragStart,
@@ -204,13 +232,17 @@ function LeadsColumn({
 }: {
   status: LeadStatusValue;
   label: string;
+  mine: boolean;
   canWrite: boolean;
   onDrop: () => void;
   onDragStart: (lead: LeadDto) => void;
   onEdit: (lead: LeadDto) => void;
   onConvert: (lead: LeadDto) => void;
 }) {
-  const leads = usePagedList<LeadDto>('leads', '/leads', { status });
+  const leads = usePagedList<LeadDto>('leads', '/leads', {
+    status,
+    ...(mine ? { assignedToUserId: 'me' } : {}),
+  });
   // Los abiertos, de más a menos probables de alquilar.
   const items =
     status === 'won' || status === 'lost'
@@ -308,6 +340,16 @@ function LeadCard({
           </span>
         )}
       </div>
+      {lead.returnedAt && lead.status !== 'won' && lead.status !== 'lost' && (
+        <div className="mt-1 inline-flex items-center gap-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+          <MessageSquareReply className="h-3 w-3" aria-hidden /> Ha vuelto a escribir
+        </div>
+      )}
+      {lead.bookedAt && lead.status !== 'won' && lead.convertedCustomerId && (
+        <div className="mt-1 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+          Reserva online sin terminar
+        </div>
+      )}
       {lead.email && <div className="truncate text-xs text-muted-foreground">{lead.email}</div>}
       {/* Contacto + origen en una sola línea para ocupar menos. El local asignado
           no se muestra aquí (se ve/edita en «Editar»). */}
@@ -321,6 +363,11 @@ function LeadCard({
           )}
         </div>
       )}
+      {lead.assignedToName && (
+        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+          <User className="h-3 w-3" aria-hidden /> {lead.assignedToName}
+        </div>
+      )}
       {lead.budgetMonthly !== null && (
         <div className="mt-1 text-xs">
           {lead.budgetMonthly.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}
@@ -332,23 +379,29 @@ function LeadCard({
           Motivo: {LEAD_LOST_REASON_LABELS[lead.lostReasonCode]}
         </div>
       )}
-      {lead.convertedCustomerId && (
+      {lead.convertedCustomerId && lead.status === 'won' && (
         <div className="mt-1 text-[10px] font-medium uppercase tracking-wide text-green-600 dark:text-green-400">
           Convertido en cliente
         </div>
       )}
       {/* La fase se cambia arrastrando (escritorio) o desde «Editar» (también en
           móvil), así que no hace falta el desplegable en la tarjeta. */}
+      {/* En columnas estrechas los botones bajan de línea en vez de salirse. */}
       {canWrite && (
-        <div className="mt-2 flex gap-1">
-          <Button variant="outline" size="sm" className="h-7 flex-1 text-xs" onClick={onEdit}>
+        <div className="mt-2 flex flex-wrap gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 min-w-[5.5rem] flex-1 px-2 text-xs"
+            onClick={onEdit}
+          >
             <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
           </Button>
           {!lead.convertedCustomerId && (
             <Button
               variant="secondary"
               size="sm"
-              className="h-7 flex-1 text-xs"
+              className="h-7 min-w-[5.5rem] flex-1 px-2 text-xs"
               onClick={onConvert}
             >
               <UserPlus className="mr-1 h-3.5 w-3.5" /> A cliente
@@ -366,8 +419,15 @@ function LeadCard({
 
 const CUSTOM_SOURCE = '__custom__';
 
+const NONE = '__none__';
+
 function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void }) {
   const isEdit = Boolean(lead);
+  const ask = useConfirm();
+  const canManage = useHasPermission('leads:manage');
+  const canSeeUsers = useHasPermission('users:read');
+  const users = useUsers();
+  const remove = useDeleteLead();
   const create = useCreateLead();
   const update = useUpdateLead(lead?.id ?? '');
   const transition = useTransitionLead();
@@ -384,8 +444,9 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
   const [email, setEmail] = useState(lead?.email ?? '');
   const [phone, setPhone] = useState(lead?.phone ?? '');
   const [message, setMessage] = useState(lead?.message ?? '');
-  const [facilityId, setFacilityId] = useState<string>(lead?.preferredFacilityId ?? '');
-  const [unitTypeId, setUnitTypeId] = useState<string>(lead?.preferredUnitTypeId ?? '');
+  const [facilityId, setFacilityId] = useState<string>(lead?.preferredFacilityId ?? NONE);
+  const [unitTypeId, setUnitTypeId] = useState<string>(lead?.preferredUnitTypeId ?? NONE);
+  const [assignedTo, setAssignedTo] = useState<string>(lead?.assignedToUserId ?? NONE);
   const [lostReasonCode, setLostReasonCode] = useState<LeadLostReason | ''>(
     lead?.lostReasonCode ?? '',
   );
@@ -408,22 +469,24 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
 
   async function submit() {
     if (!canSubmit) return;
-    const input = {
-      source: resolvedSource,
-      metadata: {},
-      ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
-      ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
-      ...(companyName.trim() ? { companyName: companyName.trim() } : {}),
-      ...(email.trim() ? { email: email.trim() } : {}),
-      ...(phone.trim() ? { phone: phone.trim() } : {}),
-      ...(message.trim() ? { message: message.trim() } : {}),
-      ...(facilityId ? { preferredFacilityId: facilityId } : {}),
-      ...(unitTypeId ? { preferredUnitTypeId: unitTypeId } : {}),
-      ...(budget && Number(budget) > 0 ? { budgetMonthly: Number(budget) } : {}),
-    };
+    const pick = (v: string) => (v === NONE ? null : v);
+    const budgetValue = budget && Number(budget) > 0 ? Number(budget) : null;
     try {
       if (isEdit && lead) {
-        await update.mutateAsync(input);
+        // Al editar se envía todo: lo que se ha vaciado se borra.
+        await update.mutateAsync({
+          source: resolvedSource,
+          firstName: firstName.trim() || null,
+          lastName: lastName.trim() || null,
+          companyName: companyName.trim() || null,
+          email: email.trim() || null,
+          phone: phone.trim() || null,
+          message: message.trim() || null,
+          preferredFacilityId: pick(facilityId),
+          preferredUnitTypeId: pick(unitTypeId),
+          budgetMonthly: budgetValue,
+          ...(canSeeUsers ? { assignedToUserId: pick(assignedTo) } : {}),
+        });
         // La fase se cambia por su propio endpoint (transition), no por el update.
         if (status !== lead.status) {
           await transition.mutateAsync({
@@ -440,7 +503,21 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
         }
         toast.success('Lead actualizado.');
       } else {
-        await create.mutateAsync({ ...input, marketingConsent: marketing });
+        await create.mutateAsync({
+          source: resolvedSource,
+          metadata: {},
+          marketingConsent: marketing,
+          ...(firstName.trim() ? { firstName: firstName.trim() } : {}),
+          ...(lastName.trim() ? { lastName: lastName.trim() } : {}),
+          ...(companyName.trim() ? { companyName: companyName.trim() } : {}),
+          ...(email.trim() ? { email: email.trim() } : {}),
+          ...(phone.trim() ? { phone: phone.trim() } : {}),
+          ...(message.trim() ? { message: message.trim() } : {}),
+          ...(pick(facilityId) ? { preferredFacilityId: facilityId } : {}),
+          ...(pick(unitTypeId) ? { preferredUnitTypeId: unitTypeId } : {}),
+          ...(budgetValue ? { budgetMonthly: budgetValue } : {}),
+          ...(canSeeUsers && pick(assignedTo) ? { assignedToUserId: assignedTo } : {}),
+        });
         toast.success('Lead creado. Está en «Nuevos» para hacerle seguimiento.');
       }
       onClose();
@@ -490,7 +567,12 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {COLUMNS.filter((c) => c.status !== 'won' || lead?.status === 'won').map((c) => (
+                  {/* Solo la fase actual y las que se pueden elegir a mano. */}
+                  {COLUMNS.filter(
+                    (c) =>
+                      c.status === lead?.status ||
+                      (lead && LEAD_TRANSITIONS[lead.status].includes(c.status)),
+                  ).map((c) => (
                     <SelectItem key={c.status} value={c.status}>
                       {c.label}
                     </SelectItem>
@@ -510,16 +592,18 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
 
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
-              <Label>Nombre</Label>
+              <Label htmlFor="lead-first-name">Nombre</Label>
               <Input
+                id="lead-first-name"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 className="text-base sm:text-sm"
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Apellidos</Label>
+              <Label htmlFor="lead-last-name">Apellidos</Label>
               <Input
+                id="lead-last-name"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 className="text-base sm:text-sm"
@@ -527,8 +611,9 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Empresa (opcional)</Label>
+            <Label htmlFor="lead-company">Empresa (opcional)</Label>
             <Input
+              id="lead-company"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               className="text-base sm:text-sm"
@@ -536,8 +621,9 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
-              <Label>Email</Label>
+              <Label htmlFor="lead-email">Email</Label>
               <Input
+                id="lead-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -546,8 +632,9 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
               <EmailTypoHint value={email} onAccept={setEmail} />
             </div>
             <div className="space-y-1.5">
-              <Label>Teléfono</Label>
+              <Label htmlFor="lead-phone">Teléfono</Label>
               <Input
+                id="lead-phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 className="text-base sm:text-sm"
@@ -562,6 +649,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
                   <SelectValue placeholder="—" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={NONE}>Sin local</SelectItem>
                   {(facilities.data ?? []).map((f) => (
                     <SelectItem key={f.id} value={f.id}>
                       {f.name}
@@ -577,6 +665,7 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
                   <SelectValue placeholder="—" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={NONE}>Sin tamaño</SelectItem>
                   {(unitTypes.data ?? []).map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name}
@@ -586,18 +675,40 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Presupuesto €/mes (opcional)</Label>
+              <Label htmlFor="lead-budget">Presupuesto €/mes (opcional)</Label>
               <Input
+                id="lead-budget"
                 type="number"
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
                 className="text-base sm:text-sm"
               />
             </div>
+            {canSeeUsers && (
+              <div className="space-y-1.5">
+                <Label>Responsable</Label>
+                <Select value={assignedTo} onValueChange={setAssignedTo}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sin responsable</SelectItem>
+                    {(users.data ?? [])
+                      .filter((u) => u.isActive || u.id === lead?.assignedToUserId)
+                      .map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.fullName}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <div className="space-y-1.5">
-            <Label>Notas / lo que busca</Label>
+            <Label htmlFor="lead-message">Notas / lo que busca</Label>
             <Textarea
+              id="lead-message"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               rows={2}
@@ -627,7 +738,37 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
         {isEdit && lead && <LeadQuote lead={lead} />}
         {isEdit && lead && <LeadActivity lead={lead} />}
         {isEdit && lead && <LeadConversation lead={lead} />}
-        <DialogFooter>
+        <DialogFooter className="gap-2">
+          {isEdit && lead && canManage && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive sm:mr-auto"
+              disabled={remove.isPending}
+              onClick={async () => {
+                if (
+                  !(await ask({
+                    title: `¿Borrar a «${lead.displayName}»?`,
+                    description:
+                      'Se borran sus datos: nombre, email, teléfono, mensajes, notas, seguimientos y conversaciones. No se puede deshacer.',
+                    confirmLabel: 'Borrar',
+                    destructive: true,
+                  }))
+                ) {
+                  return;
+                }
+                try {
+                  await remove.mutateAsync(lead.id);
+                  toast.success('Contacto borrado.');
+                  onClose();
+                } catch (err) {
+                  toast.error(err instanceof ApiError ? err.body.message : 'No se pudo borrar');
+                }
+              }}
+            >
+              <Trash2 className="mr-1 h-4 w-4" /> Borrar
+            </Button>
+          )}
           <Button type="button" variant="outline" onClick={onClose}>
             Cancelar
           </Button>

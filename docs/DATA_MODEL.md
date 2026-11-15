@@ -1027,6 +1027,7 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 
 - `lead_followups` (RLS): recordatorios con fecha de un contacto (`pending`/`done`). `lead_activities` (RLS): llamadas, visitas y notas.
 - `leads.unattended_notified_at`; `tenants.lead_response_hours` (4) y `lead_auto_assign` (`off`|`round_robin`|`facility`).
+- `leads.booked_at` (reserva online hecha desde el contacto; se gana al firmar) y `leads.returned_at` (volvió a escribir y nadie le ha atendido); `tenants.lead_retention_months` (12: los perdidos sin actividad se anonimizan después); `customer_offers.metadata` (lo propuesto: `contractIds`, `contractId`, `channel`); los seguimientos de contactos e inquilinos admiten `status = 'cancelled'` (2026-11-15, migración `20270124100000_leads_review`).
 - `campaign_links` (RLS, único por campaña y posición) y `campaign_clicks` (RLS, único por enlace y destinatario `c:<id>`/`l:<id>`).
 - `campaign_templates` (RLS): asunto y mensaje reutilizables.
 - `reviews.google_requested_at`.

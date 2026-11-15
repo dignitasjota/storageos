@@ -4,6 +4,8 @@ import { Check, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 
 import { Can } from '@/components/auth/can';
+import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -14,10 +16,15 @@ import {
   useUpdateLeadFollowup,
 } from '@/lib/leads/hooks';
 
+/** Tope de la bandeja: si se llega, se avisa (antes se cortaba sin decirlo). */
+const INBOX_LIMIT = 200;
+
 function dueLabel(iso: string): { text: string; tone: string } {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const due = new Date(iso);
+  // La fecha es un día (YYYY-MM-DD): se lee en la hora local, no en UTC.
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  const due = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
   const diff = Math.round((due.getTime() - today.getTime()) / 86_400_000);
   const text = due.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
   if (diff < 0) return { text: `${text} (vencido)`, tone: 'text-red-600' };
@@ -26,7 +33,8 @@ function dueLabel(iso: string): { text: string; tone: string } {
 }
 
 export default function FollowupsPage() {
-  const { data, isLoading } = useFollowupsPending();
+  const ask = useConfirm();
+  const { data, isLoading, isError, refetch } = useFollowupsPending();
   const update = useUpdateFollowup();
   const remove = useDeleteFollowup();
 
@@ -35,17 +43,19 @@ export default function FollowupsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Seguimientos</h1>
         <p className="text-sm text-muted-foreground">
-          Tus recordatorios sobre inquilinos y contactos (llamadas, renovaciones…), los más urgentes
-          primero.
+          Los recordatorios del equipo sobre inquilinos y contactos (llamadas, renovaciones…), los
+          más urgentes primero.
         </p>
       </div>
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Pendientes</CardTitle>
+          <CardTitle className="text-base">Inquilinos</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isError ? (
+            <SectionError onRetry={() => void refetch()} />
+          ) : isLoading ? (
             <div className="space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-12" />
@@ -87,7 +97,18 @@ export default function FollowupsPage() {
                         size="icon"
                         className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
                         title="Borrar"
-                        onClick={() => remove.mutate(f.id)}
+                        onClick={async () => {
+                          if (
+                            await ask({
+                              title: '¿Borrar este seguimiento?',
+                              description: f.title,
+                              confirmLabel: 'Borrar',
+                              destructive: true,
+                            })
+                          ) {
+                            remove.mutate(f.id);
+                          }
+                        }}
                         aria-label="Eliminar"
                       >
                         <Trash2 className="size-4" />
@@ -98,6 +119,11 @@ export default function FollowupsPage() {
               })}
             </ul>
           )}
+          {(data?.length ?? 0) >= INBOX_LIMIT && (
+            <p className="pt-2 text-xs text-muted-foreground">
+              Se muestran los {INBOX_LIMIT} más urgentes.
+            </p>
+          )}
         </CardContent>
       </Card>
       <LeadFollowupsCard />
@@ -106,7 +132,8 @@ export default function FollowupsPage() {
 }
 
 function LeadFollowupsCard() {
-  const { data, isLoading } = usePendingLeadFollowups();
+  const ask = useConfirm();
+  const { data, isLoading, isError, refetch } = usePendingLeadFollowups();
   const update = useUpdateLeadFollowup();
   const remove = useDeleteLeadFollowup();
   return (
@@ -115,7 +142,9 @@ function LeadFollowupsCard() {
         <CardTitle className="text-base">Contactos</CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isError ? (
+          <SectionError onRetry={() => void refetch()} />
+        ) : isLoading ? (
           <Skeleton className="h-12" />
         ) : (data ?? []).length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
@@ -153,7 +182,18 @@ function LeadFollowupsCard() {
                       size="icon"
                       className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
                       title="Borrar"
-                      onClick={() => remove.mutate(f.id)}
+                      onClick={async () => {
+                        if (
+                          await ask({
+                            title: '¿Borrar este seguimiento?',
+                            description: f.title,
+                            confirmLabel: 'Borrar',
+                            destructive: true,
+                          })
+                        ) {
+                          remove.mutate(f.id);
+                        }
+                      }}
                       aria-label="Eliminar"
                     >
                       <Trash2 className="size-4" />
@@ -163,6 +203,11 @@ function LeadFollowupsCard() {
               );
             })}
           </ul>
+        )}
+        {(data?.length ?? 0) >= INBOX_LIMIT && (
+          <p className="pt-2 text-xs text-muted-foreground">
+            Se muestran los {INBOX_LIMIT} más urgentes.
+          </p>
         )}
       </CardContent>
     </Card>

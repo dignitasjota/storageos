@@ -72,6 +72,11 @@ export const ProposeOpportunitySchema = z.object({
   body: z.string().trim().min(10).max(5000).optional(),
   /** Seguimiento a los N días (0 = sin seguimiento). */
   followupInDays: z.number().int().min(0).max(60).default(7),
+  /**
+   * `email`: se envía por correo. `whatsapp`: el equipo la mandó por WhatsApp
+   * desde su móvil; solo se registra (área de clientes y seguimiento).
+   */
+  channel: z.enum(['email', 'whatsapp']).default('email'),
 });
 export type ProposeOpportunityInput = z.infer<typeof ProposeOpportunitySchema>;
 

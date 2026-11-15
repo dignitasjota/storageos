@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { emailKey, leadScore, phoneKey } from './index';
+import { emailKey, leadDisplayName, leadScore, phoneKey } from './index';
 
 const base = {
   status: 'new',
@@ -49,5 +49,21 @@ describe('claves de duplicados', () => {
     expect(phoneKey('+34 600 11 12 22')).toBe('600111222');
     expect(phoneKey('1234')).toBeNull();
     expect(emailKey(' Ana@Ejemplo.ES ')).toBe('ana@ejemplo.es');
+  });
+});
+
+describe('revisión', () => {
+  it('una fecha deseada ya pasada no puntúa como urgente', () => {
+    const r = leadScore({ ...base, preferredStartDate: '2024-01-01' }, now);
+    expect(r.reasons).not.toContain('Lo necesita en menos de un mes');
+    expect(r.reasons).not.toContain('Lo necesita pronto');
+  });
+  it('nombre del contacto sin nombre', () => {
+    expect(
+      leadDisplayName({ companyName: null, firstName: null, lastName: null, phone: '600111222' }),
+    ).toBe('600111222');
+    expect(leadDisplayName({ companyName: null, firstName: null, lastName: null })).toBe(
+      'Contacto sin nombre',
+    );
   });
 });

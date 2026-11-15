@@ -150,6 +150,7 @@ export class WebAnalyticsService {
                   OR: [
                     { createdAt: { gte: prevSince, lt: until } },
                     { wonAt: { gte: prevSince, lt: until } },
+                    { bookedAt: { gte: prevSince, lt: until } },
                   ],
                 },
               ],
@@ -158,6 +159,7 @@ export class WebAnalyticsService {
               utmSource: true,
               createdAt: true,
               wonAt: true,
+              bookedAt: true,
               convertedContractId: true,
             },
           }),
@@ -259,9 +261,11 @@ export class WebAnalyticsService {
       } else if (l.createdAt >= prevSince) {
         prevContacts += 1;
       }
-      if (l.convertedContractId && l.wonAt) {
-        if (l.wonAt >= since) converted.push({ cid: l.convertedContractId, source: src });
-        else if (l.wonAt >= prevSince) prevBookings += 1;
+      // La reserva cuenta el día que se hizo (el contacto se gana al firmar).
+      const bookedAt = l.bookedAt ?? l.wonAt;
+      if (l.convertedContractId && bookedAt && bookedAt < until) {
+        if (bookedAt >= since) converted.push({ cid: l.convertedContractId, source: src });
+        else if (bookedAt >= prevSince) prevBookings += 1;
       }
     }
     const contractIds = [...new Set(converted.map((c) => c.cid))];

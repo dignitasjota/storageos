@@ -12,7 +12,9 @@ import {
   type SendLeadQuoteResultDto,
 } from '@storageos/shared';
 
+import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { formatEur } from '../../common/format';
+import { leadScopeWhere } from '../../common/lead-scope';
 import { AuditService, type AuditEntry } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -38,11 +40,17 @@ export class LeadQuotesService {
     private readonly config: ConfigService,
   ) {}
 
-  async preview(tenantId: string, leadId: string, input: LeadQuoteInput): Promise<LeadQuoteDto> {
+  async preview(
+    tenantId: string,
+    leadId: string,
+    input: LeadQuoteInput,
+    scope?: FacilityScope,
+  ): Promise<LeadQuoteDto> {
+    assertFacilityAllowed(scope, input.facilityId);
     const lead = await this.prisma.withTenant(
       (tx) =>
         tx.lead.findFirst({
-          where: { id: leadId, deletedAt: null },
+          where: { id: leadId, deletedAt: null, ...leadScopeWhere(scope) },
           select: { firstName: true, companyName: true, email: true },
         }),
       tenantId,
@@ -193,12 +201,13 @@ export class LeadQuotesService {
     leadId: string,
     input: SendLeadQuoteInput,
     meta: Pick<AuditEntry, 'ipAddress' | 'userAgent'>,
+    scope?: FacilityScope,
   ): Promise<SendLeadQuoteResultDto> {
     const lead = await this.prisma.withTenant(
       (tx) =>
         tx.lead.findFirst({
-          where: { id: leadId, deletedAt: null },
-          select: { id: true, email: true, status: true },
+          where: { id: leadId, deletedAt: null, ...leadScopeWhere(scope) },
+          select: { id: true, email: true, status: true, contactedAt: true },
         }),
       tenantId,
     );
@@ -210,7 +219,7 @@ export class LeadQuotesService {
         message: 'Este contacto no tiene email',
       });
     }
-    const draft = await this.preview(tenantId, leadId, input);
+    const draft = await this.preview(tenantId, leadId, input, scope);
     await this.communications.enqueue({
       tenantId,
       channel: 'email',
@@ -227,7 +236,9 @@ export class LeadQuotesService {
           data: {
             preferredFacilityId: input.facilityId,
             preferredUnitTypeId: input.unitTypeId,
-            ...(lead.status === 'new' ? { status: 'contacted', contactedAt: new Date() } : {}),
+            returnedAt: null,
+            ...(lead.contactedAt ? {} : { contactedAt: new Date() }),
+            ...(lead.status === 'new' ? { status: 'contacted' } : {}),
           },
         }),
       tenantId,

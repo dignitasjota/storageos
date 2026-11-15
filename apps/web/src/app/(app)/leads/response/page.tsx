@@ -35,16 +35,24 @@ export default function LeadResponsePage() {
   const update = useUpdateLeadSettings();
   const [responseHours, setResponseHours] = useState('4');
   const [autoAssign, setAutoAssign] = useState<LeadAutoAssign>('off');
+  const [retentionMonths, setRetentionMonths] = useState('12');
 
   useEffect(() => {
     if (!settings.data) return;
     setResponseHours(String(settings.data.responseHours));
     setAutoAssign(settings.data.autoAssign);
+    setRetentionMonths(String(settings.data.retentionMonths));
   }, [settings.data]);
+
+  const retentionValid = Number(retentionMonths) >= 3 && Number(retentionMonths) <= 60;
 
   async function save() {
     try {
-      await update.mutateAsync({ responseHours: Number(responseHours), autoAssign });
+      await update.mutateAsync({
+        responseHours: Number(responseHours),
+        autoAssign,
+        retentionMonths: Number(retentionMonths),
+      });
       toast.success('Guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar');
@@ -64,7 +72,7 @@ export default function LeadResponsePage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Plazo y reparto</CardTitle>
+          <CardTitle className="text-base">Plazo, reparto y datos</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -102,16 +110,33 @@ export default function LeadResponsePage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="lead-retention-months">
+                Borrar los datos de los contactos perdidos tras (meses sin actividad)
+              </Label>
+              <Input
+                id="lead-retention-months"
+                type="number"
+                min={3}
+                max={60}
+                value={retentionMonths}
+                onChange={(e) => setRetentionMonths(e.target.value)}
+                disabled={!canManage}
+                className="text-base sm:text-sm"
+              />
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             Pasado el plazo, el equipo recibe un aviso (también en el móvil si lo tiene activado).
-            Un contacto queda atendido al pasarlo a «Contactado», al escribirle o al anotar una
-            llamada, visita o mensaje.
+            Un contacto queda atendido al pasarlo a «Contactado», al escribirle (correo, WhatsApp o
+            chat de la web) o al anotar una llamada, visita o mensaje. Los datos personales de los
+            contactos perdidos se borran solos pasado el plazo (lo pide la protección de datos); se
+            conserva el recuento para los informes.
           </p>
           {canManage && (
             <Button
               onClick={() => void save()}
-              disabled={update.isPending || Number(responseHours) < 1}
+              disabled={update.isPending || Number(responseHours) < 1 || !retentionValid}
             >
               Guardar
             </Button>

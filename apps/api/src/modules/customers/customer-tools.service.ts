@@ -327,6 +327,11 @@ export class CustomerToolsService {
         });
       }
       await tx.customer.update({ where: { id }, data: { deletedAt: null } });
+      // Los seguimientos que se cancelaron al borrarlo vuelven a estar pendientes.
+      await tx.customerFollowup.updateMany({
+        where: { customerId: id, status: 'cancelled', completedAt: { gte: row.deletedAt } },
+        data: { status: 'pending', completedAt: null },
+      });
     }, tenantId);
     await this.audit.write({
       tenantId,

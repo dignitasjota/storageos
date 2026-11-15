@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
+
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
 // ============================================================================
@@ -8,6 +10,26 @@ const optionalText = (max: number) => z.string().trim().max(max).optional().or(z
 
 export const LeadStatusEnum = z.enum(['new', 'contacted', 'qualified', 'won', 'lost']);
 export type LeadStatusValue = z.infer<typeof LeadStatusEnum>;
+
+export const LEAD_STATUS_LABELS: Record<LeadStatusValue, string> = {
+  new: 'Nuevo',
+  contacted: 'Contactado',
+  qualified: 'Cualificado',
+  won: 'Ganado',
+  lost: 'Perdido',
+};
+
+/**
+ * Cambios de fase permitidos a mano. «Ganado» no está: se gana al convertir en
+ * cliente (o al firmar la reserva online).
+ */
+export const LEAD_TRANSITIONS: Record<LeadStatusValue, LeadStatusValue[]> = {
+  new: ['contacted', 'qualified', 'lost'],
+  contacted: ['qualified', 'lost', 'new'],
+  qualified: ['lost', 'contacted'],
+  won: [],
+  lost: ['new'],
+};
 
 /**
  * El origen del lead es **texto libre** (no un enum cerrado): el tenant puede dar
@@ -136,10 +158,7 @@ export const CreateLeadSchema = z.object({
   message: optionalText(2000),
   preferredFacilityId: z.string().uuid().optional(),
   preferredUnitTypeId: z.string().uuid().optional(),
-  preferredStartDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  preferredStartDate: calendarDate.optional(),
   estimatedDurationMonths: z.number().int().min(1).max(120).optional(),
   budgetMonthly: z.number().positive().finite().optional(),
   assignedToUserId: z.string().uuid().optional(),
@@ -149,10 +168,61 @@ export const CreateLeadSchema = z.object({
 });
 export type CreateLeadInput = z.infer<typeof CreateLeadSchema>;
 
-export const UpdateLeadSchema = CreateLeadSchema.partial().refine(
-  (v) => Object.values(v).some((field) => field !== undefined),
-  { message: 'Debes enviar al menos un campo' },
-);
+/** Texto que se puede vaciar: '' o null lo borran. */
+const clearableText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v));
+const clearableId = z
+  .union([z.literal(''), z.string().uuid()])
+  .nullable()
+  .optional()
+  .transform((v) => (v === '' ? null : v));
+
+/**
+ * Edición de un contacto: lo que no se envía no cambia y '' o null lo vacían
+ * (email, teléfono, local, tamaño, fecha, presupuesto, responsable…).
+ */
+export const UpdateLeadSchema = z
+  .object({
+    source: z
+      .string()
+      .trim()
+      .min(1)
+      .max(60)
+      .transform(normalizeLeadSource)
+      .pipe(z.string().min(1))
+      .optional(),
+    ...utmFields,
+    firstName: clearableText(120),
+    lastName: clearableText(120),
+    companyName: clearableText(180),
+    email: z
+      .union([z.literal(''), z.string().trim().toLowerCase().email()])
+      .nullable()
+      .optional()
+      .transform((v) => (v === '' ? null : v)),
+    phone: clearableText(40),
+    message: clearableText(2000),
+    preferredFacilityId: clearableId,
+    preferredUnitTypeId: clearableId,
+    preferredStartDate: z
+      .union([z.literal(''), calendarDate])
+      .nullable()
+      .optional()
+      .transform((v) => (v === '' ? null : v)),
+    estimatedDurationMonths: z.number().int().min(1).max(120).nullable().optional(),
+    budgetMonthly: z.number().positive().finite().nullable().optional(),
+    assignedToUserId: clearableId,
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .refine((v) => Object.values(v).some((field) => field !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
 export type UpdateLeadInput = z.infer<typeof UpdateLeadSchema>;
 
 /**
@@ -362,10 +432,7 @@ export const WidgetLeadSchema = z.object({
   message: optionalText(2000),
   preferredFacilityId: z.string().uuid().optional(),
   preferredUnitTypeId: z.string().uuid().optional(),
-  preferredStartDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+  preferredStartDate: calendarDate.optional(),
   estimatedDurationMonths: z.number().int().min(1).max(120).optional(),
   /** Honeypot: cualquier valor distinto de vacio se trata como bot en el service. */
   hp: z.string().max(200).optional(),

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { calendarDate } from '../common/calendar-date';
 import { InteractionTypeEnum } from '../customers/schemas';
 
 // ============================================================================
@@ -10,7 +11,7 @@ export const CreateLeadFollowupSchema = z.object({
   title: z.string().trim().min(2).max(200),
   note: z.string().trim().max(2000).optional(),
   /** YYYY-MM-DD */
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+  dueDate: calendarDate,
 });
 export type CreateLeadFollowupInput = z.infer<typeof CreateLeadFollowupSchema>;
 
@@ -24,7 +25,8 @@ export interface LeadFollowupDto {
   title: string;
   note: string | null;
   dueDate: string;
-  status: 'pending' | 'done';
+  /** `cancelled`: el contacto se perdió o se borró. */
+  status: 'pending' | 'done' | 'cancelled';
   completedAt: string | null;
   authorName: string | null;
   createdAt: string;
@@ -63,8 +65,10 @@ export const UpdateLeadSettingsSchema = z
   .object({
     responseHours: z.number().int().min(1).max(168).optional(),
     autoAssign: LeadAutoAssignEnum.optional(),
+    /** Meses que se guardan los contactos perdidos sin actividad (después se anonimizan). */
+    retentionMonths: z.number().int().min(3).max(60).optional(),
   })
-  .refine((v) => v.responseHours !== undefined || v.autoAssign !== undefined, {
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
     message: 'Debes enviar al menos un campo',
   });
 export type UpdateLeadSettingsInput = z.infer<typeof UpdateLeadSettingsSchema>;
@@ -72,6 +76,7 @@ export type UpdateLeadSettingsInput = z.infer<typeof UpdateLeadSettingsSchema>;
 export interface LeadSettingsDto {
   responseHours: number;
   autoAssign: LeadAutoAssign;
+  retentionMonths: number;
 }
 
 export interface LeadResponseUserDto {
@@ -174,8 +179,11 @@ export function leadScore(lead: LeadScoreInput, now: Date = new Date()): LeadSco
   }
   if (lead.preferredStartDate) {
     const days = (Date.parse(lead.preferredStartDate) - now.getTime()) / 86_400_000;
-    if (days <= 30) parts.push({ points: 20, reason: 'Lo necesita en menos de un mes' });
-    else if (days <= 90) parts.push({ points: 10, reason: 'Lo necesita pronto' });
+    // Una fecha ya pasada no dice que tenga prisa (puede que ya no lo necesite).
+    if (days >= -1) {
+      if (days <= 30) parts.push({ points: 20, reason: 'Lo necesita en menos de un mes' });
+      else if (days <= 90) parts.push({ points: 10, reason: 'Lo necesita pronto' });
+    }
   }
   if ((lead.message ?? '').trim().length >= 30) {
     parts.push({ points: 5, reason: 'Explicó lo que busca' });
@@ -202,4 +210,24 @@ export function leadScore(lead: LeadScoreInput, now: Date = new Date()): LeadSco
     .slice(0, 3)
     .map((p) => p.reason);
   return { score, reasons };
+}
+
+/**
+ * Nombre con el que se enseña un contacto: empresa, nombre y apellidos, o, si
+ * no dejó nombre, su email o teléfono.
+ */
+export function leadDisplayName(l: {
+  companyName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email?: string | null;
+  phone?: string | null;
+}): string {
+  return (
+    l.companyName?.trim() ||
+    [l.firstName, l.lastName].filter(Boolean).join(' ').trim() ||
+    l.email?.trim() ||
+    l.phone?.trim() ||
+    'Contacto sin nombre'
+  );
 }

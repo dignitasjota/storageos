@@ -1177,7 +1177,7 @@ export class WebChatService {
   ): Promise<WebChatMessageDto[]> {
     const conversation = await this.admin.webChatConversation.findFirst({
       where: { id: conversationId, tenantId },
-      select: { id: true },
+      select: { id: true, leadId: true },
     });
     if (!conversation) {
       throw new NotFoundException({ code: 'conversation_not_found', message: 'No encontrada' });
@@ -1187,6 +1187,8 @@ export class WebChatService {
       where: { id: conversationId },
       data: { mode: 'human', staffUnread: 0, staffRepliedAt: new Date() },
     });
+    // Una persona le ha respondido: el contacto cuenta como atendido.
+    if (conversation.leadId) await this.leads.markAttended(tenantId, conversation.leadId);
     return this.messages(tenantId, conversationId);
   }
 
