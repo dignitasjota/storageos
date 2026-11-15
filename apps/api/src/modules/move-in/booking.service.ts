@@ -564,6 +564,15 @@ export class BookingService {
               },
             },
           });
+          // El último presupuesto que se le mandó ha acabado en reserva.
+          const lastQuote = await tx.leadQuote.findFirst({
+            where: { leadId: existingLead.id, bookedAt: null },
+            orderBy: { sentAt: 'desc' },
+            select: { id: true },
+          });
+          if (lastQuote) {
+            await tx.leadQuote.update({ where: { id: lastQuote.id }, data: { bookedAt: now } });
+          }
         } else {
           await tx.lead.create({
             data: {

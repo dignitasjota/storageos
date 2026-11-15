@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
 import {
@@ -20,6 +21,7 @@ import {
 import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { anonymizeLeadsTx } from '../../common/lead-anonymize';
+import { leadReplyAddress } from '../../common/lead-reply-address';
 import { leadScopeWhere } from '../../common/lead-scope';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isReservationOverlap } from '../../common/reservation-overlap';
@@ -27,6 +29,7 @@ import { unitHeldByOther } from '../../common/unit-holds';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS } from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -47,14 +50,59 @@ import type {
   LeadReplyInput,
 } from '@storageos/shared';
 
-interface ListFilters {
+export interface LeadListFilters {
   status?: LeadStatusValue;
   /** Un usuario, o `null` = sin responsable. */
   assignedToUserId?: string | null;
   source?: string;
   search?: string;
+  /** Local que busca (o `none` = sin local). */
+  facilityId?: string;
+  /** Llegaron entre estas fechas (YYYY-MM-DD, ambas incluidas). */
+  from?: string;
+  to?: string;
   page?: PageRequest;
   scope?: FacilityScope;
+}
+type ListFilters = LeadListFilters;
+
+/** Condiciones de la lista (también las usan los totales del tablero). */
+export function leadListWhere(filters: LeadListFilters): Prisma.LeadWhereInput {
+  const and: Prisma.LeadWhereInput[] = [{ deletedAt: null }, leadScopeWhere(filters.scope)];
+  if (filters.status) and.push({ status: filters.status as LeadStatus });
+  if (filters.assignedToUserId !== undefined) {
+    and.push({ assignedToUserId: filters.assignedToUserId });
+  }
+  if (filters.source) and.push({ source: filters.source });
+  if (filters.facilityId) {
+    and.push({
+      preferredFacilityId: filters.facilityId === 'none' ? null : filters.facilityId,
+    });
+  }
+  if (filters.from) and.push({ createdAt: { gte: new Date(`${filters.from}T00:00:00Z`) } });
+  if (filters.to) {
+    const end = new Date(`${filters.to}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + 1);
+    and.push({ createdAt: { lt: end } });
+  }
+  // Por palabras: «Ana García» encuentra a Ana con apellido García.
+  const words = (filters.search ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
+  for (const w of words) {
+    const digits = w.replace(/\D/g, '');
+    and.push({
+      OR: [
+        { firstName: { contains: w, mode: 'insensitive' } },
+        { lastName: { contains: w, mode: 'insensitive' } },
+        { companyName: { contains: w, mode: 'insensitive' } },
+        { email: { contains: w, mode: 'insensitive' } },
+        { phone: { contains: w, mode: 'insensitive' } },
+        ...(digits.length >= 3 && digits !== w
+          ? [{ phone: { contains: digits, mode: 'insensitive' as const } }]
+          : []),
+      ],
+    });
+  }
+  return { AND: and };
 }
 
 const LEAD_INCLUDE = {
@@ -67,6 +115,8 @@ const LEAD_INCLUDE = {
 function attendedData(lead: { status: string; contactedAt: Date | null }, at = new Date()) {
   return {
     returnedAt: null,
+    // Lo ha tomado una persona: se acaba la secuencia automática de correos.
+    nurtureStep: 3,
     ...(lead.contactedAt ? {} : { contactedAt: at }),
     ...(lead.status === 'new' ? { status: 'contacted' as const } : {}),
   };
@@ -89,6 +139,8 @@ export class LeadsService {
     private readonly communications: CommunicationsService,
     private readonly notifications: NotificationsService,
     private readonly files: FilesService,
+    private readonly admin: PrismaAdminService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -203,6 +255,11 @@ export class LeadsService {
         message: 'Este contacto no tiene email',
       });
     }
+    const replyTo = await leadReplyAddress(
+      this.admin,
+      this.config.get<string>('INBOUND_EMAIL_DOMAIN'),
+      lead.id,
+    );
     const comm = await this.communications.enqueue({
       tenantId: args.tenantId,
       channel: 'email',
@@ -211,6 +268,7 @@ export class LeadsService {
       bodyText: args.input.body,
       leadId: lead.id,
       source: 'lead.reply',
+      ...(replyTo ? { replyTo } : {}),
     });
     await this.prisma.withTenant(
       (tx) => tx.lead.update({ where: { id: lead.id }, data: attendedData(lead) }),
@@ -229,30 +287,7 @@ export class LeadsService {
   }
 
   async list(tenantId: string, filters: ListFilters): Promise<LeadDto[]> {
-    const and: Prisma.LeadWhereInput[] = [{ deletedAt: null }, leadScopeWhere(filters.scope)];
-    if (filters.status) and.push({ status: filters.status as LeadStatus });
-    if (filters.assignedToUserId !== undefined) {
-      and.push({ assignedToUserId: filters.assignedToUserId });
-    }
-    if (filters.source) and.push({ source: filters.source });
-    // Por palabras: «Ana García» encuentra a Ana con apellido García.
-    const words = (filters.search ?? '').trim().split(/\s+/).filter(Boolean).slice(0, 5);
-    for (const w of words) {
-      const digits = w.replace(/\D/g, '');
-      and.push({
-        OR: [
-          { firstName: { contains: w, mode: 'insensitive' } },
-          { lastName: { contains: w, mode: 'insensitive' } },
-          { companyName: { contains: w, mode: 'insensitive' } },
-          { email: { contains: w, mode: 'insensitive' } },
-          { phone: { contains: w, mode: 'insensitive' } },
-          ...(digits.length >= 3 && digits !== w
-            ? [{ phone: { contains: digits, mode: 'insensitive' as const } }]
-            : []),
-        ],
-      });
-    }
-    const where: Prisma.LeadWhereInput = { AND: and };
+    const where = leadListWhere(filters);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.lead.findMany({
@@ -724,7 +759,12 @@ export class LeadsService {
       });
     }
     const now = new Date();
-    const data: Prisma.LeadUncheckedUpdateInput = { status: args.input.status, returnedAt: null };
+    const data: Prisma.LeadUncheckedUpdateInput = {
+      status: args.input.status,
+      returnedAt: null,
+      // Moverlo de fase es atenderlo: se acaba la secuencia automática.
+      nurtureStep: 3,
+    };
     // La primera respuesta no se pisa: volver a «Contactado» no la mueve.
     if (
       (args.input.status === 'contacted' || args.input.status === 'qualified') &&

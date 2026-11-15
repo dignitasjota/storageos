@@ -261,8 +261,8 @@ export interface RealtimeEventDto {
 
 // --- Respuesta por correo ----------------------------------------------------
 
-/** Parte variable de la dirección: `c-…` conversación, `t-…` ticket. */
-export function replyAddressOf(kind: 'c' | 't', token: string, domain: string): string {
+/** Parte variable de la dirección: `c-…` conversación, `t-…` ticket, `l-…` contacto. */
+export function replyAddressOf(kind: 'c' | 't' | 'l', token: string, domain: string): string {
   return `${kind}-${token}@${domain}`;
 }
 
@@ -270,13 +270,13 @@ export function replyAddressOf(kind: 'c' | 't', token: string, domain: string): 
 export function parseReplyAddress(
   to: string | string[] | undefined,
   domain: string | undefined,
-): { kind: 'c' | 't'; token: string } | null {
+): { kind: 'c' | 't' | 'l'; token: string } | null {
   if (!to || !domain) return null;
   const escaped = domain.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`\\b([ct])-([a-f0-9]{16,64})@${escaped}\\b`);
+  const re = new RegExp(`\\b([ctl])-([a-f0-9]{16,64})@${escaped}\\b`);
   for (const value of Array.isArray(to) ? to : [to]) {
     const m = re.exec(value.toLowerCase());
-    if (m) return { kind: m[1] as 'c' | 't', token: m[2]! };
+    if (m) return { kind: m[1] as 'c' | 't' | 'l', token: m[2]! };
   }
   return null;
 }

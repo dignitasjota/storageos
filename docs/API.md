@@ -3071,3 +3071,41 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
   - gana `channel: 'email' | 'whatsapp'`: con `whatsapp` no se envía correo, solo se registra;
   - la misma propuesta en menos de 10 min → 409 `already_proposed`.
 - `OpportunityDto.lastProposedAt` incluye las registradas por WhatsApp.
+
+### Leads, Seguimientos y Oportunidades: mejoras (2026-11-15)
+
+- `GET /leads`, `/leads/page` y `/leads/summary` ganan `facilityId` (o `none`: sin local) y `from`/`to` (YYYY-MM-DD, día de llegada). Local que no es un uuid → 400 `invalid_facility`; fecha imposible → 400 `invalid_date`.
+- `GET /leads/summary` (`leads:read`) → `{byStatus: {<fase>: {count, value}}}`. `value` es lo que sumarían al mes: el presupuesto del contacto o el precio del tamaño que busca.
+- `GET /leads/report?from=&to=` (`leads:read`, como mucho dos años; si no, 400 `invalid_range`) → embudo de los que llegaron en el periodo (`totals`, `bySource`, `byUser`, `byFacility`): contactos, atendidos, cualificados, ganados, perdidos, conversión y días medios hasta ganar.
+- `GET /leads/:id/timeline` (`leads:read`) → `LeadTimelineItemDto[]`, del más reciente al más antiguo. Tipos: `created`, `email_out` (con su entrega en `status`), `email_in`, `whatsapp_in`, `whatsapp_out`, `webchat_in`, `webchat_out`, `activity`, `quote`, `visit`, `status` y `followup`.
+- `GET /leads/:id/quotes` (`leads:read`) → presupuestos enviados (canal, local, tamaño, meses, cupón, total, quién, recordatorio y si acabó en reserva).
+- `POST /leads/:id/quote/send` gana:
+  - `channel: 'email' | 'whatsapp'` (por defecto `email`). Con `whatsapp` no sale correo: la respuesta trae `whatsappText` para mandarlo desde el móvil y queda registrado;
+  - `followupInDays` (0-30, por defecto 3): crea el seguimiento «Llamar: ¿ha visto el presupuesto?» para quien lo envía.
+  - La respuesta es `{sentTo, whatsappText, followupId}`.
+- Visitas:
+  - `GET /leads/:id/visits` (`leads:read`);
+  - `POST /leads/:id/visits {scheduledAt, facilityId?, notes?, userId?}` (`leads:write`): el contacto pasa a cualificado;
+  - `PATCH /leads/visits/:visitId {status?, scheduledAt?, notes?, userId?}`: con `status: 'done'` crea un seguimiento para el día siguiente;
+  - `DELETE /leads/visits/:visitId`;
+  - el calendario gana el tipo `lead_visit` (con `leads:read`).
+- `GET|PUT /leads/settings` ganan `nurtureEnabled`, `useBusinessHours` y `quoteReminderDays` (0-30). `GET` añade `businessHoursConfigured`.
+- Respuestas de los contactos: los correos a un contacto (respuesta, presupuesto y sus recordatorios) llevan `replyTo: l-<token>@<INBOUND_EMAIL_DOMAIN>`. `POST /webhooks/email-inbound` a esa dirección guarda la respuesta en su actividad (`type: 'email_in'`) y avisa a su responsable (`lead.reply`).
+- Seguimientos (contactos e inquilinos):
+  - `POST /leads/:id/followups` y `POST /customers/:id/followups` ganan `assignedToUserId`;
+  - `PATCH /leads/followups/:id` y `PATCH /followups/:id` admiten `status`, `outcome`, `dueDate`, `title`, `note` y `assignedToUserId` (al menos uno). Al marcarlo hecho, el resultado queda en la actividad del contacto o en las conversaciones del inquilino. Responsable de fuera del equipo → 400 `user_not_found`;
+  - los DTO ganan `assignedToUserId`, `assignedToName` y `outcome`.
+- `GET /followups/inbox?tab=today|overdue|upcoming|done&mine=1` → `{items, counts}`: inquilinos (con `customers:read`) y contactos (con `leads:read`) juntos. «Hechos» = los 30 últimos días. «Míos» = asignados a mí, o creados por mí sin responsable.
+- `GET /followups/due-count` → `{due}`: hoy y atrasados (número del menú).
+- Importación: `GET /imports/leads/template`, `POST /imports/leads/preview` y `POST /imports/leads/commit` (`imports:manage` y `leads:write`). Columnas: nombre, apellidos, empresa, email, teléfono, origen, local, tamaño, estado (nuevo, contactado, cualificado o perdido), presupuesto, mensaje y fecha. El mismo email o teléfono que otro contacto abierto cuenta como repetido.
+- Oportunidades:
+  - tipos nuevos `annual_prepay`, `renewal`, `incomplete_data`, `google_review`, `referral` y `smaller_unit`;
+  - `OpportunityDto` gana `facilityIds`. Los que han dicho «Me interesa» salen primero;
+  - `POST /opportunities/dismiss {customerId, kind, days|null, reason?}` (`customers:write`, 204): pospone o descarta;
+  - `DELETE /opportunities/dismiss?customerId=&kind=`: la recupera;
+  - `GET /opportunities/dismissed` → las pospuestas o descartadas vigentes;
+  - `POST /opportunities/propose-bulk {items: [{customerId, kind}], followupInDays}` (`communications:send`, hasta 100) → `{sent, skipped: [{customerId, kind, reason}]}`. Solo por correo; quien no tiene email se salta;
+  - `GET /opportunities/results?days=` → por tipo: propuestas, vistas, «me interesa», contratadas, «no, gracias» e ingreso mensual nuevo;
+  - `GET /opportunities/interested-count` → `{interested}`;
+  - `kind` inválido en `draft` o `dismiss` → 400 `invalid_kind` (antes 500).
+- Área de clientes: `PortalOfferDto` gana `url` (enlace externo, p. ej. la reseña en Google).

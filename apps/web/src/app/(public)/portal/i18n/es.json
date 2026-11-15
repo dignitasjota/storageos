@@ -657,14 +657,26 @@
           "larger_unit": "Un trastero más grande",
           "additional_unit": "Otro trastero",
           "night_pass": "Acceso fuera de horario",
-          "autopay": "Pago automático"
+          "autopay": "Pago automático",
+          "annual_prepay": "Pagar el año de una vez",
+          "renewal": "Renovar tu contrato",
+          "incomplete_data": "Completar tus datos",
+          "google_review": "Una reseña en Google",
+          "referral": "Recomienda y gana",
+          "smaller_unit": "Un trastero más pequeño"
         },
         "cta": {
           "insurance": "Contratar la protección",
           "larger_unit": "Pedir el cambio",
           "additional_unit": "Ver trasteros libres",
           "night_pass": "Ver el pase nocturno",
-          "autopay": "Domiciliar el pago"
+          "autopay": "Domiciliar el pago",
+          "annual_prepay": "Ver mis facturas",
+          "renewal": "Ver mi contrato",
+          "incomplete_data": "Completar mis datos",
+          "google_review": "Dejar la reseña",
+          "referral": "Ver mi código",
+          "smaller_unit": "Pedir el cambio"
         },
         "interested": "Me interesa",
         "interestedBadge": "Le hemos dicho a tu gestor que te interesa",

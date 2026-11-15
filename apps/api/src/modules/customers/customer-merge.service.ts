@@ -65,6 +65,7 @@ export const CUSTOMER_REFERENCES_WITH_UNIQUE: readonly (readonly [string, string
   ['customer_message_reads', 'user_id'],
   ['customer_conversations', 'tenant_id'],
   ['winback_sends', 'step'],
+  ['opportunity_dismissals', 'kind'],
 ];
 
 const SAME_DATA_FIELDS = [

@@ -10,6 +10,12 @@ export const OpportunityKindEnum = z.enum([
   'additional_unit',
   'night_pass',
   'autopay',
+  'annual_prepay',
+  'renewal',
+  'incomplete_data',
+  'google_review',
+  'referral',
+  'smaller_unit',
 ]);
 export type OpportunityKind = z.infer<typeof OpportunityKindEnum>;
 
@@ -19,6 +25,12 @@ export const OPPORTUNITY_LABELS: Record<OpportunityKind, string> = {
   additional_unit: 'Otro trastero',
   night_pass: 'Pase nocturno / acceso 24 h',
   autopay: 'Domiciliar el pago',
+  annual_prepay: 'Pago anual por adelantado',
+  renewal: 'Renovar el contrato',
+  incomplete_data: 'Completar sus datos',
+  google_review: 'Reseña en Google',
+  referral: 'Recomendar a un amigo',
+  smaller_unit: 'Trastero más pequeño',
 };
 
 /** Lo que el área de clientes registra cuando el inquilino mira y no contrata. */
@@ -57,6 +69,8 @@ export interface OpportunityDto {
   lastProposedAt: string | null;
   /** Qué hizo con la última propuesta en su área de clientes. */
   lastOfferStatus: CustomerOfferStatus | null;
+  /** Locales de sus trasteros (para filtrar). */
+  facilityIds: string[];
 }
 
 export interface OpportunitiesDto {
@@ -115,9 +129,68 @@ export interface PortalOfferDto {
   status: CustomerOfferStatus;
   createdAt: string;
   expiresAt: string;
+  /** Enlace externo de la oferta (p. ej. la reseña en Google). */
+  url: string | null;
 }
 
 export const PortalRespondOfferSchema = z.object({
   response: z.enum(['interested', 'declined']),
 });
 export type PortalRespondOfferInput = z.infer<typeof PortalRespondOfferSchema>;
+
+// --- Mejoras (2026-11-15) ----------------------------------------------------
+
+/** Descartar (para siempre) o posponer N días una oportunidad. */
+export const DismissOpportunitySchema = z.object({
+  customerId: z.string().uuid(),
+  kind: OpportunityKindEnum,
+  /** null = para siempre. */
+  days: z.number().int().min(1).max(365).nullable(),
+  reason: z.string().trim().max(500).optional(),
+});
+export type DismissOpportunityInput = z.infer<typeof DismissOpportunitySchema>;
+
+export interface OpportunityDismissalDto {
+  customerId: string;
+  customerName: string;
+  kind: OpportunityKind;
+  until: string | null;
+  reason: string | null;
+  userName: string | null;
+  createdAt: string;
+}
+
+/** Proponer la misma oportunidad a varios a la vez (por correo, con el texto sugerido). */
+export const ProposeBulkSchema = z.object({
+  items: z
+    .array(z.object({ customerId: z.string().uuid(), kind: OpportunityKindEnum }))
+    .min(1)
+    .max(100),
+  followupInDays: z.number().int().min(0).max(60).default(7),
+});
+export type ProposeBulkInput = z.infer<typeof ProposeBulkSchema>;
+
+export interface ProposeBulkResultDto {
+  sent: number;
+  skipped: { customerId: string; kind: OpportunityKind; reason: string }[];
+}
+
+export interface OpportunityResultRowDto {
+  proposed: number;
+  seen: number;
+  interested: number;
+  accepted: number;
+  declined: number;
+  /** Ingreso mensual (sin IVA) de las aceptadas. */
+  monthlyValue: number;
+}
+
+export interface OpportunityResultsDto {
+  days: number;
+  totals: OpportunityResultRowDto;
+  byKind: Record<OpportunityKind, OpportunityResultRowDto>;
+}
+
+export interface OpportunityInterestedCountDto {
+  interested: number;
+}

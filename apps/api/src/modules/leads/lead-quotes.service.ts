@@ -8,12 +8,14 @@ import { ConfigService } from '@nestjs/config';
 import {
   type LeadQuoteDto,
   type LeadQuoteInput,
+  type LeadQuoteRecordDto,
   type SendLeadQuoteInput,
   type SendLeadQuoteResultDto,
 } from '@storageos/shared';
 
 import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
-import { formatEur } from '../../common/format';
+import { formatEur, todayInTimezone } from '../../common/format';
+import { leadReplyAddress } from '../../common/lead-reply-address';
 import { leadScopeWhere } from '../../common/lead-scope';
 import { AuditService, type AuditEntry } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -22,6 +24,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const DAY = 86_400_000;
 
 /**
  * Presupuesto a un contacto: el staff elige local, tamaño, meses del primer
@@ -192,7 +195,127 @@ export class LeadQuotesService {
       bookUrl,
       subject: `Tu presupuesto de trastero en ${unit.facility.name}`,
       body,
+      whatsappText: `Hola${name ? ` ${name}` : ''}: tu presupuesto para ${unit.unitType.name} en ${unit.facility.name}: ${formatEur(quote.totalToPay)} al reservar${months > 1 ? ` (${months} meses)` : ''}${
+        months > 1 ? ` y después ${formatEur(monthlyWithVat)} al mes` : ''
+      }. Puedes reservarlo aquí: ${bookUrl}`,
     };
+  }
+
+  /** Los presupuestos que se le han enviado, del más reciente al más antiguo. */
+  async list(
+    tenantId: string,
+    leadId: string,
+    scope?: FacilityScope,
+  ): Promise<LeadQuoteRecordDto[]> {
+    const rows = await this.prisma.withTenant(async (tx) => {
+      const lead = await tx.lead.findFirst({
+        where: { id: leadId, deletedAt: null, ...leadScopeWhere(scope) },
+        select: { id: true },
+      });
+      if (!lead) {
+        throw new NotFoundException({ code: 'lead_not_found', message: 'Contacto no encontrado' });
+      }
+      return tx.leadQuote.findMany({
+        where: { leadId },
+        orderBy: { sentAt: 'desc' },
+        take: 50,
+        include: {
+          facility: { select: { name: true } },
+          unitType: { select: { name: true } },
+          sentBy: { select: { fullName: true } },
+        },
+      });
+    }, tenantId);
+    return rows.map((r) => ({
+      id: r.id,
+      sentAt: r.sentAt.toISOString(),
+      channel: r.channel as 'email' | 'whatsapp',
+      facilityName: r.facility?.name ?? null,
+      unitTypeName: r.unitType?.name ?? null,
+      months: r.months,
+      couponCode: r.couponCode,
+      totalToPay: Number(r.totalToPay),
+      monthlyWithVat: Number(r.monthlyWithVat),
+      bookUrl: r.bookUrl,
+      sentByName: r.sentBy?.fullName ?? null,
+      reminderSentAt: r.reminderSentAt?.toISOString() ?? null,
+      bookedAt: r.bookedAt?.toISOString() ?? null,
+    }));
+  }
+
+  /**
+   * Recordatorio a los N días de un presupuesto por correo que no ha reservado
+   * (cada negocio elige N; 0 = no). Una vez por presupuesto.
+   */
+  async sendReminders(now: Date = new Date()): Promise<number> {
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ['active', 'trial'] },
+        leadQuoteReminderDays: { gt: 0 },
+      },
+      select: { id: true, name: true, leadQuoteReminderDays: true },
+    });
+    let sent = 0;
+    for (const t of tenants) {
+      const due = await this.admin.leadQuote.findMany({
+        where: {
+          tenantId: t.id,
+          channel: 'email',
+          reminderSentAt: null,
+          bookedAt: null,
+          sentAt: { lte: new Date(now.getTime() - t.leadQuoteReminderDays * DAY) },
+          lead: {
+            deletedAt: null,
+            status: { in: ['new', 'contacted', 'qualified'] },
+            email: { not: null },
+            marketingOptOutAt: null,
+            bookedAt: null,
+          },
+        },
+        include: {
+          lead: {
+            select: { id: true, firstName: true, lastName: true, companyName: true, email: true },
+          },
+          facility: { select: { name: true } },
+          unitType: { select: { name: true } },
+        },
+        take: 100,
+      });
+      for (const q of due) {
+        // Solo el más reciente de cada contacto (si mandaron dos, recordar uno).
+        const newer = await this.admin.leadQuote.count({
+          where: { leadId: q.leadId, sentAt: { gt: q.sentAt } },
+        });
+        const { count } = await this.admin.leadQuote.updateMany({
+          where: { id: q.id, reminderSentAt: null },
+          data: { reminderSentAt: now },
+        });
+        if (count === 0 || newer > 0) continue;
+        const name = q.lead.firstName ?? q.lead.companyName ?? '';
+        const replyTo = await leadReplyAddress(
+          this.admin,
+          this.config.get<string>('INBOUND_EMAIL_DOMAIN'),
+          q.leadId,
+        );
+        await this.communications
+          .enqueue({
+            tenantId: t.id,
+            channel: 'email',
+            recipient: q.lead.email!,
+            subject: `¿Te ayudamos con tu trastero${q.facility ? ` en ${q.facility.name}` : ''}?`,
+            bodyText: `Hola${name ? ` ${name}` : ''}:\n\nHace unos días te mandamos un presupuesto${
+              q.unitType ? ` para ${q.unitType.name}` : ''
+            }${q.facility ? ` en ${q.facility.name}` : ''}: ${formatEur(Number(q.totalToPay))} al reservar.\n\nSi sigues buscando trastero, puedes reservarlo en un par de minutos aquí:\n${q.bookUrl}\n\nY si tienes cualquier duda, responde a este correo.\n\n${t.name}`,
+            leadId: q.leadId,
+            source: 'lead.quote_reminder',
+            ...(replyTo ? { replyTo } : {}),
+          })
+          .catch(() => undefined);
+        sent += 1;
+      }
+    }
+    return sent;
   }
 
   async send(
@@ -207,42 +330,98 @@ export class LeadQuotesService {
       (tx) =>
         tx.lead.findFirst({
           where: { id: leadId, deletedAt: null, ...leadScopeWhere(scope) },
-          select: { id: true, email: true, status: true, contactedAt: true },
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            status: true,
+            contactedAt: true,
+            firstName: true,
+            lastName: true,
+            companyName: true,
+          },
         }),
       tenantId,
     );
     if (!lead)
       throw new NotFoundException({ code: 'lead_not_found', message: 'Contacto no encontrado' });
-    if (!lead.email) {
+    const byEmail = input.channel !== 'whatsapp';
+    if (byEmail && !lead.email) {
       throw new BadRequestException({
         code: 'lead_without_email',
         message: 'Este contacto no tiene email',
       });
     }
     const draft = await this.preview(tenantId, leadId, input, scope);
-    await this.communications.enqueue({
-      tenantId,
-      channel: 'email',
-      recipient: lead.email,
-      subject: input.subject ?? draft.subject,
-      bodyText: input.body ?? draft.body,
-      leadId,
-      source: 'lead.quote',
-    });
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.lead.update({
-          where: { id: leadId },
+    if (byEmail) {
+      const replyTo = await leadReplyAddress(
+        this.admin,
+        this.config.get<string>('INBOUND_EMAIL_DOMAIN'),
+        leadId,
+      );
+      await this.communications.enqueue({
+        tenantId,
+        channel: 'email',
+        recipient: lead.email!,
+        subject: input.subject ?? draft.subject,
+        bodyText: input.body ?? draft.body,
+        leadId,
+        source: 'lead.quote',
+        ...(replyTo ? { replyTo } : {}),
+      });
+    }
+    const followupId = await this.prisma.withTenant(async (tx) => {
+      await tx.lead.update({
+        where: { id: leadId },
+        data: {
+          preferredFacilityId: input.facilityId,
+          preferredUnitTypeId: input.unitTypeId,
+          returnedAt: null,
+          // Lo ha tomado una persona: se acaba la secuencia automática.
+          nurtureStep: 3,
+          ...(lead.contactedAt ? {} : { contactedAt: new Date() }),
+          ...(lead.status === 'new' ? { status: 'contacted' } : {}),
+        },
+      });
+      await tx.leadQuote.create({
+        data: {
+          tenantId,
+          leadId,
+          facilityId: input.facilityId,
+          unitTypeId: input.unitTypeId,
+          months: draft.quote.months,
+          couponCode: draft.quote.coupon?.valid ? draft.quote.coupon.code : null,
+          totalToPay: draft.quote.totalToPay,
+          monthlyWithVat: draft.monthlyWithVat,
+          bookUrl: draft.bookUrl,
+          channel: byEmail ? 'email' : 'whatsapp',
+          sentByUserId: userId,
+        },
+      });
+      // Seguimiento para llamarle si no reserva.
+      if (input.followupInDays > 0) {
+        const tz = await this.admin.tenant.findUnique({
+          where: { id: tenantId },
+          select: { timezone: true },
+        });
+        const due = todayInTimezone(tz?.timezone ?? 'Europe/Madrid');
+        due.setUTCDate(due.getUTCDate() + input.followupInDays);
+        const f = await tx.leadFollowup.create({
           data: {
-            preferredFacilityId: input.facilityId,
-            preferredUnitTypeId: input.unitTypeId,
-            returnedAt: null,
-            ...(lead.contactedAt ? {} : { contactedAt: new Date() }),
-            ...(lead.status === 'new' ? { status: 'contacted' } : {}),
+            tenantId,
+            leadId,
+            userId,
+            assignedToUserId: userId,
+            title: 'Llamar: ¿ha visto el presupuesto?',
+            note: `${draft.unitTypeName} en ${draft.facilityName}: ${formatEur(draft.quote.totalToPay)}.`,
+            dueDate: due,
           },
-        }),
-      tenantId,
-    );
+          select: { id: true },
+        });
+        return f.id;
+      }
+      return null;
+    }, tenantId);
     await this.audit.write({
       tenantId,
       userId,
@@ -254,12 +433,17 @@ export class LeadQuotesService {
         unitTypeId: input.unitTypeId,
         months: draft.quote.months,
         total: draft.quote.totalToPay,
+        channel: byEmail ? 'email' : 'whatsapp',
         ...(draft.quote.coupon?.valid ? { coupon: draft.quote.coupon.code } : {}),
       },
       ...(meta.ipAddress ? { ipAddress: meta.ipAddress } : {}),
       ...(meta.userAgent ? { userAgent: meta.userAgent } : {}),
     });
-    return { sentTo: lead.email };
+    return {
+      sentTo: byEmail ? lead.email! : '',
+      whatsappText: byEmail ? null : draft.whatsappText,
+      followupId,
+    };
   }
 
   private bookUrl(

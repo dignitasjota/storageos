@@ -518,13 +518,27 @@ export const CreateCustomerFollowupSchema = z.object({
   note: z.string().trim().max(2000).optional(),
   /** Fecha de vencimiento (YYYY-MM-DD). */
   dueDate: calendarDate,
+  /** Responsable (si no, quien lo crea). */
+  assignedToUserId: z.string().uuid().optional(),
 });
 export type CreateCustomerFollowupInput = z.infer<typeof CreateCustomerFollowupSchema>;
 
 export const FollowupStatusEnum = z.enum(['pending', 'done']);
 export type FollowupStatusValue = z.infer<typeof FollowupStatusEnum>;
 
-export const UpdateCustomerFollowupSchema = z.object({ status: FollowupStatusEnum });
+/** Igual que el de los contactos: hecho (con resultado), reabrir, posponer, editar, responsable. */
+export const UpdateCustomerFollowupSchema = z
+  .object({
+    status: FollowupStatusEnum.optional(),
+    outcome: z.string().trim().max(2000).optional(),
+    dueDate: calendarDate.optional(),
+    title: z.string().trim().min(2).max(200).optional(),
+    note: z.string().trim().max(2000).nullable().optional(),
+    assignedToUserId: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
 export type UpdateCustomerFollowupInput = z.infer<typeof UpdateCustomerFollowupSchema>;
 
 /** Cuerpo del webhook de email entrante (correo del inquilino ya parseado). */

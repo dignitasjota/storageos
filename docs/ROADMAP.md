@@ -1125,3 +1125,14 @@ Arreglado:
 - **Oportunidades**: motivo de impago, inquilino de prueba, propuestas dobles, WhatsApp registrado, «Trastero más grande» y «Me interesa» con seguimiento.
 
 Decisiones de Jota: las siete recomendaciones del análisis (alcance como Analítica, ganado al firmar, primer origen, aviso al volver a escribir, WhatsApp de una persona cuenta, borrar datos y retención de 12 meses, seguimientos cancelados al cerrar).
+
+### Leads, Seguimientos y Oportunidades: mejoras (2026-11-15, PR B)
+
+- **Leads**: filtros (origen, local, responsable, fecha), totales y valor por columna, vista de lista, CSV, informe del embudo e importación desde CSV o Excel.
+- **Ficha del contacto**: cronología completa, visitas al local (calendario, recordatorio y seguimiento al venir), historial de presupuestos, presupuesto por WhatsApp con seguimiento y recordatorio automático, «Hacerle el contrato» y «Lista de espera».
+- **Respuestas por correo** de los contactos a su ficha.
+- **Correos automáticos** opcionales a los contactos de la web (precios, a los 2 y a los 7 días) y plazo de «sin atender» en horario de atención.
+- **Seguimientos**: bandeja única con pestañas, «Solo los míos», responsable, posponer, editar, resultado al hacerlo y el siguiente, y número en el menú.
+- **Oportunidades**: seis tipos nuevos (renovar, pago anual, completar datos, reseña en Google, recomendar, trastero más pequeño), posponer o descartar, «Me interesa» primero con número en el menú, envío en bloque, resultados, filtro por local, buscador y CSV.
+
+Fuera de esta PR: la secuencia automática por WhatsApp (necesita plantillas aprobadas por Meta) y que el inquilino contrate el pago anual desde su área de clientes (hoy lo prepara el equipo).

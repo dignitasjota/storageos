@@ -1028,6 +1028,10 @@ Extra `local_seo` (solo de venta aparte). Tablas de tenant con RLS.
 - `lead_followups` (RLS): recordatorios con fecha de un contacto (`pending`/`done`). `lead_activities` (RLS): llamadas, visitas y notas.
 - `leads.unattended_notified_at`; `tenants.lead_response_hours` (4) y `lead_auto_assign` (`off`|`round_robin`|`facility`).
 - `leads.booked_at` (reserva online hecha desde el contacto; se gana al firmar) y `leads.returned_at` (volvió a escribir y nadie le ha atendido); `tenants.lead_retention_months` (12: los perdidos sin actividad se anonimizan después); `customer_offers.metadata` (lo propuesto: `contractIds`, `contractId`, `channel`); los seguimientos de contactos e inquilinos admiten `status = 'cancelled'` (2026-11-15, migración `20270124100000_leads_review`).
+- `leads.reply_token` (dirección propia para que las respuestas por correo vuelvan a la ficha), `nurture_step` y `nurture_last_at` (secuencia automática de correos; 3 = terminada o cortada); `tenants.lead_nurture_enabled`, `lead_use_business_hours` y `lead_quote_reminder_days` (3); `lead_followups` y `customer_followups` ganan `assigned_to_user_id` y `outcome` (2026-11-15, migración `20270125100000_leads_features`).
+- `lead_quotes` (RLS): cada presupuesto enviado a un contacto (canal `email`|`whatsapp`, local, tamaño, meses, cupón, total, cuota con IVA, enlace, quién, `reminder_sent_at`, `booked_at`).
+- `lead_visits` (RLS): visitas al local (`scheduled`|`done`|`no_show`|`cancelled`, fecha y hora, local, responsable, `reminder_sent_at`).
+- `opportunity_dismissals` (RLS, único por inquilino y tipo): oportunidades pospuestas (`until`) o descartadas para siempre (`until` null), con motivo y quién.
 - `campaign_links` (RLS, único por campaña y posición) y `campaign_clicks` (RLS, único por enlace y destinatario `c:<id>`/`l:<id>`).
 - `campaign_templates` (RLS): asunto y mensaje reutilizables.
 - `reviews.google_requested_at`.

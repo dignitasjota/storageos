@@ -8,7 +8,7 @@ const ANON = '*** ANONIMIZADO ***';
  * Borra los datos personales de unos contactos (derecho al olvido o contactos
  * perdidos que se guardaron más de la cuenta). Quedan como fila sin datos, para
  * que los recuentos de captación no cambien: sin nombre, email, teléfono ni
- * mensajes; sin actividad, sin seguimientos y con sus correos, WhatsApp y chat
+ * mensajes; sin actividad, seguimientos, visitas ni presupuestos, y con sus correos, WhatsApp y chat
  * de la web vaciados. Devuelve las claves de los archivos de WhatsApp a borrar.
  */
 export async function anonymizeLeadsTx(
@@ -18,6 +18,9 @@ export async function anonymizeLeadsTx(
   if (leadIds.length === 0) return { count: 0, mediaKeys: [] };
   await tx.leadActivity.deleteMany({ where: { leadId: { in: leadIds } } });
   await tx.leadFollowup.deleteMany({ where: { leadId: { in: leadIds } } });
+  // Las visitas llevan notas libres; los presupuestos, a quién se mandaron.
+  await tx.leadVisit.deleteMany({ where: { leadId: { in: leadIds } } });
+  await tx.leadQuote.deleteMany({ where: { leadId: { in: leadIds } } });
   await tx.communication.updateMany({
     where: { leadId: { in: leadIds } },
     data: {
@@ -54,6 +57,8 @@ export async function anonymizeLeadsTx(
       metadata: { anonymized: true },
       marketingConsentAt: null,
       returnedAt: null,
+      replyToken: null,
+      nurtureStep: 3,
       deletedAt: new Date(),
     },
   });

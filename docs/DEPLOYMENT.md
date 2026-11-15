@@ -2401,3 +2401,48 @@ Sin variables nuevas. Cron nuevo `leads.retention` (04:40, en el API).
   - el pase nocturno no suma al potencial mensual;
   - «Me interesa» crea un seguimiento para quien la propuso.
 - **Errores 500**: se acabaron los de filtros y fechas imposibles (también en el formulario público), y los datos de otra empresa se rechazan.
+
+## 139. Leads, Seguimientos y Oportunidades: mejoras (2026-11-15)
+
+Migración `20270125100000_leads_features` (se aplica sola):
+
+- en `leads`: `reply_token`, `nurture_step` y `nurture_last_at`;
+- en `tenants`: `lead_nurture_enabled` (apagado), `lead_use_business_hours` (apagado) y `lead_quote_reminder_days` (3);
+- en `lead_followups` y `customer_followups`: `assigned_to_user_id` y `outcome`;
+- tablas nuevas `lead_quotes`, `lead_visits` y `opportunity_dismissals`, con RLS.
+
+Sin variables nuevas. Las respuestas por correo de los contactos usan el mismo `INBOUND_EMAIL_DOMAIN` que la mensajería (§100); sin él, responden al correo del negocio como hasta ahora. Cron nuevo `leads.automations` (cada hora, minuto 25, en el API): correos automáticos, recordatorio de presupuestos y recordatorio de visitas. Cada envío se reserva, así que varias réplicas no lo duplican.
+
+**Qué cambia para el negocio**
+
+- **Leads**:
+  - filtros por origen, local, responsable y fecha de llegada, buscador, vista de lista y CSV;
+  - cada columna dice cuántos contactos tiene y cuánto sumarían al mes;
+  - **Informe** (`/leads/report`): de los que llegaron en el periodo, cuántos se atendieron, se cualificaron y se ganaron, por origen, responsable y local;
+  - **Importar** contactos desde CSV o Excel (`/leads/import`). Los importados no reciben correos automáticos ni se reparten.
+- **Ficha del contacto**:
+  - **cronología** con todo lo que ha pasado: correos con su entrega, respuestas, WhatsApp, chat de la web, actividad, presupuestos, visitas, seguimientos y cambios de fase;
+  - **visitas al local**: salen en el calendario, el contacto recibe un recordatorio el día antes y, al marcar «Vino», queda un seguimiento para el día siguiente;
+  - **presupuestos**:
+    - historial de los enviados;
+    - se pueden mandar por WhatsApp desde el móvil (queda registrado);
+    - crean un seguimiento para llamarle;
+    - opcionalmente, recordatorio por correo a los N días si no reserva;
+  - «Hacerle el contrato» (lo pasa a inquilino y abre el asistente con su local y tamaño) y «Lista de espera».
+- **Respuestas por correo**: lo que un contacto contesta a nuestros correos vuelve a su ficha y avisa a su responsable.
+- **Correos automáticos** (opcional, Leads → Atención): a los contactos de la web, los tamaños y precios al llegar, «¿te ayudamos?» a los 2 días y el último a los 7. Se paran en cuanto alguien del equipo le atiende, reserva o se da de baja; el 2.º y el 3.º solo a quien aceptó recibir ofertas.
+- **Horario de atención** (opcional): el plazo de «sin atender» solo corre en el horario de Configuración → Mensajes.
+- **Seguimientos**:
+  - bandeja única de inquilinos y contactos, con pestañas Hoy, Atrasados, Próximos y Hechos y «Solo los míos»;
+  - responsable, posponer, editar y crear desde la bandeja;
+  - al marcarlo hecho se anota qué pasó (queda en la ficha) y se puede dejar el siguiente;
+  - número en el menú con los de hoy y los atrasados.
+- **Oportunidades**:
+  - tipos nuevos: renovar (contratos que terminan en 60 días sin renovación automática), pagar el año por adelantado, completar sus datos, reseña en Google (a quien puntuó 9 o 10), recomendar y un trastero más pequeño para quien ha pedido la baja;
+  - posponer 30 o 90 días o no volver a sugerir, y recuperarlas;
+  - primero quien dijo «Me interesa», con número en el menú;
+  - proponer a varios a la vez por correo;
+  - **Resultados**: cuántas se propusieron, se vieron y se contrataron, y el ingreso nuevo;
+  - filtro por local, buscador y CSV.
+
+**Tras desplegar**: revisar en Leads → Atención si se quieren los correos automáticos y el plazo del recordatorio de presupuestos (3 días por defecto).

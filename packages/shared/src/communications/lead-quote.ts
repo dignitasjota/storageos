@@ -15,6 +15,10 @@ export type LeadQuoteInput = z.infer<typeof LeadQuoteSchema>;
 export const SendLeadQuoteSchema = LeadQuoteSchema.extend({
   subject: z.string().trim().min(3).max(200).optional(),
   body: z.string().trim().min(10).max(5000).optional(),
+  /** Seguimiento para llamarle a los N días (0 = sin seguimiento). */
+  followupInDays: z.number().int().min(0).max(30).default(3),
+  /** `whatsapp`: el equipo lo manda desde su móvil; solo se registra. */
+  channel: z.enum(['email', 'whatsapp']).default('email'),
 });
 export type SendLeadQuoteInput = z.infer<typeof SendLeadQuoteSchema>;
 
@@ -31,8 +35,14 @@ export interface LeadQuoteDto {
   bookUrl: string;
   subject: string;
   body: string;
+  /** Texto corto para mandarlo por WhatsApp desde el móvil. */
+  whatsappText: string;
 }
 
 export interface SendLeadQuoteResultDto {
+  /** Email al que se envió (vacío si fue por WhatsApp). */
   sentTo: string;
+  /** Texto para WhatsApp (wa.me) cuando se manda desde el móvil. */
+  whatsappText: string | null;
+  followupId: string | null;
 }

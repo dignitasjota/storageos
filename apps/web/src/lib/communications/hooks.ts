@@ -308,7 +308,10 @@ export function useLeadQuotePreview(leadId: string) {
 export function useSendLeadQuote(leadId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: SendLeadQuoteInput) =>
+    mutationFn: (
+      input: Omit<SendLeadQuoteInput, 'followupInDays' | 'channel'> &
+        Partial<Pick<SendLeadQuoteInput, 'followupInDays' | 'channel'>>,
+    ) =>
       apiFetch<SendLeadQuoteResultDto>(`/leads/${leadId}/quote/send`, {
         method: 'POST',
         json: input,
@@ -316,6 +319,7 @@ export function useSendLeadQuote(leadId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['communications'] });
       void qc.invalidateQueries({ queryKey: ['leads'] });
+      void qc.invalidateQueries({ queryKey: ['followups'] });
     },
   });
 }

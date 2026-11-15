@@ -18,6 +18,7 @@ import { ContractsImportService } from './contracts-import.service';
 import { ExpensesImportService } from './expenses-import.service';
 import { resolveImportCsv } from './import-engine';
 import { ImportsService } from './imports.service';
+import { LeadsImportService } from './leads-import.service';
 import { SepaMandatesImportService } from './sepa-mandates-import.service';
 import { UnitsImportService } from './units-import.service';
 
@@ -45,6 +46,7 @@ export class ImportsController {
     private readonly contractsImport: ContractsImportService,
     private readonly sepaMandatesImport: SepaMandatesImportService,
     private readonly expensesImport: ExpensesImportService,
+    private readonly leadsImport: LeadsImportService,
   ) {}
 
   // ----------------------------- Inquilinos --------------------------------
@@ -210,6 +212,37 @@ export class ImportsController {
     return this.expensesImport.commit({
       tenantId: user.tenantId,
       userId: user.sub,
+      csv,
+      onDuplicate: body.onDuplicate,
+    });
+  }
+
+  // ---------------------------- Contactos ---------------------------------
+
+  @Get('leads/template')
+  leadsTemplate(): { csv: string } {
+    return { csv: this.leadsImport.template() };
+  }
+
+  @RequirePermission('imports:manage', 'leads:write')
+  @Post('leads/preview')
+  async previewLeads(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportPreviewBody,
+  ): Promise<ImportPreviewDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.leadsImport.preview(user.tenantId, csv);
+  }
+
+  @RequirePermission('imports:manage', 'leads:write')
+  @Post('leads/commit')
+  async commitLeads(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ImportCommitBody,
+  ): Promise<ImportCommitDto> {
+    const csv = await resolveImportCsv(body.csv, body.format as ImportFormat);
+    return this.leadsImport.commit({
+      tenantId: user.tenantId,
       csv,
       onDuplicate: body.onDuplicate,
     });

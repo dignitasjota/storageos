@@ -108,7 +108,13 @@ export class LeadCrmController {
     @Param('followupId', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateLeadFollowupDto,
   ): Promise<LeadFollowupDto> {
-    return this.crm.setFollowupStatus(user.tenantId, id, input, user.facilityScope ?? null);
+    return this.crm.setFollowupStatus(
+      user.tenantId,
+      id,
+      input,
+      user.facilityScope ?? null,
+      user.sub,
+    );
   }
 
   @Delete('followups/:followupId')

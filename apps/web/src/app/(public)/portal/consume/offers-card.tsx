@@ -22,6 +22,12 @@ export const OFFER_TAB: Record<OpportunityKind, string> = {
   additional_unit: 'nuevo',
   night_pass: 'accesos',
   autopay: 'facturas',
+  annual_prepay: 'facturas',
+  renewal: 'contratos',
+  incomplete_data: 'datos',
+  google_review: 'inicio',
+  referral: 'datos',
+  smaller_unit: 'cambio',
 };
 
 /**
@@ -101,9 +107,17 @@ export function OffersCard({
             </div>
             <p className="text-muted-foreground">{o.message}</p>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => onNavigate(OFFER_TAB[o.kind])}>
-                {t(`cta.${o.kind}`)}
-              </Button>
+              {o.url ? (
+                <Button size="sm" asChild>
+                  <a href={o.url} target="_blank" rel="noopener noreferrer">
+                    {t(`cta.${o.kind}`)}
+                  </a>
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => onNavigate(OFFER_TAB[o.kind])}>
+                  {t(`cta.${o.kind}`)}
+                </Button>
+              )}
               {o.status === 'interested' ? (
                 <span className="self-center text-xs text-emerald-700 dark:text-emerald-400">
                   {t('interestedBadge')}

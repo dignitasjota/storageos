@@ -536,6 +536,9 @@ model Tenant {
   /// Horas sin atender un contacto nuevo antes de avisar al equipo.
   leadResponseHours            Int                   @default(4) @map("lead_response_hours")
   leadRetentionMonths          Int                   @default(12) @map("lead_retention_months")
+  leadNurtureEnabled           Boolean               @default(false) @map("lead_nurture_enabled")
+  leadUseBusinessHours         Boolean               @default(false) @map("lead_use_business_hours")
+  leadQuoteReminderDays        Int                   @default(3) @map("lead_quote_reminder_days")
   /// Reparto automático de contactos nuevos: off | round_robin | facility.
   leadAutoAssign               String                @default("off") @map("lead_auto_assign")
   deletedAt                    DateTime?             @map("deleted_at") @db.Timestamptz(6)
@@ -719,6 +722,9 @@ model Tenant {
   winbackSends            WinbackSend[]
   leadFollowups           LeadFollowup[]
   leadActivities          LeadActivity[]
+  leadQuotes              LeadQuote[]
+  leadVisits              LeadVisit[]
+  opportunityDismissals   OpportunityDismissal[]
   productStockMovements   ProductStockMovement[]
   facilityDocuments       FacilityDocument[]
   campaignLinks           CampaignLink[]
@@ -867,6 +873,12 @@ model User {
   customerFollowups        CustomerFollowup[]        @relation("CustomerFollowupAuthor")
   leadFollowups            LeadFollowup[]            @relation("LeadFollowupAuthor")
   leadActivities           LeadActivity[]            @relation("LeadActivityAuthor")
+  leadFollowupsAssigned    LeadFollowup[]            @relation("LeadFollowupAssignee")
+  customerFollowupsAssigned CustomerFollowup[]       @relation("CustomerFollowupAssignee")
+  leadQuotesSent           LeadQuote[]               @relation("LeadQuoteSender")
+  leadVisits               LeadVisit[]               @relation("LeadVisitUser")
+  leadVisitsCreated        LeadVisit[]               @relation("LeadVisitCreator")
+  opportunityDismissals    OpportunityDismissal[]    @relation("OpportunityDismissalAuthor")
   stockMovements           ProductStockMovement[]    @relation("ProductStockMovementUser")
   facilityDocuments        FacilityDocument[]        @relation("FacilityDocumentUploader")
   paymentPlansCreated      PaymentPlan[]             @relation("PaymentPlanAuthor")
@@ -1268,6 +1280,8 @@ model Facility {
   waitlistEntries      WaitlistEntry[]
   competitorFacilities CompetitorFacility[]
   leadsPreferred       Lead[]               @relation("LeadPreferredFacility")
+  leadQuotes           LeadQuote[]
+  leadVisits           LeadVisit[]
   tasks                Task[]               @relation("TaskFacility")
   maintenancePlans     MaintenancePlan[]
   incidents            Incident[]           @relation("IncidentFacility")
@@ -1348,6 +1362,7 @@ model UnitType {
   unitRequests    UnitRequest[]
   waitlistEntries WaitlistEntry[]
   leadsPreferred  Lead[]          @relation("LeadPreferredUnitType")
+  leadQuotes      LeadQuote[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1611,6 +1626,7 @@ model Customer {
   couponRedemptions CouponRedemption[]
 
   offers                 CustomerOffer[]
+  opportunityDismissals  OpportunityDismissal[]
   messageReads         CustomerMessageRead[]
   legalDocAcceptances LegalDocAcceptance[]
   conversation      CustomerConversation?
@@ -3772,6 +3788,11 @@ model Lead {
   bookedAt                DateTime?  @map("booked_at") @db.Timestamptz(6)
   /// Volvió a escribir y nadie le ha atendido aún.
   returnedAt              DateTime?  @map("returned_at") @db.Timestamptz(6)
+  /// Dirección de respuesta propia (`l-<token>@…`): lo que conteste vuelve a su ficha.
+  replyToken              String?    @unique @map("reply_token")
+  /// Secuencia automática de correos a contactos nuevos: paso enviado (0-3).
+  nurtureStep             Int        @default(0) @map("nurture_step")
+  nurtureLastAt           DateTime?  @map("nurture_last_at") @db.Timestamptz(6)
   convertedCustomerId     String?    @map("converted_customer_id") @db.Uuid
   convertedContractId     String?    @map("converted_contract_id") @db.Uuid
   convertedReservationId  String?    @map("converted_reservation_id") @db.Uuid
@@ -3791,6 +3812,8 @@ model Lead {
   webChatConversations WebChatConversation[]
   followups            LeadFollowup[]
   activities           LeadActivity[]
+  quotes               LeadQuote[]
+  visits               LeadVisit[]
 
   @@index([tenantId])
   @@index([tenantId, status])
@@ -3809,6 +3832,10 @@ model LeadFollowup {
   dueDate     DateTime  @map("due_date") @db.Date
   /// "pending" | "done" | "cancelled".
   status      String    @default("pending")
+  /// Responsable (si no, quien lo creó).
+  assignedToUserId String? @map("assigned_to_user_id") @db.Uuid
+  /// Qué pasó al hacerlo.
+  outcome     String?
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -3816,6 +3843,7 @@ model LeadFollowup {
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
   user   User?  @relation("LeadFollowupAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  assignedTo User? @relation("LeadFollowupAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status, dueDate])
   @@index([leadId])
@@ -6435,6 +6463,10 @@ model CustomerFollowup {
   dueDate     DateTime  @map("due_date") @db.Date
   /// "pending" | "done" | "cancelled".
   status      String    @default("pending")
+  /// Responsable (si no, quien lo creó).
+  assignedToUserId String? @map("assigned_to_user_id") @db.Uuid
+  /// Qué pasó al hacerlo.
+  outcome     String?
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -6442,6 +6474,7 @@ model CustomerFollowup {
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   user     User?    @relation("CustomerFollowupAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  assignedTo User?  @relation("CustomerFollowupAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([tenantId, status, dueDate])
@@ -8200,4 +8233,79 @@ model PlatformLeadFollowup {
   @@index([status, dueDate], map: "platform_lead_followups_status_idx")
   @@index([leadId], map: "platform_lead_followups_lead_idx")
   @@map("platform_lead_followups")
+}
+
+/// Presupuesto enviado a un contacto (por correo o por WhatsApp).
+model LeadQuote {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  leadId         String    @map("lead_id") @db.Uuid
+  facilityId     String?   @map("facility_id") @db.Uuid
+  unitTypeId     String?   @map("unit_type_id") @db.Uuid
+  months         Int       @default(1)
+  couponCode     String?   @map("coupon_code")
+  totalToPay     Decimal   @map("total_to_pay") @db.Decimal(10, 2)
+  monthlyWithVat Decimal   @map("monthly_with_vat") @db.Decimal(10, 2)
+  bookUrl        String    @map("book_url")
+  /// email | whatsapp
+  channel        String    @default("email")
+  sentByUserId   String?   @map("sent_by_user_id") @db.Uuid
+  sentAt         DateTime  @default(now()) @map("sent_at") @db.Timestamptz(6)
+  reminderSentAt DateTime? @map("reminder_sent_at") @db.Timestamptz(6)
+  bookedAt       DateTime? @map("booked_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead     Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  facility Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  unitType UnitType? @relation(fields: [unitTypeId], references: [id], onDelete: SetNull)
+  sentBy   User?     @relation("LeadQuoteSender", fields: [sentByUserId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, sentAt(sort: Desc)], map: "lead_quotes_lead_idx")
+  @@map("lead_quotes")
+}
+
+/// Visita al local de un contacto.
+model LeadVisit {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  leadId          String    @map("lead_id") @db.Uuid
+  facilityId      String?   @map("facility_id") @db.Uuid
+  scheduledAt     DateTime  @map("scheduled_at") @db.Timestamptz(6)
+  /// scheduled | done | no_show | cancelled
+  status          String    @default("scheduled")
+  notes           String?
+  userId          String?   @map("user_id") @db.Uuid
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  reminderSentAt  DateTime? @map("reminder_sent_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  facility  Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  user      User?     @relation("LeadVisitUser", fields: [userId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("LeadVisitCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, scheduledAt(sort: Desc)], map: "lead_visits_lead_idx")
+  @@map("lead_visits")
+}
+
+/// Oportunidad descartada o pospuesta (hasta `until`; null = para siempre).
+model OpportunityDismissal {
+  id         String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  customerId String    @map("customer_id") @db.Uuid
+  kind       String
+  until      DateTime? @db.Timestamptz(6)
+  reason     String?
+  userId     String?   @map("user_id") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User?    @relation("OpportunityDismissalAuthor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, customerId, kind], map: "opportunity_dismissals_key")
+  @@map("opportunity_dismissals")
 }

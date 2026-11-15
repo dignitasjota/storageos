@@ -11,16 +11,23 @@ import {
   leadSourceLabel,
 } from '@storageos/shared';
 import {
+  BarChart3,
   Copy,
+  Download,
   Gauge,
+  LayoutGrid,
+  List,
   Loader2,
   MessageSquareReply,
   Pencil,
   Plus,
+  Search,
   Timer,
   Trash2,
+  Upload,
   User,
   UserPlus,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -29,7 +36,10 @@ import { toast } from 'sonner';
 
 import { LeadActivity } from './lead-activity';
 import { LeadConversation } from './lead-conversation';
+import { LeadNextStep } from './lead-next-step';
 import { LeadQuote } from './lead-quote';
+import { LeadTimeline } from './lead-timeline';
+import { LeadVisits } from './lead-visits';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { EmailTypoHint } from '@/components/email-typo-hint';
@@ -65,9 +75,15 @@ import {
   useTransitionLead,
   useUpdateLead,
 } from '@/lib/communications/hooks';
+import { downloadCsv } from '@/lib/csv';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
-import { useDeleteLead } from '@/lib/leads/hooks';
-import { usePagedList } from '@/lib/pagination';
+import {
+  leadFilterQuery,
+  useDeleteLead,
+  useLeadSummary,
+  type LeadBoardFilters,
+} from '@/lib/leads/hooks';
+import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useUsers } from '@/lib/users/hooks';
 
 const COLUMNS: { status: LeadStatusValue; label: string }[] = [
@@ -92,7 +108,13 @@ function LeadsBoard() {
   const convert = useConvertLead();
   const router = useRouter();
   const canWrite = useHasPermission('leads:write');
+  const canImport = useHasPermission('imports:manage');
   const [mine, setMine] = useState(false);
+  const [view, setView] = useState<'board' | 'list'>('board');
+  const [searchInput, search, setSearch] = useDebouncedSearch();
+  const [extra, setExtra] = useState<Omit<LeadBoardFilters, 'mine' | 'search'>>({});
+  const filters: LeadBoardFilters = { mine, search, ...extra };
+  const summary = useLeadSummary(filters);
   const [dragging, setDragging] = useState<LeadDto | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [editing, setEditing] = useState<LeadDto | null>(null);
@@ -147,6 +169,11 @@ function LeadsBoard() {
             <User className="mr-1 h-4 w-4" /> {mine ? 'Solo los míos' : 'Todos'}
           </Button>
           <Button variant="outline" asChild>
+            <Link href="/leads/report">
+              <BarChart3 className="mr-1 h-4 w-4" /> Informe
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/leads/response">
               <Timer className="mr-1 h-4 w-4" /> Atención
             </Link>
@@ -156,6 +183,13 @@ function LeadsBoard() {
               <Copy className="mr-1 h-4 w-4" /> Duplicados
             </Link>
           </Button>
+          {canImport && canWrite && (
+            <Button variant="outline" asChild>
+              <Link href="/leads/import">
+                <Upload className="mr-1 h-4 w-4" /> Importar
+              </Link>
+            </Button>
+          )}
           {canWrite && (
             <Button onClick={() => setNewOpen(true)}>
               <Plus className="mr-1 h-4 w-4" /> Nuevo lead
@@ -164,55 +198,353 @@ function LeadsBoard() {
         </div>
       </div>
 
+      <LeadFilterBar
+        search={searchInput}
+        onSearch={setSearch}
+        value={extra}
+        onChange={setExtra}
+        view={view}
+        onView={setView}
+        onExport={() => void exportCsv(filters)}
+      />
+
       {newOpen && <LeadFormDialog onClose={() => setNewOpen(false)} />}
       {editing && <LeadFormDialog lead={editing} onClose={() => setEditing(null)} />}
       {losing && <LostReasonDialog leadId={losing} onClose={() => setLosing(null)} />}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
-        {COLUMNS.map((col) => (
-          <LeadsColumn
-            key={col.status}
-            status={col.status}
-            label={col.label}
-            mine={mine}
-            canWrite={canWrite}
-            onDrop={() => {
-              if (!dragging) return;
-              const lead = dragging;
-              if (lead.status === col.status) {
-                // Soltado en su misma columna.
-              } else if (
-                col.status !== 'won' &&
-                !LEAD_TRANSITIONS[lead.status].includes(col.status)
-              ) {
-                toast.error(
-                  `No se puede pasar de «${LEAD_STATUS_LABELS[lead.status]}» a «${LEAD_STATUS_LABELS[col.status]}».`,
-                );
-              } else if (col.status === 'lost') {
-                setLosing(lead.id);
-              } else if (col.status === 'won') {
-                // «Ganado» = convertido en cliente.
-                if (!lead.convertedCustomerId) void onConvert(lead);
-              } else {
-                transition.mutate(
-                  { id: lead.id, input: { status: col.status } },
-                  {
-                    onError: (err) =>
-                      toast.error(
-                        err instanceof ApiError ? err.body.message : 'No se pudo mover el lead',
-                      ),
-                  },
-                );
-              }
-              setDragging(null);
-            }}
-            onDragStart={setDragging}
-            onEdit={setEditing}
-            onConvert={(lead) => void onConvert(lead)}
-          />
-        ))}
+      {view === 'list' ? (
+        <LeadsList filters={filters} onEdit={setEditing} />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+          {COLUMNS.map((col) => (
+            <LeadsColumn
+              key={col.status}
+              status={col.status}
+              label={col.label}
+              filters={filters}
+              summary={summary.data?.byStatus[col.status] ?? null}
+              canWrite={canWrite}
+              onDrop={() => {
+                if (!dragging) return;
+                const lead = dragging;
+                if (lead.status === col.status) {
+                  // Soltado en su misma columna.
+                } else if (
+                  col.status !== 'won' &&
+                  !LEAD_TRANSITIONS[lead.status].includes(col.status)
+                ) {
+                  toast.error(
+                    `No se puede pasar de «${LEAD_STATUS_LABELS[lead.status]}» a «${LEAD_STATUS_LABELS[col.status]}».`,
+                  );
+                } else if (col.status === 'lost') {
+                  setLosing(lead.id);
+                } else if (col.status === 'won') {
+                  // «Ganado» = convertido en cliente.
+                  if (!lead.convertedCustomerId) void onConvert(lead);
+                } else {
+                  transition.mutate(
+                    { id: lead.id, input: { status: col.status } },
+                    {
+                      onError: (err) =>
+                        toast.error(
+                          err instanceof ApiError ? err.body.message : 'No se pudo mover el lead',
+                        ),
+                    },
+                  );
+                }
+                setDragging(null);
+              }}
+              onDragStart={setDragging}
+              onEdit={setEditing}
+              onConvert={(lead) => void onConvert(lead)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const NONE_FILTER = '__all';
+/** Dos por fila en el móvil; anchos fijos en escritorio. */
+const FILTER_W = 'w-[calc(50%-0.25rem)] sm:w-44';
+
+/** Origen, local, responsable y fechas de llegada; vista de tablero o lista. */
+function LeadFilterBar({
+  search,
+  onSearch,
+  value,
+  onChange,
+  view,
+  onView,
+  onExport,
+}: {
+  search: string;
+  onSearch: (v: string) => void;
+  value: Omit<LeadBoardFilters, 'mine' | 'search'>;
+  onChange: (v: Omit<LeadBoardFilters, 'mine' | 'search'>) => void;
+  view: 'board' | 'list';
+  onView: (v: 'board' | 'list') => void;
+  onExport: () => void;
+}) {
+  const sources = useLeadSources();
+  const facilities = useFacilities();
+  const users = useUsers();
+  const set = (patch: Partial<typeof value>) => {
+    const next = { ...value, ...patch };
+    for (const k of Object.keys(next) as (keyof typeof next)[]) if (!next[k]) delete next[k];
+    onChange(next);
+  };
+  const active = Object.keys(value).length > 0 || !!search;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative w-full sm:w-56">
+        <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+        <Input
+          className="pl-8"
+          placeholder="Buscar contacto…"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          aria-label="Buscar contactos"
+        />
+      </div>
+      <Select
+        value={value.source ?? ''}
+        onValueChange={(v) => set({ source: v === NONE_FILTER ? undefined : v })}
+      >
+        <SelectTrigger className={FILTER_W} aria-label="Origen">
+          <SelectValue placeholder="Origen" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE_FILTER}>Todos los orígenes</SelectItem>
+          {(sources.data ?? []).map((s) => (
+            <SelectItem key={s.value} value={s.value}>
+              {s.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {(facilities.data?.length ?? 0) > 1 && (
+        <Select
+          value={value.facilityId ?? ''}
+          onValueChange={(v) => set({ facilityId: v === NONE_FILTER ? undefined : v })}
+        >
+          <SelectTrigger className={FILTER_W} aria-label="Local">
+            <SelectValue placeholder="Local" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE_FILTER}>Todos los locales</SelectItem>
+            {(facilities.data ?? []).map((f) => (
+              <SelectItem key={f.id} value={f.id}>
+                {f.name}
+              </SelectItem>
+            ))}
+            <SelectItem value="none">Sin local</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+      <Select
+        value={value.assignedToUserId ?? ''}
+        onValueChange={(v) => set({ assignedToUserId: v === NONE_FILTER ? undefined : v })}
+      >
+        <SelectTrigger className={FILTER_W} aria-label="Responsable">
+          <SelectValue placeholder="Responsable" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE_FILTER}>Todo el equipo</SelectItem>
+          <SelectItem value="none">Sin responsable</SelectItem>
+          {(users.data ?? [])
+            .filter((u) => u.isActive)
+            .map((u) => (
+              <SelectItem key={u.id} value={u.id}>
+                {u.fullName}
+              </SelectItem>
+            ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={value.from ? periodKey(value.from) : ''}
+        onValueChange={(v) => set(periodRange(v))}
+      >
+        <SelectTrigger className={FILTER_W} aria-label="Llegaron">
+          <SelectValue placeholder="Fecha de llegada" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE_FILTER}>Cuando sea</SelectItem>
+          <SelectItem value="7">Últimos 7 días</SelectItem>
+          <SelectItem value="30">Últimos 30 días</SelectItem>
+          <SelectItem value="90">Últimos 90 días</SelectItem>
+          <SelectItem value="365">Último año</SelectItem>
+        </SelectContent>
+      </Select>
+      {active && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            onSearch('');
+            onChange({});
+          }}
+        >
+          <X className="mr-1 size-4" /> Quitar filtros
+        </Button>
+      )}
+      <div className="ml-auto flex gap-1">
+        <Button
+          variant={view === 'board' ? 'secondary' : 'ghost'}
+          size="icon"
+          aria-label="Tablero"
+          title="Tablero"
+          onClick={() => onView('board')}
+        >
+          <LayoutGrid className="size-4" />
+        </Button>
+        <Button
+          variant={view === 'list' ? 'secondary' : 'ghost'}
+          size="icon"
+          aria-label="Lista"
+          title="Lista"
+          onClick={() => onView('list')}
+        >
+          <List className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Descargar CSV"
+          title="Descargar CSV"
+          onClick={onExport}
+        >
+          <Download className="size-4" />
+        </Button>
       </div>
     </div>
+  );
+}
+
+function isoDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Periodo elegido a partir de la fecha «desde» guardada. */
+function periodKey(from: string): string {
+  for (const d of [7, 30, 90, 365]) if (isoDaysAgo(d) === from) return String(d);
+  return NONE_FILTER;
+}
+
+function periodRange(v: string): { from?: string; to?: string } {
+  if (v === NONE_FILTER) return { from: undefined, to: undefined };
+  return { from: isoDaysAgo(Number(v)), to: undefined };
+}
+
+async function exportCsv(filters: LeadBoardFilters) {
+  try {
+    const qs = new URLSearchParams(leadFilterQuery(filters)).toString();
+    const rows = await apiFetch<LeadDto[]>(`/leads${qs ? `?${qs}` : ''}`);
+    downloadCsv(`contactos-${new Date().toISOString().slice(0, 10)}.csv`, [
+      [
+        'Nombre',
+        'Email',
+        'Teléfono',
+        'Fase',
+        'Origen',
+        'Local',
+        'Tamaño',
+        'Responsable',
+        'Presupuesto/mes',
+        'Llegó',
+        'Motivo de pérdida',
+      ],
+      ...rows.map((l) => [
+        l.displayName,
+        l.email ?? '',
+        l.phone ?? '',
+        LEAD_STATUS_LABELS[l.status],
+        leadSourceLabel(l.source),
+        l.preferredFacilityName ?? '',
+        l.preferredUnitTypeName ?? '',
+        l.assignedToName ?? '',
+        l.budgetMonthly ?? '',
+        new Date(l.createdAt).toLocaleDateString('es-ES'),
+        l.lostReasonCode ? LEAD_LOST_REASON_LABELS[l.lostReasonCode] : '',
+      ]),
+    ]);
+  } catch {
+    toast.error('No se ha podido descargar');
+  }
+}
+
+/** Vista de lista: todas las fases juntas, por fecha de última actividad. */
+function LeadsList({
+  filters,
+  onEdit,
+}: {
+  filters: LeadBoardFilters;
+  onEdit: (lead: LeadDto) => void;
+}) {
+  const leads = usePagedList<LeadDto>('leads', '/leads', leadFilterQuery(filters));
+  return (
+    <Card>
+      <CardContent className="p-0">
+        {leads.isLoading ? (
+          <div className="p-6">
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : leads.rows.length === 0 ? (
+          <p className="p-6 text-center text-sm text-muted-foreground">
+            No hay contactos con estos filtros.
+          </p>
+        ) : (
+          <ul className="divide-y">
+            {leads.rows.map((l) => (
+              <li key={l.id}>
+                <button
+                  type="button"
+                  onClick={() => onEdit(l)}
+                  className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-left text-sm hover:bg-muted/50"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{l.displayName}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[l.email, l.phone].filter(Boolean).join(' · ') || '—'}
+                    </span>
+                  </span>
+                  <Badge variant="secondary">{LEAD_STATUS_LABELS[l.status]}</Badge>
+                  <span className="w-28 truncate text-xs text-muted-foreground">
+                    {leadSourceLabel(l.source)}
+                  </span>
+                  <span className="w-32 truncate text-xs text-muted-foreground">
+                    {l.assignedToName ?? 'Sin responsable'}
+                  </span>
+                  <span className="w-20 text-right text-xs tabular-nums text-muted-foreground">
+                    {new Date(l.createdAt).toLocaleDateString('es-ES', {
+                      day: 'numeric',
+                      month: 'short',
+                    })}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {leads.loadMore.hasMore && (
+          <div className="border-t p-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              disabled={leads.loadMore.loading}
+              onClick={leads.loadMore.onLoadMore}
+            >
+              {leads.loadMore.loading ? 'Cargando…' : 'Cargar más'}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -223,7 +555,8 @@ function LeadsBoard() {
 function LeadsColumn({
   status,
   label,
-  mine,
+  filters,
+  summary,
   canWrite,
   onDrop,
   onDragStart,
@@ -232,7 +565,8 @@ function LeadsColumn({
 }: {
   status: LeadStatusValue;
   label: string;
-  mine: boolean;
+  filters: LeadBoardFilters;
+  summary: { count: number; value: number } | null;
   canWrite: boolean;
   onDrop: () => void;
   onDragStart: (lead: LeadDto) => void;
@@ -241,7 +575,7 @@ function LeadsColumn({
 }) {
   const leads = usePagedList<LeadDto>('leads', '/leads', {
     status,
-    ...(mine ? { assignedToUserId: 'me' } : {}),
+    ...leadFilterQuery(filters),
   });
   // Los abiertos, de más a menos probables de alquilar.
   const items =
@@ -261,10 +595,23 @@ function LeadsColumn({
         <CardTitle className="flex items-center justify-between text-sm font-normal text-muted-foreground">
           <span>{label}</span>
           <Badge variant="secondary">
-            {items.length}
-            {leads.loadMore.hasMore ? '+' : ''}
+            {summary ? summary.count : `${items.length}${leads.loadMore.hasMore ? '+' : ''}`}
           </Badge>
         </CardTitle>
+        {summary && summary.value > 0 && status !== 'lost' && (
+          <p
+            className="text-xs text-muted-foreground"
+            title="Lo que sumarían al mes (su presupuesto o el precio del tamaño que buscan)"
+          >
+            ≈{' '}
+            {summary.value.toLocaleString('es-ES', {
+              style: 'currency',
+              currency: 'EUR',
+              maximumFractionDigits: 0,
+            })}
+            /mes
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-2">
         {leads.isLoading ? (
@@ -735,9 +1082,12 @@ function LeadFormDialog({ lead, onClose }: { lead?: LeadDto; onClose: () => void
             </p>
           )}
         </div>
+        {isEdit && lead && <LeadNextStep lead={lead} onDone={onClose} />}
         {isEdit && lead && <LeadQuote lead={lead} />}
+        {isEdit && lead && <LeadVisits lead={lead} />}
         {isEdit && lead && <LeadActivity lead={lead} />}
         {isEdit && lead && <LeadConversation lead={lead} />}
+        {isEdit && lead && <LeadTimeline lead={lead} />}
         <DialogFooter className="gap-2">
           {isEdit && lead && canManage && (
             <Button
