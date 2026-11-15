@@ -6,16 +6,31 @@ import {
 } from '@nestjs/common';
 
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
+import { todayInTimezone } from '../../common/format';
+import {
+  addOpsFile,
+  asJson,
+  opsFileUploadUrl,
+  opsFilesDto,
+  readOpsFiles,
+  removeOpsFile,
+} from '../../common/ops-files';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, Task, TaskComment, TaskStatus, TaskType } from '@storageos/database';
 import type {
+  AddOpsFileInput,
   ChecklistItemDto,
   CreateTaskInput,
+  MessageAttachmentUploadDto,
+  MyTasksCountDto,
+  TaskDueFilter,
   TaskCommentDto,
   TaskCommentInput,
   TaskDto,
@@ -36,6 +51,8 @@ interface ListFilters {
   facilityScope?: string[] | null;
   /** Título de la tarea. */
   search?: string;
+  /** Vista de pendientes: atrasadas, de hoy, de la semana o sin fecha. */
+  due?: TaskDueFilter;
   page?: PageRequest;
 }
 
@@ -43,6 +60,7 @@ type TaskWithIncludes = Task & {
   facility?: { name: string } | null;
   unit?: { code: string } | null;
   assignedTo?: { fullName: string } | null;
+  maintenancePlan?: { estimatedCost: Prisma.Decimal | null; supplierId: string | null } | null;
 };
 
 // Una tarea abierta se puede dar por hecha sin pasar por «En curso»; hecha o
@@ -58,15 +76,108 @@ const TASK_INCLUDE = {
   facility: { select: { name: true } },
   unit: { select: { code: true } },
   assignedTo: { select: { fullName: true } },
+  maintenancePlan: { select: { estimatedCost: true, supplierId: true } },
 } as const;
+
+const DAY = 86_400_000;
+const filePrefix = (tenantId: string, taskId: string) => `${tenantId}/tasks/${taskId}/`;
 
 @Injectable()
 export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly files: FilesService,
   ) {}
+
+  /** Hoy en la zona horaria del negocio (a medianoche UTC). */
+  private async today(tenantId: string): Promise<Date> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    return todayInTimezone(t?.timezone ?? 'Europe/Madrid');
+  }
+
+  private async dueWhere(tenantId: string, due: TaskDueFilter): Promise<Prisma.TaskWhereInput> {
+    if (due === 'none') return { dueDate: null, status: { in: ['open', 'in_progress'] } };
+    const today = await this.today(tenantId);
+    const live = { status: { in: ['open', 'in_progress'] as TaskStatus[] } };
+    if (due === 'overdue') return { ...live, dueDate: { lt: today } };
+    if (due === 'today') return { ...live, dueDate: today };
+    return { ...live, dueDate: { gte: today, lte: new Date(today.getTime() + 7 * DAY) } };
+  }
+
+  /** Mis tareas abiertas o en curso, atrasadas o para hoy (el número del menú). */
+  async myCount(
+    tenantId: string,
+    userId: string,
+    facilityScope?: string[] | null,
+  ): Promise<MyTasksCountDto> {
+    const today = await this.today(tenantId);
+    const facility = optionalFacilityWhere(facilityScope) ?? {};
+    const pending = await this.prisma.withTenant(
+      (tx) =>
+        tx.task.count({
+          where: {
+            deletedAt: null,
+            assignedToUserId: userId,
+            status: { in: ['open', 'in_progress'] },
+            dueDate: { lte: today },
+            ...facility,
+          },
+        }),
+      tenantId,
+    );
+    return { pending };
+  }
+
+  async photoUploadUrl(
+    tenantId: string,
+    taskId: string,
+    mimeType: string,
+    facilityScope?: string[] | null,
+  ): Promise<MessageAttachmentUploadDto> {
+    await this.findOrThrow(tenantId, taskId, facilityScope);
+    return opsFileUploadUrl(this.files, filePrefix(tenantId, taskId), mimeType);
+  }
+
+  async addPhoto(
+    tenantId: string,
+    taskId: string,
+    input: AddOpsFileInput,
+    facilityScope?: string[] | null,
+  ): Promise<TaskDto> {
+    const task = await this.findOrThrow(tenantId, taskId, facilityScope);
+    const photos = await addOpsFile(
+      this.files,
+      filePrefix(tenantId, taskId),
+      readOpsFiles(task.photos),
+      input,
+    );
+    await this.prisma.withTenant(
+      (tx) => tx.task.update({ where: { id: taskId }, data: { photos: asJson(photos) } }),
+      tenantId,
+    );
+    return this.detail(tenantId, taskId, facilityScope);
+  }
+
+  async removePhoto(
+    tenantId: string,
+    taskId: string,
+    fileId: string,
+    facilityScope?: string[] | null,
+  ): Promise<TaskDto> {
+    const task = await this.findOrThrow(tenantId, taskId, facilityScope);
+    const photos = await removeOpsFile(this.files, readOpsFiles(task.photos), fileId);
+    await this.prisma.withTenant(
+      (tx) => tx.task.update({ where: { id: taskId }, data: { photos: asJson(photos) } }),
+      tenantId,
+    );
+    return this.detail(tenantId, taskId, facilityScope);
+  }
 
   /** Aviso a quien se le asigna una tarea (no si se la asigna uno mismo). */
   private async notifyAssignee(
@@ -230,15 +341,12 @@ export class TasksService {
     if (filters.unitId) where.unitId = filters.unitId;
     if (filters.assignedToUserId) where.assignedToUserId = filters.assignedToUserId;
     if (filters.search) where.title = { contains: filters.search, mode: 'insensitive' };
+    if (filters.due) Object.assign(where, await this.dueWhere(tenantId, filters.due));
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.task.findMany({
           where,
-          include: {
-            facility: { select: { name: true } },
-            unit: { select: { code: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: TASK_INCLUDE,
           orderBy: [{ status: 'asc' }, { priority: 'desc' }, { dueDate: 'asc' }, { id: 'asc' }],
           ...(filters.page ? pageArgs(filters.page) : { take: 500 }),
         }),
@@ -248,7 +356,9 @@ export class TasksService {
   }
 
   async detail(tenantId: string, id: string, facilityScope?: string[] | null): Promise<TaskDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+    const row = await this.findOrThrow(tenantId, id, facilityScope);
+    // En la ficha, las fotos con su URL firmada.
+    return { ...this.toDto(row), photos: await opsFilesDto(this.files, readOpsFiles(row.photos)) };
   }
 
   async create(args: {
@@ -277,11 +387,7 @@ export class TasksService {
       (tx) =>
         tx.task.create({
           data,
-          include: {
-            facility: { select: { name: true } },
-            unit: { select: { code: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: TASK_INCLUDE,
         }),
       args.tenantId,
     );
@@ -330,11 +436,7 @@ export class TasksService {
         tx.task.update({
           where: { id: args.id },
           data,
-          include: {
-            facility: { select: { name: true } },
-            unit: { select: { code: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: TASK_INCLUDE,
         }),
       args.tenantId,
     );
@@ -513,11 +615,7 @@ export class TasksService {
       (tx) =>
         tx.task.findFirst({
           where: { id, deletedAt: null },
-          include: {
-            facility: { select: { name: true } },
-            unit: { select: { code: true } },
-            assignedTo: { select: { fullName: true } },
-          },
+          include: TASK_INCLUDE,
         }),
       tenantId,
     );
@@ -563,6 +661,20 @@ export class TasksService {
       createdByUserId: t.createdByUserId,
       maintenancePlanId: t.maintenancePlanId,
       checklist: (t.checklist as ChecklistItemDto[] | null) ?? [],
+      photos: readOpsFiles(t.photos).map((f) => ({
+        id: f.id,
+        filename: f.filename,
+        mimeType: f.mimeType,
+        createdAt: f.createdAt,
+        url: '',
+      })),
+      expenseId:
+        typeof (t.metadata as { expenseId?: unknown } | null)?.expenseId === 'string'
+          ? (t.metadata as { expenseId: string }).expenseId
+          : null,
+      estimatedCost:
+        t.maintenancePlan?.estimatedCost != null ? Number(t.maintenancePlan.estimatedCost) : null,
+      supplierId: t.maintenancePlan?.supplierId ?? null,
       dueDate: t.dueDate?.toISOString().slice(0, 10) ?? null,
       startedAt: t.startedAt?.toISOString() ?? null,
       completedAt: t.completedAt?.toISOString() ?? null,

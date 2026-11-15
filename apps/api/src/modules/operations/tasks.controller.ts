@@ -14,12 +14,18 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  AddOpsFileSchema,
   BulkAssignTasksSchema,
   type BulkAssignTasksResultDto,
   CreateTaskSchema,
   type TaskCommentDto,
   TaskCommentSchema,
   type TaskDto,
+  TaskDueFilterEnum,
+  type TaskDueFilter,
+  type MessageAttachmentUploadDto,
+  type MyTasksCountDto,
+  OpsFileUploadSchema,
   TaskStatusEnum,
   type TaskStatusValue,
   TaskTypeEnum,
@@ -49,6 +55,8 @@ class UpdateTaskDto extends createZodDto(UpdateTaskSchema) {}
 class TransitionTaskDto extends createZodDto(TransitionTaskSchema) {}
 class UpdateChecklistItemDto extends createZodDto(UpdateChecklistItemSchema) {}
 class TaskCommentDto2 extends createZodDto(TaskCommentSchema) {}
+class OpsFileUploadDto extends createZodDto(OpsFileUploadSchema) {}
+class AddOpsFileDto extends createZodDto(AddOpsFileSchema) {}
 
 function extractMeta(req: Request): RequestMeta {
   const ua = req.header('user-agent');
@@ -66,16 +74,19 @@ function listFilters(q: {
   facilityId?: string | undefined;
   unitId?: string | undefined;
   assignedToUserId?: string | undefined;
+  due?: string | undefined;
 }): {
   status?: TaskStatusValue;
   type?: TaskTypeValue;
   facilityId?: string;
   unitId?: string;
   assignedToUserId?: string;
+  due?: TaskDueFilter;
 } {
   const status = q.status ? TaskStatusEnum.safeParse(q.status) : null;
   const type = q.type ? TaskTypeEnum.safeParse(q.type) : null;
-  if ((status && !status.success) || (type && !type.success)) {
+  const due = q.due ? TaskDueFilterEnum.safeParse(q.due) : null;
+  if ((status && !status.success) || (type && !type.success) || (due && !due.success)) {
     throw new BadRequestException({ code: 'invalid_filter', message: 'Filtro no válido' });
   }
   assertUuid(q.facilityId);
@@ -84,6 +95,7 @@ function listFilters(q: {
   return {
     ...(status?.success ? { status: status.data } : {}),
     ...(type?.success ? { type: type.data } : {}),
+    ...(due?.success ? { due: due.data } : {}),
     ...(q.facilityId ? { facilityId: q.facilityId } : {}),
     ...(q.unitId ? { unitId: q.unitId } : {}),
     ...(q.assignedToUserId ? { assignedToUserId: q.assignedToUserId } : {}),
@@ -107,12 +119,13 @@ export class TasksController {
     @Query('search') search?: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Query('due') due?: string,
   ): Promise<PageDto<TaskDto>> {
     const page = parsePageRequest(cursor, limit);
     const rows = await this.service.list(user.tenantId, {
       ...(search ? { search } : {}),
       page,
-      ...listFilters({ status, type, facilityId, unitId, assignedToUserId }),
+      ...listFilters({ status, type, facilityId, unitId, assignedToUserId, due }),
       facilityScope: user.facilityScope ?? null,
     });
     return toPage(rows, page);
@@ -127,11 +140,55 @@ export class TasksController {
     @Query('facilityId') facilityId?: string,
     @Query('unitId') unitId?: string,
     @Query('assignedToUserId') assignedToUserId?: string,
+    @Query('due') due?: string,
   ): Promise<TaskDto[]> {
     return this.service.list(user.tenantId, {
-      ...listFilters({ status, type, facilityId, unitId, assignedToUserId }),
+      ...listFilters({ status, type, facilityId, unitId, assignedToUserId, due }),
       facilityScope: user.facilityScope ?? null,
     });
+  }
+
+  /** Mis tareas atrasadas o para hoy (el número del menú). Antes de `:id`. */
+  @Get('mine-count')
+  @RequirePermission('tasks:read')
+  mineCount(@CurrentUser() user: AuthenticatedUser): Promise<MyTasksCountDto> {
+    return this.service.myCount(user.tenantId, user.sub, user.facilityScope ?? null);
+  }
+
+  @Post(':id/photos/upload-url')
+  @RequirePermission('tasks:write')
+  @HttpCode(HttpStatus.OK)
+  photoUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: OpsFileUploadDto,
+  ): Promise<MessageAttachmentUploadDto> {
+    return this.service.photoUploadUrl(
+      user.tenantId,
+      id,
+      body.mimeType,
+      user.facilityScope ?? null,
+    );
+  }
+
+  @Post(':id/photos')
+  @RequirePermission('tasks:write')
+  addPhoto(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AddOpsFileDto,
+  ): Promise<TaskDto> {
+    return this.service.addPhoto(user.tenantId, id, body, user.facilityScope ?? null);
+  }
+
+  @Delete(':id/photos/:fileId')
+  @RequirePermission('tasks:write')
+  removePhoto(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('fileId', new ParseUUIDPipe()) fileId: string,
+  ): Promise<TaskDto> {
+    return this.service.removePhoto(user.tenantId, id, fileId, user.facilityScope ?? null);
   }
 
   /** Asignar varias tareas a una persona (o quitar la asignación). */

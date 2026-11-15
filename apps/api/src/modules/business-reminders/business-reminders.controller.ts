@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -12,9 +13,11 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  AddOpsFileSchema,
   ApplyReminderTemplateSchema,
   CompleteBusinessReminderSchema,
   CreateBusinessReminderSchema,
+  OpsFileUploadSchema,
   RequestReminderReceiptUploadSchema,
   SnoozeBusinessReminderSchema,
   UpdateBusinessReminderSchema,
@@ -35,6 +38,9 @@ import type {
   BusinessReminderDto,
   BusinessReminderSettingsDto,
   BusinessRemindersListDto,
+  MessageAttachmentUploadDto,
+  ReminderForecastDto,
+  RemindersDueCountDto,
   ReminderReceiptUploadDto,
   ReminderTemplateDto,
 } from '@storageos/shared';
@@ -46,6 +52,8 @@ class SnoozeDto extends createZodDto(SnoozeBusinessReminderSchema) {}
 class ReceiptUploadDto extends createZodDto(RequestReminderReceiptUploadSchema) {}
 class ApplyTemplateDto extends createZodDto(ApplyReminderTemplateSchema) {}
 class SettingsDto extends createZodDto(UpdateBusinessReminderSettingsSchema) {}
+class OpsFileUploadDto extends createZodDto(OpsFileUploadSchema) {}
+class AddOpsFileDto extends createZodDto(AddOpsFileSchema) {}
 
 /** Vencimientos del negocio (función `business_reminders`, planes de pago). */
 @RequireFeature('business_reminders')
@@ -63,6 +71,27 @@ export class BusinessRemindersController {
       facilityScope: user.facilityScope ?? null,
       includeDone: includeDone === '1' || includeDone === 'true',
     });
+  }
+
+  /** Lo que vence en los próximos meses y lo que suma. Antes de `:id`. */
+  @RequirePermission('reminders:read')
+  @Get('forecast')
+  forecast(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('months') months?: string,
+  ): Promise<ReminderForecastDto> {
+    const n = months ? Number(months) : 12;
+    if (!Number.isInteger(n) || n < 1 || n > 24) {
+      throw new BadRequestException({ code: 'invalid_months', message: 'Entre 1 y 24 meses' });
+    }
+    return this.reminders.forecast(user.tenantId, user.facilityScope ?? null, n);
+  }
+
+  /** Vencidos o que vencen en 7 días (el número del menú). Antes de `:id`. */
+  @RequirePermission('reminders:read')
+  @Get('due-count')
+  dueCount(@CurrentUser() user: AuthenticatedUser): Promise<RemindersDueCountDto> {
+    return this.reminders.dueCount(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('reminders:read')
@@ -213,5 +242,67 @@ export class BusinessRemindersController {
     @Param('completionId', ParseUUIDPipe) completionId: string,
   ): Promise<{ url: string }> {
     return this.reminders.receiptUrl(user.tenantId, id, completionId, user.facilityScope ?? null);
+  }
+
+  /** Deshace el último «hecho» (vuelve a su fecha y borra lo apuntado). */
+  @RequirePermission('reminders:manage')
+  @Post(':id/undo')
+  @HttpCode(HttpStatus.OK)
+  undo(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<BusinessReminderDto & { expenseKept: boolean }> {
+    return this.reminders.undoLastCompletion(
+      user.tenantId,
+      user.sub,
+      id,
+      user.facilityScope ?? null,
+    );
+  }
+
+  @RequirePermission('reminders:manage')
+  @Post(':id/attachments/upload-url')
+  @HttpCode(HttpStatus.OK)
+  attachmentUploadUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: OpsFileUploadDto,
+  ): Promise<MessageAttachmentUploadDto> {
+    return this.reminders.attachmentUploadUrl(
+      user.tenantId,
+      id,
+      body.mimeType,
+      user.facilityScope ?? null,
+    );
+  }
+
+  @RequirePermission('reminders:manage')
+  @Post(':id/attachments')
+  addAttachment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AddOpsFileDto,
+  ): Promise<BusinessReminderDto> {
+    return this.reminders.addAttachment(user.tenantId, id, body, user.facilityScope ?? null);
+  }
+
+  @RequirePermission('reminders:manage')
+  @Delete(':id/attachments/:fileId')
+  removeAttachment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('fileId', new ParseUUIDPipe()) fileId: string,
+  ): Promise<BusinessReminderDto> {
+    return this.reminders.removeAttachment(user.tenantId, id, fileId, user.facilityScope ?? null);
+  }
+
+  @RequirePermission('reminders:read')
+  @Get(':id/attachments/:fileId')
+  attachmentUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('fileId', new ParseUUIDPipe()) fileId: string,
+  ): Promise<{ url: string }> {
+    return this.reminders.attachmentUrl(user.tenantId, id, fileId, user.facilityScope ?? null);
   }
 }

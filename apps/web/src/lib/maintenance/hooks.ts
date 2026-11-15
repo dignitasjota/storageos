@@ -5,6 +5,7 @@ import { useHeaderFacilityId } from '../facilities/store';
 
 import type {
   CreateMaintenancePlanInput,
+  MaintenanceHistoryDto,
   MaintenancePlanDto,
   UpdateMaintenancePlanInput,
 } from '@storageos/shared';
@@ -60,5 +61,27 @@ export function useDeleteMaintenancePlan() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/maintenance-plans/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+  });
+}
+
+/** Las tareas que ha creado un plan y si se hicieron a tiempo. */
+export function useMaintenanceHistory(id: string | null) {
+  return useQuery({
+    queryKey: [...key, 'history', id],
+    queryFn: () => apiFetch<MaintenanceHistoryDto>(`/maintenance-plans/${id}/history`),
+    enabled: !!id,
+  });
+}
+
+/** Copia un plan a otros locales. */
+export function useCopyMaintenancePlan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; facilityIds: string[] }) =>
+      apiFetch<MaintenancePlanDto[]>(`/maintenance-plans/${args.id}/copy`, {
+        method: 'POST',
+        json: { facilityIds: args.facilityIds },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: key }),
   });
 }

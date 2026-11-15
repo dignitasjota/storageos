@@ -1,4 +1,4 @@
-import { Controller, Get, NotFoundException, Param, Res } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Query, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -18,8 +18,17 @@ export class BusinessRemindersCalendarController {
 
   @Get(':token')
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
-  async feed(@Param('token') token: string, @Res() res: Response): Promise<void> {
-    const ics = await this.reminders.icsFeed(token.replace(/\.ics$/i, ''));
+  async feed(
+    @Param('token') token: string,
+    @Res() res: Response,
+    @Query('include') include?: string,
+  ): Promise<void> {
+    // `?include=tasks,moves`: también las tareas y las entradas y salidas.
+    const parts = new Set((include ?? '').split(',').map((p) => p.trim()));
+    const ics = await this.reminders.icsFeed(token.replace(/\.ics$/i, ''), {
+      tasks: parts.has('tasks'),
+      moves: parts.has('moves'),
+    });
     if (!ics)
       throw new NotFoundException({ code: 'calendar_not_found', message: 'Enlace no válido' });
     res

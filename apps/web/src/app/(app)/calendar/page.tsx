@@ -1,17 +1,26 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { CalendarEventDto, CalendarEventType } from '@storageos/shared';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCalendar } from '@/lib/calendar/hooks';
@@ -25,6 +34,8 @@ const TYPE_COLOR: Record<CalendarEventType, string> = {
   reservation_expiring: 'bg-red-500',
   business_reminder: 'bg-cyan-600',
   price_change: 'bg-pink-500',
+  invoice_due: 'bg-stone-700 dark:bg-stone-300',
+  document_expiring: 'bg-lime-600',
 };
 
 const TYPE_LABEL: Record<CalendarEventType, string> = {
@@ -36,7 +47,20 @@ const TYPE_LABEL: Record<CalendarEventType, string> = {
   reservation_expiring: 'Fin de reserva',
   business_reminder: 'Vencimiento',
   price_change: 'Cambio de cuota',
+  invoice_due: 'Factura que vence',
+  document_expiring: 'Documento que caduca',
 };
+
+const HIDDEN_KEY = 'storageos.calendar.hidden';
+
+function readHidden(): CalendarEventType[] {
+  try {
+    const raw = window.localStorage.getItem(HIDDEN_KEY);
+    return raw ? (JSON.parse(raw) as CalendarEventType[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
@@ -66,6 +90,21 @@ export default function CalendarPage() {
   const [dragOver, setDragOver] = useState<string | null>(null);
   // Día abierto con «+N más».
   const [openDay, setOpenDay] = useState<string | null>(null);
+  // Tipos ocultos (se recuerdan en este navegador) y alta rápida de tarea.
+  const [hidden, setHidden] = useState<CalendarEventType[]>([]);
+  const [newTaskDay, setNewTaskDay] = useState<string | null>(null);
+  useEffect(() => setHidden(readHidden()), []);
+  function toggleType(t: CalendarEventType) {
+    setHidden((prev) => {
+      const next = prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t];
+      try {
+        window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
+      } catch {
+        /* sin almacenamiento */
+      }
+      return next;
+    });
+  }
 
   const firstOfMonth = cursor;
   const gridStart = mode === 'week' ? weekStart : startOfWeekMonday(firstOfMonth);
@@ -108,13 +147,14 @@ export default function CalendarPage() {
   const byDay = useMemo(() => {
     const map = new Map<string, CalendarEventDto[]>();
     for (const e of data?.events ?? []) {
+      if (hidden.includes(e.type)) continue;
       const key = ymd(new Date(e.date));
       const list = map.get(key) ?? [];
       list.push(e);
       map.set(key, list);
     }
     return map;
-  }, [data]);
+  }, [data, hidden]);
 
   const monthLabel =
     mode === 'week'
@@ -194,13 +234,34 @@ export default function CalendarPage() {
         </p>
       )}
 
-      {/* Leyenda */}
-      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-        {(Object.keys(TYPE_LABEL) as CalendarEventType[]).map((t) => (
-          <span key={t} className="flex items-center gap-1.5">
-            <span className={`size-2.5 rounded-full ${TYPE_COLOR[t]}`} /> {TYPE_LABEL[t]}
-          </span>
-        ))}
+      {/* Leyenda: pulsar un tipo lo oculta o lo vuelve a enseñar. */}
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        {(Object.keys(TYPE_LABEL) as CalendarEventType[]).map((t) => {
+          const off = hidden.includes(t);
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => toggleType(t)}
+              aria-pressed={!off}
+              className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 transition-opacity ${
+                off ? 'text-muted-foreground opacity-50 line-through' : 'text-foreground'
+              }`}
+            >
+              <span className={`size-2.5 rounded-full ${TYPE_COLOR[t]}`} /> {TYPE_LABEL[t]}
+            </button>
+          );
+        })}
+        {canMoveTasks && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-7"
+            onClick={() => setNewTaskDay(ymd(new Date()))}
+          >
+            <Plus className="mr-1 h-3.5 w-3.5" /> Nueva tarea
+          </Button>
+        )}
       </div>
 
       {calendar.isError && <SectionError onRetry={() => void calendar.refetch()} />}
@@ -280,10 +341,22 @@ export default function CalendarPage() {
                   onDrop={(e) => onDrop(e, key)}
                   className={`${mode === 'week' ? 'min-h-72' : 'min-h-24'} rounded-md border p-1 ${inMonth ? '' : 'bg-muted/40'} ${key === todayKey ? 'border-primary' : 'border-border/60'} ${dragOver === key ? 'bg-primary/10' : ''}`}
                 >
-                  <div
-                    className={`px-1 text-xs ${inMonth ? 'text-foreground' : 'text-muted-foreground'} ${key === todayKey ? 'font-semibold text-primary' : ''}`}
-                  >
-                    {day.getDate()}
+                  <div className="group flex items-center justify-between">
+                    <span
+                      className={`px-1 text-xs ${inMonth ? 'text-foreground' : 'text-muted-foreground'} ${key === todayKey ? 'font-semibold text-primary' : ''}`}
+                    >
+                      {day.getDate()}
+                    </span>
+                    {canMoveTasks && (
+                      <button
+                        type="button"
+                        onClick={() => setNewTaskDay(key)}
+                        aria-label={`Nueva tarea el ${day.getDate()}`}
+                        className="rounded p-0.5 text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                   <div className="mt-0.5 space-y-0.5">
                     {dayEvents.slice(0, limit).map((e) => (
@@ -318,6 +391,18 @@ export default function CalendarPage() {
           </div>
         </CardContent>
       </Card>
+
+      {newTaskDay && (
+        <QuickTaskDialog
+          day={newTaskDay}
+          onClose={() => setNewTaskDay(null)}
+          onDone={() => {
+            setNewTaskDay(null);
+            void qc.invalidateQueries({ queryKey: ['calendar'] });
+            void qc.invalidateQueries({ queryKey: ['tasks'] });
+          }}
+        />
+      )}
 
       <Dialog open={!!openDay} onOpenChange={(o) => !o && setOpenDay(null)}>
         <DialogContent className="max-w-md">
@@ -354,5 +439,71 @@ export default function CalendarPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/** Alta rápida de una tarea para un día del calendario. */
+function QuickTaskDialog({
+  day,
+  onClose,
+  onDone,
+}: {
+  day: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState(day);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!title.trim()) {
+      toast.error('Escribe qué hay que hacer.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch('/tasks', { method: 'POST', json: { title: title.trim(), dueDate: date } });
+      toast.success('Tarea creada.');
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Nueva tarea</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="quick-task-title">Qué hay que hacer</Label>
+            <Input
+              id="quick-task-title"
+              value={title}
+              autoFocus
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void save()}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Para el</Label>
+            <DateSelect around value={date} onChange={(v) => v && setDate(v)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={() => void save()} disabled={saving}>
+            Crear
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

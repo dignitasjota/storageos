@@ -7,7 +7,19 @@ import {
   type TaskTypeValue,
   type MaintenancePlanDto,
 } from '@storageos/shared';
-import { CalendarClock, Loader2, Pause, Pencil, Play, Plus, Trash2, Wrench } from 'lucide-react';
+import {
+  CalendarClock,
+  Copy,
+  History,
+  Loader2,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+  Wrench,
+} from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -17,6 +29,7 @@ import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -38,11 +51,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { localDateString } from '@/lib/dates';
+import { useExpenseSuppliers } from '@/lib/expenses/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { formatEur } from '@/lib/format';
 import {
   useCreateMaintenancePlan,
   useDeleteMaintenancePlan,
   useMaintenancePlans,
+  useCopyMaintenancePlan,
+  useMaintenanceHistory,
   useRunMaintenancePlan,
   useUpdateMaintenancePlan,
 } from '@/lib/maintenance/hooks';
@@ -87,6 +104,8 @@ export default function MaintenancePage() {
   const del = useDeleteMaintenancePlan();
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<MaintenancePlanDto | null>(null);
+  const [historyOf, setHistoryOf] = useState<MaintenancePlanDto | null>(null);
+  const [copying, setCopying] = useState<MaintenancePlanDto | null>(null);
 
   async function runNow(p: MaintenancePlanDto) {
     try {
@@ -162,57 +181,81 @@ export default function MaintenancePage() {
                     <Badge variant="secondary">{TYPE_LABELS[p.type]}</Badge>
                     {!p.isActive && <Badge variant="outline">Pausado</Badge>}
                   </CardTitle>
-                  {canManage && (
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={run.isPending || !p.isActive}
-                        onClick={() => void runNow(p)}
-                      >
-                        Generar ahora
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setEditing(p)}
-                        aria-label="Editar"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() =>
-                          void action(
-                            () =>
-                              update.mutateAsync({ id: p.id, input: { isActive: !p.isActive } }),
-                            p.isActive ? 'Plan pausado.' : 'Plan reactivado.',
-                          )
-                        }
-                        aria-label={p.isActive ? 'Pausar' : 'Reactivar'}
-                      >
-                        {p.isActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={async () => {
-                          if (
-                            await ask({
-                              title: `¿Eliminar el plan "${p.title}"?`,
-                              destructive: true,
-                            })
-                          )
-                            void action(() => del.mutateAsync(p.id), 'Plan eliminado.');
-                        }}
-                        aria-label="Eliminar"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setHistoryOf(p)}
+                      aria-label="Historial"
+                      title="Historial"
+                    >
+                      <History className="h-4 w-4" />
+                    </Button>
+                    {canManage && (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={run.isPending || !p.isActive}
+                          onClick={() => void runNow(p)}
+                        >
+                          Generar ahora
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setCopying(p)}
+                          aria-label="Copiar a otros locales"
+                          title="Copiar a otros locales"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditing(p)}
+                          aria-label="Editar"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            void action(
+                              () =>
+                                update.mutateAsync({ id: p.id, input: { isActive: !p.isActive } }),
+                              p.isActive ? 'Plan pausado.' : 'Plan reactivado.',
+                            )
+                          }
+                          aria-label={p.isActive ? 'Pausar' : 'Reactivar'}
+                        >
+                          {p.isActive ? (
+                            <Pause className="h-4 w-4" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive"
+                          onClick={async () => {
+                            if (
+                              await ask({
+                                title: `¿Eliminar el plan "${p.title}"?`,
+                                destructive: true,
+                              })
+                            )
+                              void action(() => del.mutateAsync(p.id), 'Plan eliminado.');
+                          }}
+                          aria-label="Eliminar"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-muted-foreground">
@@ -222,6 +265,13 @@ export default function MaintenancePage() {
                 <span>Prioridad: {PRIORITY_LABELS[p.priority]}</span>
                 {p.facilityName && <span>Local: {p.facilityName}</span>}
                 {p.assignedToName && <span>Responsable: {p.assignedToName}</span>}
+                {p.leadDays > 0 && <span>Se crea {p.leadDays} día(s) antes</span>}
+                {p.estimatedCost !== null && (
+                  <span>
+                    Coste: {formatEur(p.estimatedCost)}
+                    {p.supplierName ? ` · ${p.supplierName}` : ''}
+                  </span>
+                )}
                 <span>
                   Próxima:{' '}
                   <span className="font-medium text-foreground">{formatDate(p.nextRunDate)}</span>
@@ -231,6 +281,8 @@ export default function MaintenancePage() {
           ))}
         </div>
       )}
+      {historyOf && <HistoryDialog plan={historyOf} onClose={() => setHistoryOf(null)} />}
+      {copying && <CopyDialog plan={copying} onClose={() => setCopying(null)} />}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         {editing && <PlanDialog key={editing.id} plan={editing} onDone={() => setEditing(null)} />}
       </Dialog>
@@ -244,6 +296,10 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
   const facilities = useFacilities();
   const users = useUsers();
   const [assignee, setAssignee] = useState<string>(plan?.assignedToUserId ?? '');
+  const suppliers = useExpenseSuppliers();
+  const [leadDays, setLeadDays] = useState(String(plan?.leadDays ?? 0));
+  const [cost, setCost] = useState(plan?.estimatedCost != null ? String(plan.estimatedCost) : '');
+  const [supplierId, setSupplierId] = useState<string>(plan?.supplierId ?? '');
   const [title, setTitle] = useState(plan?.title ?? '');
   const [description, setDescription] = useState(plan?.description ?? '');
   const [type, setType] = useState<TaskTypeValue>(plan?.type ?? 'maintenance');
@@ -270,6 +326,11 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
       toast.error('Indica un título.');
       return;
     }
+    const costValue = cost.trim() ? Number(cost.replace(',', '.')) : null;
+    if (costValue !== null && (!Number.isFinite(costValue) || costValue < 0)) {
+      toast.error('El coste no es válido.');
+      return;
+    }
     const input: CreateMaintenancePlanInput = {
       title: title.trim(),
       description: description.trim(),
@@ -277,6 +338,9 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
       priority,
       ...(facilityId ? { facilityId } : {}),
       ...(assignee ? { assignedToUserId: assignee } : {}),
+      leadDays: Math.min(Math.max(Number(leadDays) || 0, 0), 60),
+      ...(costValue !== null ? { estimatedCost: costValue } : {}),
+      ...(supplierId ? { supplierId } : {}),
       freq,
       interval: Number(interval) || 1,
       weekdays: freq === 'weekly' ? weekdays : [],
@@ -299,6 +363,9 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
             priority,
             facilityId: facilityId || null,
             assignedToUserId: assignee || null,
+            leadDays: input.leadDays,
+            estimatedCost: costValue,
+            supplierId: supplierId || null,
             freq,
             interval: input.interval,
             weekdays: input.weekdays,
@@ -450,6 +517,19 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
             )}
 
             {freq === 'weekly' && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                Cada
+                <Input
+                  type="number"
+                  min={1}
+                  className="h-9 w-20"
+                  value={interval}
+                  onChange={(e) => setIntervalValue(e.target.value)}
+                />
+                semana(s), los días:
+              </div>
+            )}
+            {freq === 'weekly' && (
               <div className="flex flex-wrap gap-1.5">
                 {WEEKDAYS.map((d) => (
                   <button
@@ -478,18 +558,70 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
                   value={interval}
                   onChange={(e) => setIntervalValue(e.target.value)}
                 />
-                mes(es), el día
-                <Input
-                  type="number"
-                  min={1}
-                  max={28}
-                  className="h-9 w-20"
-                  value={dayOfMonth}
-                  onChange={(e) => setDayOfMonth(e.target.value)}
-                />
+                mes(es),
+                <Select value={dayOfMonth} onValueChange={setDayOfMonth}>
+                  <SelectTrigger className="h-9 w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 30 }, (_, i) => String(i + 1)).map((d) => (
+                      <SelectItem key={d} value={d}>
+                        el día {d}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="31">el último día</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              Crear la tarea
+              <Input
+                type="number"
+                min={0}
+                max={60}
+                className="h-9 w-20"
+                value={leadDays}
+                onChange={(e) => setLeadDays(e.target.value)}
+              />
+              día(s) antes de su fecha
+            </div>
           </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="m-cost">Coste previsto (opcional)</Label>
+            <Input
+              id="m-cost"
+              inputMode="decimal"
+              placeholder="€ cada vez"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Proveedor (opcional)</Label>
+            <Select
+              value={supplierId || 'none'}
+              onValueChange={(v) => setSupplierId(v === 'none' ? '' : v)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sin proveedor</SelectItem>
+                {(suppliers.data ?? []).map((sup) => (
+                  <SelectItem key={sup.id} value={sup.id}>
+                    {sup.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Al terminar cada tarea se puede apuntar en Gastos con este importe y proveedor.
+          </p>
         </div>
 
         <div className="space-y-2 rounded-md border p-3">
@@ -544,5 +676,151 @@ function PlanDialog({ plan, onDone }: { plan?: MaintenancePlanDto; onDone: () =>
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  open: 'Abierta',
+  in_progress: 'En curso',
+  done: 'Hecha',
+  cancelled: 'Cancelada',
+};
+
+function HistoryDialog({ plan, onClose }: { plan: MaintenancePlanDto; onClose: () => void }) {
+  const history = useMaintenanceHistory(plan.id);
+  const h = history.data;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Historial · {plan.title}</DialogTitle>
+        </DialogHeader>
+        {history.isError ? (
+          <SectionError onRetry={() => void history.refetch()} />
+        ) : !h ? (
+          <div className="flex h-24 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid grid-cols-3 gap-2 text-center text-sm">
+              <div className="rounded-md border p-2">
+                <div className="text-lg font-semibold">{h.done}</div>
+                <div className="text-xs text-muted-foreground">de {h.total} hechas</div>
+              </div>
+              <div className="rounded-md border p-2">
+                <div className="text-lg font-semibold">
+                  {h.onTimePct === null ? '—' : `${h.onTimePct}%`}
+                </div>
+                <div className="text-xs text-muted-foreground">a tiempo</div>
+              </div>
+              <div className="rounded-md border p-2">
+                <div
+                  className={`text-lg font-semibold ${h.overdueOpen > 0 ? 'text-red-600 dark:text-red-400' : ''}`}
+                >
+                  {h.overdueOpen}
+                </div>
+                <div className="text-xs text-muted-foreground">atrasadas</div>
+              </div>
+            </div>
+            {h.items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aún no ha creado ninguna tarea.</p>
+            ) : (
+              <ul className="max-h-80 space-y-1 overflow-y-auto">
+                {h.items.map((it) => (
+                  <li key={it.taskId}>
+                    <Link
+                      href={`/tasks?task=${it.taskId}`}
+                      className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                    >
+                      <span>{it.dueDate ? formatDate(it.dueDate) : 'Sin fecha'}</span>
+                      <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {it.issues > 0 && (
+                          <span className="text-red-600 dark:text-red-400">
+                            {it.issues} incidencia(s)
+                          </span>
+                        )}
+                        {it.assignedToName && <span>{it.assignedToName}</span>}
+                        <Badge
+                          variant={it.onTime === false ? 'destructive' : 'outline'}
+                          className="font-normal"
+                        >
+                          {it.status === 'done'
+                            ? it.onTime === false
+                              ? 'Hecha tarde'
+                              : 'Hecha a tiempo'
+                            : (STATUS_TEXT[it.status] ?? it.status)}
+                        </Badge>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CopyDialog({ plan, onClose }: { plan: MaintenancePlanDto; onClose: () => void }) {
+  const facilities = useFacilities();
+  const copy = useCopyMaintenancePlan();
+  const [selected, setSelected] = useState<string[]>([]);
+  const others = (facilities.data ?? []).filter((f) => f.id !== plan.facilityId);
+
+  async function save() {
+    try {
+      const created = await copy.mutateAsync({ id: plan.id, facilityIds: selected });
+      toast.success(
+        created.length === 1
+          ? 'Plan copiado a 1 local.'
+          : `Plan copiado a ${created.length} locales.`,
+      );
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo copiar.');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Copiar a otros locales</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Se crea un plan igual en cada local, sin responsable (cada local tiene el suyo).
+        </p>
+        {others.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay otros locales.</p>
+        ) : (
+          <div className="space-y-2">
+            {others.map((f) => (
+              <label key={f.id} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={selected.includes(f.id)}
+                  onCheckedChange={(v) =>
+                    setSelected((prev) =>
+                      v === true ? [...prev, f.id] : prev.filter((x) => x !== f.id),
+                    )
+                  }
+                />
+                {f.name}
+              </label>
+            ))}
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={() => void save()} disabled={selected.length === 0 || copy.isPending}>
+            Copiar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -9,8 +9,11 @@ import type {
   BusinessRemindersListDto,
   CompleteBusinessReminderInput,
   CreateBusinessReminderInput,
+  ReminderForecastDto,
   ReminderReceiptUploadDto,
+  RemindersDueCountDto,
   ReminderTemplateDto,
+  TaskDto,
   UpdateBusinessReminderInput,
 } from '@storageos/shared';
 
@@ -177,4 +180,50 @@ export async function openReminderReceipt(id: string, completionId: string): Pro
     `/business-reminders/${id}/completions/${completionId}/receipt`,
   );
   window.open(url, '_blank', 'noopener');
+}
+
+/** Deshace el último «hecho» de un vencimiento. */
+export function useUndoReminderCompletion() {
+  const invalidate = useInvalidate();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<BusinessReminderDto & { expenseKept: boolean }>(`/business-reminders/${id}/undo`, {
+        method: 'POST',
+      }),
+    onSuccess: () => {
+      invalidate();
+      void qc.invalidateQueries({ queryKey: ['expenses'] });
+    },
+  });
+}
+
+/** Crea una tarea con la fecha del vencimiento. */
+export function useReminderTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<TaskDto>(`/business-reminders/${id}/task`, { method: 'POST', json: {} }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+}
+
+/** Lo que vence en los próximos meses y lo que suma. */
+export function useReminderForecast(enabled: boolean, months = 12) {
+  return useQuery({
+    queryKey: [...key, 'forecast', months],
+    queryFn: () => apiFetch<ReminderForecastDto>(`/business-reminders/forecast?months=${months}`),
+    enabled,
+  });
+}
+
+/** Vencidos o que vencen en 7 días (el número del menú). */
+export function useRemindersDueCount(enabled: boolean) {
+  return useQuery({
+    queryKey: [...key, 'due-count'],
+    queryFn: () => apiFetch<RemindersDueCountDto>('/business-reminders/due-count'),
+    enabled,
+    refetchInterval: 5 * 60_000,
+    refetchIntervalInBackground: false,
+  });
 }

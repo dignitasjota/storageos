@@ -5,8 +5,29 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  INCIDENT_CATEGORY_LABELS,
+  IncidentCategoryEnum,
+  parseIncidentResponseHours,
+  type AddOpsFileInput,
+  type IncidentCategory,
+  type IncidentReportDto,
+  type IncidentReportRowDto,
+  type IncidentResponseHours,
+  type InsuranceClaimStatus,
+  type MessageAttachmentUploadDto,
+} from '@storageos/shared';
 
 import { assertFacilityAllowed, optionalFacilityWhere } from '../../common/facility-scope';
+import {
+  addOpsFile,
+  asJson,
+  opsFileUploadUrl,
+  opsFilesDto,
+  readOpsFiles,
+  removeOpsFile,
+  type StoredOpsFile,
+} from '../../common/ops-files';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
 import {
@@ -14,7 +35,9 @@ import {
   type CustomerNotifyPayload,
   type DomainEventPayload,
 } from '../automations/domain-events';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import type { RequestMeta } from '../auth/auth.service';
@@ -53,6 +76,9 @@ interface ListFilters {
   facilityScope?: string[] | null;
   /** Título de la incidencia. */
   search?: string;
+  category?: IncidentCategory;
+  /** Solo las que llevan el plazo de respuesta pasado sin responder. */
+  responseOverdue?: boolean;
   page?: PageRequest;
 }
 
@@ -94,15 +120,234 @@ const ALLOWED_TRANSITIONS: Record<IncidentStatusValue, IncidentStatusValue[]> = 
 };
 
 const HIGH_SEVERITY: ReadonlyArray<IncidentSeverityValue> = ['high', 'critical'];
+const HOUR = 3_600_000;
+const filePrefix = (tenantId: string, incidentId: string) => `${tenantId}/incidents/${incidentId}/`;
+/** Lo que el inquilino sube al reportar (antes de que exista la incidencia). */
+const portalPrefix = (tenantId: string, customerId: string) =>
+  `${tenantId}/incidents/portal/${customerId}/`;
 
 @Injectable()
 export class IncidentsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly admin: PrismaAdminService,
     private readonly audit: AuditService,
     private readonly events: EventEmitter2,
     private readonly notifications: NotificationsService,
+    private readonly files: FilesService,
   ) {}
+
+  // --------------------------------------------------------------------------
+  // Plazo de respuesta
+  // --------------------------------------------------------------------------
+
+  async getResponseHours(tenantId: string): Promise<IncidentResponseHours> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { incidentResponseHours: true },
+    });
+    return parseIncidentResponseHours(t?.incidentResponseHours);
+  }
+
+  async setResponseHours(
+    tenantId: string,
+    userId: string,
+    hours: IncidentResponseHours,
+  ): Promise<IncidentResponseHours> {
+    await this.admin.tenant.update({
+      where: { id: tenantId },
+      data: { incidentResponseHours: hours as unknown as Prisma.InputJsonValue },
+    });
+    await this.audit
+      .write({
+        tenantId,
+        userId,
+        action: 'incident.response_hours_changed',
+        entityType: 'Tenant',
+        entityId: tenantId,
+        changes: hours as unknown as Prisma.InputJsonValue,
+      })
+      .catch(() => undefined);
+    return hours;
+  }
+
+  private async responseDueAt(
+    tenantId: string,
+    severity: IncidentSeverityValue,
+    from: Date,
+  ): Promise<Date> {
+    const hours = await this.getResponseHours(tenantId);
+    return new Date(from.getTime() + hours[severity] * HOUR);
+  }
+
+  /** Primera respuesta del equipo (comentario, cambio de estado o respuesta al inquilino). */
+  async markResponded(tenantId: string, incidentId: string): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.incident.updateMany({
+          where: { id: incidentId, firstResponseAt: null },
+          data: { firstResponseAt: new Date() },
+        }),
+      tenantId,
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Fotos y documentos
+  // --------------------------------------------------------------------------
+
+  async photoUploadUrl(
+    tenantId: string,
+    incidentId: string,
+    mimeType: string,
+    facilityScope?: string[] | null,
+  ): Promise<MessageAttachmentUploadDto> {
+    await this.findOrThrow(tenantId, incidentId, facilityScope);
+    return opsFileUploadUrl(this.files, filePrefix(tenantId, incidentId), mimeType);
+  }
+
+  async addPhoto(
+    tenantId: string,
+    incidentId: string,
+    input: AddOpsFileInput,
+    facilityScope?: string[] | null,
+  ): Promise<IncidentDto> {
+    const row = await this.findOrThrow(tenantId, incidentId, facilityScope);
+    const photos = await addOpsFile(
+      this.files,
+      filePrefix(tenantId, incidentId),
+      readOpsFiles(row.photos),
+      input,
+    );
+    await this.prisma.withTenant(
+      (tx) => tx.incident.update({ where: { id: incidentId }, data: { photos: asJson(photos) } }),
+      tenantId,
+    );
+    return this.detail(tenantId, incidentId, facilityScope);
+  }
+
+  async removePhoto(
+    tenantId: string,
+    incidentId: string,
+    fileId: string,
+    facilityScope?: string[] | null,
+  ): Promise<IncidentDto> {
+    const row = await this.findOrThrow(tenantId, incidentId, facilityScope);
+    const photos = await removeOpsFile(this.files, readOpsFiles(row.photos), fileId);
+    await this.prisma.withTenant(
+      (tx) => tx.incident.update({ where: { id: incidentId }, data: { photos: asJson(photos) } }),
+      tenantId,
+    );
+    return this.detail(tenantId, incidentId, facilityScope);
+  }
+
+  /** Subida de una foto desde el área de clientes, antes de reportar. */
+  portalPhotoUploadUrl(
+    tenantId: string,
+    customerId: string,
+    mimeType: string,
+  ): Promise<MessageAttachmentUploadDto> {
+    return opsFileUploadUrl(this.files, portalPrefix(tenantId, customerId), mimeType);
+  }
+
+  // --------------------------------------------------------------------------
+  // Informe
+  // --------------------------------------------------------------------------
+
+  async report(
+    tenantId: string,
+    range: { from: Date; to: Date },
+    facilityScope?: string[] | null,
+  ): Promise<IncidentReportDto> {
+    const facility = optionalFacilityWhere(facilityScope) ?? {};
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.incident.findMany({
+          where: {
+            deletedAt: null,
+            createdAt: { gte: range.from, lt: range.to },
+            ...facility,
+          },
+          select: {
+            status: true,
+            severity: true,
+            category: true,
+            facilityId: true,
+            facility: { select: { name: true } },
+            createdAt: true,
+            resolvedAt: true,
+            responseDueAt: true,
+            firstResponseAt: true,
+            cost: true,
+            insuranceClaimStatus: true,
+          },
+          take: 10_000,
+        }),
+      tenantId,
+    );
+    const isOpen = (s: string) => s === 'reported' || s === 'investigating';
+    const group = (key: (r: (typeof rows)[number]) => string, label: (k: string) => string) => {
+      const map = new Map<string, IncidentReportRowDto>();
+      for (const r of rows) {
+        const k = key(r);
+        const row = map.get(k) ?? { key: k, label: label(k), count: 0, open: 0 };
+        row.count += 1;
+        if (isOpen(r.status)) row.open += 1;
+        map.set(k, row);
+      }
+      return [...map.values()].sort((a, b) => b.count - a.count);
+    };
+    const facilityNames = new Map(
+      rows.map((r) => [r.facilityId ?? 'none', r.facility?.name ?? 'Toda la empresa']),
+    );
+    const resolved = rows.filter((r) => r.resolvedAt);
+    // A tiempo o no, solo cuando ya se sabe: respondidas o con el plazo pasado.
+    const now = Date.now();
+    const withDue = rows.filter(
+      (r) => r.responseDueAt && (r.firstResponseAt || r.responseDueAt.getTime() < now),
+    );
+    const inTime = withDue.filter(
+      (r) => r.firstResponseAt && r.firstResponseAt.getTime() <= r.responseDueAt!.getTime(),
+    );
+    const SEVERITY_LABELS: Record<string, string> = {
+      critical: 'Crítica',
+      high: 'Alta',
+      medium: 'Media',
+      low: 'Baja',
+    };
+    return {
+      from: range.from.toISOString().slice(0, 10),
+      to: new Date(range.to.getTime() - 1).toISOString().slice(0, 10),
+      total: rows.length,
+      open: rows.filter((r) => isOpen(r.status)).length,
+      resolved: resolved.length,
+      avgResolutionHours: resolved.length
+        ? Math.round(
+            resolved.reduce(
+              (sum, r) => sum + (r.resolvedAt!.getTime() - r.createdAt.getTime()),
+              0,
+            ) /
+              resolved.length /
+              HOUR,
+          )
+        : null,
+      withinResponsePct: withDue.length ? Math.round((inTime.length / withDue.length) * 100) : null,
+      totalCost: Math.round(rows.reduce((sum, r) => sum + Number(r.cost ?? 0), 0) * 100) / 100,
+      insuranceClaims: rows.filter((r) => r.insuranceClaimStatus).length,
+      byCategory: group(
+        (r) => r.category,
+        (k) => INCIDENT_CATEGORY_LABELS[k as IncidentCategory] ?? k,
+      ),
+      bySeverity: group(
+        (r) => r.severity,
+        (k) => SEVERITY_LABELS[k] ?? k,
+      ),
+      byFacility: group(
+        (r) => r.facilityId ?? 'none',
+        (k) => facilityNames.get(k) ?? 'Toda la empresa',
+      ),
+    };
+  }
 
   /** Aviso a quien se le asigna una incidencia (no si se la asigna uno mismo). */
   private async notifyAssignee(
@@ -252,6 +497,12 @@ export class IncidentsService {
     if (filters.contractId) where.contractId = filters.contractId;
     if (filters.assignedToUserId) where.assignedToUserId = filters.assignedToUserId;
     if (filters.search) where.title = { contains: filters.search, mode: 'insensitive' };
+    if (filters.category) where.category = filters.category;
+    if (filters.responseOverdue) {
+      where.firstResponseAt = null;
+      where.responseDueAt = { lt: new Date() };
+      where.status = { in: ['reported', 'investigating'] };
+    }
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.incident.findMany({
@@ -270,7 +521,12 @@ export class IncidentsService {
     id: string,
     facilityScope?: string[] | null,
   ): Promise<IncidentDto> {
-    return this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+    const row = await this.findOrThrow(tenantId, id, facilityScope);
+    // En la ficha, las fotos con su URL firmada.
+    return {
+      ...this.toDto(row),
+      photos: await opsFilesDto(this.files, readOpsFiles(row.photos)),
+    };
   }
 
   async create(args: {
@@ -295,6 +551,8 @@ export class IncidentsService {
       assignedToUserId: args.input.assignedToUserId ?? null,
       reportedByUserId: args.userId,
       visibleToCustomer: !!refs.customerId && args.input.visibleToCustomer === true,
+      category: args.input.category ?? 'other',
+      responseDueAt: await this.responseDueAt(args.tenantId, args.input.severity, new Date()),
       occurredAt: args.input.occurredAt ? new Date(args.input.occurredAt) : null,
       metadata: args.input.metadata as Prisma.InputJsonValue,
     };
@@ -400,9 +658,20 @@ export class IncidentsService {
         ? (customer.companyName ?? 'Empresa')
         : [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim() || 'Inquilino';
 
+    // Fotos subidas antes de reportar: de su carpeta y con los bytes declarados.
+    let photos: StoredOpsFile[] = [];
+    for (const photo of args.input.photos ?? []) {
+      photos = await addOpsFile(
+        this.files,
+        portalPrefix(args.tenantId, args.customerId),
+        photos,
+        photo,
+      );
+    }
+    const responseDueAt = await this.responseDueAt(args.tenantId, 'medium', new Date());
     const created = await this.prisma.withTenant(async (tx) => {
-      // Con un solo trastero, la incidencia va a su local, trastero y contrato;
-      // con varios en el mismo local, al menos al local.
+      // Con un solo trastero (o el que elija), la incidencia va a su local,
+      // trastero y contrato; con varios en el mismo local, al menos al local.
       const live = await tx.contract.findMany({
         where: {
           customerId: args.customerId,
@@ -412,8 +681,17 @@ export class IncidentsService {
         select: { id: true, unitId: true, unit: { select: { facilityId: true } } },
         take: 20,
       });
+      let chosen = live.length === 1 ? live[0]! : null;
+      if (args.input.contractId) {
+        chosen = live.find((c) => c.id === args.input.contractId) ?? null;
+        if (!chosen) {
+          throw new BadRequestException({
+            code: 'contract_not_found',
+            message: 'Ese trastero no es tuyo',
+          });
+        }
+      }
       const facilities = new Set(live.map((c) => c.unit.facilityId));
-      const only = live.length === 1 ? live[0]! : null;
       return tx.incident.create({
         data: {
           tenantId: args.tenantId,
@@ -421,12 +699,16 @@ export class IncidentsService {
           title: args.input.title,
           description: args.input.description || null,
           customerId: args.customerId,
-          facilityId: facilities.size === 1 ? [...facilities][0]! : null,
-          unitId: only?.unitId ?? null,
-          contractId: only?.id ?? null,
+          facilityId:
+            chosen?.unit.facilityId ?? (facilities.size === 1 ? [...facilities][0]! : null),
+          unitId: chosen?.unitId ?? null,
+          contractId: chosen?.id ?? null,
           reportedByUserId: null,
           reportedByExternal: `Portal: ${reporter}`,
           visibleToCustomer: true,
+          category: args.input.category ?? 'other',
+          photos: asJson(photos),
+          responseDueAt,
         },
         include: INCLUDE,
       });
@@ -485,6 +767,8 @@ export class IncidentsService {
             resolution: true,
             resolvedAt: true,
             dismissedAt: true,
+            category: true,
+            unit: { select: { code: true } },
           },
         }),
       tenantId,
@@ -502,6 +786,8 @@ export class IncidentsService {
     resolution?: string | null;
     resolvedAt?: Date | null;
     dismissedAt?: Date | null;
+    category?: string;
+    unit?: { code: string } | null;
   }): PortalIncidentDto {
     const closed = i.status === 'resolved' || i.status === 'dismissed';
     return {
@@ -513,6 +799,8 @@ export class IncidentsService {
       createdAt: i.createdAt.toISOString(),
       resolution: closed ? (i.resolution ?? null) : null,
       closedAt: closed ? ((i.resolvedAt ?? i.dismissedAt)?.toISOString() ?? null) : null,
+      category: i.category ?? 'other',
+      unitCode: i.unit?.code ?? null,
     };
   }
 
@@ -554,6 +842,26 @@ export class IncidentsService {
       data.occurredAt = args.input.occurredAt ? new Date(args.input.occurredAt) : null;
     if (args.input.metadata !== undefined)
       data.metadata = args.input.metadata as Prisma.InputJsonValue;
+    if (args.input.category !== undefined) data.category = args.input.category;
+    if (args.input.cost !== undefined) data.cost = args.input.cost;
+    if (args.input.insuranceClaimStatus !== undefined)
+      data.insuranceClaimStatus = args.input.insuranceClaimStatus;
+    if (args.input.insuranceClaimRef !== undefined)
+      data.insuranceClaimRef = args.input.insuranceClaimRef?.trim() || null;
+    if (args.input.insuranceClaimAmount !== undefined)
+      data.insuranceClaimAmount = args.input.insuranceClaimAmount;
+    // Otra gravedad sin haber respondido: otro plazo, contado desde que se reportó.
+    if (
+      args.input.severity !== undefined &&
+      args.input.severity !== before.severity &&
+      !before.firstResponseAt
+    ) {
+      data.responseDueAt = await this.responseDueAt(
+        args.tenantId,
+        args.input.severity,
+        before.createdAt,
+      );
+    }
     const updated = await this.prisma.withTenant(
       (tx) => tx.incident.update({ where: { id: args.id }, data, include: INCLUDE }),
       args.tenantId,
@@ -582,8 +890,20 @@ export class IncidentsService {
         message: `No se puede pasar de ${existing.status} a ${args.input.status}`,
       });
     }
+    const closing = args.input.status === 'resolved' || args.input.status === 'dismissed';
+    if (closing && !args.input.resolution?.trim()) {
+      throw new BadRequestException({
+        code: 'resolution_required',
+        message:
+          args.input.status === 'resolved'
+            ? 'Escribe qué se ha hecho'
+            : 'Escribe por qué se descarta',
+      });
+    }
     const data: Prisma.IncidentUncheckedUpdateInput = { status: args.input.status };
     const now = new Date();
+    // Moverla cuenta como la primera respuesta del equipo.
+    if (args.input.status !== 'reported' && !existing.firstResponseAt) data.firstResponseAt = now;
     if (args.input.status === 'resolved') {
       data.resolvedAt = now;
       if (args.input.resolution) data.resolution = args.input.resolution;
@@ -690,6 +1010,7 @@ export class IncidentsService {
       args.tenantId,
     );
     await this.writeAudit('incident.comment_added', args, args.incidentId);
+    await this.markResponded(args.tenantId, args.incidentId);
     return this.commentToDto(created);
   }
 
@@ -871,6 +1192,28 @@ export class IncidentsService {
       reportedByName: i.reportedBy?.fullName ?? null,
       reportedByExternal: i.reportedByExternal,
       visibleToCustomer: i.visibleToCustomer,
+      category: (IncidentCategoryEnum.safeParse(i.category).success
+        ? i.category
+        : 'other') as IncidentCategory,
+      photos: readOpsFiles(i.photos).map((f) => ({
+        id: f.id,
+        filename: f.filename,
+        mimeType: f.mimeType,
+        createdAt: f.createdAt,
+        url: '',
+      })),
+      responseDueAt: i.responseDueAt?.toISOString() ?? null,
+      firstResponseAt: i.firstResponseAt?.toISOString() ?? null,
+      responseOverdue:
+        !i.firstResponseAt &&
+        !!i.responseDueAt &&
+        i.responseDueAt.getTime() < Date.now() &&
+        (i.status === 'reported' || i.status === 'investigating'),
+      cost: i.cost !== null ? Number(i.cost) : null,
+      expenseId: i.expenseId,
+      insuranceClaimStatus: (i.insuranceClaimStatus as InsuranceClaimStatus | null) ?? null,
+      insuranceClaimRef: i.insuranceClaimRef,
+      insuranceClaimAmount: i.insuranceClaimAmount !== null ? Number(i.insuranceClaimAmount) : null,
       occurredAt: i.occurredAt?.toISOString() ?? null,
       resolvedAt: i.resolvedAt?.toISOString() ?? null,
       dismissedAt: i.dismissedAt?.toISOString() ?? null,

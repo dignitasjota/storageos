@@ -18,12 +18,15 @@ import {
 import {
   BellRing,
   CalendarPlus,
+  CalendarRange,
   Check,
+  ClipboardList,
   Clock,
   ExternalLink,
   FileText,
   History,
   Loader2,
+  Paperclip,
   Pause,
   Pencil,
   Play,
@@ -41,6 +44,7 @@ import { toast } from 'sonner';
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DateSelect } from '@/components/month-year-select';
+import { OpsFiles } from '@/components/operations/ops-files';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,9 +77,12 @@ import {
   useDeleteReminder,
   useReminderCalendar,
   useReminderCompletions,
+  useReminderForecast,
   useReminderSettings,
+  useReminderTask,
   useReminderTemplates,
   useSnoozeReminder,
+  useUndoReminderCompletion,
   useUpdateReminder,
   useUpdateReminderSettings,
 } from '@/lib/business-reminders/hooks';
@@ -120,6 +127,12 @@ function RemindersContent() {
   const [completing, setCompleting] = useState<BusinessReminderDto | null>(null);
   const [snoozing, setSnoozing] = useState<BusinessReminderDto | null>(null);
   const [history, setHistory] = useState<BusinessReminderDto | null>(null);
+  const [docsOf, setDocsOf] = useState<string | null>(null);
+  const [forecastOpen, setForecastOpen] = useState(false);
+  const [category, setCategory] = useState<string>('all');
+  const [search, setSearch] = useState('');
+  const canTasks = useHasPermission('tasks:write');
+  const makeTask = useReminderTask();
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const highlight = params.get('reminder');
@@ -130,7 +143,15 @@ function RemindersContent() {
   }, [highlight, list.data]);
 
   const groups = useMemo(() => {
-    const items = list.data?.items ?? [];
+    const q = search.trim().toLowerCase();
+    const items = (list.data?.items ?? []).filter(
+      (i) =>
+        (category === 'all' || i.category === category) &&
+        (!q ||
+          i.title.toLowerCase().includes(q) ||
+          (i.vendor ?? '').toLowerCase().includes(q) ||
+          (i.facilityName ?? '').toLowerCase().includes(q)),
+    );
     return [
       { key: 'overdue', title: 'Vencidos', items: items.filter((i) => i.state === 'overdue') },
       {
@@ -146,7 +167,18 @@ function RemindersContent() {
       { key: 'paused', title: 'Pausados', items: items.filter((i) => i.state === 'paused') },
       { key: 'done', title: 'Hechos', items: items.filter((i) => i.state === 'done') },
     ].filter((g) => g.items.length > 0);
-  }, [list.data]);
+  }, [list.data, category, search]);
+
+  async function toTask(r: BusinessReminderDto) {
+    try {
+      const task = await makeTask.mutateAsync(r.id);
+      toast.success('Tarea creada', {
+        action: { label: 'Ver', onClick: () => window.location.assign(`/tasks?task=${task.id}`) },
+      });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
 
   async function togglePause(r: BusinessReminderDto) {
     try {
@@ -202,6 +234,9 @@ function RemindersContent() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setForecastOpen(true)}>
+            <CalendarRange className="mr-1 h-4 w-4" /> Previsión
+          </Button>
           <Button variant="outline" onClick={() => setSettingsOpen(true)}>
             <Settings2 className="mr-1 h-4 w-4" /> Ajustes
           </Button>
@@ -219,6 +254,32 @@ function RemindersContent() {
       </div>
 
       {list.isError && <SectionError onRetry={() => void list.refetch()} />}
+
+      {(list.data?.items.length ?? 0) > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <Input
+            className="h-9 w-full sm:w-64"
+            placeholder="Buscar por nombre, proveedor o local…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger className="h-9 w-[200px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas las categorías</SelectItem>
+              {(Object.keys(BUSINESS_REMINDER_CATEGORY_LABELS) as BusinessReminderCategory[]).map(
+                (c) => (
+                  <SelectItem key={c} value={c}>
+                    {BUSINESS_REMINDER_CATEGORY_LABELS[c]}
+                  </SelectItem>
+                ),
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {list.isLoading && (
         <div className="flex justify-center py-10">
@@ -308,6 +369,33 @@ function RemindersContent() {
                     >
                       <History className="h-4 w-4" />
                     </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Documentos"
+                      title="Documentos"
+                      onClick={() => setDocsOf(r.id)}
+                      className="relative"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                      {r.attachments.length > 0 && (
+                        <span className="absolute -right-0.5 -top-0.5 rounded-full bg-primary px-1 text-[10px] text-primary-foreground">
+                          {r.attachments.length}
+                        </span>
+                      )}
+                    </Button>
+                    {canTasks && r.status === 'active' && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-label="Crear tarea"
+                        title="Crear tarea"
+                        disabled={makeTask.isPending}
+                        onClick={() => void toTask(r)}
+                      >
+                        <ClipboardList className="h-4 w-4" />
+                      </Button>
+                    )}
                     {canManage && r.status !== 'done' && (
                       <>
                         <Button
@@ -403,7 +491,18 @@ function RemindersContent() {
       )}
       {completing && <CompleteDialog reminder={completing} onClose={() => setCompleting(null)} />}
       {snoozing && <SnoozeDialog reminder={snoozing} onClose={() => setSnoozing(null)} />}
-      {history && <HistoryDialog reminder={history} onClose={() => setHistory(null)} />}
+      {history && (
+        <HistoryDialog reminder={history} canManage={canManage} onClose={() => setHistory(null)} />
+      )}
+      {docsOf && (
+        <DocumentsDialog
+          reminder={(list.data?.items ?? []).find((i) => i.id === docsOf) ?? null}
+          canManage={canManage}
+          onChanged={() => void list.refetch()}
+          onClose={() => setDocsOf(null)}
+        />
+      )}
+      {forecastOpen && <ForecastDialog onClose={() => setForecastOpen(false)} />}
       {templatesOpen && <TemplatesDialog onClose={() => setTemplatesOpen(false)} />}
       {settingsOpen && (
         <SettingsDialog canManage={canManage} onClose={() => setSettingsOpen(false)} />
@@ -927,18 +1026,56 @@ function SnoozeDialog({
 
 function HistoryDialog({
   reminder,
+  canManage,
   onClose,
 }: {
   reminder: BusinessReminderDto;
+  canManage: boolean;
   onClose: () => void;
 }) {
+  const ask = useConfirm();
   const rows = useReminderCompletions(reminder.id);
+  const undo = useUndoReminderCompletion();
+
+  async function undoLast() {
+    if (
+      !(await ask({
+        title: '¿Deshacer el último «hecho»?',
+        description:
+          'Vuelve a su fecha anterior y se borra lo que se apuntó: el gasto (si no está pagado en caja ni conciliado) y el justificante.',
+        confirmLabel: 'Deshacer',
+      }))
+    )
+      return;
+    try {
+      const res = await undo.mutateAsync(reminder.id);
+      toast.success(
+        res.expenseKept
+          ? 'Deshecho. El gasto no se ha podido borrar: quítalo desde Gastos si sobra.'
+          : 'Deshecho: vuelve a su fecha anterior.',
+      );
+      onClose();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Historial · {reminder.title}</DialogTitle>
         </DialogHeader>
+        {canManage && (rows.data ?? []).length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-fit"
+            disabled={undo.isPending}
+            onClick={() => void undoLast()}
+          >
+            <RotateCcw className="mr-1 h-4 w-4" /> Deshacer el último «hecho»
+          </Button>
+        )}
         {rows.isLoading ? (
           <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
         ) : (rows.data ?? []).length === 0 ? (
@@ -1118,7 +1255,14 @@ function SettingsDialog({
     }
   }
 
-  const icsUrl = settings.data?.icsUrl ?? null;
+  const baseIcsUrl = settings.data?.icsUrl ?? null;
+  // Opcional: también las tareas y las entradas y salidas de inquilinos.
+  const [withTasks, setWithTasks] = useState(false);
+  const [withMoves, setWithMoves] = useState(false);
+  const extra = [withTasks ? 'tasks' : null, withMoves ? 'moves' : null].filter(Boolean);
+  const icsUrl = baseIcsUrl
+    ? `${baseIcsUrl}${extra.length > 0 ? `?include=${extra.join(',')}` : ''}`
+    : null;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -1150,6 +1294,22 @@ function SettingsDialog({
             </p>
             {icsUrl ? (
               <>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <Checkbox
+                      checked={withTasks}
+                      onCheckedChange={(v) => setWithTasks(v === true)}
+                    />
+                    También las tareas
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <Checkbox
+                      checked={withMoves}
+                      onCheckedChange={(v) => setWithMoves(v === true)}
+                    />
+                    También entradas y salidas
+                  </label>
+                </div>
                 <div className="flex gap-2">
                   <Input readOnly value={icsUrl} onFocus={(e) => e.target.select()} />
                   <Button
@@ -1192,6 +1352,103 @@ function SettingsDialog({
             )}
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DocumentsDialog({
+  reminder,
+  canManage,
+  onChanged,
+  onClose,
+}: {
+  reminder: BusinessReminderDto | null;
+  canManage: boolean;
+  onChanged: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Documentos{reminder ? ` · ${reminder.title}` : ''}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          El contrato, la póliza, el recibo… para tenerlos a mano cuando toque renovarlo.
+        </p>
+        {reminder && (
+          <OpsFiles
+            files={reminder.attachments}
+            basePath={`/business-reminders/${reminder.id}/attachments`}
+            canEdit={canManage}
+            onChanged={onChanged}
+            signedUrls={false}
+            label="Documentos"
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const MONTH_LABEL = (m: string) =>
+  new Date(`${m}-01T12:00:00`).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+
+function ForecastDialog({ onClose }: { onClose: () => void }) {
+  const forecast = useReminderForecast(true, 12);
+  const f = forecast.data;
+  const max = Math.max(1, ...(f?.months ?? []).map((m) => m.total));
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Previsión de los próximos 12 meses</DialogTitle>
+        </DialogHeader>
+        {forecast.isError ? (
+          <SectionError onRetry={() => void forecast.refetch()} />
+        ) : !f ? (
+          <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Con lo que se repite y los importes que tienen. Total:{' '}
+              <span className="font-medium text-foreground">{formatEur(f.total)}</span>
+            </p>
+            <ul className="max-h-[60vh] space-y-3 overflow-y-auto pr-1">
+              {f.months.map((m) => (
+                <li key={m.month} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="font-medium capitalize">{MONTH_LABEL(m.month)}</span>
+                    <span className="tabular-nums">{formatEur(m.total)}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted">
+                    <div
+                      className="h-1.5 rounded-full bg-primary"
+                      style={{ width: `${(m.total / max) * 100}%` }}
+                    />
+                  </div>
+                  {m.items.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Nada este mes.</p>
+                  ) : (
+                    <ul className="text-xs text-muted-foreground">
+                      {m.items.map((it) => (
+                        <li key={`${it.id}-${it.dueDate}`} className="flex justify-between gap-2">
+                          <span>
+                            {formatDate(it.dueDate)} · {it.title}
+                          </span>
+                          {it.amount !== null && (
+                            <span className="tabular-nums">{formatEur(it.amount)}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

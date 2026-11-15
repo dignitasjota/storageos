@@ -4,12 +4,28 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   type CreateIncidentInput,
   CreateIncidentSchema,
+  DEFAULT_INCIDENT_RESPONSE_HOURS,
+  INCIDENT_CATEGORY_LABELS,
+  INSURANCE_CLAIM_STATUS_LABELS,
+  type IncidentCategory,
+  type IncidentResponseHours,
+  type InsuranceClaimStatus,
   type IncidentDto,
   type IncidentSeverityValue,
   type IncidentStatusValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Eye, Loader2, Pencil, Plus } from 'lucide-react';
+import {
+  BarChart3,
+  ClipboardList,
+  Eye,
+  Loader2,
+  Pencil,
+  Plus,
+  Receipt,
+  Send,
+  Timer,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -21,6 +37,8 @@ import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { DateSelect } from '@/components/month-year-select';
+import { OpsExpenseDialog } from '@/components/operations/ops-expense-dialog';
+import { OpsFiles } from '@/components/operations/ops-files';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -55,15 +73,21 @@ import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCameraEventsByIncident } from '@/lib/cameras/hooks';
 import { useFacilities, useUnits } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
-import { formatDate, formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 import { useIncidentContext } from '@/lib/operations/features-hooks';
 import {
   useAddIncidentComment,
   useCreateIncident,
   useIncident,
+  useCreateIncidentRepairTask,
   useIncidentComments,
+  useIncidentRepairTasks,
+  useIncidentReport,
+  useIncidentResponseHours,
+  useReplyIncident,
   useTransitionIncident,
   useUpdateIncident,
+  useUpdateIncidentResponseHours,
 } from '@/lib/operations/hooks';
 import { useDebouncedSearch, usePagedList } from '@/lib/pagination';
 import { useUsers } from '@/lib/users/hooks';
@@ -107,6 +131,11 @@ const NEXT_STATUS: Record<IncidentStatusValue, IncidentStatusValue[]> = {
 export default function IncidentsPage() {
   const [status, setStatus] = useState<IncidentStatusValue | undefined>();
   const [severity, setSeverity] = useState<IncidentSeverityValue | undefined>();
+  const [category, setCategory] = useState<IncidentCategory | undefined>();
+  const [onlyLate, setOnlyLate] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [hoursOpen, setHoursOpen] = useState(false);
+  const canManageIncidents = useHasPermission('incidents:manage');
   const [createOpen, setCreateOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   // `?incident=<id>` (desde un aviso) abre la ficha.
@@ -121,6 +150,8 @@ export default function IncidentsPage() {
     facilityId: headerFacilityId,
     status,
     severity,
+    category,
+    responseOverdue: onlyLate ? '1' : undefined,
     search: search || undefined,
   });
   const facilities = useFacilities();
@@ -151,6 +182,7 @@ export default function IncidentsPage() {
         ...(values.occurredAt ? { occurredAt: values.occurredAt } : {}),
         ...(values.assignedToUserId ? { assignedToUserId: values.assignedToUserId } : {}),
         ...(values.customerId && values.visibleToCustomer ? { visibleToCustomer: true } : {}),
+        ...(values.category ? { category: values.category } : {}),
       };
       await create.mutateAsync(payload);
       toast.success('Incidencia creada.');
@@ -178,13 +210,24 @@ export default function IncidentsPage() {
       accessorKey: 'title',
       header: 'Título',
       cell: ({ row }) => (
-        <button
-          type="button"
-          onClick={() => setDetailId(row.original.id)}
-          className="text-left font-medium hover:underline"
-        >
-          {row.original.title}
-        </button>
+        <div className="space-y-0.5">
+          <button
+            type="button"
+            onClick={() => setDetailId(row.original.id)}
+            className="text-left font-medium hover:underline"
+          >
+            {row.original.title}
+          </button>
+          <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            {INCIDENT_CATEGORY_LABELS[row.original.category]}
+            {row.original.responseOverdue && (
+              <Badge variant="destructive" className="h-5 px-1.5 text-[10px]">
+                Sin responder, fuera de plazo
+              </Badge>
+            )}
+            {row.original.photos.length > 0 && <span>· {row.original.photos.length} foto(s)</span>}
+          </div>
+        </div>
       ),
     },
     {
@@ -244,6 +287,14 @@ export default function IncidentsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" onClick={() => setReportOpen(true)}>
+            <BarChart3 className="mr-1 h-4 w-4" /> Informe
+          </Button>
+          {canManageIncidents && (
+            <Button variant="outline" onClick={() => setHoursOpen(true)}>
+              <Timer className="mr-1 h-4 w-4" /> Plazos
+            </Button>
+          )}
           <Can permission="incidents:write">
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
@@ -287,6 +338,31 @@ export default function IncidentsPage() {
                                 (s) => (
                                   <SelectItem key={s} value={s}>
                                     {SEVERITY_LABELS[s].label}
+                                  </SelectItem>
+                                ),
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="category"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value ?? 'other'}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {(Object.keys(INCIDENT_CATEGORY_LABELS) as IncidentCategory[]).map(
+                                (c) => (
+                                  <SelectItem key={c} value={c}>
+                                    {INCIDENT_CATEGORY_LABELS[c]}
                                   </SelectItem>
                                 ),
                               )}
@@ -453,15 +529,40 @@ export default function IncidentsPage() {
             ))}
           </SelectContent>
         </Select>
+        <Select
+          value={category ?? 'all'}
+          onValueChange={(v) => setCategory(v === 'all' ? undefined : (v as IncidentCategory))}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tipos</SelectItem>
+            {(Object.keys(INCIDENT_CATEGORY_LABELS) as IncidentCategory[]).map((c) => (
+              <SelectItem key={c} value={c}>
+                {INCIDENT_CATEGORY_LABELS[c]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant={onlyLate ? 'default' : 'outline'}
+          className="h-9"
+          onClick={() => setOnlyLate((v) => !v)}
+        >
+          Fuera de plazo
+        </Button>
       </div>
 
       {incidents.isError && <SectionError onRetry={() => void incidents.refetch()} />}
 
       <DataTable
-        filtersActive={!!status || !!severity}
+        filtersActive={!!status || !!severity || !!category || onlyLate}
         onClearFilters={() => {
           setStatus(undefined);
           setSeverity(undefined);
+          setCategory(undefined);
+          setOnlyLate(false);
         }}
         onRowClick={(i) => setDetailId(i.id)}
         columns={columns}
@@ -478,6 +579,8 @@ export default function IncidentsPage() {
       />
 
       {detailId && <IncidentDetailDialog id={detailId} onClose={() => setDetailId(null)} />}
+      {reportOpen && <IncidentReportDialog onClose={() => setReportOpen(false)} />}
+      {hoursOpen && <ResponseHoursDialog onClose={() => setHoursOpen(false)} />}
     </div>
   );
 }
@@ -489,9 +592,38 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
   const transition = useTransitionIncident();
   const addComment = useAddIncidentComment(id);
   const canWrite = useHasPermission('incidents:write');
+  const canTasks = useHasPermission('tasks:write');
+  const canExpense = useHasPermission('expenses:manage');
+  const repairTasks = useIncidentRepairTasks(id);
+  const createRepairTask = useCreateIncidentRepairTask(id);
+  const reply = useReplyIncident(id);
   const [body, setBody] = useState('');
+  const [replyText, setReplyText] = useState('');
   const [editing, setEditing] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
   const notFound = incident.error instanceof ApiError && incident.error.statusCode === 404;
+
+  async function sendReply() {
+    if (!replyText.trim()) return;
+    try {
+      await reply.mutateAsync(replyText.trim());
+      setReplyText('');
+      toast.success('Respuesta enviada al inquilino.');
+      void incident.refetch();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+    }
+  }
+
+  async function newRepairTask() {
+    try {
+      await createRepairTask.mutateAsync();
+      toast.success('Tarea de reparación creada.');
+      void incident.refetch();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear la tarea.');
+    }
+  }
 
   async function handleTransition(next: IncidentStatusValue) {
     let resolution: string | undefined;
@@ -504,6 +636,7 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
           : 'Queda en la ficha para saber cómo se cerró.',
         input: {
           label: next === 'resolved' ? '¿Qué se ha hecho?' : '¿Por qué se descarta?',
+          required: true,
         },
         confirmLabel: next === 'resolved' ? 'Resolver' : 'Descartar',
       });
@@ -593,6 +726,52 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
                 <div className="text-muted-foreground">Responsable</div>
                 <span>{incident.data.assignedToName ?? '—'}</span>
               </div>
+              <div>
+                <div className="text-muted-foreground">Tipo</div>
+                <span>{INCIDENT_CATEGORY_LABELS[incident.data.category]}</span>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Primera respuesta</div>
+                {incident.data.firstResponseAt ? (
+                  <span>{formatDateTime(incident.data.firstResponseAt)}</span>
+                ) : incident.data.responseDueAt ? (
+                  <span
+                    className={
+                      incident.data.responseOverdue
+                        ? 'font-medium text-red-600 dark:text-red-400'
+                        : ''
+                    }
+                  >
+                    {incident.data.responseOverdue ? 'Fuera de plazo desde ' : 'Antes del '}
+                    {formatDateTime(incident.data.responseDueAt)}
+                  </span>
+                ) : (
+                  <span>—</span>
+                )}
+              </div>
+              {(incident.data.cost !== null || incident.data.insuranceClaimStatus) && (
+                <div>
+                  <div className="text-muted-foreground">Coste y seguro</div>
+                  <span>
+                    {[
+                      incident.data.cost !== null ? formatEur(incident.data.cost) : null,
+                      incident.data.insuranceClaimStatus
+                        ? `${INSURANCE_CLAIM_STATUS_LABELS[incident.data.insuranceClaimStatus]}${
+                            incident.data.insuranceClaimRef
+                              ? ` (${incident.data.insuranceClaimRef})`
+                              : ''
+                          }${
+                            incident.data.insuranceClaimAmount !== null
+                              ? ` · ${formatEur(incident.data.insuranceClaimAmount)}`
+                              : ''
+                          }`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                </div>
+              )}
             </div>
             {incident.data.description && (
               <div className="rounded-md border bg-muted/40 p-3 text-sm whitespace-pre-wrap">
@@ -627,6 +806,91 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
                 <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
                   <Pencil className="mr-1 h-4 w-4" /> Editar
                 </Button>
+              </div>
+            )}
+
+            <OpsFiles
+              files={incident.data.photos}
+              basePath={`/incidents/${incident.data.id}/photos`}
+              canEdit={canWrite}
+              onChanged={() => void incident.refetch()}
+            />
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-medium">Reparación</h3>
+                <div className="flex flex-wrap gap-2">
+                  {canTasks && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={createRepairTask.isPending}
+                      onClick={() => void newRepairTask()}
+                    >
+                      <ClipboardList className="mr-1 h-4 w-4" /> Crear tarea
+                    </Button>
+                  )}
+                  {canExpense && !incident.data.expenseId && (
+                    <Button size="sm" variant="outline" onClick={() => setExpenseOpen(true)}>
+                      <Receipt className="mr-1 h-4 w-4" /> Apuntar el gasto
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {incident.data.expenseId && (
+                <p className="text-sm text-muted-foreground">
+                  Gasto apuntado ·{' '}
+                  <Link href="/expenses" className="text-primary hover:underline">
+                    Ver en Gastos
+                  </Link>
+                </p>
+              )}
+              {(repairTasks.data ?? []).length > 0 ? (
+                <ul className="space-y-1">
+                  {repairTasks.data!.map((t) => (
+                    <li key={t.id}>
+                      <Link
+                        href={`/tasks?task=${t.id}`}
+                        className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                      >
+                        <span className="truncate">{t.title}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {[t.assignedToName, t.dueDate ? formatDate(t.dueDate) : null]
+                            .filter(Boolean)
+                            .join(' · ')}{' '}
+                          · {TASK_STATUS_TEXT[t.status] ?? t.status}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">Sin tareas de reparación.</p>
+              )}
+            </div>
+
+            {incident.data.customerId && canWrite && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">Responder al inquilino</h3>
+                <p className="text-xs text-muted-foreground">
+                  Le llega a su chat del área de clientes y queda en los comentarios.
+                </p>
+                <div className="flex gap-2">
+                  <Textarea
+                    rows={2}
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Ya hemos visto la gotera y mañana viene el técnico…"
+                  />
+                  <Button
+                    size="sm"
+                    aria-label="Enviar al inquilino"
+                    onClick={() => void sendReply()}
+                    disabled={!replyText.trim() || reply.isPending}
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -667,9 +931,28 @@ function IncidentDetailDialog({ id, onClose }: { id: string; onClose: () => void
           </div>
         )}
       </DialogContent>
+      {expenseOpen && incident.data && (
+        <OpsExpenseDialog
+          path={`/incidents/${incident.data.id}/expense`}
+          title={incident.data.title}
+          defaultAmount={incident.data.cost}
+          onClose={() => setExpenseOpen(false)}
+          onDone={() => {
+            setExpenseOpen(false);
+            void incident.refetch();
+          }}
+        />
+      )}
     </Dialog>
   );
 }
+
+const TASK_STATUS_TEXT: Record<string, string> = {
+  open: 'Abierta',
+  in_progress: 'En curso',
+  done: 'Hecha',
+  cancelled: 'Cancelada',
+};
 
 /**
  * Eventos de cámara/alarma vinculados a la incidencia (cross-link). Se auto-oculta
@@ -726,6 +1009,14 @@ function IncidentEditForm({ incident, onDone }: { incident: IncidentDto; onDone:
   const [unitId, setUnitId] = useState<string | undefined>(incident.unitId ?? undefined);
   const [assignee, setAssignee] = useState<string>(incident.assignedToUserId ?? 'none');
   const [visible, setVisible] = useState(incident.visibleToCustomer);
+  const [category, setCategory] = useState<IncidentCategory>(incident.category);
+  const [cost, setCost] = useState(incident.cost !== null ? String(incident.cost) : '');
+  const [claimStatus, setClaimStatus] = useState<string>(incident.insuranceClaimStatus ?? 'none');
+  const [claimRef, setClaimRef] = useState(incident.insuranceClaimRef ?? '');
+  const [claimAmount, setClaimAmount] = useState(
+    incident.insuranceClaimAmount !== null ? String(incident.insuranceClaimAmount) : '',
+  );
+  const num = (v: string) => (v.trim() ? Number(v.replace(',', '.')) : null);
 
   async function save() {
     if (!title.trim()) {
@@ -741,6 +1032,11 @@ function IncidentEditForm({ incident, onDone }: { incident: IncidentDto; onDone:
         unitId: unitId ?? null,
         assignedToUserId: assignee === 'none' ? null : assignee,
         ...(incident.customerId ? { visibleToCustomer: visible } : {}),
+        category,
+        cost: num(cost),
+        insuranceClaimStatus: claimStatus === 'none' ? null : (claimStatus as InsuranceClaimStatus),
+        insuranceClaimRef: claimStatus === 'none' ? null : claimRef.trim() || null,
+        insuranceClaimAmount: claimStatus === 'none' ? null : num(claimAmount),
       });
       toast.success('Incidencia guardada.');
       onDone();
@@ -815,6 +1111,69 @@ function IncidentEditForm({ incident, onDone }: { incident: IncidentDto; onDone:
           <Label>Trastero</Label>
           <IncidentUnitSelect facilityId={facilityId} value={unitId} onChange={setUnitId} />
         </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label>Tipo</Label>
+          <Select value={category} onValueChange={(v) => setCategory(v as IncidentCategory)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(INCIDENT_CATEGORY_LABELS) as IncidentCategory[]).map((c) => (
+                <SelectItem key={c} value={c}>
+                  {INCIDENT_CATEGORY_LABELS[c]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="inc-edit-cost">Coste de la reparación</Label>
+          <Input
+            id="inc-edit-cost"
+            inputMode="decimal"
+            value={cost}
+            onChange={(e) => setCost(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>Parte al seguro</Label>
+          <Select value={claimStatus} onValueChange={setClaimStatus}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sin parte</SelectItem>
+              {(Object.keys(INSURANCE_CLAIM_STATUS_LABELS) as InsuranceClaimStatus[]).map((c) => (
+                <SelectItem key={c} value={c}>
+                  {INSURANCE_CLAIM_STATUS_LABELS[c]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {claimStatus !== 'none' && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="inc-claim-ref">Nº de parte</Label>
+              <Input
+                id="inc-claim-ref"
+                value={claimRef}
+                onChange={(e) => setClaimRef(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="inc-claim-amount">Importe</Label>
+              <Input
+                id="inc-claim-amount"
+                inputMode="decimal"
+                value={claimAmount}
+                onChange={(e) => setClaimAmount(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
       </div>
       <div className="space-y-1">
         <Label htmlFor="inc-edit-desc">Descripción</Label>
@@ -936,5 +1295,174 @@ function IncidentContextSection({ incidentId }: { incidentId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+const SEVERITY_ORDER: IncidentSeverityValue[] = ['critical', 'high', 'medium', 'low'];
+
+function ResponseHoursDialog({ onClose }: { onClose: () => void }) {
+  const hours = useIncidentResponseHours();
+  const save = useUpdateIncidentResponseHours();
+  const [draft, setDraft] = useState<Record<IncidentSeverityValue, string> | null>(null);
+  const current = hours.data ?? DEFAULT_INCIDENT_RESPONSE_HOURS;
+  const value = (s: IncidentSeverityValue) => draft?.[s] ?? String(current[s]);
+
+  async function submit() {
+    const next = {} as IncidentResponseHours;
+    for (const s of SEVERITY_ORDER) {
+      const n = Number(value(s));
+      if (!Number.isInteger(n) || n < 1 || n > 720) {
+        toast.error('Cada plazo, entre 1 y 720 horas.');
+        return;
+      }
+      next[s] = n;
+    }
+    try {
+      await save.mutateAsync(next);
+      toast.success('Plazos guardados.');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Plazos de respuesta</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Horas para dar la primera respuesta (un comentario, pasarla a «En investigación» o
+          contestar al inquilino). Las que se pasen salen como «Fuera de plazo».
+        </p>
+        <div className="space-y-2">
+          {SEVERITY_ORDER.map((s) => (
+            <div key={s} className="flex items-center justify-between gap-3">
+              <Label htmlFor={`hours-${s}`}>{SEVERITY_LABELS[s].label}</Label>
+              <div className="flex items-center gap-2 text-sm">
+                <Input
+                  id={`hours-${s}`}
+                  type="number"
+                  min={1}
+                  max={720}
+                  className="h-9 w-24"
+                  value={value(s)}
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...(d ?? {
+                        critical: String(current.critical),
+                        high: String(current.high),
+                        medium: String(current.medium),
+                        low: String(current.low),
+                      }),
+                      [s]: e.target.value,
+                    }))
+                  }
+                />
+                horas
+              </div>
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={() => void submit()} disabled={save.isPending}>
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function IncidentReportDialog({ onClose }: { onClose: () => void }) {
+  const [from, setFrom] = useState(daysAgo(89));
+  const [to, setTo] = useState(daysAgo(0));
+  const report = useIncidentReport(from, to);
+  const r = report.data;
+  const table = (
+    title: string,
+    rows: { key: string; label: string; count: number; open: number }[],
+  ) => (
+    <div className="space-y-1">
+      <h3 className="text-sm font-medium">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="text-xs text-muted-foreground">—</p>
+      ) : (
+        <ul className="text-sm">
+          {rows.map((row) => (
+            <li key={row.key} className="flex justify-between gap-2 border-b py-1 last:border-0">
+              <span>{row.label}</span>
+              <span className="tabular-nums text-muted-foreground">
+                {row.count}
+                {row.open > 0 ? ` · ${row.open} abiertas` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Informe de incidencias</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-wrap items-end gap-3 text-sm">
+          <div className="space-y-1">
+            <Label>Desde</Label>
+            <DateSelect around value={from} onChange={(v) => v && setFrom(v)} />
+          </div>
+          <div className="space-y-1">
+            <Label>Hasta</Label>
+            <DateSelect around value={to} onChange={(v) => v && setTo(v)} />
+          </div>
+        </div>
+        {report.isError ? (
+          <SectionError onRetry={() => void report.refetch()} />
+        ) : !r ? (
+          <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+        ) : (
+          <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-1">
+            <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+              {[
+                { label: 'Reportadas', value: String(r.total) },
+                { label: 'Abiertas', value: String(r.open) },
+                {
+                  label: 'Horas hasta resolver',
+                  value: r.avgResolutionHours === null ? '—' : String(r.avgResolutionHours),
+                },
+                {
+                  label: 'Respondidas a tiempo',
+                  value: r.withinResponsePct === null ? '—' : `${r.withinResponsePct}%`,
+                },
+              ].map((k) => (
+                <div key={k.label} className="rounded-md border p-2">
+                  <div className="text-lg font-semibold">{k.value}</div>
+                  <div className="text-xs text-muted-foreground">{k.label}</div>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Coste de las reparaciones: {formatEur(r.totalCost)} · Partes al seguro:{' '}
+              {r.insuranceClaims}
+            </p>
+            {table('Por tipo', r.byCategory)}
+            {table('Por gravedad', r.bySeverity)}
+            {table('Por local', r.byFacility)}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

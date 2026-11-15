@@ -17,6 +17,8 @@ interface CalendarAccess {
   contracts: boolean;
   reservations: boolean;
   reminders: boolean;
+  invoices: boolean;
+  facilities: boolean;
 }
 
 /** `AAAA-MM-DD` y un día que existe (no el 31 de febrero). */
@@ -35,6 +37,8 @@ export function calendarAccess(
     contracts: has('contracts:read'),
     reservations: has('reservations:read'),
     reminders: has('reminders:read'),
+    invoices: has('invoices:read'),
+    facilities: has('facilities:read'),
   };
 }
 
@@ -297,6 +301,70 @@ export class CalendarService {
             label: customerName(c.customer),
             detail: `${c.unit?.code ?? ''} · cuota ${formatEur(Number(c.priceMonthly))} → ${formatEur(next.price)}`,
             href: `/contracts/${c.id}`,
+          });
+        }
+      }
+      // Facturas emitidas sin cobrar que vencen en el rango.
+      if (access.invoices) {
+        const invoices = await tx.invoice.findMany({
+          where: {
+            status: { in: ['issued', 'overdue'] },
+            kind: 'invoice',
+            deletedAt: null,
+            dueDate: range,
+            ...(ids ? { contract: { unit: { facilityId: { in: ids } } } } : {}),
+          },
+          select: {
+            id: true,
+            invoiceNumber: true,
+            dueDate: true,
+            total: true,
+            amountPaid: true,
+            customer: {
+              select: { customerType: true, firstName: true, lastName: true, companyName: true },
+            },
+          },
+          take: 300,
+        });
+        for (const inv of invoices) {
+          if (!inv.dueDate) continue;
+          const pending = Number(inv.total) - Number(inv.amountPaid);
+          if (pending <= 0) continue;
+          events.push({
+            id: `invoice-${inv.id}`,
+            type: 'invoice_due',
+            date: inv.dueDate.toISOString(),
+            label: customerName(inv.customer),
+            detail: `${inv.invoiceNumber ?? ''} · ${formatEur(pending)}`.trim(),
+            href: `/invoices/${inv.id}`,
+          });
+        }
+      }
+      // Documentos de los locales que caducan.
+      if (access.facilities) {
+        const docs = await tx.facilityDocument.findMany({
+          where: {
+            expiresOn: range,
+            facility: { deletedAt: null, ...(ids ? { id: { in: ids } } : {}) },
+          },
+          select: {
+            id: true,
+            name: true,
+            expiresOn: true,
+            facilityId: true,
+            facility: { select: { name: true } },
+          },
+          take: 200,
+        });
+        for (const d of docs) {
+          if (!d.expiresOn) continue;
+          events.push({
+            id: `doc-${d.id}`,
+            type: 'document_expiring',
+            date: d.expiresOn.toISOString(),
+            label: d.name,
+            detail: d.facility.name,
+            href: `/facilities/${d.facilityId}?tab=documents`,
           });
         }
       }
