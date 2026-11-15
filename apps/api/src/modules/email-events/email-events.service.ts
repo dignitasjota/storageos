@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { suggestEmailFix } from '@storageos/shared';
 
+import { applyMarketingOptOutByEmail } from '../../common/marketing/opt-out';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { PlatformEmailLogService } from '../email/platform-email-log.service';
@@ -89,6 +90,8 @@ export class EmailEventsService {
         leadId: true,
         contractId: true,
         invoiceId: true,
+        isMarketing: true,
+        source: true,
       },
     });
     const recipient = e.recipient ?? comm?.recipient ?? null;
@@ -153,6 +156,11 @@ export class EmailEventsService {
       }
       return true;
     }
+    // Una campaña o el win-back: un aviso por envío y día, no uno por rebote.
+    if (comm.isMarketing) {
+      await this.notifyMarketingUndelivered(comm.tenantId, comm.source);
+      return true;
+    }
     const suggestion = suggestEmailFix(comm.recipient);
     const hint = suggestion
       ? `¿Está bien escrito? Quizá sea ${suggestion}.`
@@ -206,11 +214,46 @@ export class EmailEventsService {
         data: { marketingOptOutAt: now },
       });
     }
+    // La baja va por email: también las otras fichas con esa dirección.
+    await applyMarketingOptOutByEmail(this.admin, comm.tenantId, recipient, now);
     await this.notifications.create(comm.tenantId, {
       type: 'communication.complaint',
       title: `${recipient} marcó un correo como spam`,
       body: 'Ya no recibirá campañas ni ofertas. Los correos de su contrato siguen saliendo.',
       link: comm.customerId ? `/customers/${comm.customerId}` : '/communications',
+    });
+  }
+
+  /**
+   * Correos de una campaña (o del win-back) que no llegan: un aviso al día por
+   * envío, con enlace a sus resultados; los rebotes se ven en «Resultados».
+   */
+  private async notifyMarketingUndelivered(tenantId: string, source: string | null): Promise<void> {
+    const campaignId = source?.startsWith('campaign:') ? source.slice('campaign:'.length) : null;
+    const link = campaignId ? `/campaigns?campaign=${campaignId}` : '/campaigns';
+    const recent = await this.admin.notification.findFirst({
+      where: {
+        tenantId,
+        type: 'campaign.undelivered',
+        link,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+      select: { id: true },
+    });
+    if (recent) return;
+    const campaign = campaignId
+      ? await this.admin.campaign.findFirst({
+          where: { id: campaignId, tenantId },
+          select: { name: true },
+        })
+      : null;
+    await this.notifications.create(tenantId, {
+      type: 'campaign.undelivered',
+      title: campaign
+        ? `Algunos correos de la campaña «${campaign.name}» no llegaron`
+        : 'Algunos correos del win-back no llegaron',
+      body: 'Las direcciones que rebotan ya no reciben más campañas. Míralas en sus resultados.',
+      link,
     });
   }
 

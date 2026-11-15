@@ -46,9 +46,32 @@ export function parseClickToken(
   return { linkId, recipientKey: `${kind}:${id}` };
 }
 
+const LINK_RE = /https?:\/\/[^\s<>"')\]]+/g;
+const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
+
 /** Enlaces http(s) de un texto, sin repetir y en orden de aparición. */
 export function extractLinks(text: string): string[] {
-  const found = text.match(/https?:\/\/[^\s<>"')\]]+/g) ?? [];
-  const clean = found.map((u) => u.replace(/[.,;:!?]+$/, ''));
+  const clean = splitLinks(text)
+    .filter((p) => p.link)
+    .map((p) => p.text);
   return [...new Set(clean)].slice(0, 20);
+}
+
+/**
+ * El texto en trozos, en orden: texto normal y enlaces (sin la puntuación
+ * final, que queda como texto).
+ */
+export function splitLinks(text: string): Array<{ text: string; link: boolean }> {
+  const parts: Array<{ text: string; link: boolean }> = [];
+  let last = 0;
+  for (const m of text.matchAll(LINK_RE)) {
+    const raw = m[0];
+    const url = raw.replace(TRAILING_PUNCTUATION, '');
+    const start = m.index ?? 0;
+    if (start > last) parts.push({ text: text.slice(last, start), link: false });
+    parts.push({ text: url, link: true });
+    last = start + url.length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last), link: false });
+  return parts;
 }

@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
 
+import { CommunicationsRequeueCron } from './communications-requeue.cron';
 import { CommunicationsController } from './communications.controller';
 import { CommunicationsProcessor } from './communications.processor';
 import { CommunicationsService } from './communications.service';
@@ -46,7 +47,7 @@ import type { Env } from '../../config/env.schema';
       ) => (config.get('WHATSAPP_PROVIDER', { infer: true }) === 'meta_waba' ? meta : stub),
       inject: [ConfigService, WhatsAppStubProvider, MetaWabaProvider],
     },
-    ...(WORKERS_ENABLED_IN_API ? [CommunicationsProcessor] : []),
+    ...(WORKERS_ENABLED_IN_API ? [CommunicationsProcessor, CommunicationsRequeueCron] : []),
   ],
   exports: [CommunicationsService, MessageTemplatesService],
 })

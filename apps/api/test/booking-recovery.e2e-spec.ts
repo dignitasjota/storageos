@@ -7,6 +7,7 @@ import { registerVerifiedUser } from './helpers/auth-flow';
 import { ensureDefaultSeries } from './helpers/billing-fixtures';
 import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { generalTermsHash } from './helpers/general-terms';
+import { waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
@@ -127,7 +128,10 @@ describe('Recuperación de reservas abandonadas (e2e)', () => {
     });
     expect(comms).toHaveLength(1);
     expect(comms[0]!.subject).toContain('sigue reservado');
-    const token = /\/sign\/([^\s"<]+)/.exec(comms[0]!.bodyText)?.[1];
+    // El historial guarda el enlace tapado; el correo lo lleva completo.
+    expect(comms[0]!.bodyText).toContain('/sign/[[SECRET-');
+    const mail = await waitForEmail(email, { subjectIncludes: 'sigue reservado' });
+    const token = /\/sign\/([^\s"<]+)/.exec(mail.Text)?.[1];
     expect(token).toBeTruthy();
     // El enlace nuevo funciona.
     await request(app.getHttpServer()).get(`/public/move-in/sign/${token}`).expect(200);

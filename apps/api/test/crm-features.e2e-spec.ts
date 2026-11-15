@@ -207,16 +207,19 @@ describe('Funcionalidades del CRM (e2e)', () => {
       })
       .expect(201);
     await http().post(`/campaigns/${campaign.body.id}/send`).set(auth).expect(200);
-    let comm: { bodyText: string | null } | null = null;
+    let comm: { bodyText: string | null; bodyHtml: string | null } | null = null;
     for (let i = 0; i < 30 && !comm; i++) {
       comm = await db.communication.findFirst({
         where: { source: `campaign:${campaign.body.id}` },
       });
       if (!comm) await sleep(200);
     }
-    const token = comm?.bodyText?.match(/campaign-click\/([^\s.]+\.[^\s.]+\.[A-Za-z0-9_-]+)/)?.[1];
+    // El texto lleva el enlace escrito; el HTML lleva el seguimiento en el `href`.
+    expect(comm?.bodyText).toContain('https://example.com/oferta');
+    const token = comm?.bodyHtml?.match(
+      /campaign-click\/([^\s."]+\.[^\s."]+\.[A-Za-z0-9_-]+)/,
+    )?.[1];
     expect(token).toBeTruthy();
-    expect(comm?.bodyText).not.toContain('https://example.com/oferta');
 
     const click = await http().get(`/v1/public/campaign-click/${token}`).redirects(0);
     expect(click.status).toBe(302);

@@ -11,6 +11,9 @@ import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { customerScopeWhere } from '../../common/customer-scope';
+import { type FacilityScope } from '../../common/facility-scope';
+import { leadScopeWhere } from '../../common/lead-scope';
 import {
   appendUnsubscribeFooter,
   buildUnsubscribeToken,
@@ -38,7 +41,7 @@ import { BUILTIN_TEMPLATES } from './builtin-templates';
 import { BUILTIN_TEMPLATES_EN } from './builtin-templates.en';
 import { MessageTemplatesService } from './message-templates.service';
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from './providers/whatsapp-provider';
-import { extractSecrets, fillSecrets, maskSecrets } from './secret-vars';
+import { extractSecrets, fillSecrets, maskSecrets, sealLinkTokens } from './secret-vars';
 import { renderTemplate, renderText, TEMPLATE_VARIABLES_BY_TRIGGER } from './template-engine';
 import { buildWhatsappTemplateParams } from './whatsapp-template.util';
 
@@ -55,6 +58,9 @@ import type {
 
 /** Tras este tiempo en `processing`, un envío se considera atascado y se puede reclamar. */
 const STUCK_PROCESSING_MS = 15 * 60_000;
+/** Un envío pendiente sin salir pasado este tiempo se vuelve a encolar. */
+const STUCK_PENDING_MS = 30 * 60_000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface DispatchJobData {
   tenantId: string;
@@ -62,6 +68,8 @@ export interface DispatchJobData {
 }
 
 export interface ListFilters {
+  /** Locales del usuario: solo ve los envíos de sus inquilinos y contactos. */
+  scope?: FacilityScope;
   channel?: CommunicationChannelValue;
   status?: CommunicationStatusValue;
   customerId?: string;
@@ -218,19 +226,42 @@ export class CommunicationsService {
   private splitSecrets(args: SendArgs): {
     renderVars: Record<string, unknown>;
     storedVars: Record<string, unknown>;
-    secretsEncrypted: string | null;
+    secrets: Record<string, string>;
   } {
     const vars = args.variables ?? {};
     if (!args.secretVariables?.length) {
-      return { renderVars: vars, storedVars: vars, secretsEncrypted: null };
+      return { renderVars: vars, storedVars: vars, secrets: {} };
     }
     const { forRender, forStorage, secrets } = extractSecrets(vars, args.secretVariables);
+    return { renderVars: forRender, storedVars: forStorage, secrets: secrets ?? {} };
+  }
+
+  /**
+   * Tapa los enlaces con un código de acceso (firma, domiciliación, factura…)
+   * y cifra todos los valores sensibles. El historial guarda las marcas; el
+   * envío pone los valores reales (ver `secret-vars.ts`).
+   */
+  private seal(
+    tenantId: string,
+    texts: { subject: string | null; bodyText: string; bodyHtml: string | null },
+    secrets: Record<string, string>,
+  ): {
+    subject: string | null;
+    bodyText: string;
+    bodyHtml: string | null;
+    secretsEncrypted: string | null;
+  } {
+    const subject = texts.subject === null ? null : sealLinkTokens(texts.subject, secrets);
+    const bodyText = sealLinkTokens(texts.bodyText, secrets);
+    const bodyHtml = texts.bodyHtml === null ? null : sealLinkTokens(texts.bodyHtml, secrets);
     return {
-      renderVars: forRender,
-      storedVars: forStorage,
-      secretsEncrypted: secrets
-        ? this.crypto.encryptString(JSON.stringify(secrets), args.tenantId)
-        : null,
+      subject,
+      bodyText,
+      bodyHtml,
+      secretsEncrypted:
+        Object.keys(secrets).length > 0
+          ? this.crypto.encryptString(JSON.stringify(secrets), tenantId)
+          : null,
     };
   }
 
@@ -262,7 +293,7 @@ export class CommunicationsService {
     let whatsappTemplateName: string | null = null;
     let whatsappTemplateLanguage: string | null = null;
     let whatsappTemplateParams: Record<string, string> | null = null;
-    const { renderVars, storedVars, secretsEncrypted } = this.splitSecrets(args);
+    const { renderVars, storedVars, secrets } = this.splitSecrets(args);
 
     if ((args.templateCode || args.templateId) && !bodyText) {
       const src = await this.resolveTemplateSource(args);
@@ -300,6 +331,7 @@ export class CommunicationsService {
     if (args.channel === 'email') provider = this.email.providerName;
     else if (args.channel === 'whatsapp') provider = this.whatsapp.name;
     else provider = 'unknown';
+    const sealed = this.seal(args.tenantId, { subject, bodyText, bodyHtml }, secrets);
 
     const data: Prisma.CommunicationUncheckedCreateInput = {
       tenantId: args.tenantId,
@@ -311,11 +343,11 @@ export class CommunicationsService {
       contractId: args.contractId ?? null,
       invoiceId: args.invoiceId ?? null,
       recipient: args.recipient,
-      subject,
-      bodyText,
-      bodyHtml,
+      subject: sealed.subject,
+      bodyText: sealed.bodyText,
+      bodyHtml: sealed.bodyHtml,
       variables: storedVars as Prisma.InputJsonValue,
-      secretsEncrypted,
+      secretsEncrypted: sealed.secretsEncrypted,
       whatsappTemplateName,
       whatsappTemplateLanguage,
       ...(whatsappTemplateParams
@@ -558,7 +590,7 @@ export class CommunicationsService {
   }
 
   async list(tenantId: string, filters: ListFilters): Promise<CommunicationDto[]> {
-    const where: Prisma.CommunicationWhereInput = {};
+    const where: Prisma.CommunicationWhereInput = { ...communicationScopeWhere(filters.scope) };
     if (filters.channel) where.channel = filters.channel;
     if (filters.status) where.status = filters.status;
     if (filters.customerId) where.customerId = filters.customerId;
@@ -576,14 +608,66 @@ export class CommunicationsService {
         }),
       tenantId,
     );
+    const campaigns = await this.campaignNames(tenantId, rows);
     return rows.map((r) =>
       this.toDto({
         ...r,
         templateName: r.template?.name ?? null,
         customerName: r.customer ? customerDisplay(r.customer) : null,
+        campaignName: campaignOf(r.source, campaigns),
         ...linkFields(r),
       }),
     );
+  }
+
+  /** Nombres de las campañas de estos envíos (`source = campaign:<id>`). */
+  private async campaignNames(
+    tenantId: string,
+    rows: Array<{ source: string | null }>,
+  ): Promise<Map<string, string>> {
+    const ids = [
+      ...new Set(
+        rows
+          .map((r) => r.source)
+          .filter((v): v is string => !!v && v.startsWith('campaign:'))
+          .map((v) => v.slice('campaign:'.length))
+          .filter((v) => UUID_RE.test(v)),
+      ),
+    ];
+    if (ids.length === 0) return new Map();
+    const found = await this.admin.campaign.findMany({
+      where: { tenantId, id: { in: ids } },
+      select: { id: true, name: true },
+    });
+    return new Map(found.map((c) => [c.id, c.name]));
+  }
+
+  /**
+   * Envíos que se quedaron en «Pendiente» sin trabajo en la cola (Redis se
+   * vació o se reinició a mitad): se vuelven a encolar. El envío se reclama de
+   * forma atómica, así que un trabajo de más no manda el correo dos veces.
+   */
+  async requeueStuck(): Promise<number> {
+    const cutoff = new Date(Date.now() - STUCK_PENDING_MS);
+    const stuck = await this.admin.communication.findMany({
+      where: {
+        status: 'pending',
+        heldAt: null,
+        createdAt: { lt: cutoff },
+        OR: [{ scheduledFor: null }, { scheduledFor: { lt: cutoff } }],
+      },
+      select: { id: true, tenantId: true },
+      orderBy: { createdAt: 'asc' },
+      take: 200,
+    });
+    for (const c of stuck) {
+      await this.queue.add(JOB_COMMUNICATIONS_DISPATCH, {
+        tenantId: c.tenantId,
+        communicationId: c.id,
+      } satisfies DispatchJobData);
+    }
+    if (stuck.length > 0) this.logger.warn(`[communications] reencolados ${stuck.length}`);
+    return stuck.length;
   }
 
   /**
@@ -593,7 +677,8 @@ export class CommunicationsService {
    */
   async listPage(tenantId: string, f: PageFilters): Promise<CommunicationPageDto> {
     const take = Math.min(Math.max(f.limit ?? 50, 1), 100);
-    const where: Prisma.CommunicationWhereInput = {};
+    const and: Prisma.CommunicationWhereInput[] = [communicationScopeWhere(f.scope)];
+    const where: Prisma.CommunicationWhereInput = { AND: and };
     if (f.channel) where.channel = f.channel;
     if (f.status) where.status = f.status;
     if (f.customerId) where.customerId = f.customerId;
@@ -605,15 +690,17 @@ export class CommunicationsService {
     const q = f.search?.trim();
     if (q) {
       const contains = { contains: q, mode: 'insensitive' as const };
-      where.OR = [
-        { recipient: contains },
-        { subject: contains },
-        {
-          customer: {
-            OR: [{ firstName: contains }, { lastName: contains }, { companyName: contains }],
+      and.push({
+        OR: [
+          { recipient: contains },
+          { subject: contains },
+          {
+            customer: {
+              OR: [{ firstName: contains }, { lastName: contains }, { companyName: contains }],
+            },
           },
-        },
-      ];
+        ],
+      });
     }
     const rows = await this.prisma.withTenant(
       (tx) =>
@@ -627,12 +714,14 @@ export class CommunicationsService {
       tenantId,
     );
     const page = rows.slice(0, take);
+    const campaigns = await this.campaignNames(tenantId, page);
     return {
       items: page.map((r) =>
         this.toDto({
           ...r,
           templateName: r.template?.name ?? null,
           customerName: r.customer ? customerDisplay(r.customer) : null,
+          campaignName: campaignOf(r.source, campaigns),
           ...linkFields(r),
         }),
       ),
@@ -640,11 +729,11 @@ export class CommunicationsService {
     };
   }
 
-  async detail(tenantId: string, id: string): Promise<CommunicationDto> {
+  async detail(tenantId: string, id: string, scope?: FacilityScope): Promise<CommunicationDto> {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.communication.findFirst({
-          where: { id },
+          where: { id, ...communicationScopeWhere(scope) },
           include: LIST_INCLUDE,
         }),
       tenantId,
@@ -655,17 +744,19 @@ export class CommunicationsService {
         message: 'No encontrado',
       });
     }
+    const campaigns = await this.campaignNames(tenantId, [row]);
     return this.toDto({
       ...row,
       templateName: row.template?.name ?? null,
       customerName: row.customer ? customerDisplay(row.customer) : null,
+      campaignName: campaignOf(row.source, campaigns),
       ...linkFields(row),
     });
   }
 
-  async retry(tenantId: string, id: string): Promise<CommunicationDto> {
+  async retry(tenantId: string, id: string, scope?: FacilityScope): Promise<CommunicationDto> {
     const row = await this.prisma.withTenant(
-      (tx) => tx.communication.findFirst({ where: { id } }),
+      (tx) => tx.communication.findFirst({ where: { id, ...communicationScopeWhere(scope) } }),
       tenantId,
     );
     if (!row) {
@@ -694,7 +785,7 @@ export class CommunicationsService {
       tenantId,
       communicationId: id,
     } satisfies DispatchJobData);
-    return this.detail(tenantId, id);
+    return this.detail(tenantId, id, scope);
   }
 
   /** Cancela un envio en pending (e.g. el cliente pago antes del recordatorio). */
@@ -813,7 +904,7 @@ export class CommunicationsService {
     let bodyHtml = args.bodyHtml ?? null;
     let templateId: string | null = args.templateId ?? null;
     let provider: string | null = null;
-    const { renderVars, storedVars, secretsEncrypted } = this.splitSecrets(args);
+    const { renderVars, storedVars, secrets } = this.splitSecrets(args);
     if ((args.templateCode || args.templateId) && !bodyText) {
       const src = await this.resolveTemplateSource(args);
       if (!src) {
@@ -832,6 +923,7 @@ export class CommunicationsService {
     }
     if (args.channel === 'email') provider = this.email.providerName;
     else if (args.channel === 'whatsapp') provider = this.whatsapp.name;
+    const sealed = this.seal(args.tenantId, { subject, bodyText, bodyHtml }, secrets);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.communication.create({
@@ -845,11 +937,11 @@ export class CommunicationsService {
             contractId: args.contractId ?? null,
             invoiceId: args.invoiceId ?? null,
             recipient: args.recipient,
-            subject,
-            bodyText,
-            bodyHtml,
+            subject: sealed.subject,
+            bodyText: sealed.bodyText,
+            bodyHtml: sealed.bodyHtml,
             variables: storedVars as Prisma.InputJsonValue,
-            secretsEncrypted,
+            secretsEncrypted: sealed.secretsEncrypted,
             provider,
             source: args.source ?? null,
           },
@@ -917,6 +1009,7 @@ export class CommunicationsService {
     c: Communication & {
       templateName?: string | null;
       customerName?: string | null;
+      campaignName?: string | null;
       contractNumber?: string | null;
       unitId?: string | null;
       unitCode?: string | null;
@@ -947,6 +1040,7 @@ export class CommunicationsService {
       providerMessageId: c.providerMessageId,
       provider: c.provider,
       source: c.source,
+      campaignName: c.campaignName ?? null,
       errorMessage: c.errorMessage,
       retryCount: c.retryCount,
       scheduledFor: c.scheduledFor?.toISOString() ?? null,
@@ -989,4 +1083,29 @@ function customerDisplay(c: {
 }): string {
   if (c.customerType === 'business') return c.companyName ?? 'Empresa';
   return [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || 'Cliente';
+}
+
+/**
+ * Envíos que ve quien solo tiene unos locales: los de sus inquilinos y
+ * contactos, los de contratos de sus locales y los que no son de nadie.
+ */
+export function communicationScopeWhere(scope: FacilityScope): Prisma.CommunicationWhereInput {
+  if (!scope) return {};
+  return {
+    OR: [
+      { customerId: { not: null }, customer: customerScopeWhere(scope) },
+      { customerId: null, leadId: { not: null }, lead: leadScopeWhere(scope) },
+      {
+        customerId: null,
+        leadId: null,
+        contractId: { not: null },
+        contract: { unit: { facilityId: { in: scope } } },
+      },
+      { customerId: null, leadId: null, contractId: null },
+    ],
+  };
+}
+
+function campaignOf(source: string | null, names: Map<string, string>): string | null {
+  return source?.startsWith('campaign:') ? (names.get(source.slice(9)) ?? null) : null;
 }

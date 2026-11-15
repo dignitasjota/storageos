@@ -32,6 +32,7 @@ import { Queue } from 'bullmq';
 
 import { customerScopeWhere } from '../../common/customer-scope';
 import { emailLocale, todayInTimezone } from '../../common/format';
+import { applyMarketingOptOutByEmail } from '../../common/marketing/opt-out';
 import { planInstallmentDue, type PlanInstallmentDue } from '../../common/payment-plan-guard';
 import { escapeHtml, tenantEmailShell } from '../../common/tenant-email-layout';
 import { tenantHasFeature } from '../../common/tenant-features';
@@ -1776,7 +1777,7 @@ export class PortalService {
       select: { marketingOptOutAt: true, whatsappOptOutAt: true },
     });
     const now = new Date();
-    await this.admin.customer.update({
+    const updated = await this.admin.customer.update({
       where: { id: customerId },
       data: {
         ...(input.marketing !== undefined
@@ -1787,6 +1788,15 @@ export class PortalService {
           : {}),
       },
     });
+    if (input.marketing !== undefined) {
+      // La baja va por email: también las otras fichas con la misma dirección.
+      await applyMarketingOptOutByEmail(
+        this.admin,
+        tenantId,
+        updated.email,
+        updated.marketingOptOutAt,
+      );
+    }
     await this.audit.write({
       tenantId,
       userId: null,

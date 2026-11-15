@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
+import { claimDailyCronRun } from '../../common/cron-claim';
+import { PrismaAdminService } from '../database/prisma-admin.service';
+
+import { CampaignInsightsService } from './campaign-insights.service';
 import { CampaignsService } from './campaigns.service';
 
 /**
@@ -12,7 +16,11 @@ import { CampaignsService } from './campaigns.service';
 export class CampaignsResumeCron {
   private readonly logger = new Logger(CampaignsResumeCron.name);
 
-  constructor(private readonly campaigns: CampaignsService) {}
+  constructor(
+    private readonly campaigns: CampaignsService,
+    private readonly insights: CampaignInsightsService,
+    private readonly admin: PrismaAdminService,
+  ) {}
 
   @Cron('*/5 * * * *', { name: 'campaigns.resume' })
   async tick(): Promise<void> {
@@ -21,6 +29,17 @@ export class CampaignsResumeCron {
       await this.campaigns.completeScheduled();
     } catch (err) {
       this.logger.error(`No se pudieron retomar campañas: ${(err as Error).message}`);
+    }
+  }
+
+  /** Guarda los resultados de las campañas antes de que la limpieza borre sus envíos. */
+  @Cron('30 3 * * *', { name: 'campaigns.results-snapshot' })
+  async snapshot(): Promise<void> {
+    try {
+      if (!(await claimDailyCronRun(this.admin, 'campaigns.results-snapshot'))) return;
+      await this.insights.snapshotOld();
+    } catch (err) {
+      this.logger.error(`No se pudieron guardar resultados: ${(err as Error).message}`);
     }
   }
 }

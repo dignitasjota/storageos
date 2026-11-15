@@ -2461,3 +2461,24 @@ En la pestaña **Firma** de un contrato con el trastero reservado (reserva onlin
 Mientras dure, el trastero sigue reservado y la reserva no se cancela. Opcionalmente, el inquilino recibe el correo «Te guardamos el trastero hasta el…» con el enlace para firmar (si aún no ha firmado, el enlace vale al menos hasta el plazo nuevo) o para pagar. Ese correo cuenta como el recordatorio automático, para no mandarle otro enseguida.
 
 Los contratos firmados en el local no tienen plazo: no caducan y no se pueden ampliar.
+
+## 141. Revisión de Campañas y Comunicaciones: arreglos (2026-11-16)
+
+Migración `20270126100000_campaigns_review` (se aplica sola al arrancar el API):
+
+- `campaigns.facility_scope` (locales de quien creó la campaña; vacío = toda la empresa) y `campaigns.results_snapshot` (resultados guardados antes de que la limpieza borre los envíos);
+- libera las reservas del win-back de los últimos 90 días que no tienen correo (las dejó una variable mal escrita: esos ex-clientes vuelven a poder recibirlo);
+- tapa con `••••` el código de los enlaces que dan acceso (firmar un contrato o un anexo, una domiciliación, una valoración, descargar una factura, `?token=`) en los envíos ya salidos del historial.
+
+Sin variables nuevas. Lo que cambia:
+
+- **Textos**: una variable sin cerrar, que no existe o de otra audiencia se rechaza al guardar la campaña, la plantilla o el win-back (400 `invalid_template_text`). Antes la campaña quedaba «Enviada · 0» y el win-back marcaba al ex-cliente como avisado sin escribirle.
+- **Alcance por local**: quien solo ve unos locales solo ve en Comunicaciones los envíos de sus inquilinos y contactos, y sus campañas solo llegan a quien ha tenido contrato en ellos (o a los contactos de sus locales). El win-back es de toda la empresa: lo cambian propietario y gestor sin alcance.
+- **Historial**: los enlaces con código se guardan tapados; el correo sale completo.
+- **Correo de la campaña**: el destinatario ve la dirección que escribió el negocio; el seguimiento del clic va por debajo.
+- **Programar** es un solo paso. Un borrador con la fecha pasada avisa de que no salió. No se crea una campaña con fecha pasada ni se envía a nadie (400 `campaign_no_recipients`).
+- **Baja de las comunicaciones comerciales por email**: darse de baja (enlace del correo, ficha, área de clientes, queja de spam) vale para todas las fichas con esa dirección. La fusión de inquilinos conserva la baja. Cada dirección recibe la campaña una vez. La baja se cuenta en la última campaña recibida antes de darse de baja, no en todas.
+- **Win-back**: nunca a quien se fue debiendo (facturas vencidas o expediente de impago no cobrado) ni a una reserva online que caducó sin pagar; «Enviar ahora» dice a cuántos escribirá y queda en el registro; el segundo aviso se salta si el cupón está agotado.
+- **Envíos atascados**: los que llevan 30 minutos pendientes sin trabajo en la cola se vuelven a encolar (cron `communications.requeue-stuck`, cada 10 minutos, en el worker).
+- **Avisos**: los rebotes de una campaña dan un aviso al día por campaña, no uno por correo.
+- Campañas: ficha con el texto, cambiar el borrador, duplicar, borrar y registro de actividad. Comunicaciones: ficha del envío, «Cargar más» sin páginas, tipos y canales en palabras, sin el filtro de SMS, programados con su fecha y filtros mal puestos → 400.

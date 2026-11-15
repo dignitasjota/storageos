@@ -5,122 +5,96 @@ import {
   DEFAULT_WINBACK_SECOND_BODY,
   DEFAULT_WINBACK_SECOND_SUBJECT,
   DEFAULT_WINBACK_SUBJECT,
+  WINBACK_SECOND_TEMPLATE_VARIABLES,
+  WINBACK_TEMPLATE_VARIABLES,
+  templateTextProblems,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { Plus, Send, Users } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { AlertTriangle, Plus, Send } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
-  CampaignResultsButton,
-  EmailPreviewButton,
-  SaveTemplateButton,
-  TemplatePicker,
-  WinbackStatsLine,
-} from './campaign-extras';
+  CAMPAIGN_STATUS,
+  CampaignDetailDialog,
+  scheduleMissed,
+  useCampaignActions,
+} from './campaign-detail-dialog';
+import { CampaignResultsButton, WinbackStatsLine } from './campaign-extras';
+import { CampaignFormDialog } from './campaign-form-dialog';
 
-import type { CampaignDto, CampaignSegmentInput } from '@storageos/shared';
+import type { CampaignDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import {
   useCampaigns,
-  useCreateCampaign,
-  useCancelCampaign,
-  usePreviewCampaign,
   useRunWinback,
-  useSendCampaign,
   useUpdateWinbackSettings,
+  useWinbackPreview,
   useWinbackSettings,
 } from '@/lib/campaigns/hooks';
+import { describeSegment } from '@/lib/campaigns/segment-label';
 import { CAMPAIGN_SELECTION_KEY } from '@/lib/customers/features-hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { formatDate, formatDateTime } from '@/lib/format';
 
-const STATUS: Record<
-  CampaignDto['status'],
-  { label: string; variant: 'default' | 'secondary' | 'outline' }
-> = {
-  draft: { label: 'Borrador', variant: 'secondary' },
-  sending: { label: 'Enviando', variant: 'default' },
-  scheduled: { label: 'Programada', variant: 'secondary' },
-  sent: { label: 'Enviada', variant: 'default' },
-  cancelled: { label: 'Cancelada', variant: 'outline' },
-};
-
 export default function CampaignsPage() {
-  const ask = useConfirm();
   const campaigns = useCampaigns();
-  const send = useSendCampaign();
-  const cancel = useCancelCampaign();
+  const facilities = useFacilities();
   const canSend = useHasPermission('communications:send');
+  const canWinback = useHasPermission('automations:manage');
+  const companyWide = useCompanyWide();
+  const { handleSend } = useCampaignActions();
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<CampaignDto | undefined>();
+  const [selection, setSelection] = useState<string[]>([]);
+  const list = useMemo(() => campaigns.data ?? [], [campaigns.data]);
+  const detail = list.find((c) => c.id === detailId) ?? null;
+  const facilityName = (id: string) => facilities.data?.find((f) => f.id === id)?.name;
 
-  async function handleSend(c: CampaignDto) {
-    const scheduled = c.scheduledFor && new Date(c.scheduledFor).getTime() > Date.now();
-    if (
-      !(await ask({
-        title: scheduled
-          ? `¿Programar la campaña para el ${formatDateTime(c.scheduledFor!)}?`
-          : '¿Enviar la campaña ahora a toda la audiencia?',
-      }))
-    )
-      return;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    // Desde un aviso de la campana: abre esa campaña.
+    const fromLink = params.get('campaign');
+    if (fromLink) setDetailId(fromLink);
+    // Selección hecha en la lista de inquilinos.
+    if (!params.has('fromCustomers')) return;
     try {
-      const res = await send.mutateAsync(c.id);
-      toast.success(
-        res.status === 'sent'
-          ? `Campaña enviada a ${res.sentCount} destinatarios.`
-          : scheduled
-            ? 'Campaña programada. Puedes cancelarla hasta que salga.'
-            : 'Enviando la campaña… El estado se actualiza solo.',
-      );
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      const ids = JSON.parse(sessionStorage.getItem(CAMPAIGN_SELECTION_KEY) ?? '[]') as string[];
+      sessionStorage.removeItem(CAMPAIGN_SELECTION_KEY);
+      if (ids.length) {
+        setSelection(ids);
+        setEditing(undefined);
+        setFormOpen(true);
+      }
+    } catch {
+      /* sin selección */
     }
+  }, []);
+
+  function openNew() {
+    setSelection([]);
+    setEditing(undefined);
+    setFormOpen(true);
   }
 
-  async function handleCancel(c: CampaignDto) {
-    if (
-      !(await ask({
-        title: '¿Cancelar la campaña?',
-        description:
-          c.status === 'scheduled'
-            ? 'Los correos programados no se enviarán.'
-            : 'El borrador quedará cancelado.',
-        destructive: true,
-      }))
-    )
-      return;
-    try {
-      await cancel.mutateAsync(c.id);
-      toast.success('Campaña cancelada.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
+  function openEdit(c: CampaignDto) {
+    setDetailId(null);
+    setSelection([]);
+    setEditing(c);
+    setFormOpen(true);
   }
 
   const columns: ColumnDef<CampaignDto>[] = [
@@ -131,32 +105,46 @@ export default function CampaignsPage() {
     },
     {
       id: 'audience',
-      header: 'Audiencia',
-      cell: ({ row }) => {
-        const seg = row.original.segment;
-        return (
-          <span className="text-sm text-muted-foreground">
-            {seg.audience === 'leads' ? 'Leads' : 'Clientes'} · {row.original.audienceCount}
-          </span>
-        );
-      },
+      header: 'A quién va',
+      cell: ({ row }) => (
+        <span className="text-sm text-muted-foreground">
+          {describeSegment(row.original.segment, facilityName)}
+        </span>
+      ),
     },
     {
       accessorKey: 'status',
       header: 'Estado',
       cell: ({ row }) => {
-        const s = STATUS[row.original.status];
-        return <Badge variant={s.variant}>{s.label}</Badge>;
+        const c = row.original;
+        const s = CAMPAIGN_STATUS[c.status];
+        return (
+          <div className="space-y-1">
+            <Badge variant={s.variant}>{s.label}</Badge>
+            {scheduleMissed(c) && (
+              <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="size-3" /> La fecha pasó y no se envió
+              </p>
+            )}
+          </div>
+        );
       },
     },
-    { accessorKey: 'sentCount', header: 'Enviados' },
+    {
+      accessorKey: 'sentCount',
+      header: 'Correos',
+      cell: ({ row }) =>
+        row.original.status === 'sent' || row.original.status === 'scheduled'
+          ? row.original.sentCount
+          : '—',
+    },
     {
       accessorKey: 'createdAt',
       header: 'Fecha',
       cell: ({ row }) => (
         <span>
-          {formatDate(row.original.createdAt)}
-          {row.original.scheduledFor && (
+          {formatDate(row.original.sentAt ?? row.original.createdAt)}
+          {row.original.scheduledFor && row.original.status !== 'sent' && (
             <span className="block text-xs text-muted-foreground">
               Envío: {formatDateTime(row.original.scheduledFor)}
             </span>
@@ -169,27 +157,18 @@ export default function CampaignsPage() {
       header: '',
       cell: ({ row }) => {
         const c = row.original;
-        const future = !!c.scheduledFor && new Date(c.scheduledFor).getTime() > Date.now();
-        if (!canSend) {
-          return c.status === 'sent' ? <CampaignResultsButton campaignId={c.id} /> : null;
+        if (c.status === 'sent' || c.status === 'scheduled') {
+          return <CampaignResultsButton campaignId={c.id} />;
         }
-        return (
-          <div className="flex flex-wrap justify-end gap-2">
-            {(c.status === 'sent' || c.status === 'scheduled') && (
-              <CampaignResultsButton campaignId={c.id} />
-            )}
-            {c.status === 'draft' && (
-              <Button variant="outline" size="sm" onClick={() => handleSend(c)}>
-                <Send className="mr-1 h-4 w-4" /> {future ? 'Programar' : 'Enviar'}
-              </Button>
-            )}
-            {(c.status === 'draft' || (c.status === 'scheduled' && future)) && (
-              <Button variant="ghost" size="sm" onClick={() => handleCancel(c)}>
-                Cancelar
-              </Button>
-            )}
-          </div>
-        );
+        if (canSend && c.status === 'draft') {
+          const future = !!c.scheduledFor && new Date(c.scheduledFor).getTime() > Date.now();
+          return (
+            <Button variant="outline" size="sm" onClick={() => void handleSend(c)}>
+              <Send className="mr-1 h-4 w-4" /> {future ? 'Programar' : 'Enviar'}
+            </Button>
+          );
+        }
+        return null;
       },
     },
   ];
@@ -199,365 +178,47 @@ export default function CampaignsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Campañas</h1>
         <p className="text-sm text-muted-foreground">
-          Envíos segmentados por email a clientes o leads (reactivación, upsell, avisos).
+          Correos a inquilinos o contactos elegidos por filtros (reactivación, ofertas, avisos).
         </p>
       </div>
 
-      {canSend && <WinbackCard />}
+      {canWinback && companyWide && <WinbackCard />}
 
-      <DataTable
-        columns={columns}
-        data={campaigns.data ?? []}
-        isLoading={campaigns.isLoading}
-        searchPlaceholder="Buscar campaña..."
-        guide="promociones"
-        emptyText="Envía un correo a quien elijas: inquilinos, contactos o antiguos clientes."
-        toolbarRight={canSend ? <CreateCampaignDialog /> : null}
+      {campaigns.isError ? (
+        <SectionError onRetry={() => void campaigns.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={list}
+          isLoading={campaigns.isLoading}
+          searchPlaceholder="Buscar campaña..."
+          guide="promociones"
+          emptyText="Envía un correo a quien elijas: inquilinos, contactos o antiguos clientes."
+          onRowClick={(c) => setDetailId(c.id)}
+          toolbarRight={
+            canSend ? (
+              <Button onClick={openNew}>
+                <Plus className="mr-1 h-4 w-4" /> Nueva campaña
+              </Button>
+            ) : null
+          }
+        />
+      )}
+
+      <CampaignDetailDialog
+        campaign={detail}
+        onOpenChange={(open) => !open && setDetailId(null)}
+        onEdit={openEdit}
       />
+      {canSend && (
+        <CampaignFormDialog
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          {...(editing ? { campaign: editing } : {})}
+          initialCustomerIds={selection}
+        />
+      )}
     </div>
-  );
-}
-
-function CreateCampaignDialog() {
-  const [open, setOpen] = useState(false);
-  const create = useCreateCampaign();
-  const preview = usePreviewCampaign();
-
-  const [name, setName] = useState('');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
-  const [audience, setAudience] = useState<'customers' | 'leads'>('customers');
-  const [contractStatus, setContractStatus] = useState<'active' | 'none' | 'any' | 'former'>('any');
-  const [overdueOnly, setOverdueOnly] = useState(false);
-  const [tag, setTag] = useState('');
-  const [leadStatus, setLeadStatus] = useState<string>('any');
-  const [facilityId, setFacilityId] = useState<string>('all');
-  const [schedule, setSchedule] = useState(false);
-  const [scheduleDate, setScheduleDate] = useState('');
-  const [scheduleHour, setScheduleHour] = useState('10');
-  const [count, setCount] = useState<number | null>(null);
-  const [customerIds, setCustomerIds] = useState<string[]>([]);
-  // Selección hecha en la lista de inquilinos.
-  useEffect(() => {
-    if (!new URLSearchParams(window.location.search).has('fromCustomers')) return;
-    try {
-      const ids = JSON.parse(sessionStorage.getItem(CAMPAIGN_SELECTION_KEY) ?? '[]') as string[];
-      sessionStorage.removeItem(CAMPAIGN_SELECTION_KEY);
-      if (ids.length) {
-        setCustomerIds(ids);
-        setOpen(true);
-      }
-    } catch {
-      /* sin selección */
-    }
-  }, []);
-  const facilities = useFacilities();
-  const facilityList = facilities.data ?? [];
-
-  function buildSegment(): CampaignSegmentInput {
-    if (audience === 'leads') {
-      return {
-        audience: 'leads',
-        ...(leadStatus !== 'any' ? { leadStatus: leadStatus as 'new' } : {}),
-        ...(facilityId !== 'all' ? { facilityId } : {}),
-      };
-    }
-    return {
-      audience: 'customers',
-      contractStatus,
-      overdueOnly,
-      ...(tag.trim() ? { tag: tag.trim() } : {}),
-      ...(facilityId !== 'all' ? { facilityId } : {}),
-      ...(customerIds.length ? { customerIds } : {}),
-    };
-  }
-
-  async function calcAudience() {
-    try {
-      const res = await preview.mutateAsync(buildSegment());
-      setCount(res.audienceCount);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
-  }
-
-  async function submit() {
-    if (!name.trim() || !subject.trim() || !body.trim()) {
-      toast.error('Completa nombre, asunto y cuerpo.');
-      return;
-    }
-    let scheduledFor: string | undefined;
-    if (schedule) {
-      if (!scheduleDate) {
-        toast.error('Elige el día del envío.');
-        return;
-      }
-      const at = new Date(`${scheduleDate}T${scheduleHour.padStart(2, '0')}:00:00`);
-      if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) {
-        toast.error('La fecha del envío tiene que ser futura.');
-        return;
-      }
-      scheduledFor = at.toISOString();
-    }
-    try {
-      await create.mutateAsync({
-        name,
-        subject,
-        bodyText: body,
-        segment: buildSegment(),
-        ...(scheduledFor ? { scheduledFor } : {}),
-      });
-      toast.success(
-        scheduledFor
-          ? 'Campaña creada. Pulsa «Programar» para dejarla lista.'
-          : 'Campaña creada en borrador. Pulsa "Enviar" cuando quieras.',
-      );
-      setOpen(false);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="mr-1 h-4 w-4" /> Nueva campaña
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Nueva campaña por email</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          {customerIds.length > 0 && (
-            <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-              Para los {customerIds.length} inquilinos elegidos en la lista, sin quienes se dieron
-              de baja de las comunicaciones comerciales.{' '}
-              <button type="button" className="underline" onClick={() => setCustomerIds([])}>
-                Quitar
-              </button>
-            </p>
-          )}
-          <div className="space-y-1">
-            <Label>Nombre</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Promo verano"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <Label>Audiencia</Label>
-            <Select
-              value={audience}
-              onValueChange={(v) => {
-                setAudience(v as 'customers' | 'leads');
-                setCount(null);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="customers">Clientes</SelectItem>
-                <SelectItem value="leads">Leads (potenciales)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {audience === 'customers' ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-sm">Contrato</Label>
-                <Select
-                  value={contractStatus}
-                  onValueChange={(v) => {
-                    setContractStatus(v as 'active' | 'none' | 'any' | 'former');
-                    setCount(null);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">Todos</SelectItem>
-                    <SelectItem value="active">Con contrato activo</SelectItem>
-                    <SelectItem value="none">Sin contrato activo</SelectItem>
-                    <SelectItem value="former">Ex-clientes (win-back)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-sm">Tag (opcional)</Label>
-                <Input
-                  value={tag}
-                  onChange={(e) => {
-                    setTag(e.target.value);
-                    setCount(null);
-                  }}
-                  placeholder="vip"
-                />
-              </div>
-              <label className="col-span-2 flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={overdueOnly}
-                  onChange={(e) => {
-                    setOverdueOnly(e.target.checked);
-                    setCount(null);
-                  }}
-                />
-                Solo con facturas vencidas (morosos)
-              </label>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <Label className="text-sm">Estado del lead</Label>
-              <Select
-                value={leadStatus}
-                onValueChange={(v) => {
-                  setLeadStatus(v);
-                  setCount(null);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Cualquiera</SelectItem>
-                  <SelectItem value="new">Nuevo</SelectItem>
-                  <SelectItem value="contacted">Contactado</SelectItem>
-                  <SelectItem value="qualified">Cualificado</SelectItem>
-                  <SelectItem value="lost">Perdido</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {facilityList.length > 1 && (
-            <div className="space-y-1">
-              <Label className="text-sm">Local</Label>
-              <Select
-                value={facilityId}
-                onValueChange={(v) => {
-                  setFacilityId(v);
-                  setCount(null);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos los locales</SelectItem>
-                  {facilityList.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={calcAudience}
-              disabled={preview.isPending}
-            >
-              <Users className="mr-1 h-4 w-4" />
-              {preview.isPending ? 'Calculando...' : 'Calcular audiencia'}
-            </Button>
-            {count !== null && (
-              <span className="text-sm text-muted-foreground">{count} destinatarios con email</span>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Solo cuentan los clientes que no se han dado de baja y los leads que aceptaron recibir
-            ofertas. Cada correo lleva un enlace para darse de baja.
-          </p>
-
-          <TemplatePicker
-            onPick={(t) => {
-              setSubject(t.subject);
-              setBody(t.bodyText);
-            }}
-          />
-          <div className="space-y-1">
-            <Label>Asunto</Label>
-            <Input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Hola {{customer.firstName}}"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>Cuerpo</Label>
-            <Textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              rows={5}
-              placeholder="Escribe el mensaje. Variables: {{customer.firstName}} / {{lead.firstName}}, {{tenant.name}}"
-            />
-            <p className="text-xs text-muted-foreground">
-              Los enlaces que pongas se cuentan: verás quién los pulsa en «Resultados».
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <EmailPreviewButton subject={subject} bodyText={body} audience={audience} />
-            <SaveTemplateButton subject={subject} bodyText={body} />
-          </div>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={schedule}
-              onChange={(e) => setSchedule(e.target.checked)}
-            />
-            Programar el envío para otro momento
-          </label>
-          {schedule && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-sm">Día</Label>
-                <Input
-                  type="date"
-                  value={scheduleDate}
-                  onChange={(e) => setScheduleDate(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-sm">Hora</Label>
-                <Select value={scheduleHour} onValueChange={setScheduleHour}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <SelectItem key={h} value={String(h)}>
-                        {String(h).padStart(2, '0')}:00
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancelar
-          </Button>
-          <Button onClick={submit} disabled={create.isPending}>
-            {create.isPending ? 'Creando...' : 'Crear borrador'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -566,9 +227,11 @@ function CreateCampaignDialog() {
 // ============================================================================
 
 function WinbackCard() {
+  const ask = useConfirm();
   const settings = useWinbackSettings();
   const update = useUpdateWinbackSettings();
   const run = useRunWinback();
+  const preview = useWinbackPreview();
 
   const [enabled, setEnabled] = useState(false);
   const [delayDays, setDelayDays] = useState(90);
@@ -595,6 +258,21 @@ function WinbackCard() {
     setLoaded(true);
   }
 
+  const problems = [
+    ...templateTextProblems(subject, WINBACK_TEMPLATE_VARIABLES).map((p) => `Asunto: ${p}`),
+    ...templateTextProblems(body, WINBACK_TEMPLATE_VARIABLES).map((p) => `Mensaje: ${p}`),
+    ...(secondEnabled
+      ? [
+          ...templateTextProblems(secondSubject, WINBACK_SECOND_TEMPLATE_VARIABLES).map(
+            (p) => `Asunto del segundo aviso: ${p}`,
+          ),
+          ...templateTextProblems(secondBody, WINBACK_SECOND_TEMPLATE_VARIABLES).map(
+            (p) => `Mensaje del segundo aviso: ${p}`,
+          ),
+        ]
+      : []),
+  ];
+
   async function save() {
     try {
       await update.mutateAsync({
@@ -610,21 +288,43 @@ function WinbackCard() {
       });
       toast.success('Win-back guardado.');
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar');
     }
   }
 
   async function runNow() {
+    let counts: { firstStep: number; secondStep: number };
+    try {
+      counts = await preview.mutateAsync();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo calcular');
+      return;
+    }
+    const total = counts.firstStep + counts.secondStep;
+    if (total === 0) {
+      toast.info('Ahora mismo no hay ex-clientes a los que escribir.');
+      return;
+    }
+    if (
+      !(await ask({
+        title: `¿Escribir ahora a ${total} ex-cliente${total === 1 ? '' : 's'}?`,
+        description:
+          `${counts.firstStep} recibirán la oferta de vuelta` +
+          (counts.secondStep ? ` y ${counts.secondStep} el segundo aviso con cupón` : '') +
+          `. «Enviar ahora» incluye a todos los que se fueron hace más de ${settings.data?.delayDays ?? delayDays} días, aunque haga mucho. Solo se escribe una vez a cada uno.`,
+      }))
+    )
+      return;
     try {
       const res = await run.mutateAsync();
       const total = res.sent + res.secondSent;
       toast.success(
         total > 0
           ? `Win-back enviado: ${res.sent} primer${res.sent === 1 ? '' : 'os'} aviso${res.sent === 1 ? '' : 's'} y ${res.secondSent} segundo${res.secondSent === 1 ? '' : 's'}.`
-          : 'No hay ex-clientes que cumplan el plazo ahora mismo.',
+          : 'No se ha enviado nada.',
       );
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar');
     }
   }
 
@@ -634,7 +334,7 @@ function WinbackCard() {
         <CardTitle className="text-base">Win-back automático de bajas</CardTitle>
         <p className="text-sm text-muted-foreground">
           Envía una oferta de vuelta por email a los inquilinos que se dieron de baja, pasados unos
-          días. Se envía una sola vez por ex-cliente.
+          días. Se envía una sola vez por ex-cliente y nunca a quien se fue debiendo.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -734,18 +434,28 @@ function WinbackCard() {
             </>
           )}
         </div>
+        {problems.length > 0 && (
+          <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <ul className="space-y-1">
+              {problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         <WinbackStatsLine />
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void save()} disabled={update.isPending}>
+          <Button onClick={() => void save()} disabled={update.isPending || problems.length > 0}>
             {update.isPending ? 'Guardando…' : 'Guardar'}
           </Button>
           <Button
             variant="outline"
             onClick={() => void runNow()}
-            disabled={run.isPending || !settings.data?.enabled}
+            disabled={run.isPending || preview.isPending || !settings.data?.enabled}
             title={!settings.data?.enabled ? 'Actívalo y guarda primero' : undefined}
           >
-            {run.isPending ? 'Enviando…' : 'Enviar ahora'}
+            {run.isPending ? 'Enviando…' : preview.isPending ? 'Calculando…' : 'Enviar ahora'}
           </Button>
         </div>
       </CardContent>

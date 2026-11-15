@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { applyMarketingOptOutByEmail } from '../../common/marketing/opt-out';
 import {
   maskEmail,
   parseUnsubscribeToken,
@@ -43,16 +44,20 @@ export class UnsubscribeService {
           where: { id: target.id },
           data: { platformNewsOptOutAt: now },
         });
-      } else if (target.kind === 'c') {
-        await this.admin.customer.update({
-          where: { id: target.id },
-          data: { marketingOptOutAt: now },
-        });
       } else {
-        await this.admin.lead.update({
-          where: { id: target.id },
-          data: { marketingOptOutAt: now },
-        });
+        // La baja va por email: la ficha del enlace y las demás con esa dirección.
+        if (target.kind === 'c') {
+          await this.admin.customer.update({
+            where: { id: target.id },
+            data: { marketingOptOutAt: now },
+          });
+        } else {
+          await this.admin.lead.update({
+            where: { id: target.id },
+            data: { marketingOptOutAt: now },
+          });
+        }
+        await applyMarketingOptOutByEmail(this.admin, target.tenantId, target.email, now);
       }
       await this.admin.auditLog
         .create({

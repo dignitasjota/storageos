@@ -23,6 +23,7 @@ import { assertFacilityAllowed, type FacilityScope } from '../../common/facility
 import { anonymizeLeadsTx } from '../../common/lead-anonymize';
 import { leadReplyAddress } from '../../common/lead-reply-address';
 import { leadScopeWhere } from '../../common/lead-scope';
+import { applyMarketingOptOutByEmail } from '../../common/marketing/opt-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isReservationOverlap } from '../../common/reservation-overlap';
 import { unitHeldByOther } from '../../common/unit-holds';
@@ -1016,17 +1017,18 @@ export class LeadsService {
   }): Promise<LeadDto> {
     await this.findOrThrow(args.tenantId, args.id, false, args.scope);
     const now = new Date();
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.lead.update({
-          where: { id: args.id },
-          data: args.consent
-            ? { marketingConsentAt: now, marketingOptOutAt: null }
-            : { marketingOptOutAt: now },
-          include: LEAD_INCLUDE,
-        }),
-      args.tenantId,
-    );
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.lead.update({
+        where: { id: args.id },
+        data: args.consent
+          ? { marketingConsentAt: now, marketingOptOutAt: null }
+          : { marketingOptOutAt: now },
+        include: LEAD_INCLUDE,
+      });
+      // La baja va por email: también las otras fichas con la misma dirección.
+      await applyMarketingOptOutByEmail(tx, args.tenantId, row.email, args.consent ? null : now);
+      return row;
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

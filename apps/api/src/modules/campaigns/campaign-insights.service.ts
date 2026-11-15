@@ -1,11 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@storageos/database';
+import { CAMPAIGN_SAVED_TEMPLATE_VARIABLES, CAMPAIGN_TEMPLATE_VARIABLES } from '@storageos/shared';
 
+import { type FacilityScope } from '../../common/facility-scope';
 import { clickKey, parseClickToken } from '../../common/marketing/click-token';
+import { assertTemplateTexts } from '../../common/marketing/template-check';
 import { tenantEmailShell, textToHtml } from '../../common/tenant-email-layout';
-import { TEMPLATE_VARIABLES_BY_TRIGGER, renderText } from '../communications/template-engine';
+import { AuditService } from '../auth/audit.service';
+import { renderText } from '../communications/template-engine';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+
+import { CampaignsService, type CampaignActor } from './campaigns.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
@@ -17,7 +24,9 @@ import type {
   UpdateCampaignTemplateInput,
 } from '@storageos/shared';
 
-const MANUAL_WHITELIST = TEMPLATE_VARIABLES_BY_TRIGGER.manual;
+/** Días antes de la limpieza de envíos en que se guardan los resultados. */
+const SNAPSHOT_MARGIN_DAYS = 14;
+const DAY_MS = 86_400_000;
 
 function templateDto(t: {
   id: string;
@@ -38,24 +47,36 @@ function templateDto(t: {
 /** Resultados de las campañas, plantillas, vista previa y registro de clics. */
 @Injectable()
 export class CampaignInsightsService {
+  private readonly logger = new Logger(CampaignInsightsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly config: ConfigService<Env, true>,
+    private readonly campaigns: CampaignsService,
+    private readonly audit: AuditService,
   ) {}
 
-  async results(tenantId: string, campaignId: string): Promise<CampaignResultsDto> {
+  async results(
+    tenantId: string,
+    campaignId: string,
+    scope: FacilityScope = null,
+  ): Promise<CampaignResultsDto> {
+    const campaign = await this.campaigns.findOrThrow(tenantId, campaignId, scope);
+    const live = await this.computeResults(tenantId, campaignId, campaign);
+    // Pasados los días de conservación, la limpieza borra los envíos: quedan
+    // los resultados que se guardaron antes.
+    const snapshot = campaign.resultsSnapshot as CampaignResultsDto | null;
+    if (snapshot && live.recipients < snapshot.recipients) return snapshot;
+    return live;
+  }
+
+  private async computeResults(
+    tenantId: string,
+    campaignId: string,
+    campaign: { sentAt: Date | null; createdAt: Date },
+  ): Promise<CampaignResultsDto> {
     return this.prisma.withTenant(async (tx) => {
-      const campaign = await tx.campaign.findFirst({
-        where: { id: campaignId },
-        select: { id: true, sentAt: true, createdAt: true },
-      });
-      if (!campaign) {
-        throw new NotFoundException({
-          code: 'campaign_not_found',
-          message: 'Campaña no encontrada',
-        });
-      }
       const source = `campaign:${campaignId}`;
       const comms = await tx.communication.findMany({
         where: { source },
@@ -64,17 +85,8 @@ export class CampaignInsightsService {
       const count = (statuses: string[]) => comms.filter((c) => statuses.includes(c.status)).length;
       const sent = count(['sent', 'delivered', 'bounced']);
       const since = campaign.sentAt ?? campaign.createdAt;
-      const customerIds = comms.map((c) => c.customerId).filter((v): v is string => !!v);
-      const leadIds = comms.map((c) => c.leadId).filter((v): v is string => !!v);
-      const [unsubCustomers, unsubLeads, links, clicks] = await Promise.all([
-        customerIds.length
-          ? tx.customer.count({
-              where: { id: { in: customerIds }, marketingOptOutAt: { gte: since } },
-            })
-          : 0,
-        leadIds.length
-          ? tx.lead.count({ where: { id: { in: leadIds }, marketingOptOutAt: { gte: since } } })
-          : 0,
+      const [unsubscribed, links, clicks] = await Promise.all([
+        this.unsubscribedBy(tx, comms, since),
         tx.campaignLink.findMany({
           where: { campaignId },
           orderBy: { position: 'asc' },
@@ -91,12 +103,92 @@ export class CampaignInsightsService {
         bounced: count(['bounced']),
         failed: count(['failed']),
         skipped: count(['skipped']),
-        unsubscribed: unsubCustomers + unsubLeads,
+        unsubscribed,
         clickers,
         clickRate: sent ? Math.round((clickers / sent) * 1000) / 10 : null,
         links: links.map((l) => ({ url: l.url, clicks: l._count.clicks })),
       };
     }, tenantId);
+  }
+
+  /**
+   * Bajas que vienen de esta campaña: quien se dio de baja después de
+   * recibirla y sin haber recibido otra comercial entre medias (antes se
+   * contaba la misma baja en todas las campañas anteriores).
+   */
+  private async unsubscribedBy(
+    tx: Prisma.TransactionClient,
+    comms: Array<{ customerId: string | null; leadId: string | null; createdAt: Date }>,
+    since: Date,
+  ): Promise<number> {
+    const customerIds = comms.map((c) => c.customerId).filter((v): v is string => !!v);
+    const leadIds = comms.map((c) => c.leadId).filter((v): v is string => !!v);
+    const [customers, leads] = await Promise.all([
+      customerIds.length
+        ? tx.customer.findMany({
+            where: { id: { in: customerIds }, marketingOptOutAt: { gte: since } },
+            select: { id: true, marketingOptOutAt: true },
+          })
+        : [],
+      leadIds.length
+        ? tx.lead.findMany({
+            where: { id: { in: leadIds }, marketingOptOutAt: { gte: since } },
+            select: { id: true, marketingOptOutAt: true },
+          })
+        : [],
+    ]);
+    if (customers.length === 0 && leads.length === 0) return 0;
+    const mine = new Map<string, Date>();
+    for (const c of comms) mine.set((c.customerId ?? c.leadId)!, c.createdAt);
+    const others = await tx.communication.findMany({
+      where: {
+        isMarketing: true,
+        createdAt: { gt: since },
+        OR: [
+          ...(customers.length ? [{ customerId: { in: customers.map((c) => c.id) } }] : []),
+          ...(leads.length ? [{ leadId: { in: leads.map((l) => l.id) } }] : []),
+        ],
+      },
+      select: { customerId: true, leadId: true, createdAt: true },
+    });
+    const later = (id: string, received: Date, optOut: Date) =>
+      others.some(
+        (o) => (o.customerId ?? o.leadId) === id && o.createdAt > received && o.createdAt <= optOut,
+      );
+    return [...customers, ...leads].filter((p) => {
+      const received = mine.get(p.id);
+      return !!received && !!p.marketingOptOutAt && !later(p.id, received, p.marketingOptOutAt);
+    }).length;
+  }
+
+  /**
+   * Guarda los resultados de las campañas cuyos envíos va a borrar pronto la
+   * limpieza (lo llama un cron diario).
+   */
+  async snapshotOld(): Promise<number> {
+    const keepDays = this.config.get('RETENTION_COMMUNICATIONS_DAYS', { infer: true });
+    const before = new Date(Date.now() - Math.max(keepDays - SNAPSHOT_MARGIN_DAYS, 1) * DAY_MS);
+    const due = await this.admin.campaign.findMany({
+      where: {
+        status: 'sent',
+        sentAt: { lt: before },
+        resultsSnapshot: { equals: Prisma.AnyNull },
+      },
+      select: { id: true, tenantId: true, sentAt: true, createdAt: true },
+      take: 50,
+    });
+    for (const c of due) {
+      try {
+        const results = await this.computeResults(c.tenantId, c.id, c);
+        await this.admin.campaign.update({
+          where: { id: c.id },
+          data: { resultsSnapshot: results as unknown as Prisma.InputJsonValue },
+        });
+      } catch (err) {
+        this.logger.warn(`[campaigns] resultados de ${c.id}: ${(err as Error).message}`);
+      }
+    }
+    return due.length;
   }
 
   /**
@@ -141,11 +233,14 @@ export class CampaignInsightsService {
   async createTemplate(
     tenantId: string,
     input: CreateCampaignTemplateInput,
+    actor: CampaignActor,
   ): Promise<CampaignTemplateDto> {
-    const row = await this.prisma.withTenant(
-      (tx) => tx.campaignTemplate.create({ data: { tenantId, ...input } }),
-      tenantId,
-    );
+    this.assertTemplate(input.subject, input.bodyText);
+    const row = await this.prisma.withTenant(async (tx) => {
+      await this.assertFreeName(tx, input.name);
+      return tx.campaignTemplate.create({ data: { tenantId, ...input } });
+    }, tenantId);
+    await this.log(tenantId, actor, 'campaign_template.created', row.id, { name: row.name });
     return templateDto(row);
   }
 
@@ -153,10 +248,13 @@ export class CampaignInsightsService {
     tenantId: string,
     id: string,
     input: UpdateCampaignTemplateInput,
+    actor: CampaignActor,
   ): Promise<CampaignTemplateDto> {
+    this.assertTemplate(input.subject, input.bodyText);
     const row = await this.prisma.withTenant(async (tx) => {
       const existing = await tx.campaignTemplate.findFirst({ where: { id }, select: { id: true } });
       if (!existing) throw this.templateNotFound();
+      if (input.name !== undefined) await this.assertFreeName(tx, input.name, id);
       return tx.campaignTemplate.update({
         where: { id },
         data: {
@@ -166,14 +264,65 @@ export class CampaignInsightsService {
         },
       });
     }, tenantId);
+    await this.log(tenantId, actor, 'campaign_template.updated', id, { name: row.name });
     return templateDto(row);
   }
 
-  async removeTemplate(tenantId: string, id: string): Promise<void> {
+  async removeTemplate(tenantId: string, id: string, actor: CampaignActor): Promise<void> {
     await this.prisma.withTenant(async (tx) => {
       const { count } = await tx.campaignTemplate.deleteMany({ where: { id } });
       if (count === 0) throw this.templateNotFound();
     }, tenantId);
+    await this.log(tenantId, actor, 'campaign_template.deleted', id, {});
+  }
+
+  private assertTemplate(subject?: string, bodyText?: string): void {
+    assertTemplateTexts(
+      [
+        { label: 'Asunto', text: subject },
+        { label: 'Mensaje', text: bodyText },
+      ],
+      CAMPAIGN_SAVED_TEMPLATE_VARIABLES,
+    );
+  }
+
+  private async assertFreeName(
+    tx: Prisma.TransactionClient,
+    name: string,
+    exceptId?: string,
+  ): Promise<void> {
+    const taken = await tx.campaignTemplate.findFirst({
+      where: {
+        name: { equals: name.trim(), mode: 'insensitive' },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new ConflictException({
+        code: 'campaign_template_name_taken',
+        message: 'Ya hay una plantilla con ese nombre',
+      });
+    }
+  }
+
+  private async log(
+    tenantId: string,
+    actor: CampaignActor,
+    action: string,
+    entityId: string,
+    changes: Record<string, unknown>,
+  ): Promise<void> {
+    await this.audit.write({
+      tenantId,
+      userId: actor.userId,
+      action,
+      entityType: 'CampaignTemplate',
+      entityId,
+      changes: changes as Prisma.InputJsonValue,
+      ipAddress: actor.meta.ipAddress ?? null,
+      userAgent: actor.meta.userAgent ?? null,
+    });
   }
 
   /** Cómo le llegará el correo a un destinatario de ejemplo, con la marca del tenant. */
@@ -191,9 +340,17 @@ export class CampaignInsightsService {
         : {
             customer: { firstName: 'Lucía', lastName: 'Martín', displayName: 'Lucía Martín' },
           };
+    const allowed = CAMPAIGN_TEMPLATE_VARIABLES[input.audience];
+    assertTemplateTexts(
+      [
+        { label: 'Asunto', text: input.subject },
+        { label: 'Mensaje', text: input.bodyText },
+      ],
+      allowed,
+    );
     const scope = { ...sample, tenant: { name: tenant.name } };
-    const subject = renderText(input.subject, scope, MANUAL_WHITELIST);
-    const text = renderText(input.bodyText, scope, MANUAL_WHITELIST);
+    const subject = renderText(input.subject, scope, allowed);
+    const text = renderText(input.bodyText, scope, allowed);
     const html = tenantEmailShell(
       { name: tenant.name, logoUrl: tenant.portalLogoUrl, brandColor: tenant.portalBrandColor },
       textToHtml(text),

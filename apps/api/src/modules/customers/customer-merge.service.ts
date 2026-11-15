@@ -219,6 +219,13 @@ export class CustomerMergeService {
         const fill: Prisma.CustomerUpdateInput = {
           tags: [...new Set([...target.tags, ...source.tags])],
         };
+        // Si uno de los dos se dio de baja de las ofertas o de WhatsApp, sigue de baja.
+        if (source.marketingOptOutAt && !target.marketingOptOutAt) {
+          fill.marketingOptOutAt = source.marketingOptOutAt;
+        }
+        if (source.whatsappOptOutAt && !target.whatsappOptOutAt) {
+          fill.whatsappOptOutAt = source.whatsappOptOutAt;
+        }
         for (const field of SAME_DATA_FIELDS) {
           if (!target[field] && source[field]) fill[field] = source[field];
         }

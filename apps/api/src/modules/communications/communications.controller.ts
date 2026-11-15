@@ -11,9 +11,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import {
+  CommunicationChannelEnum,
   type CommunicationChannelValue,
   type CommunicationDto,
   type CommunicationPageDto,
+  CommunicationStatusEnum,
   type CommunicationStatusValue,
   SendCommunicationSchema,
 } from '@storageos/shared';
@@ -45,14 +47,14 @@ export class CommunicationsController {
     @Query('contractId') contractId?: string,
     @Query('invoiceId') invoiceId?: string,
   ): Promise<CommunicationDto[]> {
-    const filters: ListFilters = {};
-    if (channel) filters.channel = channel as CommunicationChannelValue;
-    if (status) filters.status = status as CommunicationStatusValue;
-    if (customerId) filters.customerId = customerId;
-    if (leadId) filters.leadId = leadId;
+    const filters: ListFilters = { scope: user.facilityScope ?? null };
+    if (channel) filters.channel = parseChannel(channel);
+    if (status) filters.status = parseStatus(status);
     if (source) filters.source = source;
     // Un id mal formado daría un 500 de Prisma (columna UUID): se valida aquí.
     for (const [key, value] of [
+      ['customerId', customerId],
+      ['leadId', leadId],
       ['contractId', contractId],
       ['invoiceId', invoiceId],
     ] as const) {
@@ -100,14 +102,16 @@ export class CommunicationsController {
     };
     const fromDate = date('from', from);
     const toDate = date('to', to);
+    const take = Number(limit);
     return this.service.listPage(user.tenantId, {
+      scope: user.facilityScope ?? null,
       ...(cursor ? { cursor } : {}),
-      ...(limit ? { limit: Number(limit) || 50 } : {}),
+      ...(limit && Number.isFinite(take) ? { limit: Math.trunc(take) } : {}),
       ...(search ? { search } : {}),
       ...(fromDate ? { from: fromDate } : {}),
       ...(toDate ? { to: toDate } : {}),
-      ...(channel ? { channel: channel as CommunicationChannelValue } : {}),
-      ...(status ? { status: status as CommunicationStatusValue } : {}),
+      ...(channel ? { channel: parseChannel(channel) } : {}),
+      ...(status ? { status: parseStatus(status) } : {}),
       ...(customerId ? { customerId } : {}),
       ...(leadId ? { leadId } : {}),
       ...(source ? { source } : {}),
@@ -127,7 +131,7 @@ export class CommunicationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CommunicationDto> {
-    return this.service.detail(user.tenantId, id);
+    return this.service.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @Post()
@@ -146,8 +150,24 @@ export class CommunicationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CommunicationDto> {
-    return this.service.retry(user.tenantId, id);
+    return this.service.retry(user.tenantId, id, user.facilityScope ?? null);
   }
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseChannel(value: string): CommunicationChannelValue {
+  const r = CommunicationChannelEnum.safeParse(value);
+  if (!r.success) {
+    throw new BadRequestException({ code: 'invalid_channel', message: 'Canal no válido' });
+  }
+  return r.data;
+}
+
+function parseStatus(value: string): CommunicationStatusValue {
+  const r = CommunicationStatusEnum.safeParse(value);
+  if (!r.success) {
+    throw new BadRequestException({ code: 'invalid_status', message: 'Estado no válido' });
+  }
+  return r.data;
+}

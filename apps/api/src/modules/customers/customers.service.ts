@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { isValidSpanishTaxId, normalizeTaxId, suggestEmailFix } from '@storageos/shared';
 
 import { customerScopeWhere } from '../../common/customer-scope';
+import { applyMarketingOptOutByEmail } from '../../common/marketing/opt-out';
 import { subtractAmounts } from '../../common/money';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { AuditService } from '../auth/audit.service';
@@ -398,15 +399,16 @@ export class CustomersService {
     meta: RequestMeta;
   }): Promise<CustomerDto> {
     await this.findOrThrow(args.tenantId, args.customerId);
-    const updated = await this.prisma.withTenant(
-      (tx) =>
-        tx.customer.update({
-          where: { id: args.customerId },
-          data: { marketingOptOutAt: args.subscribed ? null : new Date() },
-          include: CUSTOMER_COUNTS,
-        }),
-      args.tenantId,
-    );
+    const updated = await this.prisma.withTenant(async (tx) => {
+      const row = await tx.customer.update({
+        where: { id: args.customerId },
+        data: { marketingOptOutAt: args.subscribed ? null : new Date() },
+        include: CUSTOMER_COUNTS,
+      });
+      // La baja va por email: también las otras fichas con la misma dirección.
+      await applyMarketingOptOutByEmail(tx, args.tenantId, row.email, row.marketingOptOutAt);
+      return row;
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

@@ -3126,3 +3126,17 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - `GET /contracts/:id/signing` gana:
   - `paymentDeadline`: el plazo, también si ya venció y la reserva aún no se ha cancelado;
   - `paymentDeadlineMax`: hasta cuándo se puede ampliar (`null` = no se puede).
+
+### Campañas y Comunicaciones: revisión (2026-11-16)
+
+- `POST /campaigns`, `PATCH /campaigns/:id`, `POST /campaigns/preview-email`, `POST|PATCH /campaigns/templates…` y `PATCH /campaigns/winback-settings` comprueban las variables del asunto y el mensaje → 400 `invalid_template_text` (`details.problems`). Variables: inquilinos `customer.firstName|lastName|displayName`, `tenant.name`; contactos `lead.firstName|displayName`, `tenant.name`; segundo aviso del win-back, además `coupon.code` (shared `templateTextProblems`, `CAMPAIGN_TEMPLATE_VARIABLES`).
+- `POST /campaigns` y `PATCH /campaigns/:id`: `scheduledFor` en el pasado → 400 `scheduled_in_past`.
+- `PATCH /campaigns/:id` (`communications:send`): cambia un borrador → 409 `campaign_not_editable` si no lo es.
+- `POST /campaigns/:id/duplicate` → borrador nuevo «(copia)» sin fecha.
+- `DELETE /campaigns/:id` → 204; solo borradores o canceladas (409 `campaign_not_deletable`).
+- `POST /campaigns/:id/send`: sin destinatarios → 400 `campaign_no_recipients`.
+- Alcance por local: quien solo ve unos locales solo ve las campañas que creó alguien con esos locales (404 las demás); su audiencia se limita a sus locales; un `segment.facilityId` de otro local → 403 `facility_not_in_scope`.
+- `PATCH /campaigns/winback-settings`, `POST /campaigns/winback/run` y `GET /campaigns/winback/preview` (`{firstStep, secondStep}`) exigen `automations:manage` y ver todos los locales (403 `facility_not_in_scope`).
+- `POST /campaigns/templates` y `PATCH …/:id`: nombre repetido → 409 `campaign_template_name_taken`.
+- `GET /campaigns/:id/results`: las bajas se cuentan en la última campaña recibida; si la limpieza borró los envíos, devuelve los resultados guardados.
+- `GET /communications`, `/communications/page`, `/communications/:id` y `POST /communications/:id/retry` respetan el alcance por local (404 fuera de él). `status` o `channel` no válidos → 400 `invalid_status` / `invalid_channel`; `customerId`/`leadId` no UUID → 400 `invalid_id`. `CommunicationDto.campaignName` (si el envío es de una campaña).
