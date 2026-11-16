@@ -670,7 +670,11 @@ export class TenantSettingsService {
       moveOutEndOfMonth?: boolean;
       depositReturnDays?: number;
       returnedPaymentFee?: number | null;
+      depositRegistryStorage?: boolean;
     } = {};
+    if (args.input.depositRegistryStorage !== undefined) {
+      data.depositRegistryStorage = args.input.depositRegistryStorage;
+    }
     if (args.input.autoEndContracts !== undefined) {
       data.autoEndContracts = args.input.autoEndContracts;
     }
@@ -710,6 +714,7 @@ export class TenantSettingsService {
         depositReturnDays: updated.depositReturnDays,
         returnedPaymentFee:
           updated.returnedPaymentFee != null ? Number(updated.returnedPaymentFee) : null,
+        depositRegistryStorage: updated.depositRegistryStorage,
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
@@ -1100,6 +1105,7 @@ const CONTRACT_TEMPLATE_SELECT = {
   moveOutEndOfMonth: true,
   depositReturnDays: true,
   returnedPaymentFee: true,
+  depositRegistryStorage: true,
 } satisfies Prisma.TenantSelect;
 
 function toContractTemplateDto(
@@ -1112,5 +1118,6 @@ function toContractTemplateDto(
     moveOutEndOfMonth: t.moveOutEndOfMonth,
     depositReturnDays: t.depositReturnDays,
     returnedPaymentFee: t.returnedPaymentFee != null ? Number(t.returnedPaymentFee) : null,
+    depositRegistryStorage: t.depositRegistryStorage,
   };
 }

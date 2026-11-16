@@ -57,6 +57,8 @@ export const UpdateContractTemplateSchema = z.object({
   depositReturnDays: z.number().int().min(1).max(60).optional(),
   /** Gastos por recibo devuelto o pago rechazado (sin IVA); null o 0 = ninguno. */
   returnedPaymentFee: z.number().min(0).max(100).nullable().optional(),
+  /** Depositar también las fianzas de trasteros en el organismo de la comunidad autónoma. */
+  depositRegistryStorage: z.boolean().optional(),
 });
 export type UpdateContractTemplateInput = z.infer<typeof UpdateContractTemplateSchema>;
 
@@ -73,6 +75,8 @@ export interface ContractTemplateDto {
   depositReturnDays: number;
   /** Gastos por recibo devuelto o pago rechazado (sin IVA); null = ninguno. */
   returnedPaymentFee: number | null;
+  /** También se depositan las fianzas de trasteros (las de vivienda, siempre). */
+  depositRegistryStorage: boolean;
 }
 
 // ------------------------------------------------ baja

@@ -2501,3 +2501,12 @@ Sin variables nuevas. Lo que trae:
 - **Comunicaciones**: filtro por tipo y por local, cifras arriba, CSV, ver el correo tal como llegó, recorrido del envío, cancelar uno programado y pestaña **«Direcciones con problemas»**.
 
 **Tras desplegar**: en Campañas, revisar si se activan las campañas automáticas y su texto.
+
+## 143. Fianzas tras la respuesta de la asesoría (2026-11-16)
+
+Migración `20270128100000_deposit_service_invoice` (se aplica sola al arrancar el API): `contracts.deposit_service_invoice_id` y `tenants.deposit_registry_storage` (por defecto, no). Sin variables nuevas.
+
+- **Liquidar la fianza**: si te la quedas, en todo o en parte, por un servicio que haces tú (limpieza, vaciado, retirada de enseres), marca «Todo o parte es por un servicio». Se emite una factura con IVA (21 %, incluido en el importe) pagada con la fianza, y se manda a Veri\*Factu si lo tienes activado. Lo que es deuda se aplica a sus facturas; los daños se retienen sin factura.
+- **Depósito de las fianzas de trasteros**: Configuración → Plantilla de contrato → «Depositar también las fianzas de los trasteros». Las de vivienda se depositan siempre. Actívalo solo si tu comunidad autónoma lo pide: la ficha del contrato tendrá dónde anotarlo y «Hoy» avisará de las que faltan.
+
+**Tras desplegar**: preguntar en la Generalitat Valenciana si un trastero alquilado tiene que depositar la fianza y, si es así, activar el ajuste.

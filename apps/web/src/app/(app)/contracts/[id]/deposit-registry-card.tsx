@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { useContractTemplate } from '@/lib/contract-template/hooks';
 import { openDepositRegistryReceipt, useUpdateDepositRegistry } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
 import { formatDate } from '@/lib/format';
@@ -20,10 +21,13 @@ const day = (iso: string | null) => (iso ? formatDate(iso) : '—');
 
 /**
  * Vivienda: la fianza se deposita en el organismo de la comunidad autónoma
- * (art. 36.6 LAU). Aquí se anota dónde, cuándo, el resguardo y su devolución.
+ * (art. 36.6 LAU). Trasteros: solo si el negocio lo activó (depende de su
+ * comunidad). Aquí se anota dónde, cuándo, el resguardo y su devolución.
  */
 export function DepositRegistryCard({ contract }: { contract: ContractDto }) {
   const r = contract.depositRegistry;
+  const isHousing = contract.propertyKind === 'housing';
+  const template = useContractTemplate(!isHousing && contract.depositAmount > 0);
   const canEdit = useHasPermission('contracts:write');
   const save = useUpdateDepositRegistry(contract.id);
   const [editing, setEditing] = useState(false);
@@ -33,7 +37,8 @@ export function DepositRegistryCard({ contract }: { contract: ContractDto }) {
   const [recoveredAt, setRecoveredAt] = useState(r.recoveredAt ?? '');
   const [file, setFile] = useState<File | null>(null);
 
-  if (contract.propertyKind !== 'housing' || contract.depositAmount <= 0) return null;
+  if (contract.depositAmount <= 0) return null;
+  if (!isHousing && !template.data?.depositRegistryStorage) return null;
 
   async function onSave() {
     try {

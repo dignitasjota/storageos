@@ -401,6 +401,7 @@ export class CustomerEmailsService {
           retained: p.retained,
           applied: p.applied,
           reason: p.reason,
+          service: p.service ?? null,
         },
         contractId: c.id,
       });

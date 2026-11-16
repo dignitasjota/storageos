@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -185,6 +186,16 @@ export function DepositCard({ contract }: { contract: ContractDto }) {
             {contract.depositRetentionReason && (
               <div>Motivo: {contract.depositRetentionReason}</div>
             )}
+            {contract.depositServiceInvoice && (
+              <div>
+                Factura del servicio:{' '}
+                <Link href={`/invoices/${contract.depositServiceInvoice.id}`} className="underline">
+                  {contract.depositServiceInvoice.number ?? 'ver'}
+                </Link>
+                {contract.depositServiceInvoice.total != null &&
+                  ` (${formatEur(contract.depositServiceInvoice.total)} con IVA)`}
+              </div>
+            )}
             {contract.depositAppliedAmount > 0 && (
               <div>Aplicado a facturas: {formatEur(contract.depositAppliedAmount)}</div>
             )}
@@ -229,6 +240,9 @@ export function SettleDepositDialog({
   const [returnedAmount, setReturnedAmount] = useState(contract.depositAmount);
   const [reason, setReason] = useState('');
   const [applyToInvoices, setApplyToInvoices] = useState(false);
+  const [withService, setWithService] = useState(false);
+  const [serviceDescription, setServiceDescription] = useState('Limpieza del trastero');
+  const [serviceAmount, setServiceAmount] = useState('');
   const [returnMethod, setReturnMethod] = useState<
     'bank_transfer' | 'cash' | 'card' | 'bizum' | 'other'
   >('bank_transfer');
@@ -243,6 +257,21 @@ export function SettleDepositDialog({
     .reduce((sum, i) => sum + i.amountPending, 0);
 
   const retained = Math.max(0, contract.depositAmount - returnedAmount);
+  const service =
+    withService && retained > 0
+      ? serviceAmount.trim() === ''
+        ? retained
+        : Number(serviceAmount.replace(',', '.'))
+      : 0;
+  const serviceValid =
+    !withService ||
+    retained <= 0 ||
+    (serviceDescription.trim().length >= 3 &&
+      Number.isFinite(service) &&
+      service > 0 &&
+      service <= retained + 0.001);
+  const rest = Math.max(0, retained - service);
+  const reasonOk = retained <= 0 || reason.trim() !== '' || (withService && serviceValid);
 
   async function onSubmit() {
     try {
@@ -251,6 +280,14 @@ export function SettleDepositDialog({
         body: {
           returnedAmount,
           ...(reason.trim() ? { retentionReason: reason.trim() } : {}),
+          ...(withService && retained > 0
+            ? {
+                serviceCharge: {
+                  description: serviceDescription.trim(),
+                  amount: Math.round(service * 100) / 100,
+                },
+              }
+            : {}),
           ...(applyToInvoices ? { applyToInvoices } : {}),
           ...(returnedAmount > 0
             ? {
@@ -310,26 +347,73 @@ export function SettleDepositDialog({
             <p className="mt-1 text-xs text-muted-foreground">Se retienen {formatEur(retained)}</p>
           </div>
           {retained > 0 && (
+            <div className="space-y-2 rounded-md border p-3">
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={withService}
+                  onCheckedChange={(v) => setWithService(v === true)}
+                />
+                <span>
+                  Todo o parte es por un servicio que haces tú (limpieza, vaciado, retirada de
+                  enseres…)
+                </span>
+              </label>
+              {withService && (
+                <div className="grid gap-2 sm:grid-cols-[1fr_140px]">
+                  <div>
+                    <Label htmlFor="service-description">Servicio</Label>
+                    <Input
+                      id="service-description"
+                      value={serviceDescription}
+                      onChange={(e) => setServiceDescription(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="service-amount">Importe con IVA (€)</Label>
+                    <Input
+                      id="service-amount"
+                      inputMode="decimal"
+                      value={serviceAmount}
+                      placeholder={retained.toFixed(2)}
+                      onChange={(e) => setServiceAmount(e.target.value)}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground sm:col-span-2">
+                    Se emite una factura con IVA (21 %, incluido en el importe) y se paga con la
+                    fianza.
+                    {!serviceValid && ' El importe no puede pasar de lo que te quedas.'}
+                  </p>
+                </div>
+              )}
+              {pending > 0 && (!withService || rest > 0) && (
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox
+                    checked={applyToInvoices}
+                    onCheckedChange={(v) => setApplyToInvoices(v === true)}
+                  />
+                  <span>
+                    Aplicar {withService ? 'el resto' : 'lo retenido'} a las facturas pendientes, de
+                    la más antigua a la última
+                  </span>
+                </label>
+              )}
+            </div>
+          )}
+          {retained > 0 && (
             <div>
-              <Label>Motivo de la retención</Label>
+              <Label>
+                Motivo de la retención{withService ? ' (opcional si es solo el servicio)' : ''}
+              </Label>
               <Textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 rows={2}
                 placeholder="Daños en el trastero, facturas impagadas…"
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Lo retenido por daños no lleva factura (es una indemnización).
+              </p>
             </div>
-          )}
-          {retained > 0 && pending > 0 && (
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox
-                checked={applyToInvoices}
-                onCheckedChange={(v) => setApplyToInvoices(v === true)}
-              />
-              <span>
-                Aplicar lo retenido a las facturas pendientes, de la más antigua a la última
-              </span>
-            </label>
           )}
           {returnedAmount > 0 && (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -351,7 +435,7 @@ export function SettleDepositDialog({
                   <option value="other">Otro</option>
                 </select>
               </div>
-              <div>
+              <div className="sm:col-span-2">
                 <Label>Fecha</Label>
                 <DateSelect
                   value={returnedOn}
@@ -380,10 +464,7 @@ export function SettleDepositDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
-          <Button
-            onClick={onSubmit}
-            disabled={settle.isPending || (retained > 0 && !reason.trim())}
-          >
+          <Button onClick={onSubmit} disabled={settle.isPending || !reasonOk || !serviceValid}>
             Liquidar
           </Button>
         </DialogFooter>

@@ -335,6 +335,23 @@ export class ContractsService {
     facilityScope?: string[] | null,
   ): Promise<ContractDto> {
     const dto = this.toDto(await this.findOrThrow(tenantId, id, facilityScope));
+    if (dto.depositServiceInvoice) {
+      const inv = await this.prisma.withTenant(
+        (tx) =>
+          tx.invoice.findUnique({
+            where: { id: dto.depositServiceInvoice!.id },
+            select: { invoiceNumber: true, total: true, status: true },
+          }),
+        tenantId,
+      );
+      if (inv) {
+        dto.depositServiceInvoice = {
+          id: dto.depositServiceInvoice.id,
+          number: inv.status === 'draft' ? null : inv.invoiceNumber,
+          total: Number(inv.total),
+        };
+      }
+    }
     if (dto.depositAmount > 0 && !dto.depositCollected) {
       dto.depositCollected = await this.prisma.withTenant(
         (tx) => depositWasCollected(tx, id),
@@ -3177,94 +3194,159 @@ export class ContractsService {
     const newStatus: 'returned' | 'partially_returned' = fullyReturned
       ? 'returned'
       : 'partially_returned';
-    // Si se retiene algo, el motivo es obligatorio (trazabilidad legal).
-    if (isGreaterThan(retained, 0) && !args.input.retentionReason?.trim()) {
+    const service = args.input.serviceCharge;
+    if (service && isGreaterThan(service.amount, retained)) {
+      throw new BadRequestException({
+        code: 'service_charge_too_high',
+        message: `El servicio no puede pasar de lo que te quedas (${retained.toFixed(2)} €)`,
+      });
+    }
+    // Si se retiene algo, el motivo es obligatorio (trazabilidad legal). Con un
+    // servicio, su descripción vale de motivo.
+    const retentionReason = args.input.retentionReason?.trim() || service?.description.trim() || '';
+    if (isGreaterThan(retained, 0) && !retentionReason) {
       throw new BadRequestException({
         code: 'retention_reason_required',
         message: 'Indica el motivo de la retención (daños, deuda pendiente, …)',
       });
     }
+    // El servicio se factura con IVA y se paga con la fianza. La factura se
+    // emite antes de tocar la fianza: si no se puede (faltan los datos
+    // fiscales, no hay serie…), la fianza queda como estaba.
+    const serviceInvoice = service
+      ? await this.issueDepositServiceInvoice(args, existing.customerId, service)
+      : null;
 
-    const updated = await this.prisma.withTenant(async (tx) => {
-      // Fianza devuelta en efectivo: sale del cajón de ese día (no con la caja
-      // ya cerrada; si hace falta, se reabre el cierre).
-      if (args.input.returnMethod === 'cash' && isGreaterThan(returned, 0)) {
-        await assertCashDayOpen(tx, {
-          tenantId: args.tenantId,
-          facilityId: existing.unit?.facilityId ?? null,
-          at: [args.input.returnedOn ? new Date(`${args.input.returnedOn}T12:00:00Z`) : new Date()],
-          what: 'una fianza devuelta en efectivo',
+    const updated = await this.prisma
+      .withTenant(async (tx) => {
+        // Fianza devuelta en efectivo: sale del cajón de ese día (no con la caja
+        // ya cerrada; si hace falta, se reabre el cierre).
+        if (args.input.returnMethod === 'cash' && isGreaterThan(returned, 0)) {
+          await assertCashDayOpen(tx, {
+            tenantId: args.tenantId,
+            facilityId: existing.unit?.facilityId ?? null,
+            at: [
+              args.input.returnedOn ? new Date(`${args.input.returnedOn}T12:00:00Z`) : new Date(),
+            ],
+            what: 'una fianza devuelta en efectivo',
+          });
+        }
+        // Claim atómico: la condición `depositStatus:'held'` va en el WHERE del
+        // UPDATE (no en un SELECT previo) — dos liquidaciones concurrentes de
+        // la misma fianza (doble clic, dos pestañas) solo dejan pasar a UNA; la
+        // otra ve `count:0` y recibe 409 en vez de pisar en silencio el importe
+        // ya liquidado (mismo patrón que `CollectionsService.completeDisposal`).
+        const claim = await tx.contract.updateMany({
+          where: { id: args.contractId, depositStatus: 'held' },
+          data: {
+            depositStatus: newStatus,
+            depositReturnedAmount: returned,
+            depositSettledAt: new Date(),
+            depositRetentionReason: isGreaterThan(retained, 0) ? retentionReason : null,
+            ...(serviceInvoice ? { depositServiceInvoiceId: serviceInvoice.id } : {}),
+            depositReturnMethod: args.input.returnMethod ?? null,
+            depositReturnedOn: args.input.returnedOn
+              ? new Date(`${args.input.returnedOn}T00:00:00Z`)
+              : null,
+            depositReturnReference: args.input.returnReference?.trim() || null,
+          },
         });
-      }
-      // Claim atómico: la condición `depositStatus:'held'` va en el WHERE del
-      // UPDATE (no en un SELECT previo) — dos liquidaciones concurrentes de
-      // la misma fianza (doble clic, dos pestañas) solo dejan pasar a UNA; la
-      // otra ve `count:0` y recibe 409 en vez de pisar en silencio el importe
-      // ya liquidado (mismo patrón que `CollectionsService.completeDisposal`).
-      const claim = await tx.contract.updateMany({
-        where: { id: args.contractId, depositStatus: 'held' },
-        data: {
-          depositStatus: newStatus,
-          depositReturnedAmount: returned,
-          depositSettledAt: new Date(),
-          depositRetentionReason: isGreaterThan(retained, 0)
-            ? (args.input.retentionReason?.trim() ?? null)
-            : null,
-          depositReturnMethod: args.input.returnMethod ?? null,
-          depositReturnedOn: args.input.returnedOn
-            ? new Date(`${args.input.returnedOn}T00:00:00Z`)
-            : null,
-          depositReturnReference: args.input.returnReference?.trim() || null,
-        },
-      });
-      if (claim.count === 0) {
-        throw new ConflictException({
-          code: 'deposit_already_settled',
-          message: 'La fianza ya se ha liquidado (quizá desde otra pestaña)',
+        if (claim.count === 0) {
+          throw new DepositAlreadySettled();
+        }
+        const row = await tx.contract.findUniqueOrThrow({
+          where: { id: args.contractId },
+          include: {
+            customer: {
+              select: {
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                customerType: true,
+              },
+            },
+            unit: {
+              select: {
+                code: true,
+                facilityId: true,
+                facility: { select: { name: true } },
+                unitType: { select: { propertyKind: true } },
+              },
+            },
+            insurancePlan: { select: { name: true } },
+            owner: { select: { legalName: true } },
+            invoices: DEPOSIT_RECEIPT_SELECT,
+            couponRedemptions: COUPON_SELECT,
+          },
         });
-      }
-      const row = await tx.contract.findUniqueOrThrow({
-        where: { id: args.contractId },
-        include: {
-          customer: {
-            select: {
-              firstName: true,
-              lastName: true,
-              companyName: true,
-              customerType: true,
+        await tx.contractEvent.create({
+          data: {
+            tenantId: args.tenantId,
+            contractId: args.contractId,
+            eventType: 'note_added',
+            payload: {
+              event: 'deposit_settled',
+              deposit,
+              returned,
+              retained,
+              retentionReason: retentionReason || null,
+              ...(serviceInvoice
+                ? {
+                    serviceInvoiceId: serviceInvoice.id,
+                    serviceInvoiceNumber: serviceInvoice.number,
+                    serviceAmount: serviceInvoice.total,
+                  }
+                : {}),
             },
+            createdByUserId: args.userId,
           },
-          unit: {
-            select: {
-              code: true,
-              facilityId: true,
-              facility: { select: { name: true } },
-              unitType: { select: { propertyKind: true } },
-            },
-          },
-          insurancePlan: { select: { name: true } },
-          owner: { select: { legalName: true } },
-          invoices: DEPOSIT_RECEIPT_SELECT,
-          couponRedemptions: COUPON_SELECT,
-        },
+        });
+        return row;
+      }, args.tenantId)
+      .catch(async (err: unknown) => {
+        // La fianza ya estaba liquidada (doble clic): la factura del servicio
+        // recién emitida sobra y se anula.
+        if (serviceInvoice) {
+          await this.invoices
+            .cancel({
+              tenantId: args.tenantId,
+              userId: args.userId,
+              invoiceId: serviceInvoice.id,
+              input: { reason: 'La fianza ya estaba liquidada' },
+              meta: args.meta,
+            })
+            .catch((e: unknown) =>
+              this.logger.error(
+                `factura del servicio ${serviceInvoice.id} sin anular: ${(e as Error).message}`,
+              ),
+            );
+        }
+        if (err instanceof DepositAlreadySettled) {
+          throw new ConflictException({
+            code: 'deposit_already_settled',
+            message: 'La fianza ya se ha liquidado (quizá desde otra pestaña)',
+          });
+        }
+        throw err;
       });
-      await tx.contractEvent.create({
-        data: {
-          tenantId: args.tenantId,
-          contractId: args.contractId,
-          eventType: 'note_added',
-          payload: {
-            event: 'deposit_settled',
-            deposit,
-            returned,
-            retained,
-            retentionReason: args.input.retentionReason?.trim() ?? null,
-          },
-          createdByUserId: args.userId,
+    // La factura del servicio se paga con la fianza retenida.
+    if (serviceInvoice) {
+      await this.invoices.markPaidManually({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId: serviceInvoice.id,
+        input: {
+          amount: serviceInvoice.total,
+          // No es dinero nuevo (entró al cobrar la fianza): no cuenta en la caja.
+          methodType: 'deposit',
+          notes: 'Pagada con la fianza retenida',
+          allowPartialNonCash: true,
+          overridePaymentInFlight: true,
+          allowInSepaRemittance: true,
         },
+        meta: args.meta,
       });
-      return row;
-    }, args.tenantId);
+    }
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -3272,13 +3354,24 @@ export class ContractsService {
       action: 'contract.deposit_settled',
       entityType: 'Contract',
       entityId: updated.id,
-      changes: { deposit, returned, retained, status: newStatus },
+      changes: {
+        deposit,
+        returned,
+        retained,
+        status: newStatus,
+        ...(serviceInvoice ? { serviceInvoiceId: serviceInvoice.id } : {}),
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    const applied = args.input.applyToInvoices
-      ? await this.applyRetainedDeposit(args, retained)
-      : 0;
+    // Lo que queda tras el servicio puede saldar las facturas pendientes.
+    const afterService = serviceInvoice
+      ? subtractAmounts(retained, serviceInvoice.total)
+      : retained;
+    const applied =
+      args.input.applyToInvoices && isGreaterThan(afterService, 0)
+        ? await this.applyRetainedDeposit(args, afterService)
+        : 0;
     if (args.input.notifyCustomer) {
       this.eventBus.emit(DOMAIN_EVENTS.contract_deposit_settled, {
         tenantId: args.tenantId,
@@ -3287,12 +3380,78 @@ export class ContractsService {
         returned,
         retained,
         applied,
-        reason: args.input.retentionReason?.trim() || null,
+        reason: retentionReason || null,
+        service: serviceInvoice
+          ? {
+              number: serviceInvoice.number,
+              amount: serviceInvoice.total,
+              description: serviceInvoice.description,
+            }
+          : null,
       } satisfies ContractDepositSettledPayload);
     }
-    return applied > 0
+    return applied > 0 || serviceInvoice
       ? this.detail(args.tenantId, args.contractId, args.facilityScope)
       : this.toDto(updated);
+  }
+
+  /**
+   * Factura con IVA (21 %) del servicio pagado con la fianza: el importe se toma
+   * con el IVA incluido. Si algo falla, la factura no queda: el borrador se
+   * anula sin número.
+   */
+  private async issueDepositServiceInvoice(
+    args: { tenantId: string; userId: string | null; contractId: string; meta: RequestMeta },
+    customerId: string,
+    service: { description: string; amount: number },
+  ): Promise<{ id: string; number: string; total: number; description: string }> {
+    const description = service.description.trim();
+    const { base } = serviceBaseFromTotal(service.amount, SERVICE_VAT_RATE);
+    const draft = await this.invoices.create({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      meta: args.meta,
+      input: {
+        invoiceType: 'F1',
+        customerId,
+        contractId: args.contractId,
+        items: [
+          {
+            description,
+            quantity: 1,
+            unitPrice: base,
+            taxRate: SERVICE_VAT_RATE,
+            taxCategory: 'S1',
+          },
+        ],
+        verifactuMode: 'verifactu',
+      },
+    });
+    try {
+      const issued = await this.invoices.issue({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        invoiceId: draft.id,
+        meta: args.meta,
+      });
+      return {
+        id: issued.id,
+        number: issued.invoiceNumber,
+        total: issued.total,
+        description,
+      };
+    } catch (err) {
+      await this.invoices
+        .cancel({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          invoiceId: draft.id,
+          input: { reason: 'No se pudo emitir la factura del servicio de la fianza' },
+          meta: args.meta,
+        })
+        .catch(() => undefined);
+      throw err;
+    }
   }
 
   /**
@@ -4661,6 +4820,9 @@ export class ContractsService {
       depositPaymentMethod: row.depositPaymentMethod === 'cash' ? 'cash' : 'online',
       depositCollected: row.invoices?.[0]?.status === 'paid',
       depositAppliedAmount: Number(row.depositAppliedAmount),
+      depositServiceInvoice: row.depositServiceInvoiceId
+        ? { id: row.depositServiceInvoiceId, number: null, total: null }
+        : null,
       creditBalance: Number(row.creditBalance),
       depositReturnMethod: row.depositReturnMethod,
       depositReturnedOn: row.depositReturnedOn?.toISOString().slice(0, 10) ?? null,
@@ -4711,4 +4873,22 @@ export class ContractsService {
       updatedAt: row.updatedAt.toISOString(),
     };
   }
+}
+
+/** Una liquidación de la fianza que otra ya se adelantó a hacer. */
+class DepositAlreadySettled extends Error {}
+
+/** IVA de los servicios pagados con la fianza (limpieza, vaciado…). */
+const SERVICE_VAT_RATE = 21;
+
+/**
+ * Base de una factura cuyo total (IVA incluido) es `total`: redondeada al
+ * céntimo de forma que el total no pase de lo retenido.
+ */
+export function serviceBaseFromTotal(total: number, rate: number): { base: number; total: number } {
+  const target = toCents(total);
+  let base = Math.round((target * 100) / (100 + rate));
+  const totalOf = (b: number) => b + Math.round((b * rate) / 100);
+  while (totalOf(base) > target) base -= 1;
+  return { base: base / 100, total: totalOf(base) / 100 };
 }

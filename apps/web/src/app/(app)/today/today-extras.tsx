@@ -487,6 +487,13 @@ export function SettleDepositDialog({
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  ¿Te la quedas por un servicio (limpieza, vaciado)? Hay que facturarlo con IVA:{' '}
+                  <Link href={`/contracts/${deposit.contractId}`} className="underline">
+                    liquídala desde el contrato
+                  </Link>
+                  .
+                </p>
               </div>
             )}
           </div>

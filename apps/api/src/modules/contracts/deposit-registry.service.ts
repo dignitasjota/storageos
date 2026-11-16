@@ -68,10 +68,23 @@ export class DepositRegistryService {
   }): Promise<ContractDto> {
     const contract = await this.contracts.detail(args.tenantId, args.contractId, args.scope);
     if (contract.propertyKind !== 'housing') {
-      throw new BadRequestException({
-        code: 'not_housing',
-        message: 'El depósito de la fianza solo aplica a viviendas',
-      });
+      // Trasteros: solo si el negocio deposita también esas fianzas (depende
+      // de su comunidad autónoma).
+      const tenant = await this.prisma.withTenant(
+        (tx) =>
+          tx.tenant.findUnique({
+            where: { id: args.tenantId },
+            select: { depositRegistryStorage: true },
+          }),
+        args.tenantId,
+      );
+      if (!tenant?.depositRegistryStorage) {
+        throw new BadRequestException({
+          code: 'not_housing',
+          message:
+            'El depósito de la fianza de los trasteros está apagado: actívalo en Configuración → Plantilla de contrato',
+        });
+      }
     }
     if (
       args.input.receiptKey &&

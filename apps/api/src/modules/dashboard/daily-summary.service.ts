@@ -87,7 +87,7 @@ export function dailySummaryLines(t: TodayDto): string[] {
   const deposits = t.depositsToSettle.count + t.depositsToCollect.count;
   if (deposits > 0) lines.push(`Fianzas por cobrar o liquidar: ${deposits}`);
   if (t.depositsToRegister.count > 0) {
-    lines.push(`Fianzas de vivienda sin depositar: ${t.depositsToRegister.count}`);
+    lines.push(`Fianzas sin depositar: ${t.depositsToRegister.count}`);
   }
   if (t.businessRemindersDue.count > 0) {
     lines.push(`Vencimientos del negocio: ${t.businessRemindersDue.count}`);
