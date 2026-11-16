@@ -666,6 +666,26 @@ export class InvoiceToolsService {
     meta: RequestMeta;
   }): Promise<SendInvoiceEmailResultDto> {
     const dto = await this.invoices.detail(args.tenantId, args.invoiceId, args.facilityScope);
+    // Primer pago de un contrato firmado por enlace (sin número hasta que se
+    // cobra): se le reenvía lo que tiene que pagar, con el PDF y el botón.
+    if (dto.status === 'draft' && dto.issueOnPayment) {
+      const sent = await this.customerEmails.sendFirstPaymentCopy({
+        tenantId: args.tenantId,
+        invoiceId: args.invoiceId,
+        ...(args.input.email ? { email: args.input.email } : {}),
+      });
+      await this.audit.write({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        action: 'invoice.sent',
+        entityType: 'Invoice',
+        entityId: args.invoiceId,
+        changes: { recipient: sent.recipient, firstPayment: true },
+        ipAddress: args.meta.ipAddress ?? null,
+        userAgent: args.meta.userAgent ?? null,
+      });
+      return sent;
+    }
     if (dto.status === 'draft' || dto.status === 'cancelled') {
       throw new BadRequestException({
         code: 'invoice_not_sendable',

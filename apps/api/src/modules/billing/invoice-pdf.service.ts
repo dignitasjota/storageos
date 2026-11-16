@@ -1,9 +1,11 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
+import { NON_CASH_PAYMENT_METHODS, type InvoiceDto } from '@storageos/shared';
 
+import { loadPendingFirstPayment } from '../../common/first-payment';
 import { todayInTimezone } from '../../common/format';
+import { invoiceDownloadKey, invoiceDownloadUrl } from '../../common/invoice-download-token';
 import { loadInvoicePaymentHint, type InvoicePaymentHint } from '../../common/invoice-payment-hint';
 import { loadPuppeteer } from '../../common/puppeteer';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
@@ -24,6 +26,8 @@ export class InvoicePdfService implements OnModuleDestroy {
   private browserPromise: Promise<Browser> | null = null;
   private readonly s3: S3Client;
   private readonly bucket: string;
+  private readonly apiBaseUrl: string;
+  private readonly downloadKey: Buffer;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -42,6 +46,8 @@ export class InvoicePdfService implements OnModuleDestroy {
       forcePathStyle: true,
     });
     this.bucket = config.get('MINIO_BUCKET_INVOICES', { infer: true });
+    this.apiBaseUrl = config.get('API_BASE_URL', { infer: true });
+    this.downloadKey = invoiceDownloadKey(config.get('MASTER_ENCRYPTION_KEY', { infer: true }));
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -80,6 +86,134 @@ export class InvoicePdfService implements OnModuleDestroy {
         await this.holded.downloadIssuedPdf(tenantId, invoiceId),
       );
     }
+    const { tenant, owner, issuer, customer } = await this.parties(tenantId, invoice);
+
+    // Pagada: fecha y forma del último cobro de verdad (no una compensación).
+    const extras = await this.prisma.withTenant(async (tx) => {
+      const lastPayment =
+        invoice.status === 'paid'
+          ? await tx.payment.findFirst({
+              where: {
+                invoiceId,
+                status: 'succeeded',
+                methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+              },
+              orderBy: { paidAt: 'desc' },
+              select: { paidAt: true, methodType: true },
+            })
+          : null;
+      const payment: InvoicePaymentHint | null =
+        (invoice.status === 'issued' || invoice.status === 'overdue') && invoice.customerId
+          ? await loadInvoicePaymentHint(tx, tenantId, invoice.customerId)
+          : null;
+      return { lastPayment, payment };
+    }, tenantId);
+    const html = renderInvoiceHtml({
+      invoice,
+      issuer,
+      customer,
+      // El logo es el del negocio; una factura de un propietario va sin él.
+      logo: owner ? null : await this.logoDataUri(tenant.portalLogoKey),
+      brandColor: owner ? null : tenant.portalBrandColor,
+      payment: extras.payment,
+      // El día del cobro en la hora del negocio (a las 00:30 ya es el día siguiente).
+      paid:
+        invoice.status === 'paid'
+          ? {
+              at: todayInTimezone(
+                tenant.timezone,
+                extras.lastPayment?.paidAt ?? new Date(invoice.paidAt ?? invoice.updatedAt),
+              )
+                .toISOString()
+                .slice(0, 10),
+              method: extras.lastPayment?.methodType ?? null,
+            }
+          : null,
+    });
+    const browser = await this.getBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setContent(html, { waitUntil: 'load' });
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' },
+        printBackground: true,
+      });
+      return await this.store(tenantId, invoiceId, invoice.invoiceNumber, pdfBuffer);
+    } finally {
+      await page.close();
+    }
+  }
+
+  /**
+   * PDF del primer pago de un contrato firmado por enlace: la factura sin emitir
+   * (sin número) y la fianza que va con ella, con el total y el plazo. No se
+   * guarda: se hace cada vez que se pide. Null si la factura no es un primer
+   * pago pendiente (o su justificante de fianza).
+   */
+  async renderPending(
+    tenantId: string,
+    invoiceId: string,
+  ): Promise<{ pdf: Uint8Array; filename: string } | null> {
+    const due = await this.prisma.withTenant(
+      (tx) => loadPendingFirstPayment(tx, tenantId, invoiceId),
+      tenantId,
+    );
+    if (!due) return null;
+    const invoice = await this.invoices.detail(tenantId, due.invoiceId);
+    const { tenant, owner, issuer, customer } = await this.parties(tenantId, invoice);
+    const deadline = due.deadline
+      ? `${new Intl.DateTimeFormat('es-ES', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          timeZone: 'Europe/Madrid',
+        }).format(due.deadline)} a las ${new Intl.DateTimeFormat('es-ES', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Europe/Madrid',
+        }).format(due.deadline)}`
+      : null;
+    const html = renderInvoiceHtml({
+      invoice,
+      issuer,
+      customer,
+      logo: owner ? null : await this.logoDataUri(tenant.portalLogoKey),
+      brandColor: owner ? null : tenant.portalBrandColor,
+      pending: { deadline, deposit: due.deposit, total: due.total },
+    });
+    const browser = await this.getBrowser();
+    const page = await browser.newPage();
+    try {
+      await page.setContent(html, { waitUntil: 'load' });
+      const pdf = await page.pdf({
+        format: 'A4',
+        margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' },
+        printBackground: true,
+      });
+      const ref = (invoice.contractNumber ?? 'contrato').replace(/[^A-Za-z0-9-]/g, '_');
+      return { pdf, filename: `primer-pago-${ref}.pdf` };
+    } finally {
+      await page.close();
+    }
+  }
+
+  /**
+   * Enlace para descargar (sin sesión) el PDF del primer pago, o null si la
+   * factura no es un primer pago pendiente. Es el mismo enlace que el de la
+   * factura: cuando se paga, lleva a la factura emitida.
+   */
+  async pendingDownloadUrl(tenantId: string, invoiceId: string): Promise<string | null> {
+    const due = await this.prisma.withTenant(
+      (tx) => loadPendingFirstPayment(tx, tenantId, invoiceId),
+      tenantId,
+    );
+    if (!due) return null;
+    return invoiceDownloadUrl(this.apiBaseUrl, this.downloadKey, tenantId, invoiceId);
+  }
+
+  /** Quién emite (el negocio o, en el plan Administrador, el propietario) y el cliente. */
+  private async parties(tenantId: string, invoice: InvoiceDto) {
     const tenant = await this.prisma.withTenant(
       (tx) =>
         tx.tenant.findUniqueOrThrow({
@@ -168,62 +302,7 @@ export class InvoicePdfService implements OnModuleDestroy {
           tenantId,
         )
       : null;
-
-    // Pagada: fecha y forma del último cobro de verdad (no una compensación).
-    const extras = await this.prisma.withTenant(async (tx) => {
-      const lastPayment =
-        invoice.status === 'paid'
-          ? await tx.payment.findFirst({
-              where: {
-                invoiceId,
-                status: 'succeeded',
-                methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-              },
-              orderBy: { paidAt: 'desc' },
-              select: { paidAt: true, methodType: true },
-            })
-          : null;
-      const payment: InvoicePaymentHint | null =
-        (invoice.status === 'issued' || invoice.status === 'overdue') && invoice.customerId
-          ? await loadInvoicePaymentHint(tx, tenantId, invoice.customerId)
-          : null;
-      return { lastPayment, payment };
-    }, tenantId);
-    const html = renderInvoiceHtml({
-      invoice,
-      issuer,
-      customer,
-      // El logo es el del negocio; una factura de un propietario va sin él.
-      logo: owner ? null : await this.logoDataUri(tenant.portalLogoKey),
-      brandColor: owner ? null : tenant.portalBrandColor,
-      payment: extras.payment,
-      // El día del cobro en la hora del negocio (a las 00:30 ya es el día siguiente).
-      paid:
-        invoice.status === 'paid'
-          ? {
-              at: todayInTimezone(
-                tenant.timezone,
-                extras.lastPayment?.paidAt ?? new Date(invoice.paidAt ?? invoice.updatedAt),
-              )
-                .toISOString()
-                .slice(0, 10),
-              method: extras.lastPayment?.methodType ?? null,
-            }
-          : null,
-    });
-    const browser = await this.getBrowser();
-    const page = await browser.newPage();
-    try {
-      await page.setContent(html, { waitUntil: 'load' });
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' },
-        printBackground: true,
-      });
-      return await this.store(tenantId, invoiceId, invoice.invoiceNumber, pdfBuffer);
-    } finally {
-      await page.close();
-    }
+    return { tenant, owner, issuer, customer };
   }
 
   /** El logo subido (no una dirección pegada: el servidor no descarga de fuera). */

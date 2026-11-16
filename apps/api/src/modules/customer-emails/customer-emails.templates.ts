@@ -174,6 +174,10 @@ export type CustomerEmailData =
       deadline: Date;
       /** Enlace de la firma, que enseña «Completar el pago». */
       payUrl: string;
+      /** Descarga del detalle del pago en PDF (sin número). */
+      pdfUrl?: string | null;
+      /** Reenviado desde el panel. */
+      resent?: boolean;
     }
   | {
       kind: 'reservation_held' | 'reservation_expiring';
@@ -442,9 +446,13 @@ function content(data: CustomerEmailData, l: Locale, base?: CustomerEmailBase): 
           : []),
       ];
       return {
-        subject: en
-          ? `Your contract ${data.contractNumber} is signed: complete your first payment`
-          : `Tu contrato ${data.contractNumber} está firmado: falta el primer pago`,
+        subject: data.resent
+          ? en
+            ? `Reminder: first payment pending for contract ${data.contractNumber}`
+            : `Recordatorio: falta el primer pago de tu contrato ${data.contractNumber}`
+          : en
+            ? `Your contract ${data.contractNumber} is signed: complete your first payment`
+            : `Tu contrato ${data.contractNumber} está firmado: falta el primer pago`,
         paragraphs: en
           ? [
               `Your contract ${data.contractNumber} for storage unit ${data.unitCode} at ${data.facilityName} has been signed. ${start}`,
@@ -462,6 +470,14 @@ function content(data: CustomerEmailData, l: Locale, base?: CustomerEmailBase): 
               `Total: ${eur(data.total, l)} (IVA incluido).`,
               'La factura se emite cuando pagas y te llega con el justificante. Tienes el contrato firmado en tu área de clientes.',
             ],
+        link: data.pdfUrl
+          ? {
+              label: en
+                ? 'Download the payment details (PDF)'
+                : 'Descargar el detalle del pago en PDF',
+              url: data.pdfUrl,
+            }
+          : null,
         cta: en ? 'Pay now' : 'Pagar ahora',
         ctaUrl: data.payUrl,
       };

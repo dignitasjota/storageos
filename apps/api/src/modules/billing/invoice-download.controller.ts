@@ -45,13 +45,28 @@ export class InvoiceDownloadController {
     if (
       !invoice ||
       !verifyInvoiceDownloadToken(key, token, invoice.tenantId) ||
-      invoice.status === 'draft' ||
       invoice.status === 'cancelled'
     ) {
       throw new NotFoundException({
         code: 'invoice_not_found',
         message: 'Esta factura no existe o ya no está disponible',
       });
+    }
+    // Primer pago aún sin emitir (sin número): su detalle, hecho al pedirlo.
+    // Cuando se paga, el mismo enlace lleva a la factura emitida.
+    if (invoice.status === 'draft') {
+      const pending = await this.pdf.renderPending(invoice.tenantId, invoice.id);
+      if (!pending) {
+        throw new NotFoundException({
+          code: 'invoice_not_found',
+          message: 'Esta factura no existe o ya no está disponible',
+        });
+      }
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${pending.filename}"`);
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(Buffer.from(pending.pdf));
+      return;
     }
     // Sin PDF todavía (recién emitida): se genera ahora.
     if (!invoice.pdfUrl) await this.pdf.generate(invoice.tenantId, invoice.id);

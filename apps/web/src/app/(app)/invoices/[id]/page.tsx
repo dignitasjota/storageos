@@ -322,7 +322,7 @@ export default function InvoiceDetailPage() {
 
   const i = invoice.data;
   const isDraft = i.status === 'draft';
-  // Primer pago de una reserva online: se emite al registrar su cobro.
+  // Primer pago de un contrato firmado por enlace: se emite al registrar su cobro.
   const awaitingPayment = isDraft && i.issueOnPayment;
   // Una rectificativa que se quedó en borrador cancelado no rectifica nada.
   const rectifiedBy = i.rectifiedBy.filter((r) => r.status !== 'cancelled');
@@ -578,9 +578,10 @@ export default function InvoiceDetailPage() {
 
   async function handleSend(): Promise<void> {
     const res = await ask({
-      title: '¿Enviar la factura por correo?',
-      description:
-        'Le llega un correo con el importe y un enlace para descargar el PDF. Va a su email de facturación o, si no tiene, a su email.',
+      title: awaitingPayment ? '¿Reenviarle el primer pago?' : '¿Enviar la factura por correo?',
+      description: awaitingPayment
+        ? 'Le llega lo que tiene que pagar (desglose, fianza, total y plazo), el detalle en PDF sin número y el botón «Pagar ahora». El enlace para pagar del correo anterior deja de valer. Va a su email de facturación o, si no tiene, a su email.'
+        : 'Le llega un correo con el importe y un enlace para descargar el PDF. Va a su email de facturación o, si no tiene, a su email.',
       confirmLabel: 'Enviar',
       input: { label: 'Otra dirección (opcional)', placeholder: 'contabilidad@empresa.com' },
     });
@@ -590,7 +591,11 @@ export default function InvoiceDetailPage() {
         id: i.id,
         input: res.value ? { email: res.value } : {},
       });
-      toast.success(`Factura enviada a ${sent.recipient}.`);
+      toast.success(
+        awaitingPayment
+          ? `Primer pago reenviado a ${sent.recipient}.`
+          : `Factura enviada a ${sent.recipient}.`,
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido enviar.');
     }
@@ -743,7 +748,7 @@ export default function InvoiceDetailPage() {
               <p className="max-w-2xl text-sm text-muted-foreground">
                 {i.amountPaid >= i.total
                   ? 'El cobro ya entró, pero la factura no se pudo emitir. Corrige el problema y pulsa «Emitir»: quedará pagada.'
-                  : 'Primer pago de una reserva online: el contrato entra en vigor al pagarse. La factura se emite, con su número, al cobrarse (tarjeta, Bizum o «Registrar cobro»). Si no se paga en plazo, la reserva caduca y esto se anula sin factura.'}
+                  : 'Primer pago de un contrato firmado por enlace (reserva online o contrato enviado a firmar): entra en vigor al pagarse. La factura se emite, con su número, al cobrarse (tarjeta, Bizum o «Registrar cobro»). Si no se paga en plazo, la reserva caduca y esto se anula sin factura. Con «Enviar por correo» le reenvías lo que tiene que pagar, con el PDF.'}
               </p>
             )}
           </div>
@@ -844,7 +849,7 @@ export default function InvoiceDetailPage() {
                 <Receipt className="mr-1 h-4 w-4" /> Rectificar
               </Button>
             )}
-            {i.hasPdf && (
+            {(i.hasPdf || awaitingPayment) && (
               <Button variant="outline" onClick={onDownloadPdf} disabled={signedPdfUrl.isPending}>
                 {signedPdfUrl.isPending ? (
                   <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -854,7 +859,7 @@ export default function InvoiceDetailPage() {
                 Descargar
               </Button>
             )}
-            {canSend && !isDraft && i.status !== 'cancelled' && (
+            {canSend && (!isDraft || awaitingPayment) && i.status !== 'cancelled' && (
               <Button
                 variant="outline"
                 disabled={sendEmail.isPending}

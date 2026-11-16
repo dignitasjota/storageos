@@ -169,6 +169,17 @@ export function renderInvoiceHtml(args: {
   payment?: InvoicePaymentHint | null;
   /** Pagada: fecha y forma del último cobro. */
   paid?: { at: string; method: string | null } | null;
+  /**
+   * Primer pago de un contrato firmado por enlace: la factura aún no se ha
+   * emitido (no tiene número). Sale como el detalle de lo que hay que pagar,
+   * con la fianza que va con ella; no es una factura.
+   */
+  pending?: {
+    /** Plazo para pagar, ya en palabras («19/11/2026 a las 15:30»). */
+    deadline: string | null;
+    deposit: number;
+    total: number;
+  } | null;
 }): string {
   const i = args.invoice;
   const brand =
@@ -180,7 +191,8 @@ export function renderInvoiceHtml(args: {
   const issuer = args.issuer;
   const isReceipt = i.kind === 'deposit_receipt';
   const isRectification = i.invoiceType.startsWith('R');
-  const title = invoiceDocTitle(i);
+  const pending = args.pending ?? null;
+  const title = pending ? 'Primer pago' : invoiceDocTitle(i);
   const c = args.customer;
   const customerName = c
     ? c.customerType === 'business'
@@ -257,15 +269,17 @@ export function renderInvoiceHtml(args: {
       : '';
 
   // Anulada por haberse emitido por error (registro de anulación): no vale.
-  const stamp = i.voidedAt
-    ? `<div class="stamp void">ANULADA<small>${day(i.voidedAt.slice(0, 10))} · emitida por error</small></div>`
-    : args.paid
-      ? `<div class="stamp">PAGADA<small>${day(args.paid.at)}${
-          args.paid.method && METHOD_WORDS[args.paid.method]
-            ? ` · ${METHOD_WORDS[args.paid.method]}`
-            : ''
-        }</small></div>`
-      : '';
+  const stamp = pending
+    ? `<div class="stamp pending">PENDIENTE DE PAGO</div>`
+    : i.voidedAt
+      ? `<div class="stamp void">ANULADA<small>${day(i.voidedAt.slice(0, 10))} · emitida por error</small></div>`
+      : args.paid
+        ? `<div class="stamp">PAGADA<small>${day(args.paid.at)}${
+            args.paid.method && METHOD_WORDS[args.paid.method]
+              ? ` · ${METHOD_WORDS[args.paid.method]}`
+              : ''
+          }</small></div>`
+        : '';
   const howToPay =
     args.payment && !args.paid && (i.status === 'issued' || i.status === 'overdue') && i.total > 0
       ? `<div class="box pay"><strong>Forma de pago</strong>${paymentLines(
@@ -311,7 +325,7 @@ export function renderInvoiceHtml(args: {
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>${title} ${escapeHtml(i.invoiceNumber)}</title>
+<title>${pending ? title : `${title} ${escapeHtml(i.invoiceNumber)}`}</title>
 <style>
   body { font-family: -apple-system, system-ui, Segoe UI, Helvetica, Arial, sans-serif; color: #111; font-size: 10.5pt; line-height: 1.4; }
   header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24pt; margin-bottom: 20pt; }
@@ -320,6 +334,7 @@ export function renderInvoiceHtml(args: {
   .stamp { display: inline-block; margin-top: 8pt; border: 2.5pt solid #15803d; color: #15803d; border-radius: 6pt; padding: 4pt 10pt; font-weight: 700; font-size: 14pt; letter-spacing: 2pt; transform: rotate(-4deg); }
   .stamp small { display: block; font-size: 8pt; letter-spacing: 0; font-weight: 500; text-align: center; }
   .stamp.void { border-color: #b91c1c; color: #b91c1c; }
+  .stamp.pending { border-color: #b45309; color: #b45309; font-size: 11pt; letter-spacing: 1pt; }
   .box.pay { margin-top: 16pt; }
   .meta { color: #555; font-size: 9.5pt; }
   .issuer { text-align: right; }
@@ -351,9 +366,14 @@ export function renderInvoiceHtml(args: {
 <header${qr ? ' class="with-qr"' : ''}>
   <div>
     <h1>${title}</h1>
-    <div class="meta">N.º <strong>${escapeHtml(i.invoiceNumber)}</strong></div>
+    ${
+      pending
+        ? `<div class="meta">Sin número: la factura se emite cuando se paga.</div>
+    ${pending.deadline ? `<div class="meta">Pagar antes del <strong>${escapeHtml(pending.deadline)}</strong></div>` : ''}`
+        : `<div class="meta">N.º <strong>${escapeHtml(i.invoiceNumber)}</strong></div>
     <div class="meta">Fecha de emisión: ${day(i.issueDate)}</div>
-    ${due}
+    ${due}`
+    }
     ${period}
   </div>
   ${qr}
@@ -396,9 +416,15 @@ ${rectification}
 
 <div class="totals">
   ${breakdownRows}
-  <div class="row grand"><span>Total</span><span class="num">${eur(i.total)}</span></div>
   ${
-    i.withholdingAmount > 0
+    pending && pending.deposit > 0
+      ? `<div class="row"><span>Total con IVA</span><span class="num">${eur(i.total)}</span></div>
+  <div class="row"><span>Fianza (sin IVA)</span><span class="num">${eur(pending.deposit)}</span></div>
+  <div class="row grand"><span>Total a pagar</span><span class="num">${eur(pending.total)}</span></div>`
+      : `<div class="row grand"><span>${pending ? 'Total a pagar' : 'Total'}</span><span class="num">${eur(pending ? pending.total : i.total)}</span></div>`
+  }
+  ${
+    !pending && i.withholdingAmount > 0
       ? `<div class="row"><span>Retención IRPF (${i.withholdingPct.toLocaleString('es-ES')} %)</span><span class="num">−${eur(i.withholdingAmount)}</span></div>
   <div class="row grand"><span>Total a pagar</span><span class="num">${eur(i.amountDue)}</span></div>`
       : ''
@@ -406,6 +432,16 @@ ${rectification}
 </div>
 
 ${howToPay}
+${
+  pending
+    ? `<div class="box pay"><strong>Esto no es una factura</strong>
+  <div class="row">Es el detalle de tu primer pago. Cuando pagues, se emite la factura con su número${
+    pending.deposit > 0 ? ' y el justificante de la fianza' : ''
+  }, y te llega por correo.</div>
+  <div class="row">Puedes pagarlo con el botón «Pagar ahora» del correo o desde tu área de clientes.</div>
+</div>`
+    : ''
+}
 
 ${
   isReceipt
