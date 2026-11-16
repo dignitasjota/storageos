@@ -19,6 +19,7 @@ import { liveOverrideWhere } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { promotionUnitId } from '../promotions/promotions.service';
 
 import { AiActionsService } from './ai-actions.service';
 import {
@@ -878,7 +879,8 @@ Redacta la respuesta al inquilino:`;
     }
     const { tenantId, input } = args;
     const ctx = await this.prisma.withTenant(async (tx) => {
-      const [tenant, facilities, unitTypes, grouped, promotion] = await Promise.all([
+      const now = new Date();
+      const [tenant, facilities, unitTypes, grouped, promotions] = await Promise.all([
         tx.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),
         tx.facility.findMany({
           where: {
@@ -894,19 +896,43 @@ Redacta la respuesta al inquilino:`;
           where: { tenantId, isActive: true },
           select: { id: true, name: true, defaultPriceMonthly: true, propertyKind: true },
         }),
+        // El precio «desde» de la web: el del trastero libre más barato de cada tamaño.
         tx.unit.groupBy({
           by: ['facilityId', 'unitTypeId'],
           where: { tenantId, status: 'available' },
           _count: { _all: true },
+          _min: { basePriceMonthly: true },
         }),
-        tx.promotion.findFirst({
+        // Solo una promoción que cualquiera pueda usar hoy: en sus fechas, con
+        // usos, sin ser la oferta de un trastero ni la recompensa de un referido.
+        tx.promotion.findMany({
           where: {
             isActive: true,
-            OR: [{ validUntil: null }, { validUntil: { gte: new Date() } }],
+            referrals: { none: {} },
+            AND: [
+              { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+              { OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
+            ],
           },
-          select: { code: true, discountType: true, discountValue: true },
+          select: {
+            code: true,
+            discountType: true,
+            discountValue: true,
+            appliesTo: true,
+            maxUses: true,
+            usedCount: true,
+            announceOnWeb: true,
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
         }),
       ]);
+      const usable = promotions.filter(
+        (p) =>
+          promotionUnitId(p.appliesTo) === null && (p.maxUses == null || p.usedCount < p.maxUses),
+      );
+      // Mejor la que el negocio ya anuncia en su web.
+      const promotion = usable.find((p) => p.announceOnWeb) ?? usable[0] ?? null;
       return { tenant, facilities, unitTypes, grouped, promotion };
     }, tenantId);
 
@@ -922,7 +948,8 @@ Redacta la respuesta al inquilino:`;
       if (!type) continue;
       // Vivienda: exenta de IVA; trastero: 21 %.
       const { taxRate } = rentTax(type.propertyKind);
-      const price = Math.round(Number(type.defaultPriceMonthly) * (1 + taxRate / 100));
+      const base = Number(g._min.basePriceMonthly ?? type.defaultPriceMonthly);
+      const price = Math.round(base * (1 + taxRate / 100));
       const entry = `${type.name} desde ${price} €/mes${taxRate > 0 ? ' (IVA incl.)' : ''}`;
       const list = availableByFacility.get(g.facilityId) ?? [];
       list.push(entry);

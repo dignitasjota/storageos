@@ -147,6 +147,10 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'report_runs' },
   { table: 'web_events' },
   { table: 'promo_landing_visits' },
+  // Chats de la web (sus mensajes caen con ellos); los de un contacto se conservan con él.
+  { table: 'web_chat_conversations', where: 'lead_id IS NULL' },
+  // Métricas de los anuncios: su gasto ya se ha borrado con los gastos.
+  { table: 'ad_metrics_daily' },
 ];
 
 /** Qué tabla se cuenta para cada cifra de la vista previa. */
@@ -275,7 +279,17 @@ export class AdminTenantResetService {
         });
         await tx.coupon.updateMany({ where: { tenantId }, data: { usedCount: 0 } });
         await tx.promotion.updateMany({ where: { tenantId }, data: { usedCount: 0 } });
-        await tx.marketingChannel.updateMany({ where: { tenantId }, data: { clickCount: 0 } });
+        await tx.marketingChannel.updateMany({
+          where: { tenantId },
+          // Sin métricas ni gasto: la próxima sincronización los vuelve a traer.
+          data: {
+            clickCount: 0,
+            lastSyncAt: null,
+            lastSyncError: null,
+            syncFailingSince: null,
+            syncFailureNotifiedAt: null,
+          },
+        });
         // Los gastos recurrentes vuelven a generar el mes en curso (sus gastos se han borrado).
         await tx.recurringExpense.updateMany({
           where: { tenantId },

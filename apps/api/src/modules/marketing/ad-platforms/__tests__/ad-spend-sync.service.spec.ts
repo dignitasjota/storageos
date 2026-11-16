@@ -2,18 +2,25 @@ import { AdSpendSyncService } from '../ad-spend-sync.service';
 
 import type { PrismaAdminService } from '../../../database/prisma-admin.service';
 import type { PrismaService } from '../../../database/prisma.service';
+import type { NotificationsService } from '../../../notifications/notifications.service';
 import type { GoogleAdsSettingsService } from '../google-ads-settings.service';
 import type { MetaAdsSettingsService } from '../meta-ads-settings.service';
 
 interface TxMock {
-  expense: { upsert: jest.Mock };
+  expense: { upsert: jest.Mock; findMany: jest.Mock; deleteMany: jest.Mock };
   adMetricDaily: { upsert: jest.Mock };
+  fiscalPeriodClosure: { findMany: jest.Mock };
 }
 
 function buildTx(): TxMock {
   return {
-    expense: { upsert: jest.fn().mockResolvedValue({}) },
+    expense: {
+      upsert: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     adMetricDaily: { upsert: jest.fn().mockResolvedValue({}) },
+    fiscalPeriodClosure: { findMany: jest.fn().mockResolvedValue([]) },
   };
 }
 
@@ -24,7 +31,13 @@ function buildService(tx: TxMock) {
   const admin = {} as PrismaAdminService;
   const googleSettings = {} as GoogleAdsSettingsService;
   const metaSettings = {} as MetaAdsSettingsService;
-  return new AdSpendSyncService(prisma, admin, googleSettings, metaSettings);
+  return new AdSpendSyncService(
+    prisma,
+    admin,
+    googleSettings,
+    metaSettings,
+    {} as NotificationsService,
+  );
 }
 
 const TENANT = '019e3d20-aaaa-7c2f-bf37-6511065b9fc5';
@@ -59,7 +72,49 @@ describe('AdSpendSyncService.upsertSpendExpenses', () => {
       marketingChannelId: 'chan-1',
       externalRef: 'google_ads:999:2026-08-01',
     });
-    expect(firstArgs.update).toEqual({ amount: 12.34 });
+    // Si la campaña pasó a otro canal, su gasto pasa con ella.
+    expect(firstArgs.update).toEqual({ amount: 12.34, marketingChannelId: 'chan-1' });
+  });
+
+  it('borra el gasto de los días que la plataforma rebajó a 0', async () => {
+    const tx = buildTx();
+    tx.expense.findMany.mockResolvedValue([
+      { id: 'exp-1', expenseDate: new Date('2026-08-01T00:00:00Z') },
+      { id: 'exp-2', expenseDate: new Date('2026-08-02T00:00:00Z') },
+    ]);
+    const service = buildService(tx);
+    await service.upsertSpendExpenses(
+      TENANT,
+      CHANNEL,
+      'google_ads',
+      '999',
+      [
+        { date: '2026-08-01', cost: 0 },
+        { date: '2026-08-02', cost: 4 },
+      ],
+      { from: '2026-08-01', to: '2026-08-02' },
+    );
+    expect(tx.expense.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['exp-1'] } } });
+  });
+
+  it('no toca el gasto de un trimestre cerrado en Fiscalidad', async () => {
+    const tx = buildTx();
+    tx.fiscalPeriodClosure.findMany.mockResolvedValue([{ year: 2026, quarter: 3 }]);
+    tx.expense.findMany.mockResolvedValue([
+      { id: 'exp-1', expenseDate: new Date('2026-08-01T00:00:00Z') },
+    ]);
+    const service = buildService(tx);
+    const result = await service.upsertSpendExpenses(
+      TENANT,
+      CHANNEL,
+      'google_ads',
+      '999',
+      [{ date: '2026-08-02', cost: 4 }],
+      { from: '2026-08-01', to: '2026-08-02' },
+    );
+    expect(result.synced).toBe(0);
+    expect(tx.expense.upsert).not.toHaveBeenCalled();
+    expect(tx.expense.deleteMany).not.toHaveBeenCalled();
   });
 
   it('omite los días sin gasto (cost <= 0)', async () => {

@@ -13,7 +13,12 @@ export function isInternalWebRequest(
   token: string | undefined,
 ): boolean {
   if (!token || context.getType() !== 'http') return false;
-  const req = context.switchToHttp().getRequest<Request>();
+  return isInternalHttpRequest(context.switchToHttp().getRequest<Request>(), token);
+}
+
+/** Igual, con la petición ya en la mano (un controlador que lee `@Req()`). */
+export function isInternalHttpRequest(req: Request, token: string | undefined): boolean {
+  if (!token) return false;
   const sent = req.headers['x-internal-token'];
   if (typeof sent !== 'string' || sent.length !== token.length) return false;
   return timingSafeEqual(Buffer.from(sent), Buffer.from(token));

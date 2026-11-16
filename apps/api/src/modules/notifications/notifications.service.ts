@@ -120,7 +120,14 @@ export class NotificationsService {
   async createForPermission(
     tenantId: string,
     permission: Permission,
-    input: { type: string; title: string; body?: string; link?: string },
+    input: {
+      type: string;
+      title: string;
+      body?: string;
+      link?: string;
+      /** De un local: solo lo ve quien tiene ese local. */
+      facilityId?: string | null;
+    },
   ): Promise<void> {
     const users = await this.prisma.withTenant(
       (tx) =>

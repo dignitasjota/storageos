@@ -117,11 +117,18 @@ async function resolveSlug(host: string): Promise<DomainResolution> {
  * manda el navegador se quitan: con ellas cualquiera podía servir en la
  * plataforma páginas que solo existen en un dominio propio.
  */
-const INTERNAL_HEADERS = ['x-storageos-tenant-slug', 'x-storageos-tenant-public'];
+const INTERNAL_HEADERS = [
+  'x-storageos-tenant-slug',
+  'x-storageos-tenant-public',
+  'x-storageos-head',
+];
 
 function cleanHeaders(req: NextRequest): Headers {
   const headers = new Headers(req.headers);
   for (const h of INTERNAL_HEADERS) headers.delete(h);
+  // Una petición HEAD solo comprueba el enlace (no es una visita): las páginas
+  // no ven el método, así que se lo dice esta cabecera (el QR no cuenta el clic).
+  if (req.method === 'HEAD') headers.set('x-storageos-head', '1');
   return headers;
 }
 

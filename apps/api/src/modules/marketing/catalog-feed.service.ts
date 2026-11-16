@@ -7,7 +7,17 @@ import { FilesService } from '../files/files.service';
 
 import type { Env } from '../../config/env.schema';
 
-const csvCell = (v: string): string => (/[";\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+/**
+ * Celda de texto: entre comillas si hace falta y, si empieza por `= + - @`
+ * (o un tabulador o salto), con un apóstrofo delante para que Excel no la
+ * ejecute como fórmula (un nombre o una descripción los escribe el negocio).
+ */
+const csvCell = (input: string): string => {
+  const v = /^[=+\-@\t\r]/.test(input) ? `'${input}` : input;
+  return /[";\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+};
+/** Número con coma decimal (Excel en español lee el punto como texto). */
+const decimal = (n: number, digits: number) => n.toFixed(digits).replace('.', ',');
 
 interface CatalogFeedRow {
   facilityName: string;
@@ -48,8 +58,12 @@ export class CatalogFeedService {
     this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
   }
 
-  async exportCsv(tenantId: string, facilityId?: string): Promise<string> {
-    const rows = await this.buildRows(tenantId, facilityId);
+  async exportCsv(
+    tenantId: string,
+    facilityId?: string,
+    facilityScope: string[] | null = null,
+  ): Promise<string> {
+    const rows = await this.buildRows(tenantId, facilityId, facilityScope);
     const header = [
       'Local',
       'Dirección',
@@ -76,9 +90,9 @@ export class CatalogFeedService {
           csvCell(r.postalCode),
           csvCell(r.unitTypeName),
           csvCell(r.description),
-          r.areaM2 != null ? r.areaM2.toFixed(1) : '',
-          r.volumeM3 != null ? r.volumeM3.toFixed(1) : '',
-          r.priceMonthly.toFixed(2),
+          r.areaM2 != null ? decimal(r.areaM2, 1) : '',
+          r.volumeM3 != null ? decimal(r.volumeM3, 1) : '',
+          decimal(r.priceMonthly, 2),
           String(r.available),
           csvCell(r.phone),
           csvCell(r.email),
@@ -92,16 +106,35 @@ export class CatalogFeedService {
     return String.fromCharCode(0xfeff) + lines.join('\r\n');
   }
 
-  private async buildRows(tenantId: string, facilityId?: string): Promise<CatalogFeedRow[]> {
+  private async buildRows(
+    tenantId: string,
+    facilityId: string | undefined,
+    facilityScope: string[] | null,
+  ): Promise<CatalogFeedRow[]> {
     return this.prisma.withTenant(async (tx) => {
       const [tenant, facilities, unitTypes, grouped] = await Promise.all([
-        tx.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: { slug: true, customDomain: true, customDomainVerifiedAt: true },
+        }),
         tx.facility.findMany({
           where: {
             tenantId,
             deletedAt: null,
             isActive: true,
             ...(facilityId ? { id: facilityId } : {}),
+            // Quien solo ve unos locales exporta los suyos.
+            ...(facilityScope
+              ? {
+                  id: {
+                    in: facilityId
+                      ? facilityScope.includes(facilityId)
+                        ? [facilityId]
+                        : []
+                      : facilityScope,
+                  },
+                }
+              : {}),
           },
           select: {
             id: true,
@@ -148,14 +181,34 @@ export class CatalogFeedService {
           minPriceByPair.set(key, Number(g._min.basePriceMonthly));
       }
 
+      const ownDomain =
+        tenant?.customDomain && tenant.customDomainVerifiedAt ? tenant.customDomain : null;
+      /**
+       * Reserva con el local y el tamaño ya elegidos: en el dominio propio
+       * `/reservar/<local>`, en la plataforma `/book/<negocio>`.
+       */
+      const bookingUrlFor = (f: { id: string; publicSlug: string | null }, unitTypeId: string) => {
+        if (!tenant) return this.webBaseUrl;
+        if (ownDomain) {
+          const path = f.publicSlug ? `/reservar/${f.publicSlug}` : '/reservar';
+          const qs = new URLSearchParams({
+            ...(f.publicSlug ? {} : { facilityId: f.id }),
+            unitTypeId,
+          });
+          return `https://${ownDomain}${path}?${qs.toString()}`;
+        }
+        const qs = new URLSearchParams({ facilityId: f.id, unitTypeId });
+        return `${this.webBaseUrl.replace(/\/$/, '')}/book/${tenant.slug}?${qs.toString()}`;
+      };
+
       const rows: CatalogFeedRow[] = [];
       for (const f of facilities) {
         const photos = (f.images ?? []).map((key) => this.files.buildPublicUrl('public', key));
-        const bookingUrl = tenant ? `${this.webBaseUrl}/book/${tenant.slug}` : `${this.webBaseUrl}`;
         for (const t of unitTypes) {
           const key = `${f.id}:${t.id}`;
           const available = availByPair.get(key) ?? 0;
           if (available === 0) continue;
+          const bookingUrl = bookingUrlFor(f, t.id);
           const areaM2 = areaByPair.get(key) ?? null;
           rows.push({
             facilityName: f.name,

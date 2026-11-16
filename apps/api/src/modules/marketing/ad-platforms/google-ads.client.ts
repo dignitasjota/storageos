@@ -106,7 +106,8 @@ export class GoogleAdsClient {
 
   /** Gasto, impresiones, clics y conversiones por día de una campaña en `[from, to]` (inclusive). */
   async getCampaignStats(campaignId: string, from: string, to: string): Promise<AdDailyStats[]> {
-    const query = `SELECT segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions FROM campaign WHERE campaign.id = ${Number(
+    // La moneda de la cuenta va en cada fila: el gasto se importa en euros.
+    const query = `SELECT customer.currency_code, segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions FROM campaign WHERE campaign.id = ${Number(
       digitsOnly(campaignId),
     )} AND segments.date BETWEEN '${from}' AND '${to}'`;
     const rows = await this.search(query);
@@ -123,12 +124,14 @@ export class GoogleAdsClient {
           | undefined;
         const date = segments?.date;
         if (!date) return null;
+        const currency = (r.customer as { currencyCode?: string } | undefined)?.currencyCode;
         return {
           date,
           cost: round2(Number(metrics?.costMicros ?? 0) / 1_000_000),
           impressions: Number(metrics?.impressions ?? 0),
           clicks: Number(metrics?.clicks ?? 0),
           conversions: round2(Number(metrics?.conversions ?? 0)),
+          ...(currency ? { currency } : {}),
         };
       })
       .filter((r): r is AdDailyStats => r !== null);

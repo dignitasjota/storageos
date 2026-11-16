@@ -47,9 +47,23 @@ export const CreateMarketingChannelSchema = z.object({
   type: MarketingChannelTypeEnum.default('other'),
   name: z.string().trim().min(1).max(160),
   status: MarketingChannelStatusEnum.default('active'),
-  externalUrl: z.string().trim().max(2000).url().optional().or(z.literal('')),
-  monthlyCost: z.number().min(0).finite().optional(),
+  /** Solo direcciones web (http o https). */
+  externalUrl: z
+    .string()
+    .trim()
+    .max(2000)
+    .url()
+    .refine((u) => /^https?:\/\//i.test(u), 'Pon una dirección que empiece por http:// o https://')
+    .optional()
+    .or(z.literal('')),
+  /** null o vacío: sin coste mensual estimado. */
+  monthlyCost: z.number().min(0).max(1_000_000).finite().nullable().optional(),
   renewsOn: dateOnly.optional().or(z.literal('')),
+  /**
+   * Cada cuántos meses se renueva (1 = mensual, 12 = anual): pasada la fecha,
+   * avanza sola. null o vacío: no se renueva.
+   */
+  renewalMonths: z.number().int().min(1).max(36).nullable().optional(),
   /**
    * Orígenes (`utm_source`) que se atribuyen a este canal, separados por comas.
    * Vacío: se propone según el tipo (Google Ads → `google`, Meta Ads →
@@ -86,8 +100,10 @@ export interface MarketingChannelDto {
   name: string;
   status: MarketingChannelStatus;
   externalUrl: string | null;
+  /** null sin coste estimado o sin permiso para ver los gastos. */
   monthlyCost: number | null;
   renewsOn: string | null;
+  renewalMonths: number | null;
   utmSourceMatch: string | null;
   /**
    * Otro canal con el mismo origen: los contactos de ese origen van al activo
@@ -100,8 +116,22 @@ export interface MarketingChannelDto {
   /** URL completa lista para imprimir en un QR/cartel, o null. */
   shortUrl: string | null;
   clickCount: number;
+  /** Última sincronización del gasto con la plataforma de anuncios (null si nunca). */
+  lastSyncAt: string | null;
+  /** Error de la última sincronización (null si fue bien). */
+  lastSyncError: string | null;
+  /** Desde cuándo falla sin parar (null si va bien). */
+  syncFailingSince: string | null;
   notes: string | null;
   createdAt: string;
+}
+
+/** Qué importes puede ver quien consulta (según sus permisos). */
+export interface MarketingMoneyAccess {
+  /** Cobrado e ingresos (facturas y cobros). */
+  revenue: boolean;
+  /** Gasto y costes (gastos). */
+  cost: boolean;
 }
 
 // --- Rendimiento: coste ↔ leads ↔ conversión ↔ MRR ---
@@ -111,17 +141,26 @@ export interface MarketingPerformanceRowDto {
   channelName: string;
   type: MarketingChannelType;
   status: MarketingChannelStatus;
-  /** Coste total en el periodo (suma de expenses vinculados). */
+  /** Canal borrado que tuvo gasto o resultados en el periodo. */
+  deleted: boolean;
+  /** Coste en el periodo (gastos vinculados); 0 sin permiso para ver los gastos. */
   cost: number;
+  /** Contactos creados en el periodo y atribuidos al canal. */
   leadsCount: number;
+  /**
+   * Clientes: contratos firmados en el periodo (sin cancelar) de contactos del
+   * canal o con su promoción.
+   */
   wonCount: number;
-  /** `cost / leadsCount`; null si no hay leads. */
+  /** `cost / leadsCount`; null si no hay contactos o sin permiso. */
   costPerLead: number | null;
-  /** Coste de adquisición: `cost / wonCount`; null si no hay conversiones. */
+  /** Coste por cliente: `cost / wonCount`; null si no hay clientes o sin permiso. */
   cac: number | null;
-  /** MRR vivo (contratos active/ending) de los clientes convertidos por este canal. */
+  /** Cuota mensual de esos clientes que siguen; 0 sin permiso para ver los ingresos. */
   mrrGenerated: number;
-  /** Meses de cuota para recuperar el CAC (`cac / (mrrGenerated / wonCount)`); null si no aplica. */
+  /** Clientes que siguen (contrato en vigor). */
+  liveCount: number;
+  /** Meses de cuota para recuperar el coste por cliente (con la cuota media de los que siguen). */
   paybackMonths: number | null;
 }
 
@@ -130,6 +169,9 @@ export interface MarketingPerformanceDto {
   to: string;
   rows: MarketingPerformanceRowDto[];
   totals: { cost: number; leadsCount: number; wonCount: number; mrrGenerated: number };
+  /** Gasto de marketing del periodo sin canal vinculado (0 sin permiso). */
+  unassignedCost: number;
+  money: MarketingMoneyAccess;
 }
 
 /** Lo que da la plataforma de anuncios + lo que pasa después en TrasterOS. */
@@ -169,6 +211,8 @@ export interface AdPerformanceDto {
   to: string;
   rows: AdPerformanceRowDto[];
   totals: AdPerformanceFigures & AdPerformanceRatios;
+  /** Sin permiso para ver los gastos, el gasto y los costes salen a 0 / null. */
+  money: MarketingMoneyAccess;
 }
 
 const ratio = (a: number, b: number, digits: number) =>

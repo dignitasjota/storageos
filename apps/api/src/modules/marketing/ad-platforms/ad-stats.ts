@@ -8,6 +8,8 @@ export interface AdDailyStats {
   clicks: number;
   /** Conversiones que cuenta la plataforma (Google puede dar fracciones). */
   conversions: number;
+  /** Moneda de la cuenta (`EUR`…), si la plataforma la da. */
+  currency?: string;
 }
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;

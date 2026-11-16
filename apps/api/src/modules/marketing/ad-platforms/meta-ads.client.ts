@@ -16,6 +16,9 @@ import { round2, type AdDailyStats } from './ad-stats';
 const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 /** Tiempo máximo de cada petición. */
 const TIMEOUT_MS = 20_000;
+/** Filas por página y páginas como mucho (90 días caben en una o dos). */
+const PAGE_SIZE = 100;
+const MAX_PAGES = 20;
 
 /**
  * Acciones que cuentan como conversión: los tipos agregados de Meta (cada uno
@@ -68,24 +71,39 @@ export class MetaAdsClient {
     await this.request(`/${withActPrefix(this.creds.adAccountId)}`, { fields: 'id' });
   }
 
-  /** Gasto, impresiones, clics y conversiones por día de una campaña en `[from, to]` (inclusive). */
+  /**
+   * Gasto, impresiones, clics y conversiones por día de una campaña en
+   * `[from, to]` (inclusive). Meta pagina los días: se siguen todas las páginas.
+   */
   async getCampaignStats(campaignId: string, from: string, to: string): Promise<AdDailyStats[]> {
+    type Row = {
+      date_start?: string;
+      spend?: string;
+      impressions?: string;
+      clicks?: string;
+      account_currency?: string;
+      actions?: Array<{ action_type?: string; value?: string }>;
+    };
     const timeRange = JSON.stringify({ since: from, until: to });
-    const data = await this.request<{
-      data?: Array<{
-        date_start?: string;
-        spend?: string;
-        impressions?: string;
-        clicks?: string;
-        actions?: Array<{ action_type?: string; value?: string }>;
-      }>;
-    }>(`/${campaignId}/insights`, {
-      fields: 'spend,impressions,clicks,actions',
-      time_increment: '1',
-      time_range: timeRange,
-      level: 'campaign',
-    });
-    return (data.data ?? [])
+    const all: Row[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const data = await this.request<{
+        data?: Row[];
+        paging?: { cursors?: { after?: string }; next?: string };
+      }>(`/${campaignId}/insights`, {
+        fields: 'spend,impressions,clicks,actions,account_currency',
+        time_increment: '1',
+        time_range: timeRange,
+        level: 'campaign',
+        limit: String(PAGE_SIZE),
+        ...(after ? { after } : {}),
+      });
+      all.push(...(data.data ?? []));
+      after = data.paging?.cursors?.after;
+      if (!data.paging?.next || !after) break;
+    }
+    return all
       .map((r) =>
         r.date_start
           ? {
@@ -96,6 +114,7 @@ export class MetaAdsClient {
               conversions: (r.actions ?? [])
                 .filter((a) => a.action_type && CONVERSION_ACTIONS.has(a.action_type))
                 .reduce((n, a) => n + Number(a.value ?? 0), 0),
+              ...(r.account_currency ? { currency: r.account_currency } : {}),
             }
           : null,
       )

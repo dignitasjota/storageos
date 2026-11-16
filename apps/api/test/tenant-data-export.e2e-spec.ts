@@ -78,6 +78,8 @@ describe('Exportar los datos del tenant (e2e)', () => {
       'Propietarios',
       'Liquidaciones',
       'WhatsApp',
+      'Chat de la web',
+      'Canales de marketing',
     ]);
     const customers = wb.getWorksheet('Inquilinos')!;
     expect(customers.rowCount).toBe(2);

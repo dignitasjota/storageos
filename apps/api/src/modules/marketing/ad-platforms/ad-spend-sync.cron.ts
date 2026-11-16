@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
+import { claimDailyCronRun } from '../../../common/cron-claim';
+import { PrismaAdminService } from '../../database/prisma-admin.service';
+
 import { AdSpendSyncService } from './ad-spend-sync.service';
 
 /**
@@ -13,11 +16,16 @@ import { AdSpendSyncService } from './ad-spend-sync.service';
 export class AdSpendSyncCron {
   private readonly logger = new Logger(AdSpendSyncCron.name);
 
-  constructor(private readonly sync: AdSpendSyncService) {}
+  constructor(
+    private readonly sync: AdSpendSyncService,
+    private readonly admin: PrismaAdminService,
+  ) {}
 
   @Cron('0 8 * * *', { name: 'marketing.ad-spend-sync' })
   async daily(): Promise<void> {
     try {
+      // Una sola vez al día aunque haya varias réplicas del worker.
+      if (!(await claimDailyCronRun(this.admin, 'marketing.ad-spend-sync'))) return;
       await this.sync.syncDueAll();
     } catch (err) {
       this.logger.error(

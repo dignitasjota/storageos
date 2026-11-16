@@ -52,6 +52,8 @@ export class TenantDataExportService {
       owners,
       statements,
       whatsappMessages,
+      webChatMessages,
+      channels,
     ] = await Promise.all([
       this.admin.facility.findMany({
         where,
@@ -117,6 +119,16 @@ export class TenantDataExportService {
         where,
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         include: { conversation: { select: { waId: true, contactName: true } } },
+      }),
+      this.admin.webChatMessage.findMany({
+        where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        include: { conversation: { select: { visitorId: true, utmSource: true } } },
+      }),
+      this.admin.marketingChannel.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: { facility: { select: { name: true } } },
       }),
     ]);
 
@@ -323,6 +335,37 @@ export class TenantDataExportService {
       { header: 'Escribe', value: (m) => SENDERS[m.sender] ?? m.sender },
       { header: 'Mensaje', width: 60, value: (m) => m.body },
       { header: 'Estado', value: (m) => m.status },
+    ]);
+
+    const CHAT_ROLES: Record<string, string> = {
+      visitor: 'Visitante',
+      assistant: 'Asistente',
+      staff: 'Equipo',
+      system: 'Aviso automático',
+    };
+    this.sheet(wb, 'Chat de la web', webChatMessages, [
+      { header: 'Fecha', width: 20, value: (m) => m.createdAt },
+      // El visitante es anónimo: su identificador agrupa la conversación.
+      { header: 'Conversación', value: (m) => m.conversation.visitorId },
+      { header: 'Origen', value: (m) => m.conversation.utmSource },
+      { header: 'Escribe', value: (m) => CHAT_ROLES[m.role] ?? m.role },
+      { header: 'Mensaje', width: 60, value: (m) => m.content },
+    ]);
+
+    this.sheet(wb, 'Canales de marketing', channels, [
+      { header: 'Nombre', value: (c) => c.name },
+      { header: 'Tipo', value: (c) => c.type },
+      { header: 'Estado', value: (c) => (c.deletedAt ? 'borrado' : c.status) },
+      { header: 'Local', value: (c) => c.facility?.name ?? null },
+      { header: 'Origen', value: (c) => c.utmSourceMatch },
+      { header: 'Campaña (Google/Meta)', value: (c) => c.externalCampaignId },
+      {
+        header: 'Coste mensual estimado',
+        value: (c) => (c.monthlyCost !== null ? num(c.monthlyCost) : null),
+      },
+      { header: 'Renueva', value: (c) => c.renewsOn },
+      { header: 'Clics del enlace corto', value: (c) => c.clickCount },
+      { header: 'Alta', value: (c) => c.createdAt },
     ]);
 
     const buffer = Buffer.from(await wb.xlsx.writeBuffer());

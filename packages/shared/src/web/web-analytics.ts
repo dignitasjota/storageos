@@ -69,7 +69,7 @@ export function deviceFromUserAgent(ua: string | undefined): 'mobile' | 'tablet'
  */
 export function isBotUserAgent(ua: string | undefined): boolean {
   if (!ua) return true;
-  return /bot[/;)]|\bbot\b|adsbot|crawl|spider|slurp|headless|lighthouse|pagespeed|preview|facebookexternalhit|whatsapp\/|curl|wget|python-requests|axios|node-fetch|google-inspectiontool|googleother|storebot-google|mediapartners-google|apis-google|feedfetcher|gtmetrix|pingdom|uptimerobot/i.test(
+  return /bot[/;)]|\bbot\b|adsbot|slackbot|vkshare|embedly|iframely|crawl|spider|slurp|headless|lighthouse|pagespeed|preview|facebookexternalhit|whatsapp\/|curl|wget|python-requests|axios|node-fetch|google-inspectiontool|googleother|storebot-google|mediapartners-google|apis-google|feedfetcher|gtmetrix|pingdom|uptimerobot/i.test(
     ua,
   );
 }

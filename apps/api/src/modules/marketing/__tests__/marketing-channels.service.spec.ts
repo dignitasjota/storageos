@@ -2,18 +2,25 @@ import { MarketingChannelsService } from '../marketing-channels.service';
 
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { PrismaService } from '../../database/prisma.service';
+import type { MarketingViewer } from '../marketing-viewer';
+import type { Queue } from 'bullmq';
 
 interface TxMock {
+  tenant: { findUnique: jest.Mock };
   marketingChannel: { findMany: jest.Mock };
-  expense: { findMany: jest.Mock };
+  expense: { groupBy: jest.Mock; aggregate: jest.Mock };
   lead: { findMany: jest.Mock };
   contract: { findMany: jest.Mock };
 }
 
 function buildTx(): TxMock {
   return {
+    tenant: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Europe/Madrid' }) },
     marketingChannel: { findMany: jest.fn().mockResolvedValue([]) },
-    expense: { findMany: jest.fn().mockResolvedValue([]) },
+    expense: {
+      groupBy: jest.fn().mockResolvedValue([]),
+      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: null } }),
+    },
     lead: { findMany: jest.fn().mockResolvedValue([]) },
     contract: { findMany: jest.fn().mockResolvedValue([]) },
   };
@@ -24,7 +31,7 @@ function buildService(tx: TxMock) {
     withTenant: <T>(fn: (t: TxMock) => Promise<T>) => fn(tx),
   } as unknown as PrismaService;
   const admin = {} as PrismaAdminService;
-  return new MarketingChannelsService(prisma, admin);
+  return new MarketingChannelsService(prisma, admin, {} as Queue);
 }
 
 const TENANT = '019e3d20-aaaa-7c2f-bf37-6511065b9fc5';
@@ -39,69 +46,91 @@ function channel(overrides: Record<string, unknown> = {}) {
     externalCampaignId: null,
     externalUrl: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
+    deletedAt: null,
+    promotionId: null,
     ...overrides,
   };
 }
 
+const lead = (over: Record<string, unknown>) => ({
+  source: 'web',
+  utmSource: null,
+  utmMedium: null,
+  utmCampaign: null,
+  ...over,
+});
+
+const contract = (over: Record<string, unknown>) => ({
+  id: 'ct-1',
+  status: 'active',
+  promotionId: null,
+  priceMonthly: 100,
+  discountAmount: 0,
+  ...over,
+});
+
 describe('MarketingChannelsService.getPerformance', () => {
   it('tenant sin canales devuelve filas y totales a cero', async () => {
     const tx = buildTx();
-    const service = buildService(tx);
-    const res = await service.getPerformance(TENANT, {});
+    const res = await buildService(tx).getPerformance(TENANT, {});
     expect(res.rows).toEqual([]);
     expect(res.totals).toEqual({ cost: 0, leadsCount: 0, wonCount: 0, mrrGenerated: 0 });
+    expect(res.unassignedCost).toBe(0);
+    expect(res.money).toEqual({ revenue: true, cost: true });
   });
 
-  it('un canal sin gasto ni leads sale con ceros y `null` en las métricas derivadas', async () => {
+  it('un canal sin gasto ni contactos sale con ceros y `null` en las métricas derivadas', async () => {
     const tx = buildTx();
     tx.marketingChannel.findMany.mockResolvedValue([channel()]);
-    const service = buildService(tx);
-    const res = await service.getPerformance(TENANT, {});
+    const res = await buildService(tx).getPerformance(TENANT, {});
     expect(res.rows).toHaveLength(1);
     expect(res.rows[0]).toMatchObject({
       channelId: 'chan-1',
+      deleted: false,
       cost: 0,
       leadsCount: 0,
       wonCount: 0,
       costPerLead: null,
       cac: null,
       mrrGenerated: 0,
+      liveCount: 0,
       paybackMonths: null,
     });
   });
 
-  it('coste vinculado + leads atribuidos por utmSource/source + conversión → CAC y payback', async () => {
+  it('coste vinculado + contactos por origen + cliente firmado → coste por cliente y payback', async () => {
     const tx = buildTx();
     tx.marketingChannel.findMany.mockResolvedValue([
       channel({ name: 'Flyers verano', type: 'physical' }),
     ]);
-    tx.expense.findMany.mockResolvedValue([
-      { marketingChannelId: 'chan-1', amount: 120 },
-      { marketingChannelId: 'chan-1', amount: 80 },
-    ]);
-    tx.lead.findMany.mockResolvedValue([
-      // Atribuido por utmSource exacto (case-insensitive).
-      { source: 'widget', utmSource: 'Google_Verano', status: 'won', convertedContractId: 'ct-1' },
-      // Atribuido por `source` a falta de utmSource, sin convertir.
-      { source: 'google_verano', utmSource: null, status: 'new', convertedContractId: null },
-      // Otro canal: no debe contarse.
-      { source: 'facebook', utmSource: 'facebook', status: 'new', convertedContractId: null },
-    ]);
-    tx.contract.findMany.mockResolvedValue([{ id: 'ct-1', priceMonthly: 100, discountAmount: 10 }]);
+    tx.expense.groupBy.mockResolvedValue([{ marketingChannelId: 'chan-1', _sum: { amount: 200 } }]);
+    tx.expense.aggregate.mockResolvedValue({ _sum: { amount: 35 } });
+    tx.contract.findMany.mockResolvedValue([contract({ discountAmount: 10 })]);
+    tx.lead.findMany
+      // Contactos creados en el periodo.
+      .mockResolvedValueOnce([
+        lead({ source: 'widget', utmSource: 'Google_Verano' }),
+        lead({ source: 'google_verano' }),
+        lead({ source: 'facebook', utmSource: 'facebook' }),
+      ])
+      // Contactos de los contratos firmados en el periodo.
+      .mockResolvedValueOnce([
+        lead({ convertedContractId: 'ct-1', source: 'widget', utmSource: 'google_verano' }),
+      ]);
 
-    const service = buildService(tx);
-    const res = await service.getPerformance(TENANT, {});
-    expect(res.rows).toHaveLength(1);
+    const res = await buildService(tx).getPerformance(TENANT, {});
     const row = res.rows[0]!;
     expect(row.cost).toBe(200);
     expect(row.leadsCount).toBe(2);
     expect(row.wonCount).toBe(1);
-    expect(row.costPerLead).toBe(100); // 200 / 2
-    expect(row.cac).toBe(200); // 200 / 1 conversión
-    expect(row.mrrGenerated).toBe(90); // 100 - 10 de descuento
-    expect(row.paybackMonths).toBe(2.22); // round2(200 / 90)
-
+    expect(row.costPerLead).toBe(100);
+    expect(row.cac).toBe(200);
+    expect(row.mrrGenerated).toBe(90);
+    expect(row.liveCount).toBe(1);
+    expect(row.paybackMonths).toBe(2.22);
     expect(res.totals).toEqual({ cost: 200, leadsCount: 2, wonCount: 1, mrrGenerated: 90 });
+    // El gasto de marketing sin canal sale aparte.
+    expect(res.unassignedCost).toBe(35);
   });
 
   it('Google Ads solo cuenta el tráfico de pago y cada contacto va a un solo canal', async () => {
@@ -115,7 +144,6 @@ describe('MarketingChannelsService.getPerformance', () => {
         utmSourceMatch: 'google',
         createdAt: new Date('2026-02-01T00:00:00Z'),
       }),
-      // Mismo origen que el primero: los contactos van al más antiguo, no a los dos.
       channel({
         id: 'seo-2',
         name: 'SEO duplicado',
@@ -124,46 +152,102 @@ describe('MarketingChannelsService.getPerformance', () => {
         createdAt: new Date('2026-03-01T00:00:00Z'),
       }),
     ]);
-    tx.lead.findMany.mockResolvedValue([
-      { source: 'web', utmSource: 'google', utmMedium: 'cpc', status: 'new' },
-      { source: 'web', utmSource: 'google', utmMedium: 'organic', status: 'new' },
-      { source: 'web', utmSource: 'google', utmMedium: null, status: 'new' },
+    tx.lead.findMany.mockResolvedValueOnce([
+      lead({ utmSource: 'google', utmMedium: 'cpc' }),
+      lead({ utmSource: 'google', utmMedium: 'organic' }),
+      lead({ utmSource: 'google' }),
     ]);
     const res = await buildService(tx).getPerformance(TENANT, {});
     const leads = Object.fromEntries(res.rows.map((r) => [r.channelId, r.leadsCount]));
     expect(leads).toEqual({ ads: 1, seo: 2, 'seo-2': 0 });
-    expect(res.totals.leadsCount).toBe(3);
   });
 
-  it('un contrato ganado que ya no está activo/ending no aporta MRR', async () => {
+  it('un cliente que ya se fue cuenta como cliente pero no en la cuota ni en el payback', async () => {
     const tx = buildTx();
-    tx.marketingChannel.findMany.mockResolvedValue([channel()]);
-    tx.lead.findMany.mockResolvedValue([
-      { source: null, utmSource: 'google_verano', status: 'won', convertedContractId: 'ct-1' },
-    ]);
-    // El filtro de contratos en el service exige status active/ending → una
-    // baja no debería reaparecer, así que el mock simplemente no la incluye.
-    tx.contract.findMany.mockResolvedValue([]);
-
-    const service = buildService(tx);
-    const res = await service.getPerformance(TENANT, {});
-    expect(res.rows[0]!.mrrGenerated).toBe(0);
-    expect(res.rows[0]!.paybackMonths).toBeNull();
+    tx.marketingChannel.findMany.mockResolvedValue([channel({ type: 'physical' })]);
+    tx.expense.groupBy.mockResolvedValue([{ marketingChannelId: 'chan-1', _sum: { amount: 50 } }]);
+    tx.contract.findMany.mockResolvedValue([contract({ status: 'ended' })]);
+    tx.lead.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([lead({ convertedContractId: 'ct-1', source: 'google_verano' })]);
+    const res = await buildService(tx).getPerformance(TENANT, {});
+    expect(res.rows[0]).toMatchObject({
+      wonCount: 1,
+      liveCount: 0,
+      mrrGenerated: 0,
+      cac: 50,
+      paybackMonths: null,
+    });
   });
 
-  it('ordena por coste desc y, en empate, por MRR generado desc', async () => {
+  it('un contrato con la promoción del canal y sin contacto cuenta para el canal', async () => {
+    const tx = buildTx();
+    tx.marketingChannel.findMany.mockResolvedValue([
+      channel({ id: 'flyer', type: 'physical', utmSourceMatch: 'flyer', promotionId: 'promo-1' }),
+    ]);
+    tx.contract.findMany.mockResolvedValue([contract({ id: 'ct-9', promotionId: 'promo-1' })]);
+    tx.lead.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    const res = await buildService(tx).getPerformance(TENANT, {});
+    expect(res.rows[0]).toMatchObject({ channelId: 'flyer', wonCount: 1, liveCount: 1 });
+  });
+
+  it('un canal borrado sale solo si tuvo gasto o resultados en el periodo', async () => {
+    const tx = buildTx();
+    tx.marketingChannel.findMany.mockResolvedValue([
+      channel({ id: 'gone-with-cost', utmSourceMatch: 'a', deletedAt: new Date() }),
+      channel({ id: 'gone-empty', utmSourceMatch: 'b', deletedAt: new Date() }),
+    ]);
+    tx.expense.groupBy.mockResolvedValue([
+      { marketingChannelId: 'gone-with-cost', _sum: { amount: 80 } },
+    ]);
+    const res = await buildService(tx).getPerformance(TENANT, {});
+    expect(res.rows.map((r) => [r.channelId, r.deleted])).toEqual([['gone-with-cost', true]]);
+  });
+
+  it('sin permiso para ver gastos ni cobros, los importes no salen', async () => {
+    const tx = buildTx();
+    tx.marketingChannel.findMany.mockResolvedValue([channel({ type: 'physical' })]);
+    tx.contract.findMany.mockResolvedValue([contract({})]);
+    tx.lead.findMany
+      .mockResolvedValueOnce([lead({ source: 'google_verano' })])
+      .mockResolvedValueOnce([lead({ convertedContractId: 'ct-1', source: 'google_verano' })]);
+    const viewer: MarketingViewer = { revenue: false, cost: false, facilityScope: null };
+    const res = await buildService(tx).getPerformance(TENANT, {}, viewer);
+    // Ni se consultan los gastos.
+    expect(tx.expense.groupBy).not.toHaveBeenCalled();
+    expect(res.rows[0]).toMatchObject({
+      cost: 0,
+      costPerLead: null,
+      cac: null,
+      mrrGenerated: 0,
+      paybackMonths: null,
+      leadsCount: 1,
+      wonCount: 1,
+    });
+    expect(res.money).toEqual({ revenue: false, cost: false });
+  });
+
+  it('fechas no válidas o al revés → 400', async () => {
+    const service = buildService(buildTx());
+    await expect(service.getPerformance(TENANT, { from: 'xyz' })).rejects.toMatchObject({
+      response: { code: 'invalid_date' },
+    });
+    await expect(
+      service.getPerformance(TENANT, { from: '2026-05-10', to: '2026-05-01' }),
+    ).rejects.toMatchObject({ response: { code: 'invalid_date' } });
+  });
+
+  it('ordena por coste desc', async () => {
     const tx = buildTx();
     tx.marketingChannel.findMany.mockResolvedValue([
       channel({ id: 'low-cost', utmSourceMatch: 'low' }),
       channel({ id: 'high-cost', utmSourceMatch: 'high' }),
     ]);
-    tx.expense.findMany.mockResolvedValue([
-      { marketingChannelId: 'low-cost', amount: 50 },
-      { marketingChannelId: 'high-cost', amount: 300 },
+    tx.expense.groupBy.mockResolvedValue([
+      { marketingChannelId: 'low-cost', _sum: { amount: 50 } },
+      { marketingChannelId: 'high-cost', _sum: { amount: 300 } },
     ]);
-
-    const service = buildService(tx);
-    const res = await service.getPerformance(TENANT, {});
+    const res = await buildService(tx).getPerformance(TENANT, {});
     expect(res.rows.map((r) => r.channelId)).toEqual(['high-cost', 'low-cost']);
   });
 });

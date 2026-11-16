@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -25,6 +24,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { AdPerformanceService } from './ad-platforms/ad-performance.service';
 import { AdSpendSyncService } from './ad-platforms/ad-spend-sync.service';
 import { MarketingChannelsService } from './marketing-channels.service';
+import { marketingViewer } from './marketing-viewer';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import type {
@@ -52,7 +52,7 @@ export class MarketingController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: string,
   ): Promise<MarketingChannelDto[]> {
-    return this.channels.list(user.tenantId, status);
+    return this.channels.list(user.tenantId, status, marketingViewer(user));
   }
 
   /**
@@ -66,10 +66,11 @@ export class MarketingController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ): Promise<MarketingPerformanceDto> {
-    return this.channels.getPerformance(user.tenantId, {
-      ...(from ? { from } : {}),
-      ...(to ? { to } : {}),
-    });
+    return this.channels.getPerformance(
+      user.tenantId,
+      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      marketingViewer(user),
+    );
   }
 
   /** Rendimiento de las campañas de Google Ads y Meta Ads (antes de `:id`). */
@@ -80,18 +81,11 @@ export class MarketingController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ): Promise<AdPerformanceDto> {
-    for (const d of [from, to]) {
-      if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-        throw new BadRequestException({
-          code: 'invalid_date',
-          message: 'Fecha no válida (AAAA-MM-DD)',
-        });
-      }
-    }
-    return this.adPerformance.report(user.tenantId, {
-      ...(from ? { from } : {}),
-      ...(to ? { to } : {}),
-    });
+    return this.adPerformance.report(
+      user.tenantId,
+      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      marketingViewer(user),
+    );
   }
 
   @RequirePermission('marketing:manage')
@@ -100,7 +94,7 @@ export class MarketingController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateMarketingChannelDto,
   ): Promise<MarketingChannelDto> {
-    return this.channels.create(user.tenantId, body);
+    return this.channels.create(user.tenantId, body, marketingViewer(user));
   }
 
   @RequirePermission('marketing:manage')
@@ -110,7 +104,7 @@ export class MarketingController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateMarketingChannelDto,
   ): Promise<MarketingChannelDto> {
-    return this.channels.update(user.tenantId, id, body);
+    return this.channels.update(user.tenantId, id, body, marketingViewer(user));
   }
 
   @RequirePermission('marketing:manage')
@@ -120,7 +114,7 @@ export class MarketingController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.channels.remove(user.tenantId, id);
+    await this.channels.remove(user.tenantId, id, marketingViewer(user));
   }
 
   /** Sincroniza a mano el gasto (Google Ads/Meta Ads) de un canal vinculado a una campaña externa. */
@@ -132,6 +126,8 @@ export class MarketingController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: SyncAdSpendDto,
   ): Promise<SyncAdSpendResultDto> {
-    return this.adSpendSync.syncChannel(user.tenantId, id, body.from, body.to);
+    return this.adSpendSync.syncChannel(user.tenantId, id, body.from, body.to, {
+      viewer: marketingViewer(user),
+    });
   }
 }
