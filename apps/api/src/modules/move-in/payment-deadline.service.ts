@@ -150,23 +150,22 @@ export class PaymentDeadlineService {
           return false;
         });
     }
-    // Sin firmar: el enlace de firma tiene que valer hasta el plazo nuevo.
-    if (contract.status === 'draft') {
-      const link = await this.admin.contract.findUnique({
+    // El enlace de la firma (para firmar o, ya firmado, para completar el pago)
+    // tiene que valer hasta el plazo nuevo.
+    const link = await this.admin.contract.findUnique({
+      where: { id: contract.id },
+      select: { signingTokenHash: true, signingTokenExpiresAt: true },
+    });
+    if (link?.signingTokenHash) {
+      const until = Math.max(
+        link.signingTokenExpiresAt?.getTime() ?? 0,
+        next.getTime(),
+        notified ? now + SIGNING_LINK_MIN_MS : 0,
+      );
+      await this.admin.contract.update({
         where: { id: contract.id },
-        select: { signingTokenHash: true, signingTokenExpiresAt: true },
+        data: { signingTokenExpiresAt: new Date(until) },
       });
-      if (link?.signingTokenHash) {
-        const until = Math.max(
-          link.signingTokenExpiresAt?.getTime() ?? 0,
-          next.getTime(),
-          notified ? now + SIGNING_LINK_MIN_MS : 0,
-        );
-        await this.admin.contract.update({
-          where: { id: contract.id },
-          data: { signingTokenExpiresAt: new Date(until) },
-        });
-      }
     }
 
     await this.audit.write({

@@ -306,4 +306,45 @@ describe('PDF de la factura', () => {
     expect(bad).not.toContain('evil.test');
     expect(bad).not.toContain('<script>');
   });
+
+  it('primer pago sin emitir: sin número, con la fianza, el total y el plazo', () => {
+    const html = renderInvoiceHtml({
+      invoice: invoice({
+        status: 'draft',
+        issueOnPayment: true,
+        invoiceNumber: 'DRAFT-1763300000000-ab12',
+        issueDate: null as unknown as string,
+        hash: null,
+        dueDate: null,
+      }),
+      issuer,
+      customer: null,
+      pending: { deadline: '19/11/2026 a las 15:30', deposit: 40, total: 211 },
+    });
+    expect(html).toContain('<h1>Primer pago</h1>');
+    expect(html).toContain('<title>Primer pago</title>');
+    expect(html).not.toContain('DRAFT-');
+    expect(html).not.toContain('Fecha de emisión');
+    expect(html).toContain('Sin número: la factura se emite cuando se paga.');
+    expect(html).toContain('Pagar antes del <strong>19/11/2026 a las 15:30</strong>');
+    expect(html).toContain('PENDIENTE DE PAGO');
+    expect(html).toMatch(/Fianza \(sin IVA\)<\/span><span class="num">40,00\s€/);
+    expect(html).toMatch(/Total a pagar<\/span><span class="num">211,00\s€/);
+    expect(html).toContain('Esto no es una factura');
+    expect(html).toContain('y el justificante de la fianza');
+    expect(html).not.toContain('Huella del registro');
+  });
+
+  it('primer pago sin fianza: el total a pagar es el de la factura', () => {
+    const html = renderInvoiceHtml({
+      invoice: invoice({ status: 'draft', issueOnPayment: true, hash: null }),
+      issuer,
+      customer: null,
+      pending: { deadline: null, deposit: 0, total: 171 },
+    });
+    expect(html).toMatch(/Total a pagar<\/span><span class="num">171,00\s€/);
+    expect(html).not.toContain('Fianza (sin IVA)');
+    expect(html).not.toContain('Pagar antes del');
+    expect(html).not.toContain('justificante de la fianza');
+  });
 });

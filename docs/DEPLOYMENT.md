@@ -2554,3 +2554,14 @@ Sin migración ni variables nuevas.
 - En el panel, la ficha del inquilino enseña ese primer pago: en «Estado de cuenta» (importe y plazo) y en «Historial de pagos».
 
 **Tras desplegar**: a quien haya firmado antes de este cambio y no haya pagado no le llega el correo nuevo; si sigue en plazo, al ampliarle el plazo desde su contrato le llega un correo con lo que tiene que pagar.
+
+## 147. El primer pago en PDF y reenviable desde el panel (2026-11-16)
+
+Sin migración ni variables nuevas. Va después de §146.
+
+- El correo del primer pago lleva un enlace para descargar su detalle en PDF: sin número (la factura se emite al pagar), con el desglose, la fianza, el total y el plazo. Ese mismo enlace, una vez pagado, descarga la factura emitida.
+- En el panel, la ficha de la factura del primer pago tiene «Descargar» (el mismo PDF) y «Enviar por correo», que le reenvía lo que tiene que pagar con el PDF y un enlace nuevo para pagar (el del correo anterior deja de valer). Si el plazo ya ha vencido, primero hay que ampliarlo desde el contrato.
+- En el área de clientes, el primer pago también tiene su PDF.
+- Al ampliar el plazo de un contrato ya firmado, el enlace para pagar dura hasta el plazo nuevo.
+
+**Tras desplegar**: a quien firmó antes de este cambio y no ha pagado, se le puede mandar todo desde la ficha de su factura → «Enviar por correo» (si el plazo ha vencido, ampliarlo antes desde el contrato).

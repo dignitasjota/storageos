@@ -144,6 +144,12 @@ export class InvoicesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SignedDownloadDto> {
+    // Primer pago sin emitir: el enlace de su detalle en PDF (el mismo del correo).
+    const invoice = await this.invoices.detail(user.tenantId, id, user.facilityScope ?? null);
+    if (invoice.status === 'draft' && invoice.issueOnPayment) {
+      const url = await this.pdf.pendingDownloadUrl(user.tenantId, id);
+      if (url) return { url };
+    }
     return this.invoices.getSignedPdfUrl(user.tenantId, id, user.facilityScope ?? null);
   }
 

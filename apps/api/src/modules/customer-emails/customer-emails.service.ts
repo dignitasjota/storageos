@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import {
@@ -12,11 +12,16 @@ import {
   replyAddressOf,
 } from '@storageos/shared';
 
+import {
+  loadFirstPayment,
+  loadPendingFirstPayment,
+  type FirstPaymentDue,
+} from '../../common/first-payment';
 import { invoiceDownloadKey, invoiceDownloadUrl } from '../../common/invoice-download-token';
 import { loadInvoicePaymentHint } from '../../common/invoice-payment-hint';
 import { isPendingOnlineBookingInvoice } from '../../common/online-booking';
 import { tenantBookingUrl, tenantPortalLoginUrl } from '../../common/portal-url';
-import { PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
+import { issueSigningToken, tenantSignUrl } from '../../common/signing-link';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { termMonths } from '../../common/term-months';
 import { claimAlert } from '../admin/alert-state';
@@ -298,25 +303,12 @@ export class CustomerEmailsService {
     await this.safe('first_payment_pending', p.tenantId, async () => {
       const c = await this.contract(p.tenantId, p.contractId);
       if (!c) return;
-      const due = c.firstPaymentDeadline ? await this.firstPaymentDue(p.tenantId, c.id) : null;
+      const due = c.firstPaymentDeadline
+        ? await loadFirstPayment(this.admin, p.tenantId, { contractId: c.id })
+        : null;
       if (due && c.firstPaymentDeadline) {
         const sent = await this.send(p.tenantId, 'first_payment_pending', null, c.customerId, {
-          data: {
-            kind: 'first_payment_pending',
-            contractNumber: c.contractNumber,
-            unitCode: c.unit.code,
-            facilityName: c.unit.facility.name,
-            startDate: c.startDate,
-            preOpening:
-              c.preOpening && !c.preOpeningStartedAt
-                ? { openingDate: c.preOpeningDateConfirmed ? c.startDate : null }
-                : null,
-            lines: due.lines,
-            deposit: due.deposit,
-            total: due.total,
-            deadline: c.firstPaymentDeadline,
-            payUrl: p.payUrl,
-          },
+          data: this.firstPaymentData(p.tenantId, c, due, c.firstPaymentDeadline, p.payUrl, false),
           invoiceId: due.invoiceId,
           contractId: c.id,
         });
@@ -326,46 +318,113 @@ export class CustomerEmailsService {
     });
   }
 
-  /** Primer pago por hacer de un contrato: su factura (sin emitir) y la fianza que va con ella. */
-  private async firstPaymentDue(
-    tenantId: string,
-    contractId: string,
-  ): Promise<{
+  /**
+   * Panel: reenviar el primer pago sin emitir (desde su factura o su fianza),
+   * con el detalle en PDF y un enlace nuevo para pagar (el del correo anterior
+   * deja de valer). Sale aunque el aviso automático esté apagado.
+   */
+  async sendFirstPaymentCopy(args: {
+    tenantId: string;
     invoiceId: string;
-    lines: { description: string; amount: number }[];
-    deposit: number;
-    total: number;
-  } | null> {
-    const invoice = await this.admin.invoice.findFirst({
-      where: { tenantId, contractId, kind: 'invoice', deletedAt: null, ...PAYABLE_INVOICE_WHERE },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    /** Otro email; por defecto el de facturación del inquilino o el suyo. */
+    email?: string;
+  }): Promise<{ communicationId: string; recipient: string }> {
+    const due = await loadPendingFirstPayment(this.admin, args.tenantId, args.invoiceId);
+    const c = due?.contractId ? await this.contract(args.tenantId, due.contractId) : null;
+    if (!due || !c) {
+      throw new BadRequestException({
+        code: 'nothing_to_pay',
+        message: 'Este primer pago ya no tiene nada pendiente',
+      });
+    }
+    const deadline = c.firstPaymentDeadline;
+    if (!deadline || deadline.getTime() <= Date.now()) {
+      throw new ConflictException({
+        code: 'payment_deadline_passed',
+        message:
+          'El plazo para pagar ya ha vencido: amplíalo desde el contrato y avísale desde allí.',
+      });
+    }
+    const to = await this.recipient(args.tenantId, c.customerId, true);
+    const email = args.email ?? to?.email;
+    if (!email) {
+      throw new BadRequestException({
+        code: 'customer_email_missing',
+        message: 'El inquilino no tiene email: escribe a cuál enviarlo',
+      });
+    }
+    const tenant = await this.admin.tenant.findUniqueOrThrow({
+      where: { id: args.tenantId },
       select: {
-        id: true,
-        total: true,
-        amountPaid: true,
-        items: { select: { description: true, total: true }, orderBy: { position: 'asc' } },
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        portalLogoUrl: true,
+        portalBrandColor: true,
       },
     });
-    if (!invoice) return null;
-    const receipts = await this.admin.invoice.findMany({
-      where: {
-        tenantId,
-        bundledWithInvoiceId: invoice.id,
-        kind: 'deposit_receipt',
-        deletedAt: null,
-        ...PAYABLE_INVOICE_WHERE,
+    const webBase = this.config.get('WEB_BASE_URL', { infer: true });
+    // El enlace para pagar vale hasta el plazo (el anterior deja de valer).
+    const token = await issueSigningToken(this.admin, c.id, deadline);
+    const rendered = renderCustomerEmail(
+      {
+        tenantName: tenant.name,
+        customerName: to?.name ?? '',
+        locale: to?.locale ?? null,
+        logoUrl: tenant.portalLogoUrl,
+        brandColor: tenant.portalBrandColor,
+        portalUrl: tenantPortalLoginUrl(webBase, tenant),
       },
-      select: { total: true, amountPaid: true },
+      this.firstPaymentData(
+        args.tenantId,
+        c,
+        due,
+        deadline,
+        tenantSignUrl(webBase, tenant, token),
+        true,
+      ),
+    );
+    const comm = await this.communications.enqueue({
+      tenantId: args.tenantId,
+      channel: 'email',
+      recipient: email,
+      subject: rendered.subject,
+      bodyText: rendered.text,
+      bodyHtml: rendered.html,
+      customerId: c.customerId,
+      invoiceId: due.invoiceId,
+      contractId: c.id,
+      source: 'invoice.sent',
     });
-    const cents = (n: unknown) => Math.round(Number(n) * 100);
-    const rent = cents(invoice.total) - cents(invoice.amountPaid);
-    const deposit = receipts.reduce((sum, r) => sum + cents(r.total) - cents(r.amountPaid), 0);
-    if (rent + deposit <= 0) return null;
+    return { communicationId: comm.id, recipient: email };
+  }
+
+  private firstPaymentData(
+    tenantId: string,
+    c: NonNullable<Awaited<ReturnType<CustomerEmailsService['contract']>>>,
+    due: FirstPaymentDue,
+    deadline: Date,
+    payUrl: string,
+    resent: boolean,
+  ): CustomerEmailData {
     return {
-      invoiceId: invoice.id,
-      lines: invoice.items.map((i) => ({ description: i.description, amount: Number(i.total) })),
-      deposit: deposit / 100,
-      total: (rent + deposit) / 100,
+      kind: 'first_payment_pending',
+      contractNumber: c.contractNumber,
+      unitCode: c.unit.code,
+      facilityName: c.unit.facility.name,
+      startDate: c.startDate,
+      preOpening:
+        c.preOpening && !c.preOpeningStartedAt
+          ? { openingDate: c.preOpeningDateConfirmed ? c.startDate : null }
+          : null,
+      lines: due.lines,
+      deposit: due.deposit,
+      total: due.total,
+      deadline,
+      payUrl,
+      pdfUrl: this.pdfUrl(tenantId, due.invoiceId),
+      resent,
     };
   }
 

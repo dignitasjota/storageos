@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import {
   BadRequestException,
@@ -11,7 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
-import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
+import { verify as argonVerify } from '@node-rs/argon2';
 import {
   buildFirstPaymentQuote,
   firstMonthCents,
@@ -28,6 +28,7 @@ import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
 import { paymentDeadlineMax } from '../../common/payment-deadline';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
+import { issueSigningToken } from '../../common/signing-link';
 import {
   DOMAIN_EVENTS,
   type BookingExpiredPayload,
@@ -108,14 +109,9 @@ export class SignaturesService {
    * Devuelve el token en claro (solo aquí) y su expiración.
    */
   async generateSigningToken(contractId: string): Promise<{ token: string; expiresAt: Date }> {
-    const secret = randomBytes(32).toString('hex');
-    const tokenHash = await argonHash(secret);
     const expiresAt = new Date(Date.now() + SIGNING_TOKEN_TTL_MS);
-    await this.admin.contract.update({
-      where: { id: contractId },
-      data: { signingTokenHash: tokenHash, signingTokenExpiresAt: expiresAt },
-    });
-    return { token: `${contractId}.${secret}`, expiresAt };
+    const token = await issueSigningToken(this.admin, contractId, expiresAt);
+    return { token, expiresAt };
   }
 
   /**

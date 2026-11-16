@@ -3186,3 +3186,11 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - Evento interno `domain.first_payment_pending {tenantId, contractId, payUrl}` (no es disparador de automatizaciones). `domain.contract_signed` lleva `scope.awaitingFirstPayment` cuando se firma por enlace.
 - `GET /customers/:id/account` → `firstPayment {invoiceId, amount, deadline} | null`: factura sin emitir y fianza que van juntas, con el plazo para pagarlas.
 - Tras firmar por enlace, el enlace de la firma vale hasta el plazo para pagar.
+
+### Primer pago en PDF y reenvío (2026-11-16)
+
+- `GET /v1/public/invoices/:token/pdf` (enlace sin sesión del correo): con la factura del primer pago aún sin emitir, devuelve directamente el PDF de su detalle (sin número, con la fianza y el total a pagar; no se guarda). Pagada, lleva como siempre a la factura emitida. El justificante de fianza sin emitir da el mismo detalle.
+- `GET /invoices/:id/signed-pdf` y `GET /portal/me/invoices/:id/signed-pdf`: para el primer pago sin emitir, `url` es ese enlace. En el área de clientes, `hasPdf` es `true` para el primer pago.
+- `POST /invoices/:id/send` (también con el id de la fianza): para el primer pago sin emitir reenvía el correo del primer pago con el PDF y un enlace nuevo para pagar (el anterior deja de valer). Sale aunque el aviso automático esté apagado; queda en Comunicaciones como `invoice.sent`. Con el plazo vencido: 409 `payment_deadline_passed`; sin nada pendiente: 400 `nothing_to_pay`.
+- El correo `first_payment_pending` lleva el enlace del PDF.
+- `POST /contracts/:id/payment-deadline` alarga también el enlace para pagar de un contrato ya firmado.

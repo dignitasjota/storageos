@@ -1283,7 +1283,11 @@ export class PortalService {
         amountPending: Math.max(0, Math.round((total - Number(r.amountPaid)) * 100) / 100),
         status: r.status,
         // Si aún no tiene PDF, se genera al pedirlo.
-        hasPdf: !!r.pdfUrl || (r.status !== 'draft' && r.status !== 'cancelled'),
+        // El primer pago sin emitir tiene su detalle en PDF (sin número).
+        hasPdf:
+          !!r.pdfUrl ||
+          (r.status !== 'draft' && r.status !== 'cancelled') ||
+          (r.status === 'draft' && r.issueOnPayment),
         paymentInProgress: inFlightIds.has(r.id),
         generalTerms:
           terms && r.contractId && termsPending.has(r.contractId) && pendingOf(r) > 0
@@ -1364,10 +1368,15 @@ export class PortalService {
     await this.requireCustomer(tenantId, customerId);
     const invoice = await this.admin.invoice.findFirst({
       where: { id: invoiceId, customerId, tenantId, deletedAt: null },
-      select: { pdfUrl: true, status: true },
+      select: { pdfUrl: true, status: true, issueOnPayment: true },
     });
     if (!invoice) {
       throw new NotFoundException({ code: 'invoice_not_found', message: 'Factura no encontrada' });
+    }
+    // Primer pago sin emitir: el detalle en PDF, sin número.
+    if (invoice.status === 'draft' && invoice.issueOnPayment) {
+      const url = await this.invoicePdf.pendingDownloadUrl(tenantId, invoiceId);
+      if (url) return { url };
     }
     // Una factura emitida antes de que el PDF se generara solo: se genera ahora.
     let pdfUrl = invoice.pdfUrl;
