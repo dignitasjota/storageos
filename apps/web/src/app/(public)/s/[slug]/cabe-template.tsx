@@ -33,6 +33,7 @@ import {
   landingHref,
 } from './i18n/messages';
 import { grossPrice } from './price-format';
+import { promoOfferText } from './promo-offer';
 import { goToSection, goToTop } from './site-sections';
 import { StorageCalculator } from './storage-calculator';
 import {
@@ -169,13 +170,7 @@ export function CabeTemplate({
       : (t.raw('steps') as Item[]);
 
   const promo = data.activePromotion;
-  const promoText = promo
-    ? promo.discountType === 'percentage'
-      ? tPromo('percentageOff', { value: promo.discountValue })
-      : promo.discountType === 'fixed'
-        ? tPromo('fixedOff', { value: `${promo.discountValue} €` })
-        : tPromo('freeMonths', { count: promo.discountValue })
-    : null;
+  const promoText = promo ? promoOfferText(promo, tPromo) : null;
 
   const navItems = [
     { id: 'locales', label: t('nav.centers') },

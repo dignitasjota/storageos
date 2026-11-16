@@ -1841,6 +1841,72 @@ function PortalConsumeContent() {
                       {tReferrals('copy')}
                     </Button>
                   </div>
+                  {(referrals.reward || referrals.friendReward) && (
+                    <ul className="space-y-0.5 text-sm text-muted-foreground">
+                      {referrals.reward && (
+                        <li>
+                          {referrals.reward.type === 'percentage'
+                            ? tReferrals('youGetPercent', { value: referrals.reward.value })
+                            : tReferrals('youGetFixed', {
+                                amount: referrals.reward.value.toLocaleString(
+                                  intlLocaleForPortal(locale),
+                                  {
+                                    style: 'currency',
+                                    currency: 'EUR',
+                                  },
+                                ),
+                              })}
+                        </li>
+                      )}
+                      {referrals.friendReward && (
+                        <li>
+                          {referrals.friendReward.type === 'percentage'
+                            ? tReferrals('friendGetsPercent', {
+                                value: referrals.friendReward.value,
+                              })
+                            : tReferrals('friendGetsFixed', {
+                                amount: referrals.friendReward.value.toLocaleString(
+                                  intlLocaleForPortal(locale),
+                                  {
+                                    style: 'currency',
+                                    currency: 'EUR',
+                                  },
+                                ),
+                              })}
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                  {referrals.shareUrl && (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(referrals.shareUrl ?? '');
+                          toast.success(tReferrals('linkCopied'));
+                        }}
+                      >
+                        {tReferrals('copyLink')}
+                      </Button>
+                      <Button variant="outline" size="sm" asChild>
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(
+                            `${tReferrals(
+                              referrals.friendReward ? 'shareTextFriend' : 'shareText',
+                              {
+                                business: session.tenantName,
+                              },
+                            )} ${referrals.shareUrl}`,
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {tReferrals('whatsapp')}
+                        </a>
+                      </Button>
+                    </div>
+                  )}
                   {referrals.rewards.length > 0 && (
                     <div className="text-sm">
                       {tReferrals('rewardsLabel')}

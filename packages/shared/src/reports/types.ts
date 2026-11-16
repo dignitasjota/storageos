@@ -599,3 +599,23 @@ export interface CohortRowDto {
 export interface CohortsDto {
   cohorts: CohortRowDto[];
 }
+
+/** Por qué se van: lo que responden en la encuesta de salida. */
+export interface ExitReasonsDto {
+  /** Encuestas de salida enviadas en el periodo. */
+  sent: number;
+  /** Las que se han respondido. */
+  answered: number;
+  /** NPS de quienes se van; null sin respuestas. */
+  nps: number | null;
+  reasons: ExitReasonRowDto[];
+}
+
+export interface ExitReasonRowDto {
+  /** Clave del motivo, o `not_given` si no lo marcó. */
+  reason: string;
+  label: string;
+  count: number;
+  /** Sobre las respondidas (0-100). */
+  pct: number;
+}

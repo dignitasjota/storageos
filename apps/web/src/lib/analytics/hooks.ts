@@ -24,6 +24,7 @@ import type {
   SeoChecklistDto,
   SuggestedActionsDto,
   CohortsDto,
+  ExitReasonsDto,
   CompetitionAlertsDto,
   OccupancyHistoryDto,
   PreOpeningAnalyticsDto,
@@ -53,6 +54,7 @@ export const analyticsKey = (
     | 'pre-opening'
     | 'revenue-breakdown'
     | 'cohorts'
+    | 'exit-reasons'
     | 'competition-alerts',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
@@ -302,6 +304,18 @@ export function useCohorts(params: { months?: number; facilityId?: string } = {}
   return useQuery({
     queryKey: analyticsKey('cohorts', p),
     queryFn: () => apiFetch<CohortsDto>(`/analytics/cohorts${query(p)}`),
+  });
+}
+
+/** Motivos de baja de la encuesta de salida. */
+export function useExitReasons(params: { months?: number; facilityId?: string } = {}) {
+  const p = {
+    months: params.months ? String(params.months) : undefined,
+    facilityId: params.facilityId,
+  };
+  return useQuery({
+    queryKey: analyticsKey('exit-reasons', p),
+    queryFn: () => apiFetch<ExitReasonsDto>(`/analytics/exit-reasons${query(p)}`),
   });
 }
 

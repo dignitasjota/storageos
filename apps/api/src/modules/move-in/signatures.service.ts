@@ -654,13 +654,13 @@ export class SignaturesService {
         insurancePrice: true,
         insurancePlan: { select: { taxRate: true } },
         freeMonthsRemaining: true,
-        promotion: { select: { code: true, name: true } },
+        promotion: { select: { code: true, name: true, durationMonths: true } },
         couponRedemptions: {
           take: 1,
           select: {
             discountAmount: true,
             freeMonths: true,
-            coupon: { select: { code: true, name: true } },
+            coupon: { select: { code: true, name: true, kind: true } },
           },
         },
       },
@@ -703,7 +703,10 @@ export class SignaturesService {
         ? { code: coupon.coupon.code, name: coupon.coupon.name, valid: true, message: null }
         : null,
     });
-    // La promoción del contrato: descuento en todas las cuotas o cuotas gratis.
+    // El descuento por venir recomendado no enseña su código.
+    if (coupon?.coupon.kind === 'referral_friend') return { ...quote, referralFriend: true };
+    // La promoción del contrato: descuento en las cuotas (todas o las primeras)
+    // o cuotas gratis.
     return c.promotion
       ? {
           ...quote,
@@ -713,6 +716,7 @@ export class SignaturesService {
             listPrice: Number(c.priceMonthly),
             monthlyDiscount: Number(c.discountAmount),
             freeMonths: c.freeMonthsRemaining,
+            durationMonths: c.freeMonthsRemaining > 0 ? null : c.promotion.durationMonths,
           },
         }
       : quote;

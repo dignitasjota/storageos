@@ -17,6 +17,7 @@ import { MessageTemplatesService } from '../communications/message-templates.ser
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ReferralsService } from '../referrals/referrals.service';
 
 import type { FacilityScope } from '../../common/facility-scope';
 import type { Env } from '../../config/env.schema';
@@ -28,9 +29,11 @@ import type {
   RequestReviewResultDto,
   ReviewChannelValue,
   ReviewDto,
+  ReviewInsightsDto,
   ReviewListDto,
   ReviewListQueryInput,
   ReviewStatsDto,
+  ReviewStatsQueryInput,
   SubmitReviewInput,
   SubmitReviewResultDto,
 } from '@storageos/shared';
@@ -43,6 +46,24 @@ const REPEAT_REQUEST_DAYS = 7;
 const REPEAT_EXIT_DAYS = 30;
 /** Nota hasta la cual el equipo recibe aviso (detractor en NPS). */
 const LOW_SCORE_MAX = 6;
+/** Se recuerda una sola vez, a los 7 días (y no más allá de los 14). */
+const REMINDER_AFTER_DAYS = 7;
+const REMINDER_WINDOW_DAYS = 7;
+const EXIT_SOURCE = 'reviews.exit';
+
+/** NPS (% de 9-10 menos % de 0-6) de unas notas; null sin respuestas. */
+function npsOf(scores: number[]): number | null {
+  if (scores.length === 0) return null;
+  const promoters = scores.filter((n) => n >= 9).length;
+  const detractors = scores.filter((n) => n <= 6).length;
+  return Math.round(((promoters - detractors) / scores.length) * 100);
+}
+
+function average(values: number[]): number | null {
+  return values.length > 0
+    ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+    : null;
+}
 
 const REVIEW_INCLUDE = {
   customer: {
@@ -54,6 +75,27 @@ const REVIEW_INCLUDE = {
 /** Valoraciones de los inquilinos que ve quien solo tiene unos locales. */
 function reviewScopeWhere(scope: FacilityScope): Prisma.ReviewWhereInput {
   return scope ? { customer: customerScopeWhere(scope) } : {};
+}
+
+/** Periodo y local de las cifras: el local es el del contrato o, sin él, uno del inquilino. */
+function reviewPeriodWhere(query: ReviewStatsQueryInput): Prisma.ReviewWhereInput {
+  const since = query.months ? new Date(Date.now() - query.months * 30.44 * DAY_MS) : null;
+  return {
+    ...(since ? { createdAt: { gte: since } } : {}),
+    ...(query.facilityId
+      ? {
+          OR: [
+            { contract: { unit: { facilityId: query.facilityId } } },
+            {
+              contractId: null,
+              customer: {
+                contracts: { some: { deletedAt: null, unit: { facilityId: query.facilityId } } },
+              },
+            },
+          ],
+        }
+      : {}),
+  };
 }
 
 /** Datos del inquilino y su contrato para el texto de la solicitud. */
@@ -101,6 +143,7 @@ export class ReviewsService {
     private readonly config: ConfigService<Env, true>,
     private readonly events: EventEmitter2,
     private readonly notifications: NotificationsService,
+    private readonly referrals: ReferralsService,
   ) {}
 
   private toDto(r: ReviewRow, base: string): ReviewDto {
@@ -123,6 +166,9 @@ export class ReviewsService {
       submittedAt: r.submittedAt?.toISOString() ?? null,
       publishedOnWeb: r.publishedOnWeb,
       publishConsent: r.publishConsent,
+      exitReason: r.exitReason,
+      exit: r.source === EXIT_SOURCE,
+      remindedAt: r.remindedAt?.toISOString() ?? null,
       googleRequestedAt: r.googleRequestedAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
     };
@@ -185,11 +231,15 @@ export class ReviewsService {
     };
   }
 
-  async stats(tenantId: string, scope: FacilityScope = null): Promise<ReviewStatsDto> {
+  async stats(
+    tenantId: string,
+    scope: FacilityScope = null,
+    query: ReviewStatsQueryInput = {},
+  ): Promise<ReviewStatsDto> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.review.findMany({
-          where: { tenantId, ...reviewScopeWhere(scope) },
+          where: { tenantId, AND: [reviewScopeWhere(scope), reviewPeriodWhere(query)] },
           select: { status: true, npsScore: true, rating: true, tokenExpiresAt: true },
         }),
       tenantId,
@@ -221,6 +271,76 @@ export class ReviewsService {
       detractors,
       avgRating,
       responseRate: total > 0 ? Math.round((submitted.length / total) * 100) : 0,
+    };
+  }
+
+  /** NPS mes a mes (por el mes de la respuesta) y por local. */
+  async insights(
+    tenantId: string,
+    scope: FacilityScope = null,
+    query: ReviewStatsQueryInput = {},
+  ): Promise<ReviewInsightsDto> {
+    const months = query.months ?? 12;
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.review.findMany({
+          where: {
+            tenantId,
+            status: 'submitted',
+            submittedAt: { gte: start },
+            AND: [
+              reviewScopeWhere(scope),
+              reviewPeriodWhere(query.facilityId ? { facilityId: query.facilityId } : {}),
+            ],
+          },
+          select: {
+            npsScore: true,
+            rating: true,
+            submittedAt: true,
+            contract: {
+              select: { unit: { select: { facility: { select: { id: true, name: true } } } } },
+            },
+          },
+        }),
+      tenantId,
+    );
+    const monthKey = (d: Date) =>
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const trend: ReviewInsightsDto['trend'] = [];
+    for (let i = 0; i < months; i++) {
+      const month = monthKey(
+        new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1)),
+      );
+      const inMonth = rows.filter((r) => r.submittedAt && monthKey(r.submittedAt) === month);
+      trend.push({
+        month,
+        responses: inMonth.length,
+        nps: npsOf(inMonth.flatMap((r) => (r.npsScore === null ? [] : [r.npsScore]))),
+        avgRating: average(inMonth.flatMap((r) => (r.rating === null ? [] : [r.rating]))),
+      });
+    }
+    const facilities = new Map<string, { name: string; nps: number[]; ratings: number[] }>();
+    for (const r of rows) {
+      const facility = r.contract?.unit.facility;
+      if (!facility) continue;
+      const entry = facilities.get(facility.id) ?? { name: facility.name, nps: [], ratings: [] };
+      if (r.npsScore !== null) entry.nps.push(r.npsScore);
+      if (r.rating !== null) entry.ratings.push(r.rating);
+      facilities.set(facility.id, entry);
+    }
+    return {
+      trend,
+      byFacility: [...facilities.entries()]
+        .map(([facilityId, f]) => ({
+          facilityId,
+          facilityName: f.name,
+          responses: Math.max(f.nps.length, f.ratings.length),
+          nps: npsOf(f.nps),
+          avgRating: average(f.ratings),
+        }))
+        .sort((a, b) => a.facilityName.localeCompare(b.facilityName, 'es')),
     };
   }
 
@@ -524,6 +644,8 @@ export class ReviewsService {
     tenantName?: string | undefined;
     exit?: boolean | undefined;
     english?: boolean | undefined;
+    /** Es el recordatorio de una ya enviada. */
+    reminder?: boolean | undefined;
     scope: ReviewMessageScope;
   }): Promise<boolean> {
     const { url } = args;
@@ -551,34 +673,45 @@ export class ReviewsService {
         // Usa la plantilla `review_request_email` si el tenant la tiene seedeada
         // (editable); si no (tenants antiguos), envía con cuerpo inline para
         // garantizar la entrega.
-        const tpl = args.exit
-          ? null
-          : await this.templates.findByCode(args.tenantId, 'review_request_email');
+        const tpl =
+          args.exit || args.reminder
+            ? null
+            : await this.templates.findByCode(args.tenantId, 'review_request_email');
         await this.communications.enqueue({
           tenantId: args.tenantId,
           channel: 'email',
           recipient: args.recipientEmail,
           ...(tpl
             ? { templateCode: 'review_request_email', trigger: 'review_request' as const }
-            : args.exit
+            : args.reminder
               ? en
                 ? {
-                    subject: `We are sorry to see you leave ${tenantName}`,
-                    bodyText: `Hi ${name},\n\nWe have received your notice to leave. Could you tell us how your experience was and what we could do better? It helps us a lot and only takes a minute:\n\n${url}\n\nThank you,\nThe ${tenantName} team`,
+                    subject: `Reminder: how was your experience with ${tenantName}?`,
+                    bodyText: `Hi ${name},\n\nA few days ago we asked for your opinion of ${tenantName}. If you have a minute, it really helps us:\n\n${url}\n\nThank you,\nThe ${tenantName} team`,
                   }
                 : {
-                    subject: `Sentimos que te vayas de ${tenantName}`,
-                    bodyText: `Hola ${name},\n\nHemos recibido tu solicitud de baja. ¿Nos cuentas cómo ha sido tu experiencia y qué podríamos mejorar? Tu respuesta nos ayuda mucho y solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
+                    subject: `Recordatorio: ¿qué tal tu experiencia con ${tenantName}?`,
+                    bodyText: `Hola ${name},\n\nHace unos días te pedimos tu opinión sobre ${tenantName}. Si tienes un minuto, nos ayuda mucho:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
                   }
-              : en
-                ? {
-                    subject: `How was your experience with ${tenantName}?`,
-                    bodyText: `Hi ${name},\n\nWe would love to hear what you think of ${tenantName}. It only takes a minute:\n\n${url}\n\nThank you,\nThe ${tenantName} team`,
-                  }
-                : {
-                    subject: `¿Qué tal tu experiencia con ${tenantName}?`,
-                    bodyText: `Hola ${name},\n\nNos encantaría conocer tu opinión sobre ${tenantName}. Solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
-                  }),
+              : args.exit
+                ? en
+                  ? {
+                      subject: `We are sorry to see you leave ${tenantName}`,
+                      bodyText: `Hi ${name},\n\nWe have received your notice to leave. Could you tell us how your experience was and what we could do better? It helps us a lot and only takes a minute:\n\n${url}\n\nThank you,\nThe ${tenantName} team`,
+                    }
+                  : {
+                      subject: `Sentimos que te vayas de ${tenantName}`,
+                      bodyText: `Hola ${name},\n\nHemos recibido tu solicitud de baja. ¿Nos cuentas cómo ha sido tu experiencia y qué podríamos mejorar? Tu respuesta nos ayuda mucho y solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
+                    }
+                : en
+                  ? {
+                      subject: `How was your experience with ${tenantName}?`,
+                      bodyText: `Hi ${name},\n\nWe would love to hear what you think of ${tenantName}. It only takes a minute:\n\n${url}\n\nThank you,\nThe ${tenantName} team`,
+                    }
+                  : {
+                      subject: `¿Qué tal tu experiencia con ${tenantName}?`,
+                      bodyText: `Hola ${name},\n\nNos encantaría conocer tu opinión sobre ${tenantName}. Solo te llevará un minuto:\n\n${url}\n\nGracias,\nEl equipo de ${tenantName}`,
+                    }),
           variables,
           customerId: args.customerId,
           contractId: args.contractId,
@@ -798,6 +931,7 @@ El equipo de ${tenant.name}`,
           ? (review.customer.companyName ?? '')
           : (review.customer.firstName ?? ''),
       facilityName: review.contract?.unit.facility.name ?? null,
+      exit: review.source === EXIT_SOURCE,
     };
   }
 
@@ -818,6 +952,7 @@ El equipo de ${tenant.name}`,
         customerId: true,
         contractId: true,
         status: true,
+        source: true,
         tokenExpiresAt: true,
         customer: {
           select: { firstName: true, lastName: true, companyName: true, customerType: true },
@@ -849,6 +984,8 @@ El equipo de ${tenant.name}`,
         rating: input.rating ?? null,
         comment: input.comment?.trim() || null,
         publishConsent: input.publishConsent === true,
+        // El motivo solo se pregunta en la encuesta de salida.
+        exitReason: review.source === EXIT_SOURCE ? (input.exitReason ?? null) : null,
         submittedAt: new Date(),
         ip: meta.ipAddress ?? null,
         userAgent: meta.userAgent ?? null,
@@ -881,7 +1018,169 @@ El equipo de ${tenant.name}`,
       });
       googleReviewUrl = tenant?.googleReviewUrl ?? null;
     }
-    return { status: 'submitted', googleReviewUrl };
+    // A un promotor que sigue con nosotros se le enseña su código para recomendar.
+    let referral: SubmitReviewResultDto['referral'] = null;
+    if (input.npsScore >= 9 && review.source !== EXIT_SOURCE) {
+      referral = await this.referrals
+        .shareInfo(review.tenantId, review.customerId)
+        .catch(() => null);
+    }
+    return { status: 'submitted', googleReviewUrl, referral };
+  }
+
+  // ---------------------------------------------------------------------
+  // Repaso diario: recordatorio y valoración anual
+  // ---------------------------------------------------------------------
+
+  /**
+   * Recuerda una vez, a los 7 días, las valoraciones sin responder de los
+   * negocios que lo tienen activado.
+   */
+  async sendReminders(now = new Date()): Promise<{ reminded: number }> {
+    const rows = await this.admin.review.findMany({
+      where: {
+        status: 'pending',
+        remindedAt: null,
+        tokenExpiresAt: { gt: now },
+        requestedAt: {
+          lte: new Date(now.getTime() - REMINDER_AFTER_DAYS * DAY_MS),
+          gte: new Date(now.getTime() - (REMINDER_AFTER_DAYS + REMINDER_WINDOW_DAYS) * DAY_MS),
+        },
+        tenant: { reviewsReminderEnabled: true, deletedAt: null },
+        customer: { deletedAt: null },
+      },
+      take: 500,
+      select: {
+        id: true,
+        tenantId: true,
+        customerId: true,
+        contractId: true,
+        token: true,
+        channel: true,
+        source: true,
+        customer: {
+          select: {
+            firstName: true,
+            lastName: true,
+            companyName: true,
+            customerType: true,
+            email: true,
+            phone: true,
+            locale: true,
+          },
+        },
+      },
+    });
+    let reminded = 0;
+    for (const r of rows) {
+      // Reserva atómica: dos procesos no la recuerdan dos veces.
+      const claimed = await this.admin.review.updateMany({
+        where: { id: r.id, remindedAt: null, status: 'pending' },
+        data: { remindedAt: now },
+      });
+      if (claimed.count === 0) continue;
+      const sent = await this.sendRequest({
+        tenantId: r.tenantId,
+        reviewId: r.id,
+        customerId: r.customerId,
+        contractId: r.contractId,
+        channel: r.channel === 'whatsapp' ? 'whatsapp' : 'email',
+        source: `${r.source ?? 'reviews.manual'}.reminder`,
+        reminder: true,
+        url: `${await this.baseUrl(r.tenantId)}/review/${r.token}`,
+        recipientEmail: r.customer.email,
+        recipientPhone: r.customer.phone,
+        english: r.customer.locale === 'en',
+        scope: {
+          customerFirstName: r.customer.firstName ?? '',
+          customerDisplayName: displayName(r.customer),
+          contractNumber: null,
+          unitCode: null,
+          facilityName: null,
+        },
+      });
+      if (sent) reminded += 1;
+    }
+    return { reminded };
+  }
+
+  /**
+   * Valoración anual: a los inquilinos que llevan más de un año y a los que no
+   * se les ha pedido ninguna en los últimos 12 meses (negocios que lo activan).
+   */
+  async requestYearly(now = new Date()): Promise<{ requested: number }> {
+    const yearAgo = new Date(now.getTime() - 365 * DAY_MS);
+    const tenants = await this.admin.tenant.findMany({
+      where: { reviewsYearlyEnabled: true, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    let requested = 0;
+    for (const tenant of tenants) {
+      const contracts = await this.admin.contract.findMany({
+        where: {
+          tenantId: tenant.id,
+          deletedAt: null,
+          status: { in: ['active', 'ending'] },
+          signedAt: { lte: yearAgo },
+          customer: {
+            deletedAt: null,
+            email: { not: null },
+            reviews: { none: { requestedAt: { gte: yearAgo } } },
+          },
+        },
+        orderBy: { signedAt: 'asc' },
+        take: 100,
+        select: {
+          id: true,
+          contractNumber: true,
+          customerId: true,
+          customer: {
+            select: {
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              customerType: true,
+              email: true,
+              phone: true,
+              locale: true,
+            },
+          },
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+        },
+      });
+      const done = new Set<string>();
+      for (const c of contracts) {
+        // Un inquilino con varios trasteros recibe una sola.
+        if (done.has(c.customerId)) continue;
+        done.add(c.customerId);
+        try {
+          await this.createAndSend({
+            tenantId: tenant.id,
+            customerId: c.customerId,
+            contractId: c.id,
+            channel: 'email',
+            source: 'reviews.yearly',
+            recipientEmail: c.customer.email,
+            recipientPhone: c.customer.phone,
+            tenantName: tenant.name,
+            english: c.customer.locale === 'en',
+            scope: {
+              customerFirstName: c.customer.firstName ?? '',
+              customerDisplayName: displayName(c.customer),
+              contractNumber: c.contractNumber,
+              unitCode: c.unit.code,
+              facilityName: c.unit.facility.name,
+            },
+          });
+          requested += 1;
+        } catch (err) {
+          this.logger.warn(
+            `[reviews] valoración anual del contrato ${c.id} falló: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
+    }
+    return { requested };
   }
 
   /** Aviso al equipo de una nota baja: a tiempo de llamar al inquilino. */

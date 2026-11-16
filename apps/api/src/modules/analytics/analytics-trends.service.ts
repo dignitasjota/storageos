@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { REVIEW_EXIT_REASONS, REVIEW_EXIT_REASON_LABELS } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 
@@ -17,6 +18,7 @@ import {
 import type {
   CohortRowDto,
   CohortsDto,
+  ExitReasonsDto,
   OccupancyHistoryDto,
   PreOpeningAnalyticsDto,
   RevenueBreakdownDto,
@@ -284,6 +286,53 @@ export class AnalyticsTrendsService {
    * Cohortes de altas: los contratos agrupados por el mes en que empezaron,
    * cuántos seguían a los 3, 6 y 12 meses, cuánto duraron y cuánto facturaron.
    */
+  /** Motivos de baja de la encuesta de salida, por las enviadas en el periodo. */
+  async getExitReasons(
+    tenantId: string,
+    months?: number,
+    scope: AnalyticsScope = ALL_FACILITIES,
+  ): Promise<ExitReasonsDto> {
+    const since = new Date(Date.now() - clampMonths(months) * 30.44 * DAY);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.review.findMany({
+          where: {
+            tenantId,
+            source: 'reviews.exit',
+            requestedAt: { gte: since },
+            ...(scope.ids ? { contract: { unit: { facilityId: { in: scope.ids } } } } : {}),
+          },
+          select: { status: true, npsScore: true, exitReason: true },
+        }),
+      tenantId,
+    );
+    const answered = rows.filter((r) => r.status === 'submitted');
+    const scores = answered.flatMap((r) => (r.npsScore === null ? [] : [r.npsScore]));
+    const nps =
+      scores.length > 0
+        ? Math.round(
+            ((scores.filter((n) => n >= 9).length - scores.filter((n) => n <= 6).length) /
+              scores.length) *
+              100,
+          )
+        : null;
+    const count = (reason: string | null) =>
+      answered.filter((r) => (r.exitReason ?? null) === reason).length;
+    const pct = (n: number) => (answered.length > 0 ? Math.round((n / answered.length) * 100) : 0);
+    const reasons = [
+      ...REVIEW_EXIT_REASONS.map((reason) => ({
+        reason: reason as string,
+        label: REVIEW_EXIT_REASON_LABELS[reason],
+        count: count(reason),
+      })),
+      { reason: 'not_given', label: 'No lo dijo', count: count(null) },
+    ]
+      .filter((r) => r.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .map((r) => ({ ...r, pct: pct(r.count) }));
+    return { sent: rows.length, answered: answered.length, nps, reasons };
+  }
+
   async getCohorts(
     tenantId: string,
     months?: number,

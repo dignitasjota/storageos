@@ -113,6 +113,20 @@ export class ReviewRequestCron {
       }
     }
     if (requested > 0) this.logger.log(`[reviews] auto-request: ${requested} solicitudes enviadas`);
+    // Recordatorio a los 7 días y valoración anual (cada una con su interruptor).
+    const yearly = await this.reviews
+      .requestYearly(now)
+      .catch((err) => (this.logger.warn(`[reviews] anual: ${String(err)}`), { requested: 0 }));
+    const reminders = await this.reviews
+      .sendReminders(now)
+      .catch(
+        (err) => (this.logger.warn(`[reviews] recordatorios: ${String(err)}`), { reminded: 0 }),
+      );
+    if (yearly.requested > 0 || reminders.reminded > 0) {
+      this.logger.log(
+        `[reviews] anuales: ${yearly.requested} · recordatorios: ${reminders.reminded}`,
+      );
+    }
     return { requested };
   }
 }

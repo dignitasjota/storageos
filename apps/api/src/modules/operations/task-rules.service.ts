@@ -16,6 +16,9 @@ import type { Prisma } from '@storageos/database';
 
 type Rule = 'welcome_call' | 'move_out_inspection' | 'renewal_call';
 
+/** Nota hasta la que se llama al inquilino (detractor en NPS). */
+const LOW_REVIEW_MAX = 6;
+
 function customerName(c: {
   customerType: string;
   firstName: string | null;
@@ -131,6 +134,82 @@ export class TaskRulesService {
       }),
       { onlyWithoutAutoRenew: true },
     );
+  }
+
+  /** Valoración de 0 a 6: tarea para llamar a ese inquilino. */
+  @OnEvent(DOMAIN_EVENTS.review_submitted, { async: true, promisify: true })
+  async onReviewSubmitted(p: DomainEventPayload): Promise<void> {
+    if (p.entityType !== 'review') return;
+    const rules = await this.get(p.tenantId).catch(() => null);
+    if (!rules?.lowReview.enabled) return;
+    try {
+      await this.prisma.withTenant(async (tx) => {
+        const r = await tx.review.findFirst({
+          where: { id: p.entityId },
+          select: {
+            id: true,
+            npsScore: true,
+            comment: true,
+            customerId: true,
+            customer: {
+              select: { customerType: true, firstName: true, lastName: true, companyName: true },
+            },
+            contract: {
+              select: {
+                unitId: true,
+                unit: {
+                  select: {
+                    code: true,
+                    facilityId: true,
+                    facility: { select: { timezone: true } },
+                  },
+                },
+              },
+            },
+            tenant: { select: { timezone: true } },
+          },
+        });
+        if (!r || r.npsScore === null || r.npsScore > LOW_REVIEW_MAX) return;
+        // Una tarea por valoración.
+        const exists = await tx.task.count({
+          where: {
+            deletedAt: null,
+            AND: [
+              { metadata: { path: ['autoRule'], equals: 'low_review' } },
+              { metadata: { path: ['reviewId'], equals: r.id } },
+            ],
+          },
+        });
+        if (exists > 0) return;
+        const due = todayInTimezone(r.contract?.unit.facility.timezone ?? r.tenant.timezone);
+        due.setUTCDate(due.getUTCDate() + rules.lowReview.days);
+        const name = customerName(r.customer);
+        const comment = r.comment?.trim();
+        await tx.task.create({
+          data: {
+            tenantId: p.tenantId,
+            type: 'other',
+            priority: 'high',
+            title: `Llamar a ${name} — valoración de ${r.npsScore} sobre 10`,
+            description: [
+              `${name} ha dejado una valoración de ${r.npsScore} sobre 10${
+                r.contract ? ` (trastero ${r.contract.unit.code})` : ''
+              }.`,
+              comment ? `Su comentario: «${comment}»` : null,
+              'Llámale para saber qué ha pasado y si se puede arreglar.',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            facilityId: r.contract?.unit.facilityId ?? null,
+            unitId: r.contract?.unitId ?? null,
+            dueDate: due,
+            metadata: { autoRule: 'low_review', reviewId: r.id, customerId: r.customerId },
+          },
+        });
+      }, p.tenantId);
+    } catch (err) {
+      this.logger.warn(`[task-rules] low_review valoración ${p.entityId}: ${String(err)}`);
+    }
   }
 
   private async createFor(

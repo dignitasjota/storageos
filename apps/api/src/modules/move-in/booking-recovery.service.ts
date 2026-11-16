@@ -2,9 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { formatDateLong, formatEur } from '../../common/format';
-import { tenantPortalLoginUrl } from '../../common/portal-url';
+import { tenantBookingUrl, tenantPortalLoginUrl } from '../../common/portal-url';
 import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { CommunicationsService } from '../communications/communications.service';
+import { CouponsService } from '../coupons/coupons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -39,6 +40,7 @@ export class BookingRecoveryService {
     private readonly communications: CommunicationsService,
     private readonly config: ConfigService<Env, true>,
     private readonly signatures: SignaturesService,
+    private readonly coupons: CouponsService,
   ) {}
 
   /** Cross-tenant: recuerda a todos los leads de booking abandonados pendientes. */
@@ -264,17 +266,49 @@ export class BookingRecoveryService {
 
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, slug: true },
+      select: {
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        bookingRecoveryCouponPct: true,
+        bookingRecoveryCouponDays: true,
+      },
     });
     const businessName = tenant?.name ?? 'tu trastero';
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
-    const bookingUrl = tenant?.slug ? `${webBase}/book/${tenant.slug}` : webBase;
+    let bookingUrl = tenant ? tenantBookingUrl(webBase, tenant) : webBase;
+    // Cupón personal para animarle a terminar (si el negocio lo tiene puesto).
+    let offer = '';
+    if (tenant && tenant.bookingRecoveryCouponPct > 0) {
+      const coupon = await this.coupons
+        .createPersonal(tenantId, {
+          personalFor: email,
+          discountType: 'percentage',
+          discountValue: tenant.bookingRecoveryCouponPct,
+          validDays: tenant.bookingRecoveryCouponDays,
+          minMonths: 1,
+        })
+        .catch((err) => {
+          this.logger.warn(`[booking-recovery] cupón del contacto ${leadId}: ${String(err)}`);
+          return null;
+        });
+      if (coupon) {
+        bookingUrl += `${bookingUrl.includes('?') ? '&' : '?'}coupon=${encodeURIComponent(coupon.code)}`;
+        const days = tenant.bookingRecoveryCouponDays;
+        offer =
+          `Si la terminas en ${days === 1 ? 'las próximas 24 horas' : `los próximos ${days} días`}, ` +
+          `tienes un ${tenant.bookingRecoveryCouponPct} % de descuento en el primer pago con el código ${coupon.code} ` +
+          `(ya va puesto en el enlace).`;
+      }
+    }
     const hi = firstName?.trim() ? `Hola ${firstName.trim()},` : 'Hola,';
 
     const subject = `¿Seguimos con tu reserva en ${businessName}?`;
     const bodyText =
       `${hi}\n\nVimos que empezaste a reservar un trastero pero no llegaste a terminar. ` +
       `Tu sitio sigue disponible: puedes completar la reserva en un par de minutos aquí:\n\n${bookingUrl}\n\n` +
+      (offer ? `${offer}\n\n` : '') +
       `Si tienes cualquier duda, respóndenos a este correo. ¡Te esperamos!`;
     // El nombre lo escribe el visitante en el formulario público: se escapa.
     const esc = (v: string) =>
@@ -282,6 +316,7 @@ export class BookingRecoveryService {
     const bodyHtml =
       `<p>${esc(hi)}</p><p>Vimos que empezaste a reservar un trastero pero no llegaste a terminar. ` +
       `Tu sitio sigue disponible: puedes completar la reserva en un par de minutos.</p>` +
+      (offer ? `<p><strong>${esc(offer)}</strong></p>` : '') +
       `<p><a href="${esc(bookingUrl)}" style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:8px;text-decoration:none">Completar mi reserva</a></p>` +
       `<p>Si tienes cualquier duda, respóndenos a este correo. ¡Te esperamos!</p>`;
 

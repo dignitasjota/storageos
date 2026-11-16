@@ -6,8 +6,12 @@ import type {
   CouponDto,
   CouponQuoteDto,
   CouponRedemptionDto,
+  CouponResultsDto,
+  CouponSettingsDto,
   CreateCouponInput,
+  CreatePersonalCouponInput,
   UpdateCouponInput,
+  UpdateCouponSettingsInput,
   ValidateCouponInput,
 } from '@storageos/shared';
 
@@ -25,6 +29,42 @@ export function useCouponRedemptions(id: string | null) {
     queryKey: [...couponsKey, id, 'redemptions'],
     queryFn: () => apiFetch<CouponRedemptionDto[]>(`/coupons/${id}/redemptions`),
     enabled: !!id,
+  });
+}
+
+/** Descuento concedido y lo que traen los contratos que lo usaron. */
+export function useCouponResults(id: string | null) {
+  return useQuery({
+    queryKey: [...couponsKey, id, 'results'],
+    queryFn: () => apiFetch<CouponResultsDto>(`/coupons/${id}/results`),
+    enabled: !!id,
+  });
+}
+
+/** Cupón personal: un solo uso, con caducidad y código puesto por el sistema. */
+export function useCreatePersonalCoupon() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreatePersonalCouponInput) =>
+      apiFetch<CouponDto>('/coupons/personal', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: couponsKey }),
+  });
+}
+
+/** Cupón que se ofrece al recordar una reserva sin terminar. */
+export function useCouponSettings() {
+  return useQuery({
+    queryKey: [...couponsKey, 'settings'],
+    queryFn: () => apiFetch<CouponSettingsDto>('/coupons/settings'),
+  });
+}
+
+export function useUpdateCouponSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateCouponSettingsInput) =>
+      apiFetch<CouponSettingsDto>('/coupons/settings', { method: 'PUT', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...couponsKey, 'settings'] }),
   });
 }
 

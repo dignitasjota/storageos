@@ -163,17 +163,19 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: 'Promociones, cupones y campañas',
     summary: 'Atraer clientes y recuperar a los que se fueron.',
     steps: [
-      'Una promoción descuenta todas las cuotas; un cupón, solo el primer pago.',
-      'La promoción que marques «En la web» se anuncia en tu web y su código vale en la reserva online.',
+      'Una promoción descuenta las cuotas (todas o las primeras); un cupón, solo el primer pago.',
+      'Lo que marques «En la web» se anuncia en tu web con su código, que vale en la reserva online.',
+      'Un cupón personal vale una sola vez: para un presupuesto o para quien dejó la reserva a medias.',
       'Las campañas envían un correo a quien elijas: inquilinos, contactos o antiguos clientes.',
-      'Con los referidos, quien te recomienda recibe un descuento en su factura cuando su recomendado paga.',
+      'Con los referidos, quien te recomienda recibe un descuento en su factura cuando su recomendado paga, y puedes premiar también al recomendado.',
     ],
     links: [
       { label: 'Promociones', href: '/promotions' },
       { label: 'Cupones', href: '/coupons' },
+      { label: 'Referidos', href: '/referrals' },
       { label: 'Campañas', href: '/campaigns' },
     ],
-    keywords: 'descuento oferta referidos win-back reseñas',
+    keywords: 'descuento oferta referidos recomendado win-back reseñas valoraciones',
   },
   {
     id: 'area-clientes',

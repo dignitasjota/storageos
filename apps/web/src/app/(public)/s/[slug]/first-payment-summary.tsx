@@ -43,11 +43,18 @@ export function FirstPaymentSummary({
         <p className="text-xs text-green-700 dark:text-green-400">
           {promo.freeMonths > 0
             ? t('summaryPromotionFree', { code: promo.code, count: promo.freeMonths })
-            : t('summaryPromotion', {
-                code: promo.code,
-                price: money(promo.listPrice - promo.monthlyDiscount, locale),
-                list: money(promo.listPrice, locale),
-              })}
+            : promo.durationMonths
+              ? t('summaryPromotionMonths', {
+                  code: promo.code,
+                  price: money(promo.listPrice - promo.monthlyDiscount, locale),
+                  list: money(promo.listPrice, locale),
+                  count: promo.durationMonths,
+                })
+              : t('summaryPromotion', {
+                  code: promo.code,
+                  price: money(promo.listPrice - promo.monthlyDiscount, locale),
+                  list: money(promo.listPrice, locale),
+                })}
         </p>
       )}
       {quote.preOpening ? (
@@ -69,9 +76,11 @@ export function FirstPaymentSummary({
       {code &&
         quote.discountAmount > 0 &&
         row(
-          quote.freeMonths > 0
-            ? t('summaryFreeMonths', { count: quote.freeMonths, code })
-            : t('summaryCoupon', { code }),
+          quote.referralFriend
+            ? t('summaryReferral')
+            : quote.freeMonths > 0
+              ? t('summaryFreeMonths', { count: quote.freeMonths, code })
+              : t('summaryCoupon', { code }),
           `−${money(quote.discountAmount, locale)}`,
         )}
       {quote.vatRate > 0 && row(t('summaryVat', { rate: quote.vatRate }), money(vat, locale))}

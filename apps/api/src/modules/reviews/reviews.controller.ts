@@ -14,9 +14,11 @@ import {
   PublishReviewSchema,
   RequestReviewSchema,
   type ReviewDto,
+  type ReviewInsightsDto,
   ReviewListQuerySchema,
   type ReviewListDto,
   type ReviewStatsDto,
+  ReviewStatsQuerySchema,
   type RequestReviewResultDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -32,6 +34,7 @@ import { ReviewsService } from './reviews.service';
 class RequestReviewDto extends createZodDto(RequestReviewSchema) {}
 class ReviewListQueryDto extends createZodDto(ReviewListQuerySchema) {}
 class PublishReviewDto extends createZodDto(PublishReviewSchema) {}
+class ReviewStatsQueryDto extends createZodDto(ReviewStatsQuerySchema) {}
 
 /** Endpoints de staff para las valoraciones (NPS) del tenant. */
 @Controller('reviews')
@@ -49,8 +52,21 @@ export class ReviewsController {
 
   @RequirePermission('reviews:read')
   @Get('stats')
-  stats(@CurrentUser() user: AuthenticatedUser): Promise<ReviewStatsDto> {
-    return this.reviews.stats(user.tenantId, user.facilityScope ?? null);
+  stats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ReviewStatsQueryDto,
+  ): Promise<ReviewStatsDto> {
+    return this.reviews.stats(user.tenantId, user.facilityScope ?? null, query);
+  }
+
+  /** NPS mes a mes y por local. */
+  @RequirePermission('reviews:read')
+  @Get('insights')
+  insights(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ReviewStatsQueryDto,
+  ): Promise<ReviewInsightsDto> {
+    return this.reviews.insights(user.tenantId, user.facilityScope ?? null, query);
   }
 
   @RequirePermission('reviews:write')

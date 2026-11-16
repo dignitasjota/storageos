@@ -245,6 +245,7 @@ export class BookingService {
       unitTypeId: input.unitTypeId,
       months: input.months,
       ...(input.couponCode ? { couponCode: input.couponCode } : {}),
+      ...(input.referralCode ? { referralCode: input.referralCode } : {}),
       ...(input.startDate ? { startDate: input.startDate } : {}),
       ...(input.holdToken ? { holdToken: input.holdToken } : {}),
     });
@@ -257,6 +258,8 @@ export class BookingService {
       unitTypeId: string;
       months: number;
       couponCode?: string | undefined;
+      /** Código de quien le recomienda: puede traer un descuento para el recomendado. */
+      referralCode?: string | undefined;
       /** Solo al reservar (no en el resumen público: diría si un email es cliente). */
       email?: string | undefined;
       startDate?: string | undefined;
@@ -310,22 +313,62 @@ export class BookingService {
     const listPrice = Number(unit.basePriceMonthly);
     const promotion =
       code && !(await this.coupons.exists(tenantId, code))
-        ? await this.promotions.quoteForWeb(tenantId, code, listPrice, unit.id)
+        ? await this.promotions.quoteForWeb(tenantId, code, listPrice, unit.id, customer?.id)
         : null;
-    const quote = await this.coupons.quoteFirstPayment(tenantId, {
-      monthlyPrice: promotion ? listPrice - promotion.monthlyDiscount : listPrice,
+    const base = {
       months: input.months,
       unitTypeId: input.unitTypeId,
       facilityId: input.facilityId,
       propertyKind: unit.unitType.propertyKind,
       deposit: customer?.depositExempt ? 0 : Number(unit.unitType.defaultDepositAmount ?? 0),
-      couponCode: promotion ? undefined : input.couponCode,
       isNewCustomer: customer ? await this.coupons.isNewCustomer(tenantId, customer.id) : null,
       customerId: customer?.id ?? null,
       publicMessages: true,
       startDate: input.startDate ?? null,
       preOpening: unit.facility.preOpening,
       ...(unit.facility.preOpening ? { months: 1 } : {}),
+    };
+    // Sin código propio y recomendado por un inquilino: el descuento del
+    // recomendado, si el negocio lo tiene (no se suma a otro código).
+    if (
+      !code &&
+      input.referralCode?.trim() &&
+      (await this.referrals.isValidCode(tenantId, input.referralCode))
+    ) {
+      const friendCode = await this.coupons.ensureReferralFriendCoupon(tenantId);
+      if (friendCode) {
+        const friend = await this.coupons.quoteFirstPayment(tenantId, {
+          ...base,
+          monthlyPrice: listPrice,
+          couponCode: friendCode,
+          referralFriend: true,
+        });
+        if (friend.referralFriend) return friend;
+      }
+    }
+    // Una promoción con duración no vale pagando más meses por adelantado
+    // de los que dura (el descuento se quita a los N meses).
+    if (promotion?.durationMonths && base.months > promotion.durationMonths) {
+      const plain = await this.coupons.quoteFirstPayment(tenantId, {
+        ...base,
+        monthlyPrice: listPrice,
+      });
+      return {
+        ...plain,
+        coupon: {
+          code: promotion.code,
+          name: promotion.name,
+          valid: false,
+          message: `Esta promoción dura ${promotion.durationMonths} ${
+            promotion.durationMonths === 1 ? 'mes' : 'meses'
+          }: elige pagar ${promotion.durationMonths === 1 ? 'un mes' : `${promotion.durationMonths} meses o menos`} por adelantado`,
+        },
+      };
+    }
+    const quote = await this.coupons.quoteFirstPayment(tenantId, {
+      ...base,
+      monthlyPrice: promotion ? listPrice - promotion.monthlyDiscount : listPrice,
+      couponCode: promotion ? undefined : input.couponCode,
     });
     return promotion
       ? {
@@ -376,18 +419,20 @@ export class BookingService {
     const tenantId = tenant.id;
     let couponCode = input.couponCode?.trim() || undefined;
     let promotionCode: string | undefined;
+    let referralFriendCoupon = false;
     // El código se comprueba antes de reservar el trastero: si no vale, no se
     // crea nada y el visitante ve el motivo.
-    if (couponCode) {
+    if (couponCode || input.referralCode?.trim()) {
       const quote = await this.quoteFor(tenantId, {
         facilityId: input.facilityId,
         unitTypeId: input.unitTypeId,
         months: input.months,
         couponCode,
+        referralCode: input.referralCode?.trim() || undefined,
         email: input.customer.email,
         holdToken: input.holdToken,
       });
-      if (quote.coupon && !quote.coupon.valid) {
+      if (couponCode && quote.coupon && !quote.coupon.valid) {
         throw new BadRequestException({
           code: 'coupon_not_valid',
           message: quote.coupon.message ?? 'El cupón no es válido',
@@ -397,6 +442,11 @@ export class BookingService {
       if (quote.promotion) {
         promotionCode = quote.promotion.code;
         couponCode = undefined;
+      }
+      // Viene recomendado y el negocio premia al recomendado.
+      if (quote.referralFriend && quote.coupon) {
+        couponCode = quote.coupon.code;
+        referralFriendCoupon = true;
       }
     }
 
@@ -507,6 +557,7 @@ export class BookingService {
         tenantId,
         userId: null,
         meta,
+        referralFriendCoupon,
         input: {
           customerId,
           unitId,

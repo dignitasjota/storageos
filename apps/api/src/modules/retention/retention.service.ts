@@ -287,8 +287,8 @@ export class RetentionService {
    * Revierte los descuentos de retención cuyo periodo (`discountExpiresAt`) ya
    * venció: pone `discountAmount` a 0 y limpia el motivo/expiración → la próxima
    * factura recurrente sale a precio completo. Cross-tenant (para el cron).
-   * Solo toca contratos con `discountExpiresAt` fijado (los descuentos de
-   * promoción no lo usan → quedan intactos).
+   * Solo toca contratos con `discountExpiresAt` fijado: los de retención y los
+   * de una promoción con duración (una promoción sin duración no lo lleva).
    */
   async revertExpiredDiscounts(): Promise<{ reverted: number }> {
     const now = new Date();
@@ -298,7 +298,7 @@ export class RetentionService {
         discountExpiresAt: { not: null, lte: now },
         discountAmount: { gt: 0 },
       },
-      select: { id: true, tenantId: true, discountAmount: true },
+      select: { id: true, tenantId: true, discountAmount: true, promotionId: true },
     });
     let reverted = 0;
     for (const c of due) {
@@ -324,7 +324,8 @@ export class RetentionService {
             contractId: c.id,
             eventType: 'price_changed',
             payload: {
-              reason: 'retention_discount_expired',
+              // También caducan así las promociones con duración.
+              reason: c.promotionId ? 'promotion_discount_expired' : 'retention_discount_expired',
               previousDiscount: Number(fresh.discountAmount),
             },
             createdByUserId: null,

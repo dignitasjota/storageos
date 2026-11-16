@@ -17,6 +17,12 @@ export interface ReviewDto {
   publishedOnWeb: boolean;
   /** Su autor dio permiso para publicarla en la web. */
   publishConsent: boolean;
+  /** Motivo de la baja (encuesta de salida). */
+  exitReason: string | null;
+  /** Es una encuesta de salida. */
+  exit: boolean;
+  /** Cuándo se le recordó. */
+  remindedAt: string | null;
   /** Enlace para responderla mientras está pendiente (null si no). */
   reviewUrl: string | null;
   /** Cuándo se le pidió la reseña en Google (null = aún no). */
@@ -63,6 +69,20 @@ export interface PublicReviewContextDto {
   logoUrl: string | null;
   customerFirstName: string;
   facilityName: string | null;
+  /** Encuesta de salida: se pregunta por qué se va. */
+  exit: boolean;
+}
+
+/** NPS mes a mes y por local. */
+export interface ReviewInsightsDto {
+  trend: { month: string; responses: number; nps: number | null; avgRating: number | null }[];
+  byFacility: {
+    facilityId: string;
+    facilityName: string;
+    responses: number;
+    nps: number | null;
+    avgRating: number | null;
+  }[];
 }
 
 /**
@@ -72,4 +92,14 @@ export interface PublicReviewContextDto {
 export interface SubmitReviewResultDto {
   status: 'submitted';
   googleReviewUrl: string | null;
+  /**
+   * A quien nos puntúa con 9 o 10, su código de referido para que nos
+   * recomiende (solo con el programa de referidos encendido).
+   */
+  referral?: {
+    code: string;
+    shareUrl: string;
+    reward: { type: 'percentage' | 'fixed'; value: number } | null;
+    friendReward: { type: 'percentage' | 'fixed'; value: number } | null;
+  } | null;
 }

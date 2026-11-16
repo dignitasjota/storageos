@@ -18,8 +18,9 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
-import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useLeadQuotePreview, useSendLeadQuote } from '@/lib/communications/hooks';
+import { useCreatePersonalCoupon } from '@/lib/coupons/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { useInsurancePlans } from '@/lib/insurance/hooks';
 import { useLeadQuotes } from '@/lib/leads/hooks';
@@ -45,6 +46,35 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
   const [unitTypeId, setUnitTypeId] = useState(lead.preferredUnitTypeId ?? '');
   const [months, setMonths] = useState<FirstPaymentMonths>(1);
   const [coupon, setCoupon] = useState('');
+  // Cupón de un solo uso para este contacto (quien gestiona los cupones).
+  const companyWide = useCompanyWide();
+  const canCoupon = useHasPermission('promotions:manage') && companyWide;
+  const personal = useCreatePersonalCoupon();
+  const [personalOpen, setPersonalOpen] = useState(false);
+  const [personalPct, setPersonalPct] = useState('10');
+  const [personalDays, setPersonalDays] = useState('7');
+
+  async function createPersonal() {
+    const name =
+      [lead.firstName, lead.lastName].filter(Boolean).join(' ').trim() ||
+      lead.companyName ||
+      lead.email ||
+      'Contacto';
+    try {
+      const created = await personal.mutateAsync({
+        personalFor: name,
+        discountType: 'percentage',
+        discountValue: Math.min(100, Math.max(1, Number(personalPct) || 10)),
+        validDays: Math.min(90, Math.max(1, Number(personalDays) || 7)),
+        minMonths: 1,
+      });
+      setCoupon(created.code);
+      setPersonalOpen(false);
+      toast.success(`Cupón ${created.code} creado y puesto en el presupuesto.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el cupón');
+    }
+  }
   const [planId, setPlanId] = useState(NONE);
   const [result, setResult] = useState<LeadQuoteDto | null>(null);
   const [subject, setSubject] = useState('');
@@ -198,12 +228,61 @@ export function LeadQuote({ lead }: { lead: LeadDto }) {
             ))}
           </SelectContent>
         </Select>
-        <Input
-          placeholder="Cupón (opcional)"
-          value={coupon}
-          onChange={(e) => setCoupon(e.target.value.toUpperCase())}
-          aria-label="Cupón"
-        />
+        <div className="space-y-1">
+          <Input
+            placeholder="Cupón (opcional)"
+            value={coupon}
+            onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+            aria-label="Cupón"
+          />
+          {canCoupon && !coupon && !personalOpen && (
+            <button
+              type="button"
+              className="text-xs text-primary underline-offset-2 hover:underline"
+              onClick={() => setPersonalOpen(true)}
+            >
+              Crear un cupón solo para este contacto
+            </button>
+          )}
+        </div>
+        {personalOpen && (
+          <div className="col-span-2 flex flex-wrap items-end gap-2 rounded-md border p-2">
+            <div className="space-y-1">
+              <Label htmlFor="quote-coupon-pct" className="text-xs">
+                Descuento del primer pago (%)
+              </Label>
+              <Input
+                id="quote-coupon-pct"
+                type="number"
+                min={1}
+                max={100}
+                className="h-8 w-24"
+                value={personalPct}
+                onChange={(e) => setPersonalPct(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="quote-coupon-days" className="text-xs">
+                Días que vale
+              </Label>
+              <Input
+                id="quote-coupon-days"
+                type="number"
+                min={1}
+                max={90}
+                className="h-8 w-24"
+                value={personalDays}
+                onChange={(e) => setPersonalDays(e.target.value)}
+              />
+            </div>
+            <Button size="sm" onClick={createPersonal} disabled={personal.isPending}>
+              {personal.isPending ? 'Creando...' : 'Crear cupón'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPersonalOpen(false)}>
+              Cancelar
+            </Button>
+          </div>
+        )}
         {hasInsurance && (plans.data?.length ?? 0) > 0 && (
           <Select value={planId} onValueChange={setPlanId}>
             <SelectTrigger aria-label="Seguro" className="col-span-2">

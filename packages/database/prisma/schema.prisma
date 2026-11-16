@@ -444,6 +444,18 @@ model Tenant {
   referralEnabled              Boolean               @default(false) @map("referral_enabled")
   referralRewardType           PromotionDiscountType @default(fixed) @map("referral_reward_type")
   referralRewardValue          Decimal               @default(0) @map("referral_reward_value") @db.Decimal(10, 2)
+  /// Recompensa para el recomendado en su primer pago: `percentage` | `fixed` (null = ninguna).
+  referralFriendRewardType     String?               @map("referral_friend_reward_type")
+  referralFriendRewardValue    Decimal               @default(0) @map("referral_friend_reward_value") @db.Decimal(10, 2)
+  /// Recompensas que puede ganar un inquilino en un año (null = sin tope).
+  referralMaxRewardsPerYear    Int?                  @map("referral_max_rewards_per_year")
+  /// Recordar a los 7 días a quien no ha respondido la valoración.
+  reviewsReminderEnabled       Boolean               @default(false) @map("reviews_reminder_enabled")
+  /// Pedir una valoración al año a los inquilinos que siguen.
+  reviewsYearlyEnabled         Boolean               @default(false) @map("reviews_yearly_enabled")
+  /// Cupón personal en el recordatorio de una reserva sin terminar (0 = no).
+  bookingRecoveryCouponPct     Int                   @default(0) @map("booking_recovery_coupon_pct")
+  bookingRecoveryCouponDays    Int                   @default(2) @map("booking_recovery_coupon_days")
   extraAccessLimit             Int                   @default(2) @map("extra_access_limit")
   /// Qué corta el impago: all, extras (solo los adicionales) o none.
   accessCutMode           String   @default("all") @map("access_cut_mode")
@@ -2772,6 +2784,12 @@ model Promotion {
   isActive      Boolean               @default(true) @map("is_active")
   /// Se anuncia en la web pública y su código vale en la reserva online.
   announceOnWeb Boolean               @default(false) @map("announce_on_web")
+  /// Meses que dura el descuento (null = todo el contrato). No aplica a meses gratis.
+  durationMonths   Int?               @map("duration_months")
+  unitTypeIds      String[]           @default([]) @map("unit_type_ids") @db.Uuid
+  facilityIds      String[]           @default([]) @map("facility_ids") @db.Uuid
+  newCustomersOnly Boolean            @default(false) @map("new_customers_only")
+  oncePerCustomer  Boolean            @default(false) @map("once_per_customer")
   createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2807,6 +2825,12 @@ model Coupon {
   validFrom        DateTime?             @map("valid_from") @db.Timestamptz(6)
   validUntil       DateTime?             @map("valid_until") @db.Timestamptz(6)
   isActive         Boolean               @default(true) @map("is_active")
+  /// Se anuncia en la web pública.
+  announceOnWeb    Boolean               @default(false) @map("announce_on_web")
+  /// standard | personal (un solo uso, para una persona) | referral_friend (el del recomendado).
+  kind             String                @default("standard")
+  /// Para quién es un cupón personal (nombre o email).
+  personalFor      String?               @map("personal_for")
   createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2861,6 +2885,8 @@ model Referral {
   /// Parte de una recompensa fija ya descontada (se reparte entre facturas).
   rewardAppliedAmount Decimal  @default(0) @map("reward_applied_amount") @db.Decimal(10, 2)
   rewardInvoiceId    String?   @map("reward_invoice_id") @db.Uuid
+  /// Por qué se convirtió sin recompensa (`yearly_cap`).
+  rewardSkippedReason String?  @map("reward_skipped_reason")
   convertedAt        DateTime? @map("converted_at") @db.Timestamptz(6)
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5338,6 +5364,10 @@ model Review {
   publishedOnWeb Boolean   @default(false) @map("published_on_web")
   /// El autor dio permiso para publicarla en la web.
   publishConsent Boolean   @default(false) @map("publish_consent")
+  /// Cuándo se le recordó (una sola vez).
+  remindedAt     DateTime? @map("reminded_at") @db.Timestamptz(6)
+  /// Motivo de la baja (encuesta de salida).
+  exitReason     String?   @map("exit_reason")
   /// Cuándo se le pidió la reseña en Google.
   googleRequestedAt DateTime? @map("google_requested_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

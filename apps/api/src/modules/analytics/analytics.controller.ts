@@ -24,6 +24,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type {
   AgingKpiDto,
   CohortsDto,
+  ExitReasonsDto,
   CompetitionAlertsDto,
   OccupancyHistoryDto,
   PreOpeningAnalyticsDto,
@@ -237,6 +238,17 @@ export class AnalyticsController {
       { ...(from ? { from } : {}), ...(to ? { to } : {}) },
       scopeOf(user, facilityId),
     );
+  }
+
+  /** Por qué se van: motivos de la encuesta de salida. */
+  @Get('exit-reasons')
+  getExitReasons(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('months') months?: string,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<ExitReasonsDto> {
+    const parsed = months ? Number.parseInt(months, 10) : undefined;
+    return this.trends.getExitReasons(user.tenantId, parsed, scopeOf(user, facilityId));
   }
 
   /** Cohortes de altas: permanencia y facturación según el mes en que empezaron. */

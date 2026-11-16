@@ -62,6 +62,7 @@ const EXACT: Record<string, string> = {
   'coupon.created': 'Cupón · creado',
   'coupon.updated': 'Cupón · cambiado',
   'coupon.deleted': 'Cupón · borrado',
+  'coupon.settings_changed': 'Cupón de reserva sin terminar · cambiado',
 };
 
 /** Prefijos de entidad, de más largo a más corto. */

@@ -402,6 +402,9 @@ export default function ContractDetailPage() {
             <p className="text-xs text-muted-foreground">
               Base {formatEur(c.priceMonthly)} − descuento {formatEur(c.discountAmount)}
             </p>
+            {c.discountAmount > 0 && c.discountReason && (
+              <p className="text-xs text-muted-foreground">{c.discountReason}</p>
+            )}
             {c.discountAmount > 0 && c.discountExpiresAt && (
               <p className="text-xs text-muted-foreground">
                 Descuento hasta el {formatDate(c.discountExpiresAt)} (luego vuelve a la cuota base)

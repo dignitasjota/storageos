@@ -241,7 +241,36 @@ export interface PromotionDto {
   isActive: boolean;
   /** Se anuncia en la web pública y su código vale en la reserva online. */
   announceOnWeb: boolean;
+  /** Meses que dura el descuento; null = todo el contrato. */
+  durationMonths: number | null;
+  unitTypeIds: string[];
+  facilityIds: string[];
+  newCustomersOnly: boolean;
+  oncePerCustomer: boolean;
   createdAt: string;
+}
+
+/** Lo que ha dado de sí una promoción. */
+export interface PromotionResultsDto {
+  contracts: {
+    id: string;
+    contractNumber: string;
+    customerId: string;
+    customerName: string;
+    unitCode: string;
+    status: string;
+    startDate: string;
+    /** Descuento en cada cuota, sin IVA (0 si eran meses gratis o ya terminó). */
+    monthlyDiscount: number;
+    /** Cuotas gratis que le quedan. */
+    freeMonthsRemaining: number;
+  }[];
+  /** Contratos que la usan y siguen en vigor. */
+  liveContracts: number;
+  /** Lo que descuenta cada mes en los contratos en vigor, sin IVA. */
+  monthlyCost: number;
+  /** Lo que pagan cada mes esos contratos, sin IVA. */
+  monthlyRevenue: number;
 }
 
 /** Promoción aplicada en la reserva online (la que el negocio anuncia en su web). */
@@ -254,12 +283,14 @@ export interface WebPromotionDto {
   monthlyDiscount: number;
   /** Cuotas mensuales gratis tras el primer pago. */
   freeMonths: number;
+  /** Meses que dura el descuento; null = todo el contrato. */
+  durationMonths?: number | null;
 }
 
 /** Resultado de validar/previsualizar un código promocional. */
 export interface ValidatePromotionResultDto {
   valid: boolean;
-  /** Motivo si `valid` es false (not_found | inactive | expired | not_started | max_uses_reached | not_for_unit | not_with_prepay). */
+  /** Motivo si `valid` es false (not_found | inactive | expired | not_started | max_uses_reached | not_for_unit | not_with_prepay | unit_type | facility | new_customers_only | already_used). */
   reason: string | null;
   code: string;
   discountType: PromotionDiscountTypeValue | null;
@@ -269,6 +300,8 @@ export interface ValidatePromotionResultDto {
   effectivePrice: number;
   /** Meses gratis (solo promociones `free_months`); null en otros tipos. */
   freeMonths: number | null;
+  /** Meses que dura el descuento (sin valor, todo el contrato). */
+  durationMonths?: number | null;
 }
 
 export interface DataSubjectRequestDto {

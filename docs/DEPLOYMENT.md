@@ -2529,3 +2529,18 @@ Sin variables nuevas. Lo que cambia:
 - **Valoraciones**: para publicar una en la web hace falta que su autor marque la casilla al responder (las ya publicadas se quedan). El equipo recibe un aviso de las notas de 0 a 6. Se pueden reenviar y copiar el enlace.
 
 **Tras desplegar**: en Promociones, revisar cuál está marcada «En la web» (si era una promoción interna, desmarcarla).
+
+## 145. Fidelización: mejoras (2026-11-16)
+
+Migración `20270130100000_loyalty_features` (se aplica sola al arrancar el API): columnas nuevas en `promotions`, `coupons`, `referrals`, `reviews` y `tenants`. No cambia nada de lo que ya hay: todo lo nuevo viene apagado.
+
+Sin variables nuevas. Lo que se puede hacer ahora:
+
+- **Promociones**: ponerles duración («20 % los 3 primeros meses»: el contrato vuelve solo a su precio), limitarlas a unos tipos de trastero, a unos locales, a clientes nuevos o a un uso por cliente, editarlas y ver sus resultados.
+- **Cupones**: anunciarlos en la web, crear cupones personales de un solo uso (también desde el presupuesto a un contacto) y añadir un cupón al recordatorio de las reservas sin terminar (Cupones → «Reservas sin terminar»).
+- **Referidos**: premiar también al recomendado en su primer pago, poner un tope de recompensas por inquilino al año y ver quién recomienda más. Cada inquilino tiene un enlace para compartir, que deja su código puesto en la reserva.
+- **Valoraciones**: recordatorio a los 7 días, valoración anual, cifras por periodo y por local, motivo de la baja en la encuesta de salida («Por qué se van» en Analítica → Bajas) y tarea automática al recibir una nota de 0 a 6 (Tareas → Tareas automáticas).
+
+El recordatorio y la valoración anual salen en el repaso diario de valoraciones (worker, 08:00). El descuento de una promoción con duración lo quita el repaso diario de descuentos caducados (worker).
+
+De paso: la factura mensual ya no aplica un descuento con fecha de fin (retención o promoción con duración) a un periodo que empieza cuando ha caducado. Antes, si caducaba el día 1, la factura de ese mes salía todavía con el descuento.

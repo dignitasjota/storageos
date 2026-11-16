@@ -208,7 +208,11 @@ export class BillingJobsService {
       // son para el alta de contratos nuevos y no deben cambiar la cuota de un
       // contrato en vigor (para subirla está la revisión de precios).
       const monthly = priceOn(Number(c.priceMonthly), priceChanges.get(c.id) ?? [], cStart);
-      const effectivePrice = monthly - Number(c.discountAmount);
+      // Un descuento con fecha de fin (retención, promoción con duración) no
+      // entra en un periodo que empieza cuando ya ha caducado, aunque el repaso
+      // que lo quita del contrato aún no haya pasado esa noche.
+      const discountLive = !c.discountExpiresAt || new Date(c.discountExpiresAt) > cStart;
+      const effectivePrice = monthly - (discountLive ? Number(c.discountAmount) : 0);
 
       const series = await this.series.getDefault(tenantId);
       if (!series) {

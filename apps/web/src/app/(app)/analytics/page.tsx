@@ -70,6 +70,7 @@ import {
   useApplyPricing,
   useBenchmark,
   useChurn,
+  useExitReasons,
   useChurnRisk,
   useLeadsFunnel,
   useLeadsUtm,
@@ -396,7 +397,60 @@ function ChurnPanel({ facilityId, period }: { facilityId?: string; period: Perio
           )}
         </CardContent>
       </Card>
+
+      <ExitReasonsCard facilityId={facilityId} period={period} />
     </div>
+  );
+}
+
+/** Por qué se van: lo que marcan en la encuesta de salida. */
+function ExitReasonsCard({ facilityId, period }: { facilityId?: string; period: Period }) {
+  const [fy, fm] = period.from.split('-').map(Number);
+  const [ty, tm] = period.to.split('-').map(Number);
+  const months = Math.max(1, Math.min(36, (ty! - fy!) * 12 + (tm! - fm!) + 1));
+  const reasons = useExitReasons({ months, facilityId });
+  const d = reasons.data;
+  if (!d) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Por qué se van</CardTitle>
+        <CardDescription>
+          Lo que responden en la encuesta de salida, que se envía sola a quien pide la baja.
+          {d.sent > 0
+            ? ` ${d.answered} de ${d.sent} respondidas${d.nps !== null ? ` · NPS de quienes se van: ${d.nps}` : ''}.`
+            : ''}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {d.reasons.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {d.sent === 0
+              ? 'Todavía no se ha enviado ninguna encuesta de salida en este periodo.'
+              : 'Aún no ha respondido nadie en este periodo.'}
+          </p>
+        ) : (
+          <ul className="space-y-2.5">
+            {d.reasons.map((r) => (
+              <li key={r.reason} className="text-sm">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span>{r.label}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {r.count} · {r.pct} %
+                  </span>
+                </div>
+                <div className="mt-1 h-2 rounded bg-muted">
+                  <div
+                    className="h-2 rounded"
+                    style={{ width: `${Math.max(2, r.pct)}%`, backgroundColor: '#2a78d6' }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
