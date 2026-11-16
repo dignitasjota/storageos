@@ -450,6 +450,36 @@ export class CustomerOverviewService {
         };
       }
 
+      // Primer pago por hacer (contrato firmado por enlace): la factura y la
+      // fianza que van juntas siguen sin emitir hasta que se cobren.
+      const awaiting = await tx.invoice.findMany({
+        where: {
+          ...inScope,
+          customerId,
+          deletedAt: null,
+          status: 'draft',
+          issueOnPayment: true,
+        },
+        select: {
+          id: true,
+          kind: true,
+          total: true,
+          amountPaid: true,
+          contract: { select: { firstPaymentDeadline: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      const firstInvoice = awaiting.find((i) => i.kind === 'invoice');
+      const firstPayment: CustomerAccountDto['firstPayment'] = firstInvoice
+        ? {
+            invoiceId: firstInvoice.id,
+            amount: round2(
+              awaiting.reduce((s, i) => s + Math.max(0, Number(i.total) - Number(i.amountPaid)), 0),
+            ),
+            deadline: firstInvoice.contract?.firstPaymentDeadline?.toISOString() ?? null,
+          }
+        : null;
+
       let overdueDto: CustomerAccountDto['overdue'] = null;
       if (overdue.length) {
         const oldest = overdue[0]!;
@@ -501,6 +531,7 @@ export class CustomerOverviewService {
         pendingNotDue: round2(
           Math.max(0, Number(notDue._sum.total ?? 0) - Number(notDue._sum.amountPaid ?? 0)),
         ),
+        firstPayment,
         paid12m: round2(Number(paid._sum.amount ?? 0) - Number(paid._sum.refundedAmount ?? 0)),
         nightPasses30d: nightPasses,
       };

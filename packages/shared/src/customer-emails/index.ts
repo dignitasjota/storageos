@@ -9,6 +9,7 @@ export const CUSTOMER_EMAIL_KINDS = [
   'payment_received',
   'payment_failed',
   'contract_signed',
+  'first_payment_pending',
   'contract_ending_soon',
   'contract_renewed',
   'contract_auto_renewal_notice',
@@ -44,7 +45,13 @@ export const CUSTOMER_EMAIL_LABELS: Record<
   },
   contract_signed: {
     label: 'Contrato firmado',
-    description: 'Confirmación del contrato con sus datos y cómo descargarlo.',
+    description:
+      'Confirmación del contrato con sus datos y cómo descargarlo. Si se firma por enlace con el primer pago por hacer, la sustituye «Primer pago pendiente».',
+  },
+  first_payment_pending: {
+    label: 'Primer pago pendiente',
+    description:
+      'Al firmar por enlace (reserva online o contrato enviado desde el panel): el contrato firmado, lo que tiene que pagar con su desglose, el plazo y el botón para pagar. La factura se emite al pagar.',
   },
   contract_ending_soon: {
     label: 'Fin de contrato',

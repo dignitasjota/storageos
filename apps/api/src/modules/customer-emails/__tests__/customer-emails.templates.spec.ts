@@ -96,6 +96,7 @@ describe('resolveCustomerEmailSettings', () => {
       payment_received: true,
       payment_failed: true,
       contract_signed: true,
+      first_payment_pending: true,
       contract_ending_soon: true,
       contract_renewed: true,
       contract_auto_renewal_notice: true,
@@ -111,6 +112,50 @@ describe('resolveCustomerEmailSettings', () => {
     });
     expect(resolveCustomerEmailSettings({ invoice_issued: false }).invoice_issued).toBe(false);
     expect(resolveCustomerEmailSettings(null).payment_received).toBe(true);
+  });
+});
+
+describe('renderCustomerEmail — primer pago pendiente', () => {
+  const data = {
+    kind: 'first_payment_pending' as const,
+    contractNumber: 'CT-2026-00007',
+    unitCode: 'A-12',
+    facilityName: 'Local Centro',
+    startDate: new Date('2026-11-16T00:00:00Z'),
+    lines: [
+      { description: 'Alquiler de noviembre', amount: 30.25 },
+      { description: 'Protección de contenido', amount: 4.84 },
+    ],
+    deposit: 40,
+    total: 75.09,
+    deadline: new Date('2026-11-19T14:30:00Z'),
+    payUrl: 'https://ejemplo.es/sign/abc.def',
+  };
+  const base = {
+    tenantName: 'Trasteros García',
+    customerName: 'Ana',
+    locale: 'es' as const,
+    logoUrl: null,
+    brandColor: null,
+    portalUrl: 'https://ejemplo.es/portal/login',
+  };
+
+  it('lleva el desglose, el total, el plazo en hora de España y el botón al enlace de la firma', () => {
+    const email = renderCustomerEmail(base, data);
+    expect(email.subject).toBe('Tu contrato CT-2026-00007 está firmado: falta el primer pago');
+    expect(email.text).toMatch(/• Alquiler de noviembre: 30,25\s€/);
+    expect(email.text).toMatch(/• Fianza: 40,00\s€/);
+    expect(email.text).toMatch(/Total: 75,09\s€ \(IVA incluido\)\./);
+    expect(email.text).toContain('antes del 19/11/2026 a las 15:30');
+    expect(email.text).toContain('Pagar ahora: https://ejemplo.es/sign/abc.def');
+    expect(email.html).toContain('href="https://ejemplo.es/sign/abc.def"');
+  });
+
+  it('sin fianza no la nombra y en inglés traduce el texto', () => {
+    const email = renderCustomerEmail({ ...base, locale: 'en' }, { ...data, deposit: 0 });
+    expect(email.subject).toContain('complete your first payment');
+    expect(email.text).not.toContain('Deposit');
+    expect(email.text).toContain('Pay now: https://ejemplo.es/sign/abc.def');
   });
 });
 

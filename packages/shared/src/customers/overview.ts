@@ -91,6 +91,11 @@ export interface CustomerAccountDto {
     steps: CustomerDunningStepDto[];
   } | null;
   pendingNotDue: number;
+  /**
+   * Primer pago de un contrato firmado por enlace: su factura se emite al
+   * cobrarse (aún sin número). Importe con la fianza que va con ella.
+   */
+  firstPayment: { invoiceId: string; amount: number; deadline: string | null } | null;
   /** Pagado en los últimos 12 meses. */
   paid12m: number;
   nightPasses30d: number;

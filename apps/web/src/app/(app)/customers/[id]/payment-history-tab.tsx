@@ -23,6 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useInvoices, usePayments } from '@/lib/billing/hooks';
+import { invoiceNumberLabel } from '@/lib/billing/labels';
 
 function formatCurrency(value: number): string {
   return value.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -79,7 +80,8 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
   const invoices = useMemo(
     () =>
       (invoicesQ.data ?? [])
-        .filter((i) => i.status !== 'draft')
+        // El primer pago de una reserva (borrador sin número) sí sale: es lo que debe pagar.
+        .filter((i) => i.status !== 'draft' || i.issueOnPayment)
         .sort((a, b) =>
           (b.periodStart ?? b.issueDate ?? '').localeCompare(a.periodStart ?? a.issueDate ?? ''),
         ),
@@ -98,7 +100,12 @@ export function CustomerPaymentHistoryTab({ customerId }: { customerId: string }
     const all = invoicesQ.data ?? [];
     const totalPaid = all.reduce((s, i) => s + i.amountPaid - i.withholdingAmount, 0);
     const pending = all
-      .filter((i) => i.status === 'issued' || i.status === 'overdue')
+      .filter(
+        (i) =>
+          i.status === 'issued' ||
+          i.status === 'overdue' ||
+          (i.status === 'draft' && i.issueOnPayment),
+      )
       .reduce((s, i) => s + i.amountPending, 0);
     const lateCount = all.filter((i) => {
       const p = punctuality(i);
@@ -321,6 +328,9 @@ function invoiceConcept(inv: InvoiceDto): {
   if (inv.lateFeeForInvoiceId) {
     return { badge: 'Recargo', variant: 'destructive', detail: 'Recargo por mora' };
   }
+  if (inv.kind === 'deposit_receipt') {
+    return { badge: 'Fianza', variant: 'outline', detail: 'Justificante de fianza' };
+  }
   if (inv.contractId || inv.periodStart) {
     const hasInsurance = inv.items.some((it) => /protecci|seguro/i.test(it.description));
     const month = inv.periodStart ? formatMonth(inv.periodStart) : 'Alquiler';
@@ -354,7 +364,7 @@ function InvoiceRow({ invoice: i }: { invoice: InvoiceDto }) {
         </TableCell>
         <TableCell>
           <Link href={`/invoices/${i.id}`} className="font-medium hover:underline">
-            {i.invoiceNumber}
+            {invoiceNumberLabel(i)}
           </Link>
         </TableCell>
         <TableCell>
@@ -367,7 +377,12 @@ function InvoiceRow({ invoice: i }: { invoice: InvoiceDto }) {
         <TableCell className="text-sm">{formatDate(i.dueDate)}</TableCell>
         <TableCell className="text-right tabular-nums">{formatCurrency(i.total)}</TableCell>
         <TableCell>
-          <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
+          <InvoiceStatusBadge
+            status={i.status}
+            total={i.total}
+            voided={!!i.voidedAt}
+            awaitingPayment={i.issueOnPayment}
+          />
         </TableCell>
         <TableCell className="text-sm">
           {punc ? (
@@ -416,11 +431,16 @@ function InvoiceCard({ invoice: i }: { invoice: InvoiceDto }) {
     <div className="rounded-md border p-3 text-sm">
       <div className="flex items-start justify-between gap-2">
         <Link href={`/invoices/${i.id}`} className="font-medium hover:underline">
-          {i.invoiceNumber}
+          {invoiceNumberLabel(i)}
         </Link>
         <div className="flex items-center gap-2">
           <span className="font-medium tabular-nums">{formatCurrency(i.total)}</span>
-          <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
+          <InvoiceStatusBadge
+            status={i.status}
+            total={i.total}
+            voided={!!i.voidedAt}
+            awaitingPayment={i.issueOnPayment}
+          />
         </div>
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">

@@ -1745,6 +1745,9 @@ export class ContractsService {
         ...(args.deferAccessUntilPaid || isPendingPreOpening(existing)
           ? { deferAccess: true }
           : {}),
+        // Firmado por enlace: entra en vigor con el primer pago; el correo
+        // con lo que hay que pagar sustituye al de «contrato firmado».
+        ...(args.deferAccessUntilPaid ? { awaitingFirstPayment: true } : {}),
       },
     };
     this.eventBus.emit(DOMAIN_EVENTS.contract_signed, payload);
