@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
 import { getPublicWebMessages, intlLocaleFor, legalHref } from './i18n/messages';
+import { MeasurementChoice } from './measurement-choice';
 import { TenantSiteChrome } from './tenant-site-chrome';
 
 import type { PublicLegalDocDto, TenantLegalDoc } from '@storageos/shared';
@@ -52,6 +53,7 @@ export async function LegalPageBody({ slug, doc }: { slug: string; doc: TenantLe
         <article className="mx-auto max-w-3xl px-4 py-10 sm:py-14">
           <h1 className="mb-8 text-3xl font-bold tracking-tight">{data.title}</h1>
           <MarkdownView content={data.markdown} />
+          {doc === 'cookies' && <MeasurementChoice slug={slug} />}
         </article>
       </TenantSiteChrome>
     </NextIntlClientProvider>

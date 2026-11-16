@@ -289,9 +289,14 @@ describe('Chat de la web (e2e)', () => {
     expect(waitingMsg.body).toMatchObject({ mode: 'human', answer: '' });
     const pending = await http().get('/web-chat/pending').set(auth).expect(200);
     expect(pending.body.waiting).toBe(1);
-    const hConv = await db.webChatConversation.findFirstOrThrow({
+    // El resumen para el equipo se hace después de responder al visitante.
+    let hConv = await db.webChatConversation.findFirstOrThrow({
       where: { tenantId: owner.tenantId, visitorId: h },
     });
+    for (let i = 0; i < 50 && !hConv.handoffSummary; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      hConv = await db.webChatConversation.findFirstOrThrow({ where: { id: hConv.id } });
+    }
     expect(hConv.handoffSummary).toEqual(expect.any(String));
 
     // El equipo responde desde el panel; el visitante lo ve.

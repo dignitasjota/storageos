@@ -34,6 +34,8 @@ const WEB_CHAT_RETENTION_DAYS = 90;
 
 /** Días que se guarda la IP de quien escribe por el formulario de contacto. */
 const CONTACT_IP_DAYS = 90;
+/** Un chat esperando a una persona sin movimiento en este tiempo vuelve al asistente. */
+const STALE_HANDOFF_DAYS = 2;
 
 /** Horas que se espera a que un adjunto subido llegue a enviarse. */
 const ORPHAN_ATTACHMENT_HOURS = 24;
@@ -263,7 +265,7 @@ export class DataRetentionService {
           }),
           this.admin.contract.updateMany({
             where: { tenantId: c.tenantId, customerId: c.id, signedAt: null },
-            data: { deletedAt: now, signingTokenHash: null },
+            data: { deletedAt: now, signingTokenHash: null, signingTokenEncrypted: null },
           }),
         ]);
         done += 1;
@@ -289,6 +291,8 @@ export class DataRetentionService {
     whatsappMessages: number;
     webEvents: number;
     webChatConversations: number;
+    webChatMessages: number;
+    promoLandingVisits: number;
     waitlistEntries: number;
     adminSessions: number;
     impersonationLogs: number;
@@ -338,6 +342,8 @@ export class DataRetentionService {
       whatsappMessages,
       webEvents,
       webChatConversations,
+      webChatMessages,
+      promoLandingVisits,
       waitlistEntries,
       contactMessages,
       platformLeads,
@@ -371,9 +377,17 @@ export class DataRetentionService {
       }),
       // Analítica propia de la web de los tenants.
       this.admin.webEvent.deleteMany({ where: { createdAt: { lt: cutoff(webEventsDays) } } }),
-      // Chat con IA de la web: conversaciones sin movimiento en 90 días (con sus mensajes).
+      // Chat con IA de la web: conversaciones sin movimiento en 90 días (con sus
+      // mensajes) y, en las que siguen vivas, los mensajes de hace más de 90 días.
       this.admin.webChatConversation.deleteMany({
         where: { lastMessageAt: { lt: cutoff(WEB_CHAT_RETENTION_DAYS) } },
+      }),
+      this.admin.webChatMessage.deleteMany({
+        where: { createdAt: { lt: cutoff(WEB_CHAT_RETENTION_DAYS) } },
+      }),
+      // Visitas de las landings de promoción: mismo plazo que las de la web.
+      this.admin.promoLandingVisit.deleteMany({
+        where: { createdAt: { lt: cutoff(webEventsDays) } },
       }),
       // Lista de espera: contactos sin ficha cuya entrada ya está cerrada.
       this.admin.waitlistEntry.deleteMany({
@@ -416,6 +430,24 @@ export class DataRetentionService {
       where: { ipAddress: { not: null }, createdAt: { lt: cutoff(CONTACT_IP_DAYS) } },
       data: { ipAddress: null },
     });
+    // Lo mismo en los contactos de los negocios (web, widget, chat): fuera la IP y el navegador.
+    const leadIps = await this.admin.$executeRaw`
+      UPDATE "leads"
+         SET "metadata" = "metadata" - 'ipAddress' - 'userAgent'
+       WHERE "created_at" < ${cutoff(CONTACT_IP_DAYS)}
+         AND jsonb_typeof("metadata") = 'object'
+         AND ("metadata" ? 'ipAddress' OR "metadata" ? 'userAgent')`;
+    // Chats que esperan a una persona sin movimiento en dos días: vuelven al
+    // asistente (no se quedan para siempre en «Esperan a una persona»).
+    const staleHandoffs = await this.admin.webChatConversation.updateMany({
+      where: { mode: 'human', lastMessageAt: { lt: cutoff(STALE_HANDOFF_DAYS) } },
+      data: { mode: 'ai', staffUnread: 0 },
+    });
+    if (leadIps > 0 || staleHandoffs.count > 0) {
+      this.logger.log(
+        `data-retention: IP quitada de ${leadIps} contactos; ${staleHandoffs.count} chats vuelven al asistente`,
+      );
+    }
 
     await this.files.deleteObjects('uploads', expiredMedia.map((m) => m.mediaKey!).filter(Boolean));
 
@@ -429,6 +461,8 @@ export class DataRetentionService {
       whatsappMessages: whatsappMessages.count,
       webEvents: webEvents.count,
       webChatConversations: webChatConversations.count,
+      webChatMessages: webChatMessages.count,
+      promoLandingVisits: promoLandingVisits.count,
       waitlistEntries: waitlistEntries.count,
       contactMessages: contactMessages.count,
       platformLeads: platformLeads.count,
@@ -447,6 +481,8 @@ export class DataRetentionService {
       result.whatsappMessages +
       result.webEvents +
       result.webChatConversations +
+      result.webChatMessages +
+      result.promoLandingVisits +
       result.waitlistEntries +
       result.contactMessages +
       result.platformLeads +
@@ -461,7 +497,8 @@ export class DataRetentionService {
           `comms=${result.communications}, notif=${result.notifications}, ` +
           `platform_emails=${result.platformEmails}, ` +
           `whatsapp=${result.whatsappConversations}/${result.whatsappMessages}, ` +
-          `web_events=${result.webEvents}, web_chat=${result.webChatConversations}, lista_espera=${result.waitlistEntries}, contacto=${result.contactMessages}, ` +
+          `web_events=${result.webEvents}, web_chat=${result.webChatConversations}/${result.webChatMessages}, ` +
+          `landings=${result.promoLandingVisits}, lista_espera=${result.waitlistEntries}, contacto=${result.contactMessages}, ` +
           `admin_sessions=${result.adminSessions}, impersonations=${result.impersonationLogs}, ` +
           `admin_audit=${result.superAdminAuditLogs}, verifactu=${result.verifactuSubmissions})`,
       );

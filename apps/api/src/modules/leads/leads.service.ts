@@ -634,6 +634,8 @@ export class LeadsService {
     phone: string | null;
     message: string;
     meta: RequestMeta;
+    /** Origen de la visita del que escribe (Instagram, Google Ads…). */
+    utm?: { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null } | null;
   }): Promise<{ id: string }> {
     const repeated = await this.mergeRepeatContact(args.tenantId, {
       email: args.email,
@@ -649,8 +651,11 @@ export class LeadsService {
         tx.lead.create({
           data: {
             tenantId: args.tenantId,
+            // El canal es el chat (`source`); el origen, el de su visita.
             source: 'web_chat',
-            utmSource: 'web_chat',
+            utmSource: args.utm?.utmSource ?? null,
+            utmMedium: args.utm?.utmMedium ?? null,
+            utmCampaign: args.utm?.utmCampaign ?? null,
             firstName: firstName ?? null,
             lastName: rest.length > 0 ? rest.join(' ') : null,
             email: args.email,

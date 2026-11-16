@@ -131,7 +131,8 @@ export class WhatsappBookingRemindersService {
     const webBase = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
     let url: string;
     if (!signed) {
-      const { token } = await this.signatures.generateSigningToken(contract.id);
+      // El enlace que dio el asistente sigue valiendo: no se genera otro.
+      const { token } = await this.signatures.currentOrNewSigningToken(contract.id);
       const base =
         tenant.customDomain && tenant.customDomainVerifiedAt
           ? `https://${tenant.customDomain}`

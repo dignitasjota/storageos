@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 
 import {
   type AiCompletion,
+  type AiEffort,
   type AiContentBlock,
   type AiMessageParam,
   AiProvider,
@@ -42,6 +43,14 @@ export const DEFAULT_AI_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 2048;
 
 /**
+ * Modelos que admiten `output_config.effort` (los de la generación 5 y los
+ * Opus 4.5 a 4.8). A los anteriores no se les manda: darían error.
+ */
+export function supportsEffort(model: string): boolean {
+  return /^claude-(haiku-5|sonnet-5|opus-5|opus-4-[5-8]|fable-5|mythos-5)/.test(model);
+}
+
+/**
  * Provider de IA real contra la Messages API de Anthropic (vía `fetch`, sin SDK
  * para no añadir dependencia). La clave y el modelo los decide
  * `PlatformAiSettingsService` (panel admin o variables de entorno).
@@ -59,6 +68,7 @@ export class AnthropicAiProvider extends AiProvider {
     apiKey: string,
     model: string,
     private readonly maxTokens: number = MAX_TOKENS,
+    private readonly effort?: AiEffort,
   ) {
     super();
     this.apiKey = apiKey;
@@ -83,6 +93,9 @@ export class AnthropicAiProvider extends AiProvider {
       body: JSON.stringify({
         model: this.model,
         max_tokens: this.maxTokens,
+        ...(this.effort && supportsEffort(this.model)
+          ? { output_config: { effort: this.effort } }
+          : {}),
         ...anthropicPromptParts(args.system, args.tools),
         messages: args.messages,
         ...(stream ? { stream: true } : {}),

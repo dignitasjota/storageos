@@ -38,6 +38,13 @@ describe('textos legales del tenant', () => {
     const chat = buildTenantLegalDoc('privacidad', { ...base, analytics: false, webChat: true });
     expect(chat).toContain('Chat de la web');
     expect(chat).toContain('Anthropic');
+    // La conversación se guarda en el servidor (no «en tu navegador») y la lee el equipo.
+    expect(chat).toContain('se guarda en nuestros sistemas');
+    expect(chat).not.toContain('se guarda en tu navegador');
+    // La medición propia: 13 meses y «No medir mis visitas».
+    const cookies = buildTenantLegalDoc('cookies', { ...base, analytics: false });
+    expect(cookies).toContain('13 meses');
+    expect(cookies).toContain('No medir mis visitas');
     expect(buildTenantLegalDoc('privacidad', { ...base, analytics: false })).not.toContain(
       'Chat de la web',
     );

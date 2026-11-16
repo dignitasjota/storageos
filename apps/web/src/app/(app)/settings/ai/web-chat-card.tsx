@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import type { OpeningHours } from '@storageos/shared';
+
+import { OpeningHoursEditor } from '@/components/opening-hours-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -14,16 +17,31 @@ import { useUpdateWebChatSettings, useWebChatSettings } from '@/lib/ai/web-chat-
 import { ApiError } from '@/lib/auth/api';
 import { formatDate, formatNumber } from '@/lib/format';
 
+/** Horario de partida al marcar «El equipo atiende el chat en un horario». */
+const WORK_WEEK: OpeningHours = {
+  mon: { open: '09:00', close: '18:00' },
+  tue: { open: '09:00', close: '18:00' },
+  wed: { open: '09:00', close: '18:00' },
+  thu: { open: '09:00', close: '18:00' },
+  fri: { open: '09:00', close: '18:00' },
+  sat: null,
+  sun: null,
+};
+
 /** Configuración → Asistente IA → chat con IA en la web pública. */
 export function WebChatCard() {
   const settings = useWebChatSettings();
   const update = useUpdateWebChatSettings();
   const [instructions, setInstructions] = useState('');
+  const [hasHours, setHasHours] = useState(false);
+  const [teamHours, setTeamHours] = useState<OpeningHours>({});
   const loaded = useRef(false);
   useEffect(() => {
     if (!settings.data || loaded.current) return;
     loaded.current = true;
     setInstructions(settings.data.instructions ?? '');
+    setHasHours(!!settings.data.teamHours);
+    setTeamHours(settings.data.teamHours ?? WORK_WEEK);
   }, [settings.data]);
 
   async function save(
@@ -33,6 +51,7 @@ export function WebChatCard() {
       bookingsEnabled?: boolean;
       handoffEnabled?: boolean;
       sharedInstructions?: boolean;
+      teamHours?: OpeningHours | null;
     },
     done: string,
   ) {
@@ -63,8 +82,9 @@ export function WebChatCard() {
           <div>
             <Label htmlFor="web-chat-enabled">Mostrar el chat en mi web</Label>
             <p className="text-xs text-muted-foreground">
-              {formatNumber(s.used)} de {formatNumber(s.limit)} respuestas este mes (aparte de las
-              del panel). Se reinicia el {formatDate(s.resetsOn)}.
+              {s.ownKey
+                ? 'Con tu propia clave de IA: sin límite de respuestas.'
+                : `${formatNumber(s.used)} de ${formatNumber(s.limit)} respuestas este mes (aparte de las del panel). Se reinicia el ${formatDate(s.resetsOn)}.`}
             </p>
           </div>
           <Checkbox
@@ -90,7 +110,7 @@ export function WebChatCard() {
             {
               key: 'handoffEnabled',
               label: 'El visitante puede pedir hablar con una persona',
-              hint: 'Avisamos al equipo y respondes desde Marketing → Chat de la web. Si nadie responde en 5 minutos, se le piden sus datos.',
+              hint: 'Avisamos al equipo y respondes desde Marketing → Chat de la web o Mensajes. Si nadie responde en 5 minutos, se le piden sus datos, y a los 15 vuelve a contestar el asistente.',
               done: ['Paso a una persona activado.', 'Paso a una persona desactivado.'],
             },
           ] as const
@@ -108,6 +128,42 @@ export function WebChatCard() {
             />
           </div>
         ))}
+        {s.handoffEnabled && (
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="web-chat-team-hours">El equipo atiende el chat en un horario</Label>
+                <p className="text-xs text-muted-foreground">
+                  Fuera de él, a quien pida una persona se le dice que no hay nadie y se le piden
+                  sus datos desde el principio. Sin horario, se avisa al equipo a cualquier hora.
+                </p>
+              </div>
+              <Checkbox
+                id="web-chat-team-hours"
+                checked={hasHours}
+                disabled={update.isPending}
+                onCheckedChange={(v) => {
+                  setHasHours(v === true);
+                  if (v !== true && s.teamHours) {
+                    void save({ teamHours: null }, 'El equipo atiende el chat a cualquier hora.');
+                  }
+                }}
+              />
+            </div>
+            {hasHours && (
+              <>
+                <OpeningHoursEditor value={teamHours} onChange={setTeamHours} />
+                <Button
+                  size="sm"
+                  disabled={update.isPending}
+                  onClick={() => save({ teamHours }, 'Horario del equipo guardado.')}
+                >
+                  Guardar el horario
+                </Button>
+              </>
+            )}
+          </div>
+        )}
         {s.whatsappInstructions && (
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -149,8 +205,12 @@ export function WebChatCard() {
                 maxLength={2000}
                 value={instructions}
                 onChange={(e) => setInstructions(e.target.value)}
-                placeholder="Ej.: «Ofrece siempre la visita al local sin cita», «El primer mes tiene un 50 % de descuento», «Trata de usted»."
+                placeholder="Ej.: «Ofrece siempre la visita al local sin cita», «Si preguntan por la mudanza, recomienda a Mudanzas Pérez», «Trata de usted»."
               />
+              <p className="text-xs text-muted-foreground">
+                No pongas aquí descuentos: el asistente ya conoce tus promociones activas y la
+                reserva desde el chat las aplica. Una promesa escrita aquí no se aplicaría.
+              </p>
               <p className="text-xs text-muted-foreground">
                 Para que responda bien, revisa tus{' '}
                 <Link href="/settings/faq" className="underline">

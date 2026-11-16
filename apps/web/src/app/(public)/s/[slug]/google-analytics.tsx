@@ -9,6 +9,12 @@ import { useEffect, useState } from 'react';
 import { facilityHref, legalHref } from './i18n/messages';
 
 import { gaInitScript } from '@/lib/analytics/ga-init';
+import {
+  readTenantConsent,
+  TENANT_CONSENT_EVENT,
+  type TenantConsent,
+  writeTenantConsent,
+} from '@/lib/tenant-consent';
 
 /**
  * Envía un evento de conversión a GA4 (`gtag('event', ...)`). No-op si el
@@ -35,31 +41,10 @@ export interface TenantSiteRef {
   areaLinks?: AreaPageLinkDto[];
 }
 
-type Consent = 'all' | 'necessary';
-const CONSENT_EVENT = 'storageos:tenant-cookie-consent';
-
-function consentKey(slug: string): string {
-  return `storageos.tenant-cookies.${slug}`;
-}
-
-function readConsent(slug: string): Consent | null {
-  try {
-    const v = window.localStorage.getItem(consentKey(slug));
-    return v === 'all' || v === 'necessary' ? v : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeConsent(slug: string, value: Consent | null): void {
-  try {
-    if (value) window.localStorage.setItem(consentKey(slug), value);
-    else window.localStorage.removeItem(consentKey(slug));
-  } catch {
-    // Sin almacenamiento (modo privado): se vuelve a preguntar en la próxima visita.
-  }
-  window.dispatchEvent(new CustomEvent(CONSENT_EVENT, { detail: value }));
-}
+type Consent = TenantConsent;
+const CONSENT_EVENT = TENANT_CONSENT_EVENT;
+const readConsent = readTenantConsent;
+const writeConsent = writeTenantConsent;
 
 /**
  * Google Analytics 4 de la web del tenant (si lo configuró en Ajustes → Marca y

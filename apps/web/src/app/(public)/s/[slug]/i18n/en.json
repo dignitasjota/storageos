@@ -962,7 +962,12 @@
       "necessaryOnly": "Necessary only",
       "acceptAll": "Accept all",
       "privacyPolicy": "privacy policy",
-      "areasLabel": "Areas"
+      "areasLabel": "Areas",
+      "measurementTitle": "Measuring your visits",
+      "measurementOn": "We currently count your visits anonymously (no third-party cookies or personal data) to see how the website is used.",
+      "measurementOff": "We do not count your visits in this browser.",
+      "measurementStop": "Do not measure my visits",
+      "measurementResume": "Measure my visits again"
     },
     "city": {
       "heading": "Storage units in {city}",
@@ -995,7 +1000,7 @@
       "thinking": "Typing…",
       "error": "I couldn't answer just now. Please try again in a moment.",
       "tooFast": "You're going too fast. Wait a moment and try again.",
-      "disclaimer": "Replies come from an automatic AI assistant and may be wrong. Don't share bank details.",
+      "disclaimer": "An automated AI assistant replies; it may make mistakes. The business team can read the conversation. Do not share bank details.",
       "privacy": "Privacy",
       "subtitleHuman": "A person from the team is helping you",
       "placeholderHuman": "Write to the team…",
@@ -1013,7 +1018,12 @@
       "contactPhone": "Phone",
       "contactSend": "Send",
       "contactError": "We couldn't save your details. Please try again.",
-      "contactThanks": "Thanks! The team will contact you soon."
+      "contactThanks": "Thanks! The team will contact you soon.",
+      "loadError": "The conversation could not be loaded.",
+      "retry": "Try again",
+      "closeNudge": "Close",
+      "newMessages": "{count, plural, one {# new message from the team} other {# new messages from the team}}",
+      "handoffError": "We could not notify the team. Please try again."
     },
     "features": {
       "24h": "24-hour access",

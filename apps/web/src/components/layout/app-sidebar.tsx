@@ -558,11 +558,12 @@ export function AppSidebar() {
       permissions.includes('communications:read') && features.includes('whatsapp_business'),
     ).data?.count ?? 0;
 
-  // Visitantes del chat de la web que esperan a una persona (o le han escrito).
+  // Conversaciones del chat de la web que piden atención (esperan a una persona o
+  // tienen mensajes sin leer): las mismas que enseña la bandeja.
   const webChatPending = useWebChatPending(
-    permissions.includes('marketing:read') && features.includes('ai_assistant'),
+    permissions.includes('communications:read') && features.includes('ai_assistant'),
   ).data;
-  const webChatCount = webChatPending ? Math.max(webChatPending.waiting, webChatPending.unread) : 0;
+  const webChatCount = webChatPending?.conversations ?? 0;
 
   // Grupos colapsados (acordeón). Persistido en localStorage; arranca expandido
   // para no romper la hidratación (se sincroniza en cliente tras montar).

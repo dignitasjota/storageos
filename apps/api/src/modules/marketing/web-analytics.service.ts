@@ -148,7 +148,12 @@ export class WebAnalyticsService {
           leads: await tx.lead.findMany({
             where: {
               deletedAt: null,
-              OR: [{ utmSource: { not: null } }, { source: { in: ['web', 'widget', 'landing'] } }],
+              OR: [
+                { utmSource: { not: null } },
+                { source: { in: ['web', 'widget', 'landing', 'web_chat'] } },
+              ],
+              // Las reservas del asistente de WhatsApp no son de la web.
+              NOT: [{ source: 'whatsapp' }, { utmSource: 'whatsapp', utmMedium: 'asistente' }],
               AND: [
                 {
                   OR: [
@@ -166,6 +171,7 @@ export class WebAnalyticsService {
               wonAt: true,
               bookedAt: true,
               convertedContractId: true,
+              metadata: true,
             },
           }),
           channels: await tx.marketingChannel.findMany({
@@ -284,11 +290,15 @@ export class WebAnalyticsService {
       } else if (l.createdAt >= prevSince) {
         prevContacts += 1;
       }
-      // La reserva cuenta el día que se hizo (el contacto se gana al firmar).
+      // La reserva cuenta el día que se hizo (el contacto se gana al firmar) y
+      // para el origen de la visita en la que reservó, como las visitas: el
+      // contacto puede haber llegado antes por otro sitio.
       const bookedAt = l.bookedAt ?? l.wonAt;
       if (l.convertedContractId && bookedAt && bookedAt < until) {
-        if (bookedAt >= since) converted.push({ cid: l.convertedContractId, touch });
-        else if (bookedAt >= prevSince) prevBookings += 1;
+        const bookingTouch = bookingUtmOf(l.metadata);
+        if (bookedAt >= since) {
+          converted.push({ cid: l.convertedContractId, touch: bookingTouch ?? touch });
+        } else if (bookedAt >= prevSince) prevBookings += 1;
       }
     }
     const contractIds = [...new Set(converted.map((c) => c.cid))];
@@ -394,4 +404,12 @@ export class WebAnalyticsService {
         .filter((d) => d.visitors > 0),
     };
   }
+}
+
+/** Origen de la visita en la que se hizo la reserva (`metadata.bookingUtm`), si lo hay. */
+function bookingUtmOf(metadata: unknown): { source: string | null; medium: string | null } | null {
+  const utm = (metadata as { bookingUtm?: { source?: unknown; medium?: unknown } } | null)
+    ?.bookingUtm;
+  if (!utm || typeof utm.source !== 'string' || !utm.source) return null;
+  return { source: utm.source, medium: typeof utm.medium === 'string' ? utm.medium : null };
 }

@@ -20,6 +20,7 @@ import { PromoLeadForm } from './promo-lead-form';
 import { bandColor, softAccent, themeFor, type PromoTheme } from './promo-theme';
 
 import { currentTrafficSource, visitorId } from '@/lib/attribution';
+import { measurementAllowed } from '@/lib/tenant-consent';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -40,7 +41,8 @@ function useTracking(tenantSlug: string, slug: string, preview: boolean): Record
       utm_campaign: sp.get('utm_campaign') || promoCampaign(slug),
     };
     setUtm(next);
-    if (preview) return;
+    // Vista previa o el visitante no quiere que se midan sus visitas: no se cuenta.
+    if (preview || !measurementAllowed(tenantSlug)) return;
     // Visita (para saber de dónde vienen). Best-effort: nunca rompe la página.
     void fetch(
       `${API_URL}/public/landing/${encodeURIComponent(tenantSlug)}/promo/${encodeURIComponent(slug)}/visit`,

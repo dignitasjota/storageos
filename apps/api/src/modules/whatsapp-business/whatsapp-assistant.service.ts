@@ -31,6 +31,7 @@ import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { LandingService } from '../landing/landing.service';
 import { bookingCodes, publicBusinessContextLines } from '../landing/public-business-context';
+import { bookingFailureKind } from '../move-in/booking-errors';
 import { BookingService } from '../move-in/booking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -732,6 +733,13 @@ export class WhatsappAssistantService {
       invalid: en ? 'some details are not valid' : 'algún dato no es válido',
       past: en ? 'the move-in date has already passed' : 'la fecha de entrada ya ha pasado',
       soldOut: en ? 'that size has just sold out' : 'ese tamaño acaba de agotarse',
+      taxId: en ? 'the ID number is not valid' : 'el DNI o NIE no es válido',
+      tooFar: en
+        ? 'the move-in date is too far ahead (up to one year)'
+        : 'la fecha de entrada es demasiado lejana (como mucho, un año)',
+      unavailable: en
+        ? 'online bookings are not available right now'
+        : 'ahora mismo no se pueden hacer reservas online',
       error: en ? 'something went wrong' : 'ha habido un problema al reservar',
     };
     const fail = (reason: string) => ({
@@ -776,15 +784,18 @@ export class WhatsappAssistantService {
       signingLinkSentTo: string | null;
     };
     try {
-      result = await this.booking.createBooking(args.tenantSlug, parsed.data, {});
-    } catch (err) {
-      const code = (err as { response?: { code?: string } } | null)?.response?.code ?? 'error';
-      this.logger.warn(`whatsapp-assistant: reserva fallida (${code})`);
-      return fail(
-        code === 'no_availability' || code === 'unit_not_available'
-          ? reasons.soldOut
-          : reasons.error,
+      result = await this.booking.createBooking(
+        args.tenantSlug,
+        parsed.data,
+        {},
+        {
+          channel: 'whatsapp',
+        },
       );
+    } catch (err) {
+      const kind = bookingFailureKind(err);
+      this.logger.warn(`whatsapp-assistant: reserva fallida (${kind})`);
+      return fail(kind === 'coupon' ? reasons.error : reasons[kind]);
     }
     const created = await this.admin.contract.findUnique({
       where: { id: result.contractId },

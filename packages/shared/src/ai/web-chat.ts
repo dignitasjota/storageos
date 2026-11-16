@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+import { utmFields } from '../communications/schemas';
+import { OpeningHoursSchema, type OpeningHours } from '../facilities/schemas';
+
 /**
  * Chat con IA en la web pública del tenant: lo usa un visitante anónimo, solo
  * con la información pública del negocio (locales, horarios, tamaños,
@@ -29,6 +32,8 @@ export const PublicWebChatSchema = z.object({
   locale: z.enum(['es', 'en']).default('es'),
   /** Página desde la que escribe (como la ve el visitante). */
   pagePath: z.string().trim().max(300).optional(),
+  /** Origen de su visita (el que guarda la web): sus reservas y contactos lo heredan. */
+  ...utmFields,
   /** Campo trampa: un robot lo rellena. */
   hp: z.string().max(200).optional(),
 });
@@ -53,10 +58,13 @@ export interface PublicWebChatResultDto {
   limited: 'visitor' | 'tenant' | null;
   /** Cómo contactar con el negocio (para cuando el chat no puede seguir). */
   contact: WebChatContactDto;
+  /** Pedir ya sus datos (pidió una persona fuera del horario del equipo). */
+  askContact?: boolean;
 }
 
 export type WebChatMode = 'ai' | 'human';
-export type WebChatRole = 'visitor' | 'assistant' | 'staff';
+/** `system`: texto fijo del chat («Te paso con una persona…»), no una respuesta de la IA. */
+export type WebChatRole = 'visitor' | 'assistant' | 'staff' | 'system';
 
 export interface PublicWebChatMessageDto {
   id: string;
@@ -82,6 +90,22 @@ export interface PublicWebChatHistoryDto {
   suggestions: string[];
   /** Ya dejó sus datos de contacto en esta conversación. */
   leadCaptured: boolean;
+}
+
+/** Consulta ligera del widget: ¿ha respondido alguien del equipo? */
+export const PublicWebChatUpdatesSchema = z.object({
+  visitorId: WebChatVisitorIdSchema,
+  /** Fecha del último mensaje que ya ve el visitante. */
+  after: z.string().datetime().optional(),
+});
+export type PublicWebChatUpdatesInput = z.infer<typeof PublicWebChatUpdatesSchema>;
+
+export interface PublicWebChatUpdatesDto {
+  /** Tiene conversación con movimiento en las últimas 24 horas. */
+  active: boolean;
+  mode: WebChatMode;
+  /** Mensajes del equipo posteriores a `after` (los que aún no ha visto). */
+  staffMessages: number;
 }
 
 export const PublicWebChatHandoffSchema = z.object({
@@ -128,8 +152,12 @@ export type UpdateWebChatConversationInput = z.infer<typeof UpdateWebChatConvers
 
 /** Conversaciones en las que el visitante espera a una persona (para el menú). */
 export interface WebChatPendingDto {
+  /** Conversaciones esperando a una persona. */
   waiting: number;
+  /** Mensajes de visitantes sin leer. */
   unread: number;
+  /** Conversaciones que piden atención (esperan o tienen mensajes sin leer): el contador del menú. */
+  conversations: number;
 }
 
 /** Configuración → Asistente IA → Chat de la web. */
@@ -151,6 +179,10 @@ export interface WebChatSettingsDto {
   used: number;
   limit: number;
   resetsOn: string;
+  /** Va con la clave de IA del propio negocio: sin límite de respuestas. */
+  ownKey: boolean;
+  /** Horario del equipo (null = siempre): fuera de él, pedir una persona avisa y pide los datos. */
+  teamHours: OpeningHours | null;
 }
 
 export const UpdateWebChatSettingsSchema = z.object({
@@ -160,6 +192,8 @@ export const UpdateWebChatSettingsSchema = z.object({
   bookingsEnabled: z.boolean().optional(),
   handoffEnabled: z.boolean().optional(),
   sharedInstructions: z.boolean().optional(),
+  /** Horario del equipo; null lo quita (siempre disponible). */
+  teamHours: OpeningHoursSchema.nullable().optional(),
 });
 export type UpdateWebChatSettingsInput = z.infer<typeof UpdateWebChatSettingsSchema>;
 

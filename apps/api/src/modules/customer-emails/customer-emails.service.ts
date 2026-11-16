@@ -12,6 +12,7 @@ import {
   replyAddressOf,
 } from '@storageos/shared';
 
+import { CryptoService } from '../../common/crypto/crypto.service';
 import {
   loadFirstPayment,
   loadPendingFirstPayment,
@@ -95,6 +96,7 @@ export class CustomerEmailsService {
     private readonly communications: CommunicationsService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly crypto: CryptoService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -366,7 +368,7 @@ export class CustomerEmailsService {
     });
     const webBase = this.config.get('WEB_BASE_URL', { infer: true });
     // El enlace para pagar vale hasta el plazo (el anterior deja de valer).
-    const token = await issueSigningToken(this.admin, c.id, deadline);
+    const token = await issueSigningToken(this.admin, c.id, deadline, this.crypto);
     const rendered = renderCustomerEmail(
       {
         tenantName: tenant.name,

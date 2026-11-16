@@ -32,7 +32,13 @@ function build() {
     superAdminSession: { deleteMany: jest.fn().mockResolvedValue({ count: 9 }) },
     impersonationLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     superAdminAuditLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
-    webChatConversation: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    webChatConversation: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 2 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    webChatMessage: { deleteMany: jest.fn().mockResolvedValue({ count: 3 }) },
+    promoLandingVisit: { deleteMany: jest.fn().mockResolvedValue({ count: 4 }) },
+    $executeRaw: jest.fn().mockResolvedValue(2),
     waitlistEntry: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     verifactuSubmission: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     platformContactMessage: {
@@ -94,6 +100,8 @@ describe('DataRetentionService', () => {
       whatsappMessages: 7,
       webEvents: 8,
       webChatConversations: 2,
+      webChatMessages: 3,
+      promoLandingVisits: 4,
       waitlistEntries: 1,
       contactMessages: 1,
       platformLeads: 2,
@@ -112,6 +120,19 @@ describe('DataRetentionService', () => {
     expect(admin.platformContactMessage.updateMany.mock.calls[0]![0].data).toEqual({
       ipAddress: null,
     });
+    // Chat de la web: los mensajes se borran por su propia fecha (90 días)…
+    const chatCutoff = admin.webChatMessage.deleteMany.mock.calls[0]![0].where.createdAt.lt as Date;
+    expect(Math.abs(chatCutoff.getTime() - (before - 90 * 86_400_000))).toBeLessThan(5000);
+    // …y los que esperan a una persona sin movimiento en 2 días vuelven al asistente.
+    expect(admin.webChatConversation.updateMany.mock.calls[0]![0].data).toEqual({
+      mode: 'ai',
+      staffUnread: 0,
+    });
+    // Visitas de las landings: el plazo de las de la web (480 días).
+    const promoCutoff = admin.promoLandingVisit.deleteMany.mock.calls[0]![0].where.createdAt
+      .lt as Date;
+    expect(Math.abs(promoCutoff.getTime() - (before - 480 * 86_400_000))).toBeLessThan(5000);
+    expect(admin.$executeRaw).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -133,8 +133,15 @@ Reglas ESTRICTAS:
 
 const MAX_TOOL_ITERATIONS = 8;
 
-/** Tope de la respuesta del chat de la web (respuestas cortas, menos coste). */
-const WEB_CHAT_MAX_TOKENS = 450;
+/**
+ * Tope del chat de la web. Los modelos recientes razonan antes de responder y
+ * ese razonamiento cuenta dentro del tope: con 450 la respuesta podía salir
+ * cortada o vacía. Se les pide poco razonamiento (`effort: low`) y se deja
+ * margen; lo corto lo pide el prompt, no el tope.
+ */
+const WEB_CHAT_MAX_TOKENS = 1500;
+/** Resumen al pasar a una persona: dos líneas, con el mismo margen. */
+const WEB_CHAT_SUMMARY_MAX_TOKENS = 800;
 /** Tiempo máximo del resumen al pasar a una persona: el visitante espera la respuesta. */
 const SUMMARY_TIMEOUT_MS = 20_000;
 
@@ -409,7 +416,7 @@ export class AiService {
     messages: AiMessageParam[];
     /** Texto según llega (streaming del widget). */
     onText?: (delta: string) => void;
-  }): Promise<{ text: string } | { limited: true }> {
+  }): Promise<{ text: string; stopReason: string } | { limited: true }> {
     const web = this.platformSettings.web;
     const reserved = await this.quota.reserveWeb(args.tenantId, web.model);
     if (reserved.kind === 'limit') return { limited: true };
@@ -420,8 +427,8 @@ export class AiService {
       return { limited: true };
     }
     const provider = own
-      ? this.provider.forKey(own.apiKey, own.model, WEB_CHAT_MAX_TOKENS)
-      : this.provider.forModel(web.model, WEB_CHAT_MAX_TOKENS);
+      ? this.provider.forKey(own.apiKey, own.model, WEB_CHAT_MAX_TOKENS, 'low')
+      : this.provider.forModel(web.model, WEB_CHAT_MAX_TOKENS, 'low');
     let completion: AiCompletion;
     try {
       const request = { system: args.system, messages: args.messages, tools: [] };
@@ -452,7 +459,8 @@ export class AiService {
       .map((b) => b.text)
       .join('')
       .trim();
-    return { text };
+    // `max_tokens`: cortada; `refusal`: el modelo no responde a eso. Lo trata el chat.
+    return { text, stopReason: completion.stopReason };
   }
 
   /**
@@ -472,8 +480,8 @@ export class AiService {
         return null;
       }
       const provider = own
-        ? this.provider.forKey(own.apiKey, own.model, 200)
-        : this.provider.forModel(web.model, 200);
+        ? this.provider.forKey(own.apiKey, own.model, WEB_CHAT_SUMMARY_MAX_TOKENS, 'low')
+        : this.provider.forModel(web.model, WEB_CHAT_SUMMARY_MAX_TOKENS, 'low');
       let completion: AiCompletion | null;
       try {
         completion = await Promise.race([

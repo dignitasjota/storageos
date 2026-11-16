@@ -580,6 +580,8 @@ model Tenant {
   webChatHandoffEnabled Boolean   @default(true) @map("web_chat_handoff_enabled")
   /// Usar las indicaciones del asistente de WhatsApp también en la web.
   webChatSharedInstructions Boolean @default(false) @map("web_chat_shared_instructions")
+  /// Horario del equipo para el chat de la web (null = siempre); fuera de él se avisa.
+  webChatTeamHours Json? @map("web_chat_team_hours")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1847,6 +1849,9 @@ model Contract {
   /// Firma remota: hash del token de firma (argon2) + expiración. Null si no hay solicitud activa.
   signingTokenHash       String?               @map("signing_token_hash")
   signingTokenExpiresAt  DateTime?             @map("signing_token_expires_at") @db.Timestamptz(6)
+  /// El mismo token cifrado (AES-GCM): los recordatorios reenvían el enlace vigente
+  /// en vez de generar otro (que anularía el que ya tiene el inquilino).
+  signingTokenEncrypted  String?               @map("signing_token_encrypted")
   /// Marca cuándo se emitió el aviso "vence pronto" (idempotencia del cron).
   endingSoonNotifiedAt   DateTime?             @map("ending_soon_notified_at") @db.Timestamptz(6)
   firstPaymentDeadline   DateTime?             @map("first_payment_deadline") @db.Timestamptz(6)
@@ -2046,6 +2051,10 @@ model MarketingChannel {
   externalUrl        String?   @map("external_url")
   monthlyCost        Decimal?  @map("monthly_cost") @db.Decimal(10, 2)
   renewsOn           DateTime? @map("renews_on") @db.Date
+  /// Cada cuántos meses se renueva (la fecha avanza sola al pasar); null = no se renueva.
+  renewalMonths      Int?      @map("renewal_months")
+  /// Fecha de renovación de la que ya se avisó (un aviso por renovación).
+  renewalNotifiedOn  DateTime? @map("renewal_notified_on") @db.Date
   utmSourceMatch     String?   @map("utm_source_match")
   /// ID de campaña en Google Ads / Meta Ads (según `type`), para
   /// sincronizar su gasto automáticamente. Ver `AdSpendSyncService`.
@@ -2054,6 +2063,11 @@ model MarketingChannel {
   promoLandingId     String?   @map("promo_landing_id") @db.Uuid
   shortCode          String?   @unique @map("short_code")
   clickCount         Int       @default(0) @map("click_count")
+  /// Sincronización del gasto con la plataforma de anuncios (por canal).
+  lastSyncAt         DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastSyncError      String?   @map("last_sync_error")
+  syncFailingSince   DateTime? @map("sync_failing_since") @db.Timestamptz(6)
+  syncFailureNotifiedAt DateTime? @map("sync_failure_notified_at") @db.Timestamptz(6)
   notes              String?
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -3918,6 +3932,8 @@ model Lead {
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, assignedToUserId])
+  @@index([tenantId, createdAt], map: "leads_tenant_created_idx")
+  @@index([tenantId, utmSource], map: "leads_tenant_utm_source_idx")
   @@map("leads")
 }
 
@@ -6137,6 +6153,7 @@ model WebEvent {
 
   @@index([tenantId, createdAt], map: "web_events_tenant_created_idx")
   @@index([tenantId, visitorId, createdAt], map: "web_events_visitor_idx")
+  @@index([createdAt], map: "web_events_created_idx")
   @@map("web_events")
 }
 
@@ -7358,6 +7375,10 @@ model WebChatConversation {
   staffUnread   Int      @default(0) @map("staff_unread")
   /// Última respuesta de una persona del equipo.
   staffRepliedAt DateTime? @map("staff_replied_at") @db.Timestamptz(6)
+  /// Origen de la visita del que escribe (el que trae el widget): sus reservas lo heredan.
+  utmSource     String?  @map("utm_source")
+  utmMedium     String?  @map("utm_medium")
+  utmCampaign   String?  @map("utm_campaign")
   messageCount  Int      @default(0) @map("message_count")
   lastMessageAt DateTime @default(now()) @map("last_message_at") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -7369,6 +7390,7 @@ model WebChatConversation {
 
   @@unique([tenantId, visitorId])
   @@index([tenantId, lastMessageAt])
+  @@index([tenantId, mode])
   @@map("web_chat_conversations")
 }
 

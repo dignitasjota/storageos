@@ -191,7 +191,8 @@ export class BookingRecoveryService {
     let url: string;
     let cta: string;
     if (!signed) {
-      const { token } = await this.signatures.generateSigningToken(contractId);
+      // El enlace vigente (el que dio el chat o el correo de la reserva) sigue valiendo.
+      const { token } = await this.signatures.currentOrNewSigningToken(contractId);
       const base =
         tenant.customDomain && tenant.customDomainVerifiedAt
           ? `https://${tenant.customDomain}`
