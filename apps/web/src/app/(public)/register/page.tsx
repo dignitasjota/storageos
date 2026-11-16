@@ -1,3 +1,4 @@
+import { normalizeSalesCode, SALES_CODE_PARAM } from '@storageos/shared';
 import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 
@@ -28,10 +29,12 @@ export default async function RegisterPage({
   const email = param(sp.email, 254);
   const tenantName = param(sp.company, 100);
   const fullName = param(sp.name, 200);
+  const salesCode = normalizeSalesCode(param(sp[SALES_CODE_PARAM], 40));
   const defaults = {
     ...(email ? { email } : {}),
     ...(tenantName ? { tenantName } : {}),
     ...(fullName ? { fullName } : {}),
+    ...(salesCode ? { salesCode } : {}),
   };
   return (
     <div className="container flex justify-center py-12">

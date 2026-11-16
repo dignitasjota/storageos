@@ -120,8 +120,9 @@ export class SuperAdminTwoFactorService {
       enabled: record.twoFactorEnabled,
       enrolledAt: record.twoFactorEnrolledAt ? record.twoFactorEnrolledAt.toISOString() : null,
       recoveryCodesRemaining: remaining,
-      required: settings?.requireAdminTwoFactor ?? false,
-      deadline: deadline ? deadline.toISOString() : null,
+      // Para un comercial es obligatoria siempre y sin plazo.
+      required: record.role === 'sales' || (settings?.requireAdminTwoFactor ?? false),
+      deadline: record.role === 'sales' ? null : deadline ? deadline.toISOString() : null,
     };
   }
 
@@ -222,7 +223,8 @@ export class SuperAdminTwoFactorService {
       });
     }
     const settings = await this.admin.platformSecuritySettings.findFirst();
-    if (settings?.requireAdminTwoFactor) {
+    // Los comerciales la tienen siempre (su panel no abre sin ella).
+    if (settings?.requireAdminTwoFactor || record.role === 'sales') {
       throw new BadRequestException({
         code: 'two_factor_required_by_policy',
         message: 'La política de la plataforma obliga a tener la verificación en dos pasos',

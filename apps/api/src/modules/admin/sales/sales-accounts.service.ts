@@ -1091,7 +1091,7 @@ export class SalesAccountsService {
         `Último contacto hace ${days} días${profile.lastOutcome ? `: ${SALES_CALL_OUTCOME_LABELS[profile.lastOutcome]}` : ''}.`,
       );
     } else {
-      lines.push('Aún no has hablado con él.');
+      lines.push('Aún no hay contactos anotados.');
     }
     if (lead.units) lines.push(`Trasteros: ${lead.units}.`);
     if (lead.currentSoftware) lines.push(`Usa ahora: ${lead.currentSoftware}.`);
@@ -1373,18 +1373,19 @@ export class SalesAccountsService {
         ),
       );
     const cutoff = now.getTime() - NO_CONTACT_DAYS * DAY;
+    // Las cuentas recién llegadas ya salen en «Altas con tu código».
     const noContact = clients
       .filter((c) => {
-        const last = c.profile?.lastContactAt;
-        return !last || new Date(last).getTime() < cutoff;
+        const ref = c.profile?.lastContactAt ?? c.assignedAt;
+        return !ref || new Date(ref).getTime() < cutoff;
       })
       .slice(0, 20)
       .map((c) =>
         row(
           c,
           c.profile?.lastContactAt
-            ? `Sin hablar desde ${c.profile.lastContactAt.slice(0, 10)}`
-            : 'Aún no has hablado con él',
+            ? `Sin hablar desde el ${c.profile.lastContactAt.slice(0, 10).split('-').reverse().join('/')}`
+            : 'Aún no hay contactos anotados',
           c.profile?.lastContactAt ?? null,
         ),
       );

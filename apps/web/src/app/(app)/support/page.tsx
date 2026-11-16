@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { SalesRepCard } from '@/components/billing/sales-rep-card';
 import { AttachmentPicker, uploadMessageAttachments } from '@/components/messages/attachments';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -110,6 +111,8 @@ export default function SupportPage() {
           Nuevo ticket
         </Button>
       </div>
+
+      <SalesRepCard />
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

@@ -251,6 +251,7 @@ function TwoFactorPolicyCard() {
 export default function AdminSecurityPage() {
   const router = useRouter();
   const status = useAdmin2faStatus();
+  const isSales = useAdminAuthStore((s) => s.superAdmin?.role === 'sales');
 
   const [setupUri, setSetupUri] = useState<string | null>(null);
   const [setupSecret, setSetupSecret] = useState<string | null>(null);
@@ -390,9 +391,23 @@ export default function AdminSecurityPage() {
         </CardContent>
       </Card>
 
+      {isSales && status.data?.enabled && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Todo listo</CardTitle>
+            <CardDescription>
+              Tu cuenta ya está protegida. Ya puedes usar tu panel comercial.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.push('/admin/sales')}>Ir a mi panel</Button>
+          </CardContent>
+        </Card>
+      )}
+
       <ChangePasswordCard />
       <OwnSessionsCard />
-      <TwoFactorPolicyCard />
+      {!isSales && <TwoFactorPolicyCard />}
 
       {setupUri && setupSecret && setupQrCode && (
         <Card>

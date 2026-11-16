@@ -82,18 +82,36 @@ export class SalesContentService {
     input: UpsertSalesMaterialInput,
     byId: string,
   ): Promise<SalesMaterialDto> {
+    const before = id ? await this.admin.salesMaterial.findUnique({ where: { id } }) : null;
+    if (id && !before) {
+      throw new NotFoundException({
+        code: 'material_not_found',
+        message: 'Material no encontrado',
+      });
+    }
     let file: { fileKey: string; fileName: string; mimeType: string } | null = null;
     if (input.kind === 'file') {
-      const key = input.fileKey!;
-      if (!key.startsWith(MATERIAL_PREFIX) || key.includes('..')) {
-        throw new BadRequestException({ code: 'invalid_file_key', message: 'Fichero no válido' });
+      const key = input.fileKey;
+      if (key) {
+        if (!key.startsWith(MATERIAL_PREFIX) || key.includes('..')) {
+          throw new BadRequestException({ code: 'invalid_file_key', message: 'Fichero no válido' });
+        }
+        const name = input.fileName ?? key.split('/').pop() ?? 'fichero';
+        const mime = this.mimeOf(name);
+        await this.files.assertObjectMimeType('uploads', key, [mime], SALES_MATERIAL_MAX_BYTES, {
+          mustExist: true,
+        });
+        file = { fileKey: key, fileName: name, mimeType: mime };
+      } else if (before?.kind === 'file' && before.fileKey) {
+        // Al editar sin subir otro: se queda el que tenía.
+        file = {
+          fileKey: before.fileKey,
+          fileName: before.fileName ?? 'fichero',
+          mimeType: before.mimeType ?? 'application/pdf',
+        };
+      } else {
+        throw new BadRequestException({ code: 'file_required', message: 'Sube el fichero' });
       }
-      const name = input.fileName ?? key.split('/').pop() ?? 'fichero';
-      const mime = this.mimeOf(name);
-      await this.files.assertObjectMimeType('uploads', key, [mime], SALES_MATERIAL_MAX_BYTES, {
-        mustExist: true,
-      });
-      file = { fileKey: key, fileName: name, mimeType: mime };
     }
     const data = {
       title: input.title,
@@ -107,17 +125,8 @@ export class SalesContentService {
       mimeType: file?.mimeType ?? null,
     };
     let row: SalesMaterial;
-    if (id) {
-      const before = await this.admin.salesMaterial.findUnique({ where: { id } });
-      if (!before)
-        throw new NotFoundException({
-          code: 'material_not_found',
-          message: 'Material no encontrado',
-        });
-      row = await this.admin.salesMaterial.update({
-        where: { id },
-        data: input.kind === 'file' && !file ? { ...data, fileKey: before.fileKey } : data,
-      });
+    if (before) {
+      row = await this.admin.salesMaterial.update({ where: { id: before.id }, data });
       if (before.fileKey && before.fileKey !== row.fileKey) {
         await this.files.deleteObjects('uploads', [before.fileKey]);
       }

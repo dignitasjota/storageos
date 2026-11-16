@@ -664,6 +664,38 @@ describe('Comerciales (e2e)', () => {
     }
   });
 
+  it('un comercial solo se gestiona en «Equipo comercial» y no puede quitarse la 2FA', async () => {
+    const viaSuperAdmins = await http()
+      .post('/admin/super-admins')
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ email: `otro-${STAMP}@storageos.local`, fullName: 'Otro Comercial', role: 'sales' });
+    expect(viaSuperAdmins.status).toBe(400);
+    expect(viaSuperAdmins.body.code).toBe('sales_role_locked');
+    const toSupport = await http()
+      .patch(`/admin/super-admins/${repBId}/role`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ role: 'support' });
+    expect(toSupport.status).toBe(400);
+    expect(toSupport.body.code).toBe('sales_role_locked');
+
+    const status = await http()
+      .get('/admin/auth/2fa/status')
+      .set('Authorization', `Bearer ${repBToken}`);
+    expect(status.body).toMatchObject({ required: true, deadline: null });
+    // Con 2FA activa en la base de datos, desactivarla no se permite (la contraseña es correcta).
+    await db.superAdmin.update({
+      where: { id: repBId },
+      data: { twoFactorSecretEncrypted: 'x' },
+    });
+    const disable = await http()
+      .post('/admin/auth/2fa/disable')
+      .set('Authorization', `Bearer ${repBToken}`)
+      .send({ password: PASSWORD });
+    expect(disable.status).toBe(400);
+    expect(disable.body.code).toBe('two_factor_required_by_policy');
+    await db.superAdmin.update({ where: { id: repBId }, data: { twoFactorSecretEncrypted: null } });
+  });
+
   it('materiales y plantillas: los prepara la dirección y los lee el comercial', async () => {
     const note = await http()
       .post('/admin/sales-team/materials')

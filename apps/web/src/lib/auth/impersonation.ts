@@ -113,3 +113,29 @@ export function leaveImpersonation(): void {
   if (typeof window === 'undefined') return;
   window.location.replace('/impersonation-ended');
 }
+
+/**
+ * Deja la sesión en `localStorage` con un código de un solo uso y abre el
+ * panel del tenant en una pestaña nueva (la recoge `claimImpersonation`).
+ */
+export function openImpersonationTab(session: {
+  accessToken: string;
+  tenantName: string;
+  tenantSlug: string;
+  expiresIn: number;
+  readOnly: boolean;
+}): void {
+  const nonce = crypto.randomUUID();
+  window.localStorage.setItem(
+    IMPERSONATION_HANDOFF_KEY,
+    JSON.stringify({
+      accessToken: session.accessToken,
+      tenantName: session.tenantName,
+      tenantSlug: session.tenantSlug,
+      expiresAt: Date.now() + session.expiresIn * 1000,
+      readOnly: session.readOnly,
+      nonce,
+    } satisfies Handoff),
+  );
+  window.open(`/dashboard?${IMPERSONATION_URL_PARAM}=${nonce}`, '_blank', 'noopener');
+}

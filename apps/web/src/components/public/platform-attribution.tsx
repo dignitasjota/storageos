@@ -4,6 +4,7 @@ import { PLATFORM_ATTRIBUTION_KEY } from '@storageos/shared';
 import { useEffect } from 'react';
 
 import { currentTrafficSource, recordVisit } from '@/lib/attribution';
+import { captureSalesCodeFromUrl } from '@/lib/sales-code';
 
 /**
  * Anota de dónde viene la visita a trasteros.pro (Google, un anuncio, una red
@@ -11,7 +12,12 @@ import { currentTrafficSource, recordVisit } from '@/lib/attribution';
  * registro lo guarden en el lead del panel admin.
  */
 export function PlatformAttribution() {
-  useEffect(() => recordVisit(PLATFORM_ATTRIBUTION_KEY), []);
+  useEffect(() => {
+    // El enlace o el QR de un comercial (`?comercial=`) queda guardado: el
+    // registro y los formularios lo llevan y la cuenta será suya.
+    captureSalesCodeFromUrl();
+    recordVisit(PLATFORM_ATTRIBUTION_KEY);
+  }, []);
   return null;
 }
 

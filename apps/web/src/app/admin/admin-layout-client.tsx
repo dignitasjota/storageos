@@ -42,6 +42,9 @@ import {
   Wallet,
   MessageCircle,
   Target,
+  Handshake,
+  BookOpen,
+  ClipboardCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -52,6 +55,7 @@ import type { SuperAdminDto, SuperAdminRefreshResponse } from '@storageos/shared
 
 import { AdminCommandPalette } from '@/components/admin/admin-command-palette';
 import { AdminRealtimeListener } from '@/components/admin/admin-realtime-listener';
+import { SalesShell } from '@/components/admin/sales/sales-shell';
 import { ConfirmProvider } from '@/components/confirm-provider';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { InstallPwaButton } from '@/components/pwa/install-pwa-button';
@@ -74,6 +78,7 @@ import {
   useAdminOpenTicketsCount,
   useAdminToday,
 } from '@/lib/admin/hooks';
+import { useSalesTeamPendingCount } from '@/lib/admin/sales-team-hooks';
 import { SUPERADMIN_ONLY_PATHS, useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { env } from '@/lib/env';
@@ -134,6 +139,15 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { href: '/admin/platform-sepa', label: 'Cuenta SEPA (BBVA)', icon: Landmark },
       { href: '/admin/platform-sepa/remittances', label: 'Remesas SEPA', icon: Landmark },
       { href: '/admin/platform-redsys', label: 'TPV Redsys (tarjeta y Bizum)', icon: CreditCard },
+    ],
+  },
+  {
+    label: 'Equipo comercial',
+    icon: Handshake,
+    children: [
+      { href: '/admin/sales-team', label: 'Comerciales', icon: Handshake },
+      { href: '/admin/sales-team/pending', label: 'Por decidir', icon: ClipboardCheck },
+      { href: '/admin/sales-team/content', label: 'Materiales y plantillas', icon: BookOpen },
     ],
   },
   {
@@ -216,8 +230,7 @@ export function AdminLayoutClient({ children }: { children: ReactNode }) {
           <div className="min-h-screen bg-background">{children}</div>
         ) : (
           <AdminGuard>
-            <AdminRealtimeListener />
-            <AdminShell>{children}</AdminShell>
+            <AdminByRole>{children}</AdminByRole>
           </AdminGuard>
         )}
       </ConfirmProvider>
@@ -320,6 +333,21 @@ function AdminGuard({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * El comercial tiene su propio panel (sin nada del resto de la administración);
+ * la dirección y soporte, el de siempre.
+ */
+function AdminByRole({ children }: { children: ReactNode }) {
+  const role = useAdminAuthStore((s) => s.superAdmin?.role);
+  if (role === 'sales') return <SalesShell>{children}</SalesShell>;
+  return (
+    <>
+      <AdminRealtimeListener />
+      <AdminShell>{children}</AdminShell>
+    </>
+  );
+}
+
 /** Un enlace de hoja del nav (con badge opcional de tickets en «Soporte»). */
 function AdminNavLink({
   item,
@@ -328,6 +356,7 @@ function AdminNavLink({
   urgentToday,
   onNavigate,
   nested,
+  salesPending,
 }: {
   item: AdminNavItem;
   pathname: string;
@@ -335,6 +364,8 @@ function AdminNavLink({
   urgentToday: number;
   onNavigate?: () => void;
   nested?: boolean;
+  /** Pendiente de decidir del equipo comercial (badge en «Por decidir»). */
+  salesPending?: number;
 }) {
   const Icon = item.icon;
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -355,6 +386,11 @@ function AdminNavLink({
       {item.href === '/admin/support' && openTickets > 0 && (
         <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-500 px-1 text-xs font-medium text-white">
           {openTickets}
+        </span>
+      )}
+      {item.href === '/admin/sales-team/pending' && (salesPending ?? 0) > 0 && (
+        <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-medium text-white">
+          {salesPending}
         </span>
       )}
       {item.href === '/admin/today' && urgentToday > 0 && (
@@ -382,6 +418,10 @@ function AdminNavLinks({
   // abierto si contiene la ruta activa (para que al navegar quede desplegado).
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  // El equipo comercial lo lleva la dirección (soporte no lo ve).
+  const isSuperadmin = useIsSuperadmin();
+  const salesPending = useSalesTeamPendingCount(isSuperadmin).data?.count ?? 0;
+  const groups = ADMIN_NAV.filter((g) => isSuperadmin || g.label !== 'Equipo comercial');
 
   const link = (item: AdminNavItem) => (
     <AdminNavLink
@@ -398,7 +438,7 @@ function AdminNavLinks({
       {/* «Hoy» fijo arriba: no se desplaza con los grupos. */}
       <div className="border-b border-border px-2 py-2">{link(ADMIN_NAV_TOP)}</div>
       <div className="scrollbar-subtle min-h-0 flex-1 space-y-1 overflow-y-auto px-2 py-3">
-        {ADMIN_NAV.map((entry) => {
+        {groups.map((entry) => {
           const hasActiveChild = entry.children.some((c) => isActive(c.href));
           const open = openGroups[entry.label] ?? hasActiveChild;
           const Icon = entry.icon;
@@ -431,6 +471,7 @@ function AdminNavLinks({
                       urgentToday={urgentToday}
                       onNavigate={onNavigate}
                       nested
+                      salesPending={salesPending}
                     />
                   ))}
                 </div>

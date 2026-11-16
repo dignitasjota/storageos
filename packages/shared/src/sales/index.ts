@@ -811,11 +811,8 @@ export const UpsertSalesMaterialSchema = z
     position: z.number().int().min(0).max(1000).default(0),
   })
   .refine((v) => v.kind !== 'link' || !!v.url, { message: 'Pon el enlace', path: ['url'] })
-  .refine((v) => v.kind !== 'note' || !!v.body, { message: 'Escribe el texto', path: ['body'] })
-  .refine((v) => v.kind !== 'file' || !!v.fileKey, {
-    message: 'Sube el fichero',
-    path: ['fileKey'],
-  });
+  // El fichero se exige al crear; al editar, sin `fileKey` se conserva el que tenía.
+  .refine((v) => v.kind !== 'note' || !!v.body, { message: 'Escribe el texto', path: ['body'] });
 export type UpsertSalesMaterialInput = z.infer<typeof UpsertSalesMaterialSchema>;
 
 export const SalesMaterialUploadSchema = z.object({
