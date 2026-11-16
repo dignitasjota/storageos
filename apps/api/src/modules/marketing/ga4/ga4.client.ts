@@ -31,7 +31,7 @@ const int = (v: string | undefined) => Math.round(Number(v) || 0);
  * en su propiedad.
  *
  * Con `NODE_ENV=test` o `GSC_MODE=stub` funciona simulado: la propiedad
- * `403403403` no da acceso, la propiedad `N` mide la web con el ID `G-N` y el
+ * `403403403` no da acceso (tampoco al descargar), la propiedad `N` mide la web con el ID `G-N` y el
  * resto devuelve datos generados.
  */
 @Injectable()
@@ -109,7 +109,10 @@ export class Ga4Client {
     startDate: string,
     endDate: string,
   ): Promise<Ga4SourceRowInput[]> {
-    if (this.stub) return stubSources(startDate, endDate);
+    if (this.stub) {
+      stubAccess(propertyId);
+      return stubSources(startDate, endDate);
+    }
     const rows = await this.paged(propertyId, {
       dateRanges: [{ startDate, endDate }],
       dimensions: [
@@ -145,7 +148,10 @@ export class Ga4Client {
     startDate: string,
     endDate: string,
   ): Promise<Ga4PageRowInput[]> {
-    if (this.stub) return stubPages(startDate, endDate);
+    if (this.stub) {
+      stubAccess(propertyId);
+      return stubPages(startDate, endDate);
+    }
     const rows = await this.paged(propertyId, {
       dateRanges: [{ startDate, endDate }],
       dimensions: [{ name: 'date' }, { name: 'pagePath' }],
@@ -227,4 +233,11 @@ function stubPages(startDate: string, endDate: string): Ga4PageRowInput[] {
     );
   }
   return out;
+}
+
+/** Simulado: la propiedad `403403403` no da acceso (como si nos quitaran el permiso). */
+function stubAccess(propertyId: string): void {
+  if (propertyId === '403403403') {
+    throw new GoogleApiError('User does not have sufficient permissions for this property', 403);
+  }
 }

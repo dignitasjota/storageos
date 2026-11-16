@@ -334,6 +334,11 @@ const envSchemaBase = z.object({
   GSC_MODE: z.enum(['stub', 'live']).optional(),
   /** Instagram y Facebook orgánico: `stub` = sin llamar a Meta. En tests siempre simulado. */
   SOCIAL_MODE: z.enum(['stub', 'live']).optional(),
+  /**
+   * Conversiones devueltas a Google Ads y Meta: `stub` = sin llamar a las
+   * plataformas (desarrollo). En tests siempre simulado.
+   */
+  AD_CONVERSIONS_MODE: z.enum(['stub', 'live']).optional(),
 
   // --- Notificaciones push (Web Push / VAPID) ---
   // Sin claves, el push queda desactivado (no-op). Generar con

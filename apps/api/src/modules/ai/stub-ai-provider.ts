@@ -137,6 +137,11 @@ export class StubAiProvider extends AiProvider {
     if (booking) return reply(`Perfecto, te lo preparo.\n[[RESERVA ${booking[1]}]]`);
     const waiting = /^espera\s+(\{[\s\S]*\})$/i.exec(text.trim());
     if (waiting) return reply(`Te apunto.\n[[ESPERA ${waiting[1]}]]`);
+    // «visita {json}» / «presupuesto {json}» → la marca con esos datos (pruebas).
+    const visit = /^visita\s+(\{[\s\S]*\})$/i.exec(text.trim());
+    if (visit) return reply(`Se lo paso al equipo.\n[[VISITA ${visit[1]}]]`);
+    const quote = /^presupuesto\s+(\{[\s\S]*\})$/i.exec(text.trim());
+    if (quote) return reply(`Te lo envío.\n[[PRESUPUESTO ${quote[1]}]]`);
     if (/persona|humano/i.test(text)) {
       return reply('Te paso con una persona del equipo.\n[[HUMANO]]');
     }

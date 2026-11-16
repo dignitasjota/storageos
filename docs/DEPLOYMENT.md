@@ -2615,3 +2615,37 @@ Sin variables nuevas. Lo que cambia:
 
 1. Revisar con la asesoría el texto nuevo de la política de cookies y de privacidad (chat de la web y medición propia).
 2. Los negocios con la renovación de un canal en los próximos 7 días ya avisados no recibirán otro aviso por la misma fecha.
+
+## 150. Marketing: mejoras (2026-11-16)
+
+Migración `20270202100000_marketing_features` (se aplica sola al arrancar el API):
+
+- Contactos: el canal con el que llegaron (cambiar después el origen de un canal ya no se los quita) y los identificadores del clic de los anuncios.
+- Canales: cupón, presupuesto del mes y los avisos ya enviados.
+- Google Ads y Meta: la acción de conversión y el píxel, y una tabla con cada contrato enviado (`ad_conversion_uploads`).
+- Visitas de la web: dos tablas ya sumadas (`web_visits` y `web_page_daily`) que leen los informes, **rellenas con las visitas que ya había** (con muchas visitas tarda unos segundos), y el local y el tamaño al empezar una reserva.
+- Notas en la gráfica de visitas, aviso de conexión rota de Google Analytics, redes y Search Console, clics al enlace de las publicaciones de Facebook, responsable de cada conversación del chat y aviso al 80 % de sus respuestas.
+
+Variables nuevas, todas opcionales (`x-app-env` de `docker-compose.portainer.yml`):
+
+- `META_APP_ID` y `META_APP_SECRET`: app de Meta de la plataforma para «Conectar con Facebook» en Marketing → Redes sociales. Vacías, cada negocio sigue pegando su token.
+- `AD_CONVERSIONS_MODE=stub`: solo en desarrollo, simula los envíos a Google Ads y Meta.
+
+Tareas programadas nuevas: `marketing-budgets.daily` (9:30, API), `marketing.ad-conversions` (cada 30 minutos, worker) y `web-chat.weekly-ratings` (lunes a las 9:15, API).
+
+Lo que cambia:
+
+- **Canales**: filtro por local; enlace de seguimiento para pegar en un anuncio o en la biografía de Instagram; cupón del canal (sus contratos cuentan para el canal); presupuesto del mes con lo gastado y aviso al pasarlo o si a mitad de mes hay gasto y ninguna reserva; QR en PNG grande y en SVG con un código fácil de teclear (los nuevos: 6 letras y cifras en mayúsculas); «Orígenes sin canal» con «Crear canal».
+- **Rendimiento**: elegir primer o último contacto, local, embudo completo (visitantes, contactos, reservas, clientes, pagados, cobrado y retorno) y CSV.
+- **Resumen**: el mismo mes del año pasado y filtro por local.
+- **Visitas**: embudo de la reserva online, nuevos y que vuelven, por dónde entran, cuándo llaman o escriben por WhatsApp, qué locales y tamaños buscan y notas en la gráfica. El navegador del equipo no cuenta; en el dominio propio, abrir la web una vez con `?no_track=1` desde cada móvil u ordenador del equipo.
+- **Redes**: «Conectar con Facebook» (con la app de Meta configurada), hasta qué día hay datos y qué funciona en las publicaciones (formato, día y hora).
+- **Conversiones a Google Ads y Meta**: los contratos firmados de quien llegó por un anuncio se devuelven a la plataforma (valor: la cuota mensual sin IVA). Solo si el visitante aceptó todas las cookies: con las conversiones activadas, el aviso de cookies sale en la web del negocio aunque no tenga Google Analytics, y la política de cookies lo explica.
+- **Chat de la web**: formulario para reservar sin pasar por la IA, «Déjanos tus datos» en cualquier momento, «¿Qué tamaño necesito?», «Nueva conversación» y el chat sigue abierto al cambiar de página; el asistente pide visitas al local (quedan en el calendario de contactos, por confirmar) y manda presupuestos por email; responsable de cada conversación; «Probar el asistente» en Configuración → Asistente IA; cifras con lo cobrado; «Respuestas que no gustaron» con aviso los lunes; aviso al 80 % de las respuestas del mes.
+- **Conexión rota**: si la descarga diaria de Google Analytics, Instagram y Facebook o Search Console falla, un aviso (y otro solo cuando vuelva a fallar tras funcionar).
+
+**Tras desplegar**:
+
+1. Para «Conectar con Facebook»: crear en Meta for Developers una app de tipo empresa con «Inicio de sesión con Facebook para empresas», autorizar la dirección de vuelta `https://api.trasteros.pro/v1/marketing/social/oauth/callback`, pedir a Meta los permisos `pages_show_list`, `pages_read_engagement`, `read_insights`, `instagram_basic`, `instagram_manage_insights` y `business_management` (la revisión de la app hace falta para usarlos con cuentas de otros), y poner `META_APP_ID` y `META_APP_SECRET` en Portainer.
+2. Probar las conversiones de Google Ads con una cuenta real: en Google Ads, una acción de conversión de tipo «Importar» → «Clics», y su ID (el número) en Marketing → Canales → Google Ads. En Meta, el ID del píxel; el token del negocio tiene que tener acceso a ese píxel. En las pruebas no se llama a ninguna de las dos.
+3. Revisar con la asesoría el párrafo nuevo de la política de cookies (identificadores de clic de los anuncios).
