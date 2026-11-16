@@ -239,13 +239,27 @@ export interface PromotionDto {
   validFrom: string | null;
   validUntil: string | null;
   isActive: boolean;
+  /** Se anuncia en la web pública y su código vale en la reserva online. */
+  announceOnWeb: boolean;
   createdAt: string;
+}
+
+/** Promoción aplicada en la reserva online (la que el negocio anuncia en su web). */
+export interface WebPromotionDto {
+  code: string;
+  name: string;
+  /** Cuota mensual sin la promoción, sin IVA. */
+  listPrice: number;
+  /** Descuento en cada cuota, sin IVA (0 si son meses gratis). */
+  monthlyDiscount: number;
+  /** Cuotas mensuales gratis tras el primer pago. */
+  freeMonths: number;
 }
 
 /** Resultado de validar/previsualizar un código promocional. */
 export interface ValidatePromotionResultDto {
   valid: boolean;
-  /** Motivo si `valid` es false (not_found | inactive | expired | not_started | max_uses_reached | unsupported_type). */
+  /** Motivo si `valid` es false (not_found | inactive | expired | not_started | max_uses_reached | not_for_unit | not_with_prepay). */
   reason: string | null;
   code: string;
   discountType: PromotionDiscountTypeValue | null;

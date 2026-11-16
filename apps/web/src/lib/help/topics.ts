@@ -164,8 +164,9 @@ export const HELP_TOPICS: HelpTopic[] = [
     summary: 'Atraer clientes y recuperar a los que se fueron.',
     steps: [
       'Una promoción descuenta todas las cuotas; un cupón, solo el primer pago.',
+      'La promoción que marques «En la web» se anuncia en tu web y su código vale en la reserva online.',
       'Las campañas envían un correo a quien elijas: inquilinos, contactos o antiguos clientes.',
-      'Con los referidos, quien te recomienda recibe un descuento en su factura.',
+      'Con los referidos, quien te recomienda recibe un descuento en su factura cuando su recomendado paga.',
     ],
     links: [
       { label: 'Promociones', href: '/promotions' },

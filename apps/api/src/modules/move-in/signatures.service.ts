@@ -653,6 +653,8 @@ export class SignaturesService {
         depositPaymentMethod: true,
         insurancePrice: true,
         insurancePlan: { select: { taxRate: true } },
+        freeMonthsRemaining: true,
+        promotion: { select: { code: true, name: true } },
         couponRedemptions: {
           take: 1,
           select: {
@@ -686,7 +688,7 @@ export class SignaturesService {
       ? firstMonthCents(Math.round(Number(c.insurancePrice ?? 0) * 100), plan).total / 100
       : Number(c.insurancePrice ?? 0) * months;
     const insuranceRate = Number(c.insurancePlan?.taxRate ?? 21);
-    return buildFirstPaymentQuote({
+    const quote = buildFirstPaymentQuote({
       monthlyPrice,
       months,
       vatRate: rentTax(propertyKind).taxRate,
@@ -701,6 +703,19 @@ export class SignaturesService {
         ? { code: coupon.coupon.code, name: coupon.coupon.name, valid: true, message: null }
         : null,
     });
+    // La promoción del contrato: descuento en todas las cuotas o cuotas gratis.
+    return c.promotion
+      ? {
+          ...quote,
+          promotion: {
+            code: c.promotion.code,
+            name: c.promotion.name,
+            listPrice: Number(c.priceMonthly),
+            monthlyDiscount: Number(c.discountAmount),
+            freeMonths: c.freeMonthsRemaining,
+          },
+        }
+      : quote;
   }
 
   /** Público: firma el contrato vía token. Activa el contrato y emite el evento. */

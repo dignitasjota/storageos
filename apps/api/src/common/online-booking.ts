@@ -10,6 +10,23 @@ type Db = Pick<Prisma.TransactionClient, 'contract' | 'invoice'>;
 export const BOOKING_HOLD_HOURS = 72;
 
 /**
+ * Una reserva online cuenta cuando se paga: hasta entonces solo retiene el
+ * trastero. El plazo se limpia tarde, así que se mira también la factura.
+ */
+export const COMMITTED_CONTRACT_WHERE: Prisma.ContractWhereInput = {
+  OR: [{ firstPaymentDeadline: null }, { invoices: { some: { status: 'paid', kind: 'invoice' } } }],
+};
+
+/**
+ * Contratos que hacen de alguien un cliente: firmados y, si nacieron de una
+ * reserva online, pagados. Quien reservó, firmó y nunca pagó no lo ha sido.
+ */
+export const CUSTOMER_CONTRACT_WHERE: Prisma.ContractWhereInput = {
+  signedAt: { not: null },
+  ...COMMITTED_CONTRACT_WHERE,
+};
+
+/**
  * ¿Es la primera factura de una reserva online (desde la web o el área de
  * clientes) que aún está en su plazo para pagarse? Esa factura se paga en la
  * propia reserva y, si no se paga a tiempo, la reserva caduca y la factura se

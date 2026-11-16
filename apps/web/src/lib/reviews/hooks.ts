@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
@@ -16,10 +16,28 @@ const reviewsKey = ['reviews'] as const;
 const reviewStatsKey = ['reviews', 'stats'] as const;
 const reviewsSettingsKey = ['settings', 'reviews'] as const;
 
+/** Historial por páginas («Cargar más»), con filtro de estado opcional. */
 export function useReviews(status?: string) {
-  return useQuery({
-    queryKey: [...reviewsKey, status ?? 'all'] as const,
-    queryFn: () => apiFetch<ReviewListDto>(`/reviews${status ? `?status=${status}` : ''}`),
+  return useInfiniteQuery({
+    queryKey: [...reviewsKey, 'list', status ?? 'all'] as const,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const qs = new URLSearchParams();
+      if (status) qs.set('status', status);
+      if (pageParam) qs.set('cursor', pageParam);
+      const query = qs.toString();
+      return apiFetch<ReviewListDto>(`/reviews${query ? `?${query}` : ''}`);
+    },
+    getNextPageParam: (last) => last.nextCursor,
+  });
+}
+
+/** Vuelve a enviar una valoración sin responder (enlace nuevo de 30 días). */
+export function useResendReview() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<ReviewDto>(`/reviews/${id}/resend`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: reviewsKey }),
   });
 }
 

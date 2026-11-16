@@ -15,6 +15,10 @@ export interface ReviewDto {
   submittedAt: string | null;
   /** El equipo la ha publicado en la web pública (testimonio). */
   publishedOnWeb: boolean;
+  /** Su autor dio permiso para publicarla en la web. */
+  publishConsent: boolean;
+  /** Enlace para responderla mientras está pendiente (null si no). */
+  reviewUrl: string | null;
   /** Cuándo se le pidió la reseña en Google (null = aún no). */
   googleRequestedAt: string | null;
   createdAt: string;

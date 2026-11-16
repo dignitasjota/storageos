@@ -20,6 +20,7 @@ import { ContractsService } from '../contracts/contracts.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { PromotionsService } from '../promotions/promotions.service';
 import { ReferralsService } from '../referrals/referrals.service';
 
 import { SignaturesService } from './signatures.service';
@@ -54,6 +55,7 @@ export class BookingService {
     private readonly contracts: ContractsService,
     private readonly signatures: SignaturesService,
     private readonly referrals: ReferralsService,
+    private readonly promotions: PromotionsService,
     private readonly coupons: CouponsService,
     private readonly events: EventEmitter2,
     private readonly config: ConfigService<Env, true>,
@@ -183,6 +185,7 @@ export class BookingService {
         tenant.webChatEnabled && (await tenantHasFeature(this.admin, tenant.id, 'ai_assistant')),
       customDomain:
         tenant.customDomain && tenant.customDomainVerifiedAt ? tenant.customDomain : null,
+      referralEnabled: tenant.referralEnabled,
       facilities: facilities
         .map((f) => ({
           id: f.id,
@@ -278,6 +281,7 @@ export class BookingService {
       // El más barato disponible (el precio que anuncia la web).
       orderBy: [{ basePriceMonthly: 'asc' }, { code: 'asc' }],
       select: {
+        id: true,
         basePriceMonthly: true,
         facility: { select: { preOpening: true } },
         unitType: { select: { propertyKind: true, defaultDepositAmount: true } },
@@ -299,14 +303,23 @@ export class BookingService {
           select: { id: true, depositExempt: true },
         })
       : null;
-    return this.coupons.quoteFirstPayment(tenantId, {
-      monthlyPrice: Number(unit.basePriceMonthly),
+    // El código puede ser un cupón (descuento en el primer pago) o la
+    // promoción que el negocio anuncia en su web (descuento en todas las cuotas
+    // o cuotas gratis). Primero el cupón.
+    const code = input.couponCode?.trim();
+    const listPrice = Number(unit.basePriceMonthly);
+    const promotion =
+      code && !(await this.coupons.exists(tenantId, code))
+        ? await this.promotions.quoteForWeb(tenantId, code, listPrice, unit.id)
+        : null;
+    const quote = await this.coupons.quoteFirstPayment(tenantId, {
+      monthlyPrice: promotion ? listPrice - promotion.monthlyDiscount : listPrice,
       months: input.months,
       unitTypeId: input.unitTypeId,
       facilityId: input.facilityId,
       propertyKind: unit.unitType.propertyKind,
       deposit: customer?.depositExempt ? 0 : Number(unit.unitType.defaultDepositAmount ?? 0),
-      couponCode: input.couponCode,
+      couponCode: promotion ? undefined : input.couponCode,
       isNewCustomer: customer ? await this.coupons.isNewCustomer(tenantId, customer.id) : null,
       customerId: customer?.id ?? null,
       publicMessages: true,
@@ -314,6 +327,13 @@ export class BookingService {
       preOpening: unit.facility.preOpening,
       ...(unit.facility.preOpening ? { months: 1 } : {}),
     });
+    return promotion
+      ? {
+          ...quote,
+          coupon: { code: promotion.code, name: promotion.name, valid: true, message: null },
+          promotion,
+        }
+      : quote;
   }
 
   /** Público: alta self-service → crea cliente + contrato draft + token de firma. */
@@ -354,8 +374,9 @@ export class BookingService {
     }
     await this.assertBookable(tenant);
     const tenantId = tenant.id;
-    const couponCode = input.couponCode?.trim() || undefined;
-    // El cupón se comprueba antes de reservar el trastero: si no vale, no se
+    let couponCode = input.couponCode?.trim() || undefined;
+    let promotionCode: string | undefined;
+    // El código se comprueba antes de reservar el trastero: si no vale, no se
     // crea nada y el visitante ve el motivo.
     if (couponCode) {
       const quote = await this.quoteFor(tenantId, {
@@ -371,6 +392,11 @@ export class BookingService {
           code: 'coupon_not_valid',
           message: quote.coupon.message ?? 'El cupón no es válido',
         });
+      }
+      // Era la promoción anunciada en la web, no un cupón.
+      if (quote.promotion) {
+        promotionCode = quote.promotion.code;
+        couponCode = undefined;
       }
     }
 
@@ -489,6 +515,7 @@ export class BookingService {
           billingIntervalMonths: 1,
           firstPaymentMonths: input.months,
           ...(couponCode ? { couponCode } : {}),
+          ...(promotionCode ? { promotionCode } : {}),
           prepayDiscountPct: 0,
           priceMonthly,
           discountAmount: 0,

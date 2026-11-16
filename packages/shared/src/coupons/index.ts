@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { firstMonthCents, type FirstMonthPlan } from '../billing/first-month';
 
+import type { WebPromotionDto } from '../billing/types';
+
 /**
  * Cupones: descuento sobre el pago que se hace en ese momento (el primer pago
  * del contrato, de 1 a 12 meses por adelantado). Las renovaciones van al
@@ -231,6 +233,11 @@ export interface FirstPaymentQuoteDto {
   } | null;
   /** Cupón indicado: si vale y, si no, por qué. */
   coupon: { code: string; name: string | null; valid: boolean; message: string | null } | null;
+  /**
+   * Promoción del contrato (descuento en todas las cuotas o cuotas gratis tras
+   * el primer pago): `monthlyPrice` ya la lleva descontada.
+   */
+  promotion?: WebPromotionDto | null;
 }
 
 /** Resumen del primer pago en la reserva online (antes de crearla). */

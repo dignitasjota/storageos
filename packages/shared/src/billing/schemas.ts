@@ -577,6 +577,35 @@ const promotionCodeField = z
   .max(40)
   .regex(/^[A-Z0-9_-]+$/, 'Solo letras, números, guion y guion bajo');
 
+interface PromotionRuleFields {
+  discountType?: string | undefined;
+  discountValue?: number | undefined;
+  validFrom?: string | null | undefined;
+  validUntil?: string | null | undefined;
+}
+
+/** Reglas que cruzan campos de una promoción (al crearla y sobre el resultado al cambiarla). */
+export function promotionRuleIssues(v: PromotionRuleFields): { path: string; message: string }[] {
+  const issues: { path: string; message: string }[] = [];
+  if (v.discountType === 'percentage' && v.discountValue !== undefined && v.discountValue > 100) {
+    issues.push({ path: 'discountValue', message: 'El porcentaje no puede superar 100' });
+  }
+  if (
+    v.discountType === 'free_months' &&
+    v.discountValue !== undefined &&
+    !Number.isInteger(v.discountValue)
+  ) {
+    issues.push({ path: 'discountValue', message: 'Los meses gratis deben ser un número entero' });
+  }
+  if (v.validFrom && v.validUntil && new Date(v.validFrom) >= new Date(v.validUntil)) {
+    issues.push({
+      path: 'validUntil',
+      message: 'La fecha de fin debe ser posterior a la de inicio',
+    });
+  }
+  return issues;
+}
+
 export const CreatePromotionSchema = z
   .object({
     code: promotionCodeField,
@@ -588,33 +617,28 @@ export const CreatePromotionSchema = z
     validFrom: z.string().datetime({ offset: true }).optional(),
     validUntil: z.string().datetime({ offset: true }).optional(),
     isActive: z.boolean().default(true),
+    /** Se anuncia en la web pública y su código vale en la reserva online. */
+    announceOnWeb: z.boolean().default(false),
   })
-  .refine((v) => v.discountType !== 'percentage' || v.discountValue <= 100, {
-    message: 'El porcentaje no puede superar 100',
-    path: ['discountValue'],
-  })
-  .refine((v) => v.discountType !== 'free_months' || Number.isInteger(v.discountValue), {
-    message: 'Los meses gratis deben ser un número entero',
-    path: ['discountValue'],
+  .superRefine((v, ctx) => {
+    for (const issue of promotionRuleIssues(v)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue.message, path: [issue.path] });
+    }
   });
 export type CreatePromotionInput = z.infer<typeof CreatePromotionSchema>;
 
-export const UpdatePromotionSchema = z
-  .object({
-    name: z.string().trim().min(1).max(120).optional(),
-    discountType: PromotionDiscountTypeEnum.optional(),
-    discountValue: positiveDecimal.optional(),
-    appliesTo: z.record(z.unknown()).optional(),
-    maxUses: z.number().int().positive().nullable().optional(),
-    validFrom: z.string().datetime({ offset: true }).nullable().optional(),
-    validUntil: z.string().datetime({ offset: true }).nullable().optional(),
-    isActive: z.boolean().optional(),
-  })
-  .refine(
-    (v) =>
-      v.discountType !== 'percentage' || v.discountValue === undefined || v.discountValue <= 100,
-    { message: 'El porcentaje no puede superar 100', path: ['discountValue'] },
-  );
+/** Las reglas que cruzan campos se comprueban en el servidor sobre el resultado. */
+export const UpdatePromotionSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  discountType: PromotionDiscountTypeEnum.optional(),
+  discountValue: positiveDecimal.optional(),
+  appliesTo: z.record(z.unknown()).optional(),
+  maxUses: z.number().int().positive().nullable().optional(),
+  validFrom: z.string().datetime({ offset: true }).nullable().optional(),
+  validUntil: z.string().datetime({ offset: true }).nullable().optional(),
+  isActive: z.boolean().optional(),
+  announceOnWeb: z.boolean().optional(),
+});
 export type UpdatePromotionInput = z.infer<typeof UpdatePromotionSchema>;
 
 /** Previsualiza el descuento de un código sobre un precio mensual dado. */
@@ -623,6 +647,8 @@ export const ValidatePromotionSchema = z.object({
   monthlyPrice: z.number().nonnegative(),
   /** Trastero a contratar: una oferta de trastero solo vale para el suyo. */
   unitId: z.string().uuid().optional(),
+  /** Cada cuántos meses se factura: los meses gratis no valen con prepago. */
+  billingIntervalMonths: z.number().int().min(1).max(12).optional(),
 });
 export type ValidatePromotionInput = z.infer<typeof ValidatePromotionSchema>;
 

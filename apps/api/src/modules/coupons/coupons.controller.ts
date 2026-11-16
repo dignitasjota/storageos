@@ -25,6 +25,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertWholeBusiness } from '../../common/facility-scope';
 
 import { CouponsService } from './coupons.service';
 
@@ -48,7 +49,8 @@ export class CouponsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateCouponDto,
   ): Promise<CouponDto> {
-    return this.coupons.create(user.tenantId, body);
+    assertWholeBusiness(user.facilityScope);
+    return this.coupons.create(user.tenantId, body, user.sub);
   }
 
   /** Comprueba un cupón para un trastero y unos meses (alta de contrato). */
@@ -78,7 +80,8 @@ export class CouponsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateCouponDto,
   ): Promise<CouponDto> {
-    return this.coupons.update(user.tenantId, id, body);
+    assertWholeBusiness(user.facilityScope);
+    return this.coupons.update(user.tenantId, id, body, user.sub);
   }
 
   @RequirePermission('promotions:manage')
@@ -88,6 +91,7 @@ export class CouponsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.coupons.remove(user.tenantId, id);
+    assertWholeBusiness(user.facilityScope);
+    await this.coupons.remove(user.tenantId, id, user.sub);
   }
 }

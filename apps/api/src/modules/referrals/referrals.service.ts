@@ -3,14 +3,38 @@ import { randomInt } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import { formatEur } from '../../common/format';
-import { DOMAIN_EVENTS, type DomainEventPayload } from '../automations/domain-events';
+import {
+  type BookingExpiredPayload,
+  DOMAIN_EVENTS,
+  type DomainEventPayload,
+} from '../automations/domain-events';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
+import type { FacilityScope } from '../../common/facility-scope';
 import type { Prisma } from '@storageos/database';
-import type { PortalReferralDto, ReferralDto, ReferralStatsDto } from '@storageos/shared';
+import type {
+  CustomerReferralCodeDto,
+  PortalReferralDto,
+  ReferralDto,
+  ReferralStatsDto,
+} from '@storageos/shared';
+
+/** Formas de pago que no son dinero que entra (no dan por pagado al recomendado). */
+const NOT_MONEY = ['credit_note', 'withholding', 'deposit'] as const;
+
+/** Lo que una factura descuenta de una recompensa (para enlazarla o devolverla). */
+export interface RewardClaim {
+  referralId: string;
+  /** Céntimos descontados en esta factura. */
+  cents: number;
+  /** Céntimos que llevaba descontados antes (recompensa fija repartida). */
+  previousCents: number;
+}
 
 // Sin caracteres ambiguos (0/O, 1/I).
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -34,7 +58,13 @@ function displayName(c: {
 type ReferralRow = Prisma.ReferralGetPayload<{
   include: {
     referrer: {
-      select: { firstName: true; lastName: true; companyName: true; customerType: true };
+      select: {
+        firstName: true;
+        lastName: true;
+        companyName: true;
+        customerType: true;
+        contracts: { select: { id: true } };
+      };
     };
     referred: {
       select: { firstName: true; lastName: true; companyName: true; customerType: true };
@@ -44,6 +74,34 @@ type ReferralRow = Prisma.ReferralGetPayload<{
   };
 }>;
 
+const REFERRAL_INCLUDE = {
+  referrer: {
+    select: {
+      firstName: true,
+      lastName: true,
+      companyName: true,
+      customerType: true,
+      // ¿Sigue siendo inquilino? Sin contrato en vigor no hay factura donde descontar.
+      contracts: {
+        where: { deletedAt: null, status: { in: ['active', 'ending'] } },
+        select: { id: true },
+        take: 1,
+      },
+    },
+  },
+  referred: {
+    select: { firstName: true, lastName: true, companyName: true, customerType: true },
+  },
+  rewardPromotion: { select: { code: true } },
+  rewardInvoice: { select: { invoiceNumber: true } },
+} satisfies Prisma.ReferralInclude;
+
+/** Referidos que ve quien solo tiene unos locales: los dos inquilinos a su alcance. */
+function referralScopeWhere(scope: FacilityScope): Prisma.ReferralWhereInput {
+  if (!scope) return {};
+  return { referrer: customerScopeWhere(scope), referred: customerScopeWhere(scope) };
+}
+
 @Injectable()
 export class ReferralsService {
   private readonly logger = new Logger(ReferralsService.name);
@@ -52,6 +110,7 @@ export class ReferralsService {
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly communications: CommunicationsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private toDto(r: ReferralRow): ReferralDto {
@@ -68,10 +127,12 @@ export class ReferralsService {
           ? {
               type: r.rewardType as 'percentage' | 'fixed',
               value: Number(r.rewardValue),
+              appliedAmount: Number(r.rewardAppliedAmount),
               appliedAt: r.rewardAppliedAt?.toISOString() ?? null,
               invoiceNumber: r.rewardInvoice?.invoiceNumber ?? null,
             }
           : null,
+      referrerActive: r.referrer.contracts.length > 0,
       createdAt: r.createdAt.toISOString(),
       convertedAt: r.convertedAt?.toISOString() ?? null,
     };
@@ -95,6 +156,12 @@ export class ReferralsService {
     try {
       const code = referralCode.trim().toUpperCase();
       if (!code) return;
+      // Con el programa apagado no se registra nada (quedaría pendiente para siempre).
+      const tenant = await tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: { referralEnabled: true },
+      });
+      if (!tenant?.referralEnabled) return;
       const referrer = await tx.customer.findFirst({
         where: { tenantId, referralCode: code, deletedAt: null },
         select: { id: true },
@@ -117,40 +184,69 @@ export class ReferralsService {
   }
 
   // ---------------------------------------------------------------------
-  // Conversión + recompensa (al firmar el primer contrato del referido)
+  // Conversión + recompensa (cuando el recomendado paga su primera factura)
   // ---------------------------------------------------------------------
 
-  @OnEvent(DOMAIN_EVENTS.contract_signed, { async: true, promisify: true })
-  async onContractSigned(payload: DomainEventPayload): Promise<void> {
+  /**
+   * La recompensa se gana cuando el recomendado PAGA, no al firmar: una reserva
+   * online se firma gratis y, sin pago, caduca sola a los pocos días.
+   */
+  @OnEvent(DOMAIN_EVENTS.invoice_paid, { async: true, promisify: true })
+  async onInvoicePaid(payload: DomainEventPayload): Promise<void> {
     const customerId = payload.customerId;
-    if (!customerId) return;
+    if (!customerId || payload.entityType !== 'invoice') return;
     try {
       const referral = await this.admin.referral.findFirst({
-        where: { tenantId: payload.tenantId, referredCustomerId: customerId, status: 'pending' },
+        where: {
+          tenantId: payload.tenantId,
+          referredCustomerId: customerId,
+          status: { in: ['pending', 'cancelled'] },
+        },
       });
       if (!referral) return;
+      // Dinero de verdad en una factura de su contrato (no un abono, una
+      // retención ni una factura de 0 € saldada sola).
+      const paid = await this.admin.payment.findFirst({
+        where: {
+          tenantId: payload.tenantId,
+          invoiceId: payload.entityId,
+          status: { in: ['succeeded', 'partially_refunded'] },
+          amount: { gt: 0 },
+          methodType: { notIn: [...NOT_MONEY] },
+          invoice: { customerId, kind: 'invoice', contractId: { not: null } },
+        },
+        select: { id: true },
+      });
+      if (!paid) return;
       const tenant = await this.admin.tenant.findUnique({
         where: { id: payload.tenantId },
         select: { referralEnabled: true, referralRewardType: true, referralRewardValue: true },
       });
       if (!tenant?.referralEnabled) return;
 
-      // La recompensa es un descuento en la siguiente factura de quien recomienda
-      // (la aplica la facturación recurrente). Antes era un código de promoción
-      // que solo valía al crear un contrato nuevo: un cliente no podía usarlo.
+      // La recompensa es un descuento en las siguientes facturas de quien
+      // recomienda (lo aplica la facturación recurrente).
       const rewardValue = Number(tenant.referralRewardValue);
       const hasReward = rewardValue > 0 && tenant.referralRewardType !== 'free_months';
-      await this.admin.referral.update({
-        where: { id: referral.id },
+      // Reserva atómica: dos pagos a la vez no la conceden dos veces.
+      const converted = await this.admin.referral.updateMany({
+        where: { id: referral.id, status: { in: ['pending', 'cancelled'] } },
         data: {
           status: 'converted',
           convertedAt: new Date(),
           ...(hasReward ? { rewardType: tenant.referralRewardType, rewardValue } : {}),
         },
       });
+      if (converted.count === 0) return;
       this.logger.log(
         `[referrals] convertido referral ${referral.id}${hasReward ? ' + recompensa' : ''}`,
       );
+      const reward = hasReward
+        ? tenant.referralRewardType === 'percentage'
+          ? `un ${rewardValue} % de su cuota`
+          : formatEur(rewardValue)
+        : null;
+      await this.notifyStaff(payload.tenantId, referral, reward);
       if (hasReward) {
         await this.notifyReferrer(
           payload.tenantId,
@@ -164,6 +260,82 @@ export class ReferralsService {
     } catch (err) {
       this.logger.error(
         `[referrals] conversión falló para customer ${customerId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /** El recomendado se quedó sin contrato antes de pagar: su referido no llegó a nada. */
+  @OnEvent(DOMAIN_EVENTS.booking_expired, { async: true, promisify: true })
+  async onBookingExpired(payload: BookingExpiredPayload): Promise<void> {
+    await this.cancelIfGone(payload.tenantId, payload.customerId);
+  }
+
+  @OnEvent(DOMAIN_EVENTS.contract_ended, { async: true, promisify: true })
+  async onContractEnded(payload: DomainEventPayload): Promise<void> {
+    if (payload.customerId) await this.cancelIfGone(payload.tenantId, payload.customerId);
+  }
+
+  /**
+   * Un referido pendiente cuyo recomendado ya no tiene ningún contrato en
+   * marcha pasa a «cancelado». Si vuelve y paga, se convierte igualmente.
+   */
+  private async cancelIfGone(tenantId: string, referredId: string): Promise<void> {
+    try {
+      const live = await this.admin.contract.count({
+        where: {
+          tenantId,
+          customerId: referredId,
+          deletedAt: null,
+          status: { in: ['draft', 'active', 'ending'] },
+        },
+      });
+      if (live > 0) return;
+      await this.admin.referral.updateMany({
+        where: { tenantId, referredCustomerId: referredId, status: 'pending' },
+        data: { status: 'cancelled' },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[referrals] no se pudo cancelar el referido de ${referredId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /** Aviso al equipo: un referido ya es cliente (y qué recompensa se lleva quien recomendó). */
+  private async notifyStaff(
+    tenantId: string,
+    referral: { referrerCustomerId: string; referredCustomerId: string },
+    reward: string | null,
+  ): Promise<void> {
+    try {
+      const people = await this.admin.customer.findMany({
+        where: {
+          tenantId,
+          id: { in: [referral.referrerCustomerId, referral.referredCustomerId] },
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+          customerType: true,
+        },
+      });
+      const nameOf = (id: string) => {
+        const c = people.find((x) => x.id === id);
+        return c ? displayName(c) : 'Un inquilino';
+      };
+      await this.notifications.create(tenantId, {
+        type: 'referral.converted',
+        title: `${nameOf(referral.referredCustomerId)} ya es cliente por una recomendación`,
+        body: reward
+          ? `Le recomendó ${nameOf(referral.referrerCustomerId)}, que tendrá ${reward} de descuento en su próxima factura.`
+          : `Le recomendó ${nameOf(referral.referrerCustomerId)}.`,
+        link: '/referrals',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[referrals] aviso al equipo falló: ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -208,16 +380,17 @@ export class ReferralsService {
 
   /**
    * Recompensas pendientes de quien recomienda, para la factura de su contrato:
-   * las reserva (marca aplicadas) y devuelve el descuento a restar de la cuota.
-   * Un porcentaje se calcula sobre la cuota de esa factura; el importe fijo, con
-   * tope en la cuota (lo que no cabe se queda para la siguiente).
+   * las reserva y devuelve el descuento a restar de la cuota. Un porcentaje se
+   * calcula sobre la cuota de esa factura y va entero (si no cabe, espera a la
+   * siguiente). El importe fijo se reparte: lo que no cabe en esta factura se
+   * descuenta en las siguientes.
    */
   async claimRewardsForInvoice(
     tenantId: string,
     customerId: string,
     rentAmount: number,
-  ): Promise<{ referralIds: string[]; discount: number }> {
-    if (rentAmount <= 0) return { referralIds: [], discount: 0 };
+  ): Promise<{ claims: RewardClaim[]; discount: number }> {
+    if (rentAmount <= 0) return { claims: [], discount: 0 };
     const pending = await this.admin.referral.findMany({
       where: {
         tenantId,
@@ -227,58 +400,75 @@ export class ReferralsService {
         rewardValue: { not: null },
       },
       orderBy: { convertedAt: 'asc' },
-      select: { id: true, rewardType: true, rewardValue: true },
+      select: { id: true, rewardType: true, rewardValue: true, rewardAppliedAmount: true },
     });
-    const ids: string[] = [];
+    const claims: RewardClaim[] = [];
     let discountCents = 0;
     const rentCents = Math.round(rentAmount * 100);
     for (const p of pending) {
-      const value = Number(p.rewardValue);
-      const cents =
-        p.rewardType === 'percentage'
-          ? Math.round((rentCents * value) / 100)
-          : Math.round(value * 100);
-      if (cents <= 0 || discountCents + cents > rentCents) continue;
-      // Reserva atómica: con dos contratos a la vez, solo uno la aplica.
+      const room = rentCents - discountCents;
+      if (room <= 0) break;
+      const valueCents = Math.round(Number(p.rewardValue) * 100);
+      const previousCents = Math.round(Number(p.rewardAppliedAmount) * 100);
+      const now = new Date();
+      if (p.rewardType === 'percentage') {
+        const cents = Math.round((rentCents * Math.min(100, Number(p.rewardValue))) / 100);
+        if (cents <= 0 || cents > room) continue;
+        // Reserva atómica: con dos contratos a la vez, solo uno la aplica.
+        const claimed = await this.admin.referral.updateMany({
+          where: { id: p.id, rewardAppliedAt: null },
+          data: { rewardAppliedAt: now, rewardAppliedAmount: cents / 100 },
+        });
+        if (claimed.count === 0) continue;
+        claims.push({ referralId: p.id, cents, previousCents: 0 });
+        discountCents += cents;
+        continue;
+      }
+      const remaining = valueCents - previousCents;
+      const cents = Math.min(remaining, room);
+      if (cents <= 0) continue;
       const claimed = await this.admin.referral.updateMany({
-        where: { id: p.id, rewardAppliedAt: null },
-        data: { rewardAppliedAt: new Date() },
+        where: { id: p.id, rewardAppliedAt: null, rewardAppliedAmount: previousCents / 100 },
+        data: {
+          rewardAppliedAmount: (previousCents + cents) / 100,
+          ...(cents === remaining ? { rewardAppliedAt: now } : {}),
+        },
       });
       if (claimed.count === 0) continue;
-      ids.push(p.id);
+      claims.push({ referralId: p.id, cents, previousCents });
       discountCents += cents;
     }
-    return { referralIds: ids, discount: discountCents / 100 };
+    return { claims, discount: discountCents / 100 };
   }
 
-  /** Enlaza las recompensas a la factura que las aplicó, o las libera si falló. */
-  async settleRewards(referralIds: string[], invoiceId: string | null): Promise<void> {
-    if (referralIds.length === 0) return;
-    await this.admin.referral.updateMany({
-      where: { id: { in: referralIds } },
-      data: invoiceId ? { rewardInvoiceId: invoiceId } : { rewardAppliedAt: null },
-    });
+  /** Enlaza las recompensas a la factura que las aplicó, o las devuelve si falló. */
+  async settleRewards(claims: RewardClaim[], invoiceId: string | null): Promise<void> {
+    if (claims.length === 0) return;
+    if (invoiceId) {
+      await this.admin.referral.updateMany({
+        where: { id: { in: claims.map((c) => c.referralId) } },
+        data: { rewardInvoiceId: invoiceId },
+      });
+      return;
+    }
+    for (const c of claims) {
+      await this.admin.referral.updateMany({
+        where: { id: c.referralId },
+        data: { rewardAppliedAt: null, rewardAppliedAmount: c.previousCents / 100 },
+      });
+    }
   }
 
   // ---------------------------------------------------------------------
   // Lectura (panel staff)
   // ---------------------------------------------------------------------
 
-  async list(tenantId: string): Promise<ReferralDto[]> {
+  async list(tenantId: string, scope: FacilityScope = null): Promise<ReferralDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.referral.findMany({
-          where: { tenantId },
-          include: {
-            referrer: {
-              select: { firstName: true, lastName: true, companyName: true, customerType: true },
-            },
-            referred: {
-              select: { firstName: true, lastName: true, companyName: true, customerType: true },
-            },
-            rewardPromotion: { select: { code: true } },
-            rewardInvoice: { select: { invoiceNumber: true } },
-          },
+          where: { tenantId, ...referralScopeWhere(scope) },
+          include: REFERRAL_INCLUDE,
           orderBy: { createdAt: 'desc' },
         }),
       tenantId,
@@ -286,9 +476,13 @@ export class ReferralsService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async stats(tenantId: string): Promise<ReferralStatsDto> {
+  async stats(tenantId: string, scope: FacilityScope = null): Promise<ReferralStatsDto> {
     const rows = await this.prisma.withTenant(
-      (tx) => tx.referral.findMany({ where: { tenantId }, select: { status: true } }),
+      (tx) =>
+        tx.referral.findMany({
+          where: { tenantId, ...referralScopeWhere(scope) },
+          select: { status: true },
+        }),
       tenantId,
     );
     return {
@@ -296,6 +490,16 @@ export class ReferralsService {
       pending: rows.filter((r) => r.status === 'pending').length,
       converted: rows.filter((r) => r.status === 'converted').length,
     };
+  }
+
+  /** Código de un inquilino para dárselo en mano (lo crea si aún no tiene). */
+  async codeForStaff(tenantId: string, customerId: string): Promise<CustomerReferralCodeDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { referralEnabled: true },
+    });
+    if (!tenant?.referralEnabled) return { enabled: false, referralCode: null };
+    return { enabled: true, referralCode: await this.ensureCode(tenantId, customerId) };
   }
 
   // ---------------------------------------------------------------------
@@ -340,6 +544,7 @@ export class ReferralsService {
             {
               type: r.rewardType as 'percentage' | 'fixed',
               value: Number(r.rewardValue),
+              appliedAmount: Number(r.rewardAppliedAmount),
               appliedAt: r.rewardAppliedAt?.toISOString() ?? null,
               invoiceNumber: r.rewardInvoice?.invoiceNumber ?? null,
               code: null,
@@ -352,6 +557,7 @@ export class ReferralsService {
               {
                 type: 'fixed' as const,
                 value: 0,
+                appliedAmount: 0,
                 appliedAt: null,
                 invoiceNumber: null,
                 code: r.rewardPromotion.code,

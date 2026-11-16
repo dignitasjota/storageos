@@ -14,7 +14,9 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { OptionalDateSelect } from '@/components/optional-date-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -36,7 +38,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import {
   useCouponRedemptions,
   useCoupons,
@@ -62,7 +64,9 @@ export default function CouponsPage() {
   const facilities = useFacilities();
   const update = useUpdateCoupon();
   const remove = useDeleteCoupon();
-  const canManage = useHasPermission('promotions:manage');
+  // Valen para todo el negocio: los gestiona quien ve todos los locales.
+  const companyWide = useCompanyWide();
+  const canManage = useHasPermission('promotions:manage') && companyWide;
   const [editing, setEditing] = useState<CouponDto | 'new' | null>(null);
   const [usesOf, setUsesOf] = useState<CouponDto | null>(null);
 
@@ -205,23 +209,32 @@ export default function CouponsPage() {
           </Link>
           .
         </p>
+        {!companyWide && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Los cupones valen para todo el negocio: los crea y cambia quien ve todos los locales.
+          </p>
+        )}
       </div>
 
-      <DataTable
-        columns={columns}
-        data={coupons.data ?? []}
-        isLoading={coupons.isLoading}
-        searchPlaceholder="Buscar por código o nombre..."
-        guide="promociones"
-        emptyText="Un cupón descuenta el primer pago al contratar: útil en anuncios y en la web."
-        toolbarRight={
-          canManage ? (
-            <Button onClick={() => setEditing('new')}>
-              <Plus className="mr-1 h-4 w-4" /> Nuevo cupón
-            </Button>
-          ) : null
-        }
-      />
+      {coupons.isError ? (
+        <SectionError onRetry={() => void coupons.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={coupons.data ?? []}
+          isLoading={coupons.isLoading}
+          searchPlaceholder="Buscar por código o nombre..."
+          guide="promociones"
+          emptyText="Un cupón descuenta el primer pago al contratar: útil en anuncios y en la web."
+          toolbarRight={
+            canManage ? (
+              <Button onClick={() => setEditing('new')}>
+                <Plus className="mr-1 h-4 w-4" /> Nuevo cupón
+              </Button>
+            ) : null
+          }
+        />
+      )}
 
       {editing && (
         <CouponDialog
@@ -459,29 +472,19 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
                 placeholder="Sin límite"
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="coupon-from">Válido desde</Label>
-              <Input
-                id="coupon-from"
-                type="date"
-                value={validFrom}
-                onChange={(e) => setValidFrom(e.target.value)}
-              />
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Válido desde</Label>
+              <OptionalDateSelect value={validFrom} onChange={setValidFrom} />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="coupon-until">Válido hasta</Label>
-              <Input
-                id="coupon-until"
-                type="date"
-                value={validUntil}
-                onChange={(e) => setValidUntil(e.target.value)}
-              />
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Válido hasta</Label>
+              <OptionalDateSelect value={validUntil} onChange={setValidUntil} />
             </div>
           </div>
 
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={newOnly} onCheckedChange={(v) => setNewOnly(v === true)} />
-            Solo para clientes nuevos (sin ningún contrato firmado antes)
+            Solo para clientes nuevos (que no hayan sido inquilinos antes)
           </label>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox

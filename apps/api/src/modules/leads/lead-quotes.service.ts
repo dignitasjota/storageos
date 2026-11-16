@@ -17,6 +17,7 @@ import { assertFacilityAllowed, type FacilityScope } from '../../common/facility
 import { formatEur, todayInTimezone } from '../../common/format';
 import { leadReplyAddress } from '../../common/lead-reply-address';
 import { leadScopeWhere } from '../../common/lead-scope';
+import { CUSTOMER_CONTRACT_WHERE } from '../../common/online-booking';
 import { AuditService, type AuditEntry } from '../auth/audit.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -120,7 +121,7 @@ export class LeadQuotesService {
             tenantId,
             deletedAt: null,
             email: { equals: lead.email, mode: 'insensitive' },
-            contracts: { some: { signedAt: { not: null } } },
+            contracts: { some: CUSTOMER_CONTRACT_WHERE },
           },
           select: { id: true },
         }))

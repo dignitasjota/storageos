@@ -24,6 +24,8 @@ import {
   type ValidateCouponInput,
 } from '@storageos/shared';
 
+import { CUSTOMER_CONTRACT_WHERE } from '../../common/online-booking';
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -66,7 +68,10 @@ const normalizeCode = (code: string): string => code.trim().toUpperCase();
  */
 @Injectable()
 export class CouponsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private toDto(c: CouponRow): CouponDto {
     return {
@@ -99,7 +104,20 @@ export class CouponsService {
     return rows.map((r) => this.toDto(r));
   }
 
-  async create(tenantId: string, input: CreateCouponInput): Promise<CouponDto> {
+  /** ¿Hay un cupón con ese código? (la reserva online prueba después con una promoción). */
+  async exists(tenantId: string, code: string): Promise<boolean> {
+    const n = await this.prisma.withTenant(
+      (tx) => tx.coupon.count({ where: { tenantId, code: normalizeCode(code) } }),
+      tenantId,
+    );
+    return n > 0;
+  }
+
+  async create(
+    tenantId: string,
+    input: CreateCouponInput,
+    userId: string | null = null,
+  ): Promise<CouponDto> {
     await this.assertScopeIds(tenantId, input.unitTypeIds, input.facilityIds);
     try {
       const row = await this.prisma.withTenant(
@@ -126,6 +144,18 @@ export class CouponsService {
           }),
         tenantId,
       );
+      await this.audit.write({
+        tenantId,
+        userId,
+        action: 'coupon.created',
+        entityType: 'Coupon',
+        entityId: row.id,
+        changes: {
+          code: row.code,
+          discountType: row.discountType,
+          discountValue: Number(row.discountValue),
+        },
+      });
       return this.toDto(row);
     } catch (err) {
       if ((err as { code?: string }).code === 'P2002') {
@@ -138,7 +168,12 @@ export class CouponsService {
     }
   }
 
-  async update(tenantId: string, id: string, input: UpdateCouponInput): Promise<CouponDto> {
+  async update(
+    tenantId: string,
+    id: string,
+    input: UpdateCouponInput,
+    userId: string | null = null,
+  ): Promise<CouponDto> {
     const current = await this.findOrThrow(tenantId, id);
     // Las reglas que cruzan campos se comprueban sobre el resultado.
     const merged = {
@@ -181,11 +216,19 @@ export class CouponsService {
       (tx) => tx.coupon.update({ where: { id }, data }),
       tenantId,
     );
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'coupon.updated',
+      entityType: 'Coupon',
+      entityId: id,
+      changes: { code: current.code, fields: Object.keys(data) },
+    });
     return this.toDto(row);
   }
 
   /** Un cupón ya usado no se borra (se perdería el registro de sus usos): se desactiva. */
-  async remove(tenantId: string, id: string): Promise<void> {
+  async remove(tenantId: string, id: string, userId: string | null = null): Promise<void> {
     const c = await this.findOrThrow(tenantId, id);
     if (c.usedCount > 0) {
       throw new ConflictException({
@@ -194,6 +237,14 @@ export class CouponsService {
       });
     }
     await this.prisma.withTenant((tx) => tx.coupon.delete({ where: { id } }), tenantId);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'coupon.deleted',
+      entityType: 'Coupon',
+      entityId: id,
+      changes: { code: c.code },
+    });
   }
 
   async listRedemptions(tenantId: string, id: string): Promise<CouponRedemptionDto[]> {
@@ -375,7 +426,7 @@ export class CouponsService {
   /** Cliente nuevo = sin ningún contrato firmado antes. */
   async isNewCustomer(tenantId: string, customerId: string): Promise<boolean> {
     const signed = await this.prisma.withTenant(
-      (tx) => tx.contract.count({ where: { tenantId, customerId, signedAt: { not: null } } }),
+      (tx) => tx.contract.count({ where: { tenantId, customerId, ...CUSTOMER_CONTRACT_WHERE } }),
       tenantId,
     );
     return signed === 0;

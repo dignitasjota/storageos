@@ -605,11 +605,11 @@ export class LandingService {
   }
 
   /**
-   * Promoción activa y usable AHORA MISMO (dentro de su ventana de fechas y sin
-   * agotar sus usos), para el banner de la web pública. Base para todos los
-   * tenants (no gateada por `web_premium`): es la misma info que cualquier
-   * comercial daría por teléfono, no un extra de marketing. Si hay varias, se
-   * destaca la creada más recientemente.
+   * Promoción que el negocio ha marcado «Anunciar en la web», usable AHORA
+   * MISMO (dentro de su ventana de fechas y sin agotar sus usos), para el banner
+   * de la web pública. Su código vale en la reserva online. Base para todos los
+   * tenants (no gateada por `web_premium`). Si hay varias, se destaca la creada
+   * más recientemente.
    */
   private async loadActivePromotion(tenantId: string): Promise<PublicActivePromotionDto | null> {
     const now = new Date();
@@ -617,6 +617,7 @@ export class LandingService {
       where: {
         tenantId,
         isActive: true,
+        announceOnWeb: true,
         // Nunca las recompensas personales de un referido (código de un solo
         // uso de otra persona): la web las anunciaría a todo el mundo.
         referrals: { none: {} },

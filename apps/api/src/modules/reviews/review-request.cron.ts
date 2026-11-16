@@ -73,6 +73,7 @@ export class ReviewRequestCron {
               customerType: true,
               email: true,
               phone: true,
+              locale: true,
               deletedAt: true,
             },
           },
@@ -94,6 +95,7 @@ export class ReviewRequestCron {
             recipientEmail: c.customer.email,
             recipientPhone: c.customer.phone,
             tenantName: tenant.name,
+            english: c.customer.locale === 'en',
             scope: {
               customerFirstName: c.customer.firstName ?? '',
               customerDisplayName: displayName(c.customer),

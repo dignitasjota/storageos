@@ -79,6 +79,7 @@ import {
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
 import { formatDate } from '@/lib/format';
+import { useReferralSettings } from '@/lib/referrals/hooks';
 import { useOpenFromUrl } from '@/lib/use-open-from-url';
 
 type Row = CustomerOverviewDto;
@@ -255,6 +256,8 @@ export default function CustomersPage() {
   }, []);
   const unreadByCustomer = useCustomerUnreadSummary().data?.byCustomer ?? {};
   const create = useCreateCustomer();
+  // Con el programa de referidos apagado no se pide el código (no se guardaría).
+  const referralsOn = useReferralSettings().data?.referralEnabled !== false;
   const remove = useDeleteCustomer();
   const sendAccess = useSendPortalAccessEmail();
   const bulkAccess = useBulkPortalAccess();
@@ -1100,24 +1103,26 @@ export default function CustomersPage() {
                       phone={form.watch('phone')}
                       documentNumber={form.watch('documentNumber')}
                     />
-                    <FormField
-                      control={form.control}
-                      name="referralCode"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Código de referido (opcional)</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Si llega recomendado por otro inquilino"
-                              {...field}
-                              value={field.value ?? ''}
-                              onChange={(e) => field.onChange(e.target.value.toUpperCase())}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    {referralsOn && (
+                      <FormField
+                        control={form.control}
+                        name="referralCode"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Código de referido (opcional)</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Si llega recomendado por otro inquilino"
+                                {...field}
+                                value={field.value ?? ''}
+                                onChange={(e) => field.onChange(e.target.value.toUpperCase())}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                     {form.watch('email') && (
                       <div className="flex items-start gap-2">
                         <Checkbox

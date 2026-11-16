@@ -54,6 +54,14 @@ const EXACT: Record<string, string> = {
   'access.debt_cut_skipped': 'Decidido no cortar el acceso por impago',
   'tenant.security.require_2fa_changed': 'Regla de verificación en dos pasos cambiada',
   'tenant.profile_changed': 'Nombre o zona horaria del negocio cambiados',
+  'promotion.created': 'Promoción · creada',
+  'promotion.updated': 'Promoción · cambiada',
+  'promotion.deleted': 'Promoción · borrada',
+  'promotion.unit_offer_created': 'Oferta de un trastero · creada',
+  'promotion.unit_offer_cancelled': 'Oferta de un trastero · retirada',
+  'coupon.created': 'Cupón · creado',
+  'coupon.updated': 'Cupón · cambiado',
+  'coupon.deleted': 'Cupón · borrado',
 };
 
 /** Prefijos de entidad, de más largo a más corto. */

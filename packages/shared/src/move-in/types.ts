@@ -179,6 +179,8 @@ export interface BookingAvailabilityDto {
   webChatEnabled: boolean;
   /** Dominio propio verificado (enlace a la privacidad del chat), o null. */
   customDomain: string | null;
+  /** Programa de referidos encendido: la reserva pide el código de quien recomienda. */
+  referralEnabled: boolean;
   facilities: {
     id: string;
     name: string;

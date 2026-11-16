@@ -113,7 +113,7 @@ describe('Landing pública por tenant (e2e)', () => {
     const before = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(before.body.activePromotion).toBeNull();
 
-    // Promoción activa sin fechas -> se destaca.
+    // Una promoción sin marcar «Anunciar en la web» no sale (la aplica el equipo).
     const create = await request(app.getHttpServer()).post('/promotions').set(auth).send({
       code: 'VERANO20',
       name: 'Descuento de verano',
@@ -122,6 +122,14 @@ describe('Landing pública por tenant (e2e)', () => {
     });
     expect(create.status).toBe(201);
     const promotionId = create.body.id;
+    const internal = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
+    expect(internal.body.activePromotion).toBeNull();
+    // Anunciada y sin fechas -> se destaca.
+    await request(app.getHttpServer())
+      .patch(`/promotions/${promotionId}`)
+      .set(auth)
+      .send({ announceOnWeb: true })
+      .expect(200);
     const withPromo = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
     expect(withPromo.body.activePromotion).toEqual({
       code: 'VERANO20',
@@ -187,6 +195,7 @@ describe('Landing pública por tenant (e2e)', () => {
         discountValue: 1,
         maxUses: 1,
         appliesTo: { unitId: fac.unitIds[0] },
+        announceOnWeb: true,
       },
     });
     const res = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
@@ -200,6 +209,7 @@ describe('Landing pública por tenant (e2e)', () => {
         name: 'Para todos',
         discountType: 'percentage',
         discountValue: 5,
+        announceOnWeb: true,
       },
     });
     const after = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}`);
@@ -663,7 +673,12 @@ describe('Landing pública por tenant (e2e)', () => {
     const token = (reqRes.body.reviewUrl as string).match(/review\/([^/?#]+)/)?.[1];
     await request(app.getHttpServer())
       .post(`/public/reviews/${token}`)
-      .send({ npsScore: 10, rating: 5, comment: 'Trato excelente y muy limpio' })
+      .send({
+        npsScore: 10,
+        rating: 5,
+        comment: 'Trato excelente y muy limpio',
+        publishConsent: true,
+      })
       .expect(201);
     // Solo salen en la web las que el equipo publica.
     await request(app.getHttpServer())

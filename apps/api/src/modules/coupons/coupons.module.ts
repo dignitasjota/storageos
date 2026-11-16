@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../auth/auth.module';
+
 import { CouponsController } from './coupons.controller';
 import { CouponsService } from './coupons.service';
 
@@ -8,6 +10,7 @@ import { CouponsService } from './coupons.service';
  * meses por adelantado), no sobre las renovaciones.
  */
 @Module({
+  imports: [AuthModule],
   controllers: [CouponsController],
   providers: [CouponsService],
   exports: [CouponsService],

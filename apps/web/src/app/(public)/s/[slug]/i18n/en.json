@@ -50,7 +50,8 @@
       "percentageOff": "{value}% off",
       "fixedOff": "{value} off",
       "freeMonths": "{count, plural, one {# free month} other {# free months}}",
-      "withCode": "with code"
+      "withCode": "with code",
+      "useCode": "Book with this code"
     },
     "nav": {
       "openMenu": "Open menu",
@@ -452,11 +453,11 @@
       "monthsLabel": "How many months do you pay now?",
       "monthsOption": "{count, plural, one {# month} other {# months}}",
       "monthsHint": "After that you pay monthly.",
-      "couponLabel": "Discount coupon (optional)",
-      "couponPlaceholder": "Enter your coupon",
+      "couponLabel": "Coupon or promotion code (optional)",
+      "couponPlaceholder": "Enter your code",
       "couponApply": "Apply",
       "couponRemove": "Remove",
-      "couponApplied": "Coupon {code} applied",
+      "couponApplied": "Code {code} applied",
       "summaryTitle": "What you pay now",
       "summaryRent": "Rent ({count, plural, one {# month} other {# months}})",
       "summaryDays": "Rent from {from} to {to} ({count, plural, one {# day} other {# days}})",
@@ -464,6 +465,8 @@
       "summaryNextMonthNote": "As you start at the end of the month, the first payment already includes {month}. Then: {price}/month (VAT included).",
       "summaryFreeMonths": "{count, plural, one {# free month} other {# free months}} (coupon {code})",
       "summaryCoupon": "Discount (coupon {code})",
+      "summaryPromotion": "Promotion {code}: {price}/month instead of {list}/month, on every payment (excl. VAT).",
+      "summaryPromotionFree": "Promotion {code}: {count, plural, one {your next monthly payment is free} other {your next # monthly payments are free}}.",
       "summaryVat": "VAT ({rate}%)",
       "summaryDeposit": "Deposit (refunded at the end)",
       "summaryTotal": "Total due on activation",

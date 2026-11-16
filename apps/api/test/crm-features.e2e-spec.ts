@@ -333,7 +333,7 @@ describe('Funcionalidades del CRM (e2e)', () => {
     const token = req.body.reviewUrl.split('/').pop();
     await http()
       .post(`/public/reviews/${token}`)
-      .send({ npsScore: 10, comment: 'Todo perfecto' })
+      .send({ npsScore: 10, comment: 'Todo perfecto', publishConsent: true })
       .expect(201);
 
     // Sin publicar ni enlace de Google: no se puede.

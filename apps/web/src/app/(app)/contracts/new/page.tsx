@@ -43,6 +43,17 @@ import { useUnitOffers, useValidatePromotion } from '@/lib/promotions/hooks';
 
 type Step = 1 | 2 | 3 | 4;
 
+/** Por qué no vale un código promocional, en palabras. */
+const PROMOTION_REJECT: Record<string, string> = {
+  not_found: 'No hay ninguna promoción con ese código.',
+  inactive: 'Esa promoción está desactivada.',
+  expired: 'Esa promoción ha caducado.',
+  not_started: 'Esa promoción aún no ha empezado.',
+  max_uses_reached: 'Esa promoción ya no tiene usos disponibles.',
+  not_for_unit: 'Esa oferta es de otro trastero.',
+  not_with_prepay: 'Los meses gratis no se pueden combinar con el pago semestral o anual.',
+};
+
 export default function NewContractWizardPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>(1);
@@ -550,6 +561,13 @@ function StepEconomics(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [months, monthly]);
 
+  // Al pasar a pago semestral o anual, una promoción de meses gratis deja de valer.
+  const appliedPromotion = props.promotionCode;
+  useEffect(() => {
+    if (appliedPromotion) void applyCode(appliedPromotion);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.billingIntervalMonths]);
+
   async function applyCode(override?: string) {
     const code = (override ?? codeInput).trim().toUpperCase();
     if (!code) return;
@@ -562,10 +580,11 @@ function StepEconomics(props: {
         code,
         monthlyPrice: props.priceMonthly,
         unitId: props.unitId,
+        billingIntervalMonths: props.billingIntervalMonths,
       });
       if (!res.valid) {
-        toast.error('Código no aplicable.');
-        props.onChange({ promotionCode: '' });
+        toast.error(PROMOTION_REJECT[res.reason ?? ''] ?? 'Código no aplicable.');
+        props.onChange({ promotionCode: '', discountAmount: 0, discountReason: '' });
         return;
       }
       props.onChange({

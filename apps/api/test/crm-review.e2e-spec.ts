@@ -222,7 +222,7 @@ describe('Revisión del CRM (e2e)', () => {
     const token = requested.body.reviewUrl.split('/').pop();
     await http()
       .post(`/public/reviews/${token}`)
-      .send({ npsScore: 10, comment: 'Muy limpio y cómodo' })
+      .send({ npsScore: 10, comment: 'Muy limpio y cómodo', publishConsent: true })
       .expect(201);
     const listed = await http().get('/reviews').set(auth);
     expect(listed.body.items[0].publishedOnWeb).toBe(false);

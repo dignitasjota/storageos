@@ -508,7 +508,17 @@ describe('Revisión de Campañas y Comunicaciones (e2e)', () => {
 
     // Un fallo al encolar no deja al ex-cliente marcado como avisado.
     const comms = app.get(CommunicationsService);
-    const spy = jest.spyOn(comms, 'enqueue').mockRejectedValueOnce(new Error('cola caída'));
+    // Solo el del win-back: el correo del PIN del último contrato firmado puede
+    // seguir encolándose en segundo plano.
+    const enqueue = comms.enqueue.bind(comms);
+    let failed = false;
+    const spy = jest.spyOn(comms, 'enqueue').mockImplementation((args) => {
+      if (!failed && args.source?.startsWith('winback')) {
+        failed = true;
+        return Promise.reject(new Error('cola caída'));
+      }
+      return enqueue(args);
+    });
     expect((await app.get(WinbackService).runForTenant(tenant.id, true)).sent).toBe(0);
     expect(await db.winbackSend.count({ where: { tenantId: tenant.id } })).toBe(0);
     spy.mockRestore();

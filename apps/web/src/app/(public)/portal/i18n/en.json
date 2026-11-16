@@ -389,17 +389,19 @@
       },
       "referrals": {
         "title": "Refer and earn",
-        "subtitle": "Share your code. When your referral signs their contract, we'll take the reward off your next invoice.",
+        "subtitle": "Share your code. When your referral pays their first invoice, we'll take the reward off your next invoice.",
         "copy": "Copy",
         "copied": "Code copied.",
         "rewardsLabel": "Your rewards: ",
         "rewardPercent": "{value}% off",
         "rewardFixed": "{amount} off",
         "rewardPending": "on your next invoice",
+        "rewardPartial": "{amount} taken off; the rest on your next invoice",
         "rewardApplied": "applied to invoice {invoice}",
         "rewardAppliedNoInvoice": "applied",
         "statusConverted": "reward granted",
-        "statusPending": "pending"
+        "statusPending": "waiting for their first payment",
+        "statusCancelled": "did not become a customer"
       },
       "push": {
         "title": "Notifications",

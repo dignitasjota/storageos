@@ -307,7 +307,7 @@ export class BillingJobsService {
               }
             : {}),
         });
-        await this.referrals.settleRewards(reward.referralIds, draft.id);
+        await this.referrals.settleRewards(reward.claims, draft.id);
         // Emisión automática (opt-in): emite el borrador recién creado. Si el
         // issue falla (p. ej. sin serie o Verifactu) NO tumba el lote: la
         // factura queda en draft y se puede emitir a mano.
@@ -330,7 +330,7 @@ export class BillingJobsService {
         }
         created += 1;
       } catch (err) {
-        await this.referrals.settleRewards(reward.referralIds, null);
+        await this.referrals.settleRewards(reward.claims, null);
         await credit.restore().catch(() => undefined);
         // Índice parcial invoices_recurring_period_unique: otra réplica/run ya
         // creó la factura de este contrato+periodo → no es un error, se salta.

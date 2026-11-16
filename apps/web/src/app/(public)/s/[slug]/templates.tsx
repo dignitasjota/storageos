@@ -660,9 +660,13 @@ function brandOf(data: PublicLandingDto): string {
 /** Banda con la promoción activa del tenant (si tiene alguna usable ahora mismo). */
 export function PromoBanner({ data }: { data: PublicLandingDto }) {
   const t = useTranslations('publicWeb.promo');
+  const intlLocale = useLocale();
   const promo = data.activePromotion;
   if (!promo) return null;
   const brand = brandOf(data);
+  const bookWithCode = bookHrefFor(data, intlLocale.startsWith('en') ? 'en' : 'es', {
+    coupon: promo.code,
+  });
   const discountText =
     promo.discountType === 'percentage'
       ? t('percentageOff', { value: promo.discountValue })
@@ -680,6 +684,9 @@ export function PromoBanner({ data }: { data: PublicLandingDto }) {
       <span className="text-muted-foreground">
         {t('withCode')} <span className="font-mono font-bold text-foreground">{promo.code}</span>
       </span>
+      <a href={bookWithCode} className="font-semibold underline underline-offset-2">
+        {t('useCode')}
+      </a>
     </div>
   );
 }

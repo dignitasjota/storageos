@@ -22,6 +22,19 @@ export function assertFacilityAllowed(scope: FacilityScope, facilityId: string):
 }
 
 /**
+ * Lo que vale para todo el negocio (promociones, cupones…) solo lo gestiona
+ * quien ve todos los locales.
+ */
+export function assertWholeBusiness(scope: FacilityScope): void {
+  if (scope) {
+    throw new ForbiddenException({
+      code: 'facility_scope_restricted',
+      message: 'Solo puede cambiarlo quien ve todos los locales',
+    });
+  }
+}
+
+/**
  * Resuelve la lista de facilityId a filtrar combinando el scope del usuario con
  * un filtro explícito por local. Devuelve `undefined` (sin filtro) si no hay
  * scope ni filtro; `null` si el filtro pedido está fuera del scope (→ sin

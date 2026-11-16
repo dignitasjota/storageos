@@ -389,17 +389,19 @@
       },
       "referrals": {
         "title": "Recomienda y gana",
-        "subtitle": "Comparte tu código. Cuando tu recomendado firme su contrato, te descontamos la recompensa de tu siguiente factura.",
+        "subtitle": "Comparte tu código. Cuando tu recomendado pague su primera factura, te descontamos la recompensa de tu siguiente factura.",
         "copy": "Copiar",
         "copied": "Código copiado.",
         "rewardsLabel": "Tus recompensas: ",
         "rewardPercent": "{value} % de descuento",
         "rewardFixed": "{amount} de descuento",
         "rewardPending": "en tu próxima factura",
+        "rewardPartial": "descontados {amount}; el resto, en tu próxima factura",
         "rewardApplied": "aplicado en la factura {invoice}",
         "rewardAppliedNoInvoice": "aplicado",
         "statusConverted": "recompensa concedida",
-        "statusPending": "pendiente"
+        "statusPending": "pendiente de su primer pago",
+        "statusCancelled": "no llegó a ser cliente"
       },
       "push": {
         "title": "Notificaciones",

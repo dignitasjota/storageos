@@ -1864,7 +1864,14 @@ function PortalConsumeContent() {
                                     ? rw.invoiceNumber
                                       ? tReferrals('rewardApplied', { invoice: rw.invoiceNumber })
                                       : tReferrals('rewardAppliedNoInvoice')
-                                    : tReferrals('rewardPending')}
+                                    : rw.type === 'fixed' && rw.appliedAmount > 0
+                                      ? tReferrals('rewardPartial', {
+                                          amount: rw.appliedAmount.toLocaleString(
+                                            intlLocaleForPortal(locale),
+                                            { style: 'currency', currency: 'EUR' },
+                                          ),
+                                        })
+                                      : tReferrals('rewardPending')}
                                 </span>
                               </>
                             )}
@@ -1880,7 +1887,9 @@ function PortalConsumeContent() {
                           {r.referredName} —{' '}
                           {r.status === 'converted'
                             ? tReferrals('statusConverted')
-                            : tReferrals('statusPending')}
+                            : r.status === 'cancelled'
+                              ? tReferrals('statusCancelled')
+                              : tReferrals('statusPending')}
                         </li>
                       ))}
                     </ul>

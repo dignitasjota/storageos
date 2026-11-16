@@ -10,13 +10,18 @@ export type ReferralStatusValue = z.infer<typeof ReferralStatusEnum>;
  * admite `percentage`/`fixed` (un `free_months` no se puede convertir en una
  * promoción de un solo uso aplicable hoy).
  */
-export const UpdateTenantReferralSettingsSchema = z.object({
-  referralEnabled: z.boolean(),
-  referralRewardType: PromotionDiscountTypeEnum.refine((t) => t !== 'free_months', {
-    message: 'La recompensa debe ser porcentaje o importe fijo',
-  }),
-  referralRewardValue: z.number().nonnegative().max(1_000_000),
-});
+export const UpdateTenantReferralSettingsSchema = z
+  .object({
+    referralEnabled: z.boolean(),
+    referralRewardType: PromotionDiscountTypeEnum.refine((t) => t !== 'free_months', {
+      message: 'La recompensa debe ser porcentaje o importe fijo',
+    }),
+    referralRewardValue: z.number().nonnegative().max(1_000_000),
+  })
+  .refine((v) => v.referralRewardType !== 'percentage' || v.referralRewardValue <= 100, {
+    message: 'El porcentaje no puede superar 100',
+    path: ['referralRewardValue'],
+  });
 export type UpdateTenantReferralSettingsInput = z.infer<typeof UpdateTenantReferralSettingsSchema>;
 
 export interface TenantReferralSettingsResponse {
@@ -37,8 +42,17 @@ export interface ReferralDto {
   /** Código de promoción (solo recompensas antiguas). */
   rewardCode: string | null;
   reward: ReferralRewardDto | null;
+  /** Quien recomienda sigue con contrato: sin él no hay factura donde descontar. */
+  referrerActive: boolean;
   createdAt: string;
   convertedAt: string | null;
+}
+
+/** Código de referido de un inquilino, visto por el equipo. */
+export interface CustomerReferralCodeDto {
+  /** Programa de referidos encendido. */
+  enabled: boolean;
+  referralCode: string | null;
 }
 
 export interface ReferralStatsDto {
@@ -67,7 +81,9 @@ export interface PortalReferralDto {
 export interface ReferralRewardDto {
   type: 'percentage' | 'fixed';
   value: number;
-  /** Cuándo se aplicó (null = pendiente de la próxima factura). */
+  /** Lo ya descontado (un importe fijo se reparte entre varias facturas). */
+  appliedAmount: number;
+  /** Cuándo terminó de aplicarse (null = queda algo para la próxima factura). */
   appliedAt: string | null;
   invoiceNumber: string | null;
 }
