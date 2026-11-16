@@ -8,9 +8,9 @@ import {
   type CouponDto,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
-import { History, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Copy, History, Pencil, Plus, Trash2, UserRound } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -19,6 +19,7 @@ import { DataTable } from '@/components/data-table';
 import { OptionalDateSelect } from '@/components/optional-date-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -41,10 +42,14 @@ import { ApiError } from '@/lib/auth/api';
 import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import {
   useCouponRedemptions,
+  useCouponResults,
   useCoupons,
+  useCouponSettings,
   useCreateCoupon,
+  useCreatePersonalCoupon,
   useDeleteCoupon,
   useUpdateCoupon,
+  useUpdateCouponSettings,
 } from '@/lib/coupons/hooks';
 import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { formatDate } from '@/lib/format';
@@ -69,6 +74,7 @@ export default function CouponsPage() {
   const canManage = useHasPermission('promotions:manage') && companyWide;
   const [editing, setEditing] = useState<CouponDto | 'new' | null>(null);
   const [usesOf, setUsesOf] = useState<CouponDto | null>(null);
+  const [personalOpen, setPersonalOpen] = useState(false);
 
   const typeName = new Map((unitTypes.data ?? []).map((t) => [t.id, t.name]));
   const facilityName = new Map((facilities.data ?? []).map((f) => [f.id, f.name]));
@@ -95,6 +101,17 @@ export default function CouponsPage() {
     }
   }
 
+  async function toggleWeb(c: CouponDto) {
+    try {
+      await update.mutateAsync({ id: c.id, input: { announceOnWeb: !c.announceOnWeb } });
+      toast.success(
+        c.announceOnWeb ? 'Ya no se anuncia en tu web.' : 'Se anuncia en tu web con su código.',
+      );
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
   async function handleDelete(c: CouponDto) {
     if (!(await ask({ title: `¿Borrar el cupón ${c.code}?`, destructive: true }))) return;
     try {
@@ -111,7 +128,21 @@ export default function CouponsPage() {
       header: 'Código',
       cell: ({ row }) => <span className="font-mono font-medium">{row.original.code}</span>,
     },
-    { accessorKey: 'name', header: 'Nombre' },
+    {
+      accessorKey: 'name',
+      header: 'Nombre',
+      cell: ({ row }) =>
+        row.original.kind === 'personal' ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="secondary" className="font-normal">
+              Personal
+            </Badge>
+            {row.original.personalFor ?? row.original.name}
+          </span>
+        ) : (
+          row.original.name
+        ),
+    },
     { id: 'discount', header: 'Descuento', cell: ({ row }) => couponSummary(row.original) },
     {
       id: 'conditions',
@@ -156,6 +187,31 @@ export default function CouponsPage() {
       },
     },
     {
+      id: 'web',
+      header: 'En la web',
+      cell: ({ row }) => {
+        // Un cupón personal es de una persona: no se anuncia.
+        if (row.original.kind !== 'standard')
+          return <span className="text-muted-foreground">—</span>;
+        const badge = (
+          <Badge variant={row.original.announceOnWeb ? 'default' : 'outline'}>
+            {row.original.announceOnWeb ? 'Anunciado' : 'No'}
+          </Badge>
+        );
+        return canManage ? (
+          <button
+            type="button"
+            onClick={() => toggleWeb(row.original)}
+            title="Anunciarlo en tu web con su código"
+          >
+            {badge}
+          </button>
+        ) : (
+          badge
+        );
+      },
+    },
+    {
       id: 'actions',
       header: '',
       cell: ({ row }) => (
@@ -164,8 +220,8 @@ export default function CouponsPage() {
             variant="ghost"
             size="icon"
             onClick={() => setUsesOf(row.original)}
-            aria-label="Ver usos"
-            title="Ver usos"
+            aria-label="Usos y resultados"
+            title="Usos y resultados"
           >
             <History className="h-4 w-4" />
           </Button>
@@ -228,13 +284,21 @@ export default function CouponsPage() {
           emptyText="Un cupón descuenta el primer pago al contratar: útil en anuncios y en la web."
           toolbarRight={
             canManage ? (
-              <Button onClick={() => setEditing('new')}>
-                <Plus className="mr-1 h-4 w-4" /> Nuevo cupón
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => setPersonalOpen(true)}>
+                  <UserRound className="mr-1 h-4 w-4" /> Cupón personal
+                </Button>
+                <Button onClick={() => setEditing('new')}>
+                  <Plus className="mr-1 h-4 w-4" /> Nuevo cupón
+                </Button>
+              </div>
             ) : null
           }
         />
       )}
+
+      <RecoveryCouponCard canManage={canManage} />
+      {personalOpen && <PersonalCouponDialog onClose={() => setPersonalOpen(false)} />}
 
       {editing && (
         <CouponDialog
@@ -279,6 +343,7 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
   const [newOnly, setNewOnly] = useState(coupon?.newCustomersOnly ?? false);
   const [oncePerCustomer, setOncePerCustomer] = useState(coupon?.oncePerCustomer ?? false);
   const [preOpeningOnly, setPreOpeningOnly] = useState(coupon?.preOpeningOnly ?? false);
+  const [announce, setAnnounce] = useState(coupon?.announceOnWeb ?? false);
   const [validFrom, setValidFrom] = useState(toDateInput(coupon?.validFrom ?? null));
   const [validUntil, setValidUntil] = useState(toDateInput(coupon?.validUntil ?? null));
   const [error, setError] = useState<string | null>(null);
@@ -306,6 +371,7 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
       validFrom: fromDateInput(validFrom, false),
       validUntil: fromDateInput(validUntil, true),
       isActive: coupon?.isActive ?? true,
+      announceOnWeb: announce,
     };
     const parsed = CreateCouponSchema.safeParse(payload);
     if (!parsed.success) {
@@ -508,6 +574,23 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
             </span>
           </label>
 
+          {(!coupon || coupon.kind === 'standard') && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                className="mt-0.5"
+                checked={announce}
+                onCheckedChange={(v) => setAnnounce(v === true)}
+              />
+              <span>
+                Anunciarlo en tu web
+                <span className="block text-xs text-muted-foreground">
+                  Sale en un aviso de tu web con su código y lo que descuenta del primer pago. Un
+                  cupón vale siempre en la reserva online, se anuncie o no.
+                </span>
+              </span>
+            </label>
+          )}
+
           {error && <p className="text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
@@ -525,12 +608,24 @@ function CouponDialog({ coupon, onClose }: { coupon: CouponDto | null; onClose: 
 
 function RedemptionsDialog({ coupon, onClose }: { coupon: CouponDto; onClose: () => void }) {
   const uses = useCouponRedemptions(coupon.id);
+  const results = useCouponResults(coupon.id);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Usos de {coupon.code}</DialogTitle>
+          <DialogDescription>
+            Lo que ha descontado y lo que pagan cada mes los contratos que lo usaron. Importes sin
+            IVA.
+          </DialogDescription>
         </DialogHeader>
+        {results.data && (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <Figure label="Descuento concedido" value={eur(results.data.totalDiscount)} />
+            <Figure label="Contratos en vigor" value={String(results.data.liveContracts)} />
+            <Figure label="Pagan al mes" value={eur(results.data.monthlyRevenue)} />
+          </div>
+        )}
         {uses.isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando...</p>
         ) : (uses.data ?? []).length === 0 ? (
@@ -570,5 +665,233 @@ function RedemptionsDialog({ coupon, onClose }: { coupon: CouponDto; onClose: ()
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Figure({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-lg font-semibold tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+/** Cupón de un solo uso para una persona: el código lo pone el sistema. */
+function PersonalCouponDialog({ onClose }: { onClose: () => void }) {
+  const create = useCreatePersonalCoupon();
+  const [personalFor, setPersonalFor] = useState('');
+  const [type, setType] = useState<'percentage' | 'fixed'>('percentage');
+  const [value, setValue] = useState('10');
+  const [validDays, setValidDays] = useState('7');
+  const [created, setCreated] = useState<CouponDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!personalFor.trim()) {
+      setError('Escribe para quién es.');
+      return;
+    }
+    setError(null);
+    try {
+      setCreated(
+        await create.mutateAsync({
+          personalFor: personalFor.trim(),
+          discountType: type,
+          discountValue: Number(value),
+          validDays: Number(validDays) || 7,
+          minMonths: 1,
+        }),
+      );
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function copy(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success('Código copiado.');
+    } catch {
+      toast.error('No se ha podido copiar.');
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Cupón personal</DialogTitle>
+          <DialogDescription>
+            Para una persona concreta: vale una sola vez, caduca solo y descuenta el primer pago.
+          </DialogDescription>
+        </DialogHeader>
+        {created ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border p-4 text-center">
+              <div className="text-xs text-muted-foreground">Código para {created.personalFor}</div>
+              <div className="mt-1 font-mono text-2xl font-semibold tracking-wide">
+                {created.code}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {couponSummary(created)}
+                {created.validUntil ? ` · hasta el ${day(created.validUntil)}` : ''}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => copy(created.code)}>
+                <Copy className="mr-1 h-4 w-4" /> Copiar código
+              </Button>
+              <Button onClick={onClose}>Hecho</Button>
+            </DialogFooter>
+          </div>
+        ) : (
+          <form className="space-y-4" onSubmit={submit} noValidate>
+            <div className="space-y-1.5">
+              <Label htmlFor="personal-for">Para quién</Label>
+              <Input
+                id="personal-for"
+                value={personalFor}
+                onChange={(e) => setPersonalFor(e.target.value)}
+                placeholder="Nombre o email"
+              />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <Select value={type} onValueChange={(v) => setType(v as 'percentage' | 'fixed')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percentage">Porcentaje</SelectItem>
+                    <SelectItem value="fixed">Importe fijo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="personal-value">{type === 'percentage' ? '%' : '€ sin IVA'}</Label>
+                <Input
+                  id="personal-value"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="personal-days">Días que vale</Label>
+                <Input
+                  id="personal-days"
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={validDays}
+                  onChange={(e) => setValidDays(e.target.value)}
+                />
+              </div>
+            </div>
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={create.isPending}>
+                {create.isPending ? 'Creando...' : 'Crear cupón'}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Cupón que acompaña al recordatorio de una reserva online sin terminar. */
+function RecoveryCouponCard({ canManage }: { canManage: boolean }) {
+  const settings = useCouponSettings();
+  const save = useUpdateCouponSettings();
+  const [enabled, setEnabled] = useState(false);
+  const [pct, setPct] = useState('10');
+  const [days, setDays] = useState('2');
+
+  useEffect(() => {
+    if (!settings.data) return;
+    setEnabled(settings.data.bookingRecoveryCouponPct > 0);
+    if (settings.data.bookingRecoveryCouponPct > 0) {
+      setPct(String(settings.data.bookingRecoveryCouponPct));
+    }
+    setDays(String(settings.data.bookingRecoveryCouponDays));
+  }, [settings.data]);
+
+  if (!settings.data) return null;
+
+  async function submit() {
+    try {
+      await save.mutateAsync({
+        bookingRecoveryCouponPct: enabled ? Math.min(100, Math.max(1, Number(pct) || 0)) : 0,
+        bookingRecoveryCouponDays: Math.min(30, Math.max(1, Number(days) || 2)),
+      });
+      toast.success('Guardado.');
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Reservas sin terminar</CardTitle>
+        <CardDescription>
+          Quien empieza a reservar en tu web y no termina recibe un recordatorio por correo. Puedes
+          acompañarlo de un cupón personal, de un solo uso, para animarle a terminar.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={enabled}
+            disabled={!canManage}
+            onCheckedChange={(v) => setEnabled(v === true)}
+          />
+          Añadir un cupón al recordatorio
+        </label>
+        {enabled && (
+          <div className="grid max-w-md grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="recovery-pct">Descuento del primer pago (%)</Label>
+              <Input
+                id="recovery-pct"
+                type="number"
+                min={1}
+                max={100}
+                value={pct}
+                disabled={!canManage}
+                onChange={(e) => setPct(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="recovery-days">Días que vale</Label>
+              <Input
+                id="recovery-days"
+                type="number"
+                min={1}
+                max={30}
+                value={days}
+                disabled={!canManage}
+                onChange={(e) => setDays(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+        {canManage && (
+          <Button onClick={submit} disabled={save.isPending}>
+            {save.isPending ? 'Guardando...' : 'Guardar'}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

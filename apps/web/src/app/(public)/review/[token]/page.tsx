@@ -1,10 +1,15 @@
 'use client';
 
-import { CheckCircle2, Loader2, Star } from 'lucide-react';
+import {
+  REVIEW_EXIT_REASONS,
+  REVIEW_EXIT_REASON_LABELS,
+  type PublicReviewContextDto,
+  type ReviewExitReason,
+  type SubmitReviewResultDto,
+} from '@storageos/shared';
+import { CheckCircle2, Gift, Loader2, Star } from 'lucide-react';
 import { use, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-
-import type { PublicReviewContextDto, SubmitReviewResultDto } from '@storageos/shared';
 
 import { TenantMiniChrome } from '@/components/public/tenant-mini-chrome';
 import { Button } from '@/components/ui/button';
@@ -14,6 +19,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { cn } from '@/lib/utils';
+
+function rewardText(r: { type: 'percentage' | 'fixed'; value: number }): string {
+  return r.type === 'percentage'
+    ? `un ${r.value} %`
+    : r.value.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+}
 
 export default function ReviewPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -27,6 +38,8 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [googleUrl, setGoogleUrl] = useState<string | null>(null);
+  const [exitReason, setExitReason] = useState<ReviewExitReason | null>(null);
+  const [referral, setReferral] = useState<SubmitReviewResultDto['referral']>(null);
 
   useEffect(() => {
     apiFetch<PublicReviewContextDto>(`/public/reviews/${token}`, { requiresAuth: false })
@@ -51,9 +64,11 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
           ...(rating > 0 ? { rating } : {}),
           ...(comment.trim() ? { comment: comment.trim() } : {}),
           publishConsent: publishConsent && !!comment.trim(),
+          ...(exitReason ? { exitReason } : {}),
         },
       });
       setGoogleUrl(res.googleReviewUrl);
+      setReferral(res.referral ?? null);
       setDone(true);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
@@ -104,6 +119,46 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
                     <Star className="mr-1 h-4 w-4" /> Reseñar en Google
                   </a>
                 </Button>
+              </div>
+            )}
+            {done && referral && (
+              <div className="mt-3 w-full space-y-2 rounded-lg border p-4">
+                <p className="flex items-center justify-center gap-2 text-sm font-medium">
+                  <Gift className="size-4" /> ¿Nos recomiendas?
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Comparte tu código con quien necesite un trastero.
+                  {referral.reward
+                    ? ` Cuando pague su primera factura, tú ganas ${rewardText(referral.reward)} de descuento en tu siguiente factura.`
+                    : ''}
+                  {referral.friendReward
+                    ? ` Y esa persona, ${rewardText(referral.friendReward)} de descuento en su primer pago.`
+                    : ''}
+                </p>
+                <div className="font-mono text-lg tracking-widest">{referral.code}</div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      void navigator.clipboard?.writeText(referral.shareUrl);
+                      toast.success('Enlace copiado.');
+                    }}
+                  >
+                    Copiar enlace
+                  </Button>
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(
+                        `Te recomiendo ${ctx.tenantName} para alquilar un trastero. Reserva desde este enlace: ${referral.shareUrl}`,
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Enviar por WhatsApp
+                    </a>
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>
@@ -160,6 +215,30 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
               ))}
             </div>
           </div>
+
+          {ctx.exit && (
+            <div className="space-y-2">
+              <Label>¿Por qué dejas el trastero? (opcional)</Label>
+              <div className="flex flex-wrap gap-2">
+                {REVIEW_EXIT_REASONS.map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    aria-pressed={exitReason === reason}
+                    onClick={() => setExitReason(exitReason === reason ? null : reason)}
+                    className={cn(
+                      'rounded-full border px-3 py-1.5 text-sm transition',
+                      exitReason === reason
+                        ? 'border-foreground bg-foreground text-background'
+                        : 'border-input hover:border-foreground',
+                    )}
+                  >
+                    {REVIEW_EXIT_REASON_LABELS[reason]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Valoración general (opcional)</Label>

@@ -16,6 +16,7 @@ import {
   CreateUnitOfferSchema,
   type UnitOfferDto,
   type PromotionDto,
+  type PromotionResultsDto,
   UpdatePromotionSchema,
   ValidatePromotionSchema,
   type ValidatePromotionResultDto,
@@ -92,6 +93,16 @@ export class PromotionsController {
     return this.promotions.create(user.tenantId, body, user.sub);
   }
 
+  /** Contratos que la usan, lo que descuenta al mes y lo que traen. */
+  @RequirePermission('promotions:read')
+  @Get(':id/results')
+  results(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PromotionResultsDto> {
+    return this.promotions.results(user.tenantId, id);
+  }
+
   @RequirePermission('promotions:manage')
   @Patch(':id')
   update(
@@ -128,6 +139,7 @@ export class PromotionsController {
       body.monthlyPrice,
       body.unitId,
       body.billingIntervalMonths,
+      body.customerId,
     );
   }
 }

@@ -6,6 +6,7 @@ import type {
   RequestReviewInput,
   RequestReviewResultDto,
   ReviewDto,
+  ReviewInsightsDto,
   ReviewListDto,
   ReviewStatsDto,
   TenantReviewsSettingsResponse,
@@ -64,10 +65,37 @@ export function useRequestGoogleReview() {
   });
 }
 
-export function useReviewStats() {
+/** Periodo (meses hacia atrás; sin valor, todo) y local de las cifras. */
+export interface ReviewPeriod {
+  months?: number | undefined;
+  facilityId?: string | undefined;
+}
+
+function periodQuery(p: ReviewPeriod): string {
+  const qs = new URLSearchParams();
+  if (p.months) qs.set('months', String(p.months));
+  if (p.facilityId) qs.set('facilityId', p.facilityId);
+  const query = qs.toString();
+  return query ? `?${query}` : '';
+}
+
+export function useReviewStats(period: ReviewPeriod = {}) {
   return useQuery({
-    queryKey: reviewStatsKey,
-    queryFn: () => apiFetch<ReviewStatsDto>('/reviews/stats'),
+    queryKey: [...reviewStatsKey, period.months ?? 'all', period.facilityId ?? 'all'] as const,
+    queryFn: () => apiFetch<ReviewStatsDto>(`/reviews/stats${periodQuery(period)}`),
+  });
+}
+
+/** NPS mes a mes y por local. */
+export function useReviewInsights(period: ReviewPeriod = {}) {
+  return useQuery({
+    queryKey: [
+      ...reviewsKey,
+      'insights',
+      period.months ?? 'all',
+      period.facilityId ?? 'all',
+    ] as const,
+    queryFn: () => apiFetch<ReviewInsightsDto>(`/reviews/insights${periodQuery(period)}`),
   });
 }
 

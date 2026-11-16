@@ -9,13 +9,18 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 import {
   CreateCouponSchema,
+  CreatePersonalCouponSchema,
   type CouponDto,
   type CouponQuoteDto,
   type CouponRedemptionDto,
+  type CouponResultsDto,
+  type CouponSettingsDto,
   UpdateCouponSchema,
+  UpdateCouponSettingsSchema,
   ValidateCouponSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -32,6 +37,8 @@ import { CouponsService } from './coupons.service';
 class CreateCouponDto extends createZodDto(CreateCouponSchema) {}
 class UpdateCouponDto extends createZodDto(UpdateCouponSchema) {}
 class ValidateCouponDto extends createZodDto(ValidateCouponSchema) {}
+class CreatePersonalCouponDto extends createZodDto(CreatePersonalCouponSchema) {}
+class UpdateCouponSettingsDto extends createZodDto(UpdateCouponSettingsSchema) {}
 
 @Controller('coupons')
 export class CouponsController {
@@ -53,6 +60,33 @@ export class CouponsController {
     return this.coupons.create(user.tenantId, body, user.sub);
   }
 
+  /** Cupón personal: un solo uso, con caducidad, para una persona. */
+  @RequirePermission('promotions:manage')
+  @Post('personal')
+  createPersonal(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreatePersonalCouponDto,
+  ): Promise<CouponDto> {
+    return this.coupons.createPersonal(user.tenantId, body, user.sub);
+  }
+
+  /** Cupón que se ofrece al recordar una reserva sin terminar. */
+  @RequirePermission('promotions:read')
+  @Get('settings')
+  settings(@CurrentUser() user: AuthenticatedUser): Promise<CouponSettingsDto> {
+    return this.coupons.getSettings(user.tenantId);
+  }
+
+  @RequirePermission('promotions:manage')
+  @Put('settings')
+  updateSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateCouponSettingsDto,
+  ): Promise<CouponSettingsDto> {
+    assertWholeBusiness(user.facilityScope);
+    return this.coupons.updateSettings(user.tenantId, body, user.sub);
+  }
+
   /** Comprueba un cupón para un trastero y unos meses (alta de contrato). */
   @RequirePermission('contracts:write')
   @Post('validate')
@@ -71,6 +105,16 @@ export class CouponsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CouponRedemptionDto[]> {
     return this.coupons.listRedemptions(user.tenantId, id);
+  }
+
+  /** Descuento concedido y lo que traen los contratos que lo usaron. */
+  @RequirePermission('promotions:read')
+  @Get(':id/results')
+  results(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CouponResultsDto> {
+    return this.coupons.results(user.tenantId, id);
   }
 
   @RequirePermission('promotions:manage')

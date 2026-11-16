@@ -130,6 +130,12 @@ export interface PublicActivePromotionDto {
   name: string;
   discountType: PromotionDiscountTypeValue;
   discountValue: number;
+  /** `coupon`: descuenta solo el primer pago. Sin valor, una promoción. */
+  kind?: 'promotion' | 'coupon';
+  /** Cupón: meses que hay que pagar por adelantado para usarlo. */
+  minMonths?: number;
+  /** Promoción: meses que dura el descuento (sin valor, todo el contrato). */
+  durationMonths?: number | null;
 }
 
 export interface PublicTestimonialDto {

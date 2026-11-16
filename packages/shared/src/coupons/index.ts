@@ -23,6 +23,14 @@ export const COUPON_DISCOUNT_TYPE_LABELS: Record<CouponDiscountType, string> = {
   free_months: 'Meses gratis',
 };
 
+/**
+ * `standard`: el de siempre. `personal`: de un solo uso, para una persona (un
+ * presupuesto, una reserva sin terminar). `referral_friend`: el del recomendado
+ * por otro inquilino; lo aplica la reserva sola, no vale escribiéndolo.
+ */
+export const COUPON_KINDS = ['standard', 'personal', 'referral_friend'] as const;
+export type CouponKind = (typeof COUPON_KINDS)[number];
+
 /** Meses que se pueden pagar por adelantado con un cupón. */
 export const COUPON_MAX_MONTHS = 12;
 
@@ -62,6 +70,8 @@ const couponFields = {
   validFrom: isoDate.nullable(),
   validUntil: isoDate.nullable(),
   isActive: z.boolean(),
+  /** Se anuncia en la web pública del negocio. */
+  announceOnWeb: z.boolean(),
 };
 
 type CouponRuleFields = {
@@ -115,6 +125,7 @@ export const CreateCouponSchema = z
     validFrom: couponFields.validFrom.default(null),
     validUntil: couponFields.validUntil.default(null),
     isActive: couponFields.isActive.default(true),
+    announceOnWeb: couponFields.announceOnWeb.default(false),
   })
   .superRefine((v, ctx) => {
     for (const i of couponRuleIssues(v)) {
@@ -139,8 +150,49 @@ export const UpdateCouponSchema = z.object({
   validFrom: couponFields.validFrom.optional(),
   validUntil: couponFields.validUntil.optional(),
   isActive: couponFields.isActive.optional(),
+  announceOnWeb: couponFields.announceOnWeb.optional(),
 });
 export type UpdateCouponInput = z.infer<typeof UpdateCouponSchema>;
+
+/**
+ * Cupón personal: de un solo uso y con caducidad, para una persona concreta
+ * (un presupuesto, alguien que dejó la reserva a medias). El código lo pone el
+ * sistema.
+ */
+export const CreatePersonalCouponSchema = z
+  .object({
+    /** Para quién es (nombre o email): solo para reconocerlo en la lista. */
+    personalFor: z.string().trim().min(1).max(120),
+    discountType: z.enum(['percentage', 'fixed']),
+    discountValue: z.number().positive().max(100_000),
+    /** Días que vale desde hoy. */
+    validDays: z.number().int().min(1).max(90).default(7),
+    minMonths: z.number().int().min(1).max(COUPON_MAX_MONTHS).default(1),
+  })
+  .refine((v) => v.discountType !== 'percentage' || v.discountValue <= 100, {
+    message: 'El porcentaje no puede superar 100',
+    path: ['discountValue'],
+  });
+export type CreatePersonalCouponInput = z.infer<typeof CreatePersonalCouponSchema>;
+
+/** Cupón personal que se ofrece al recordar una reserva sin terminar (0 % = no). */
+export const UpdateCouponSettingsSchema = z.object({
+  bookingRecoveryCouponPct: z.number().int().min(0).max(100),
+  bookingRecoveryCouponDays: z.number().int().min(1).max(30),
+});
+export type UpdateCouponSettingsInput = z.infer<typeof UpdateCouponSettingsSchema>;
+export type CouponSettingsDto = UpdateCouponSettingsInput;
+
+/** Lo que ha dado de sí un cupón. */
+export interface CouponResultsDto {
+  uses: number;
+  /** Descuento total concedido, sin IVA. */
+  totalDiscount: number;
+  /** Contratos que lo usaron y siguen en vigor. */
+  liveContracts: number;
+  /** Cuotas al mes de esos contratos, sin IVA. */
+  monthlyRevenue: number;
+}
 
 export interface CouponDto {
   id: string;
@@ -160,6 +212,10 @@ export interface CouponDto {
   validFrom: string | null;
   validUntil: string | null;
   isActive: boolean;
+  announceOnWeb: boolean;
+  kind: CouponKind;
+  /** Para quién es un cupón personal. */
+  personalFor: string | null;
   createdAt: string;
 }
 
@@ -238,6 +294,8 @@ export interface FirstPaymentQuoteDto {
    * el primer pago): `monthlyPrice` ya la lleva descontada.
    */
   promotion?: WebPromotionDto | null;
+  /** El descuento es por venir recomendado por otro inquilino. */
+  referralFriend?: boolean;
 }
 
 /** Resumen del primer pago en la reserva online (antes de crearla). */
@@ -253,6 +311,8 @@ export const BookingQuoteSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
   couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal('')),
+  /** Código de quien le recomienda: si el negocio premia al recomendado, se ve aquí. */
+  referralCode: z.string().trim().toUpperCase().max(20).optional().or(z.literal('')),
 });
 export type BookingQuoteInput = z.infer<typeof BookingQuoteSchema>;
 

@@ -37,6 +37,10 @@ export const TaskAutoRulesSchema = z.object({
   }),
   /** Llamar para renovar cuando el contrato está a punto de vencer. */
   renewalCall: z.object({ enabled: z.boolean() }),
+  /** Llamar a quien deja una valoración de 0 a 6. */
+  lowReview: z
+    .object({ enabled: z.boolean(), days: z.number().int().min(0).max(30) })
+    .default({ enabled: false, days: 1 }),
 });
 export type TaskAutoRules = z.infer<typeof TaskAutoRulesSchema>;
 
@@ -44,6 +48,7 @@ export const DEFAULT_TASK_AUTO_RULES: TaskAutoRules = {
   welcomeCall: { enabled: false, days: 3 },
   moveOutInspection: { enabled: false, days: 1 },
   renewalCall: { enabled: false },
+  lowReview: { enabled: false, days: 1 },
 };
 
 /** Lee las reglas guardadas completando lo que falte. */
@@ -56,6 +61,7 @@ export function parseTaskAutoRules(raw: unknown): TaskAutoRules {
       ...(r.moveOutInspection ?? {}),
     },
     renewalCall: { ...DEFAULT_TASK_AUTO_RULES.renewalCall, ...(r.renewalCall ?? {}) },
+    lowReview: { ...DEFAULT_TASK_AUTO_RULES.lowReview, ...(r.lowReview ?? {}) },
   };
   const parsed = TaskAutoRulesSchema.safeParse(merged);
   return parsed.success ? parsed.data : DEFAULT_TASK_AUTO_RULES;

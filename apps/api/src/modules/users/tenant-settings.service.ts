@@ -353,6 +353,8 @@ export class TenantSettingsService {
       reviewsAutoRequest: tenant.reviewsAutoRequest,
       reviewRequestDelayDays: tenant.reviewRequestDelayDays,
       googleReviewUrl: tenant.googleReviewUrl,
+      reviewsReminderEnabled: tenant.reviewsReminderEnabled,
+      reviewsYearlyEnabled: tenant.reviewsYearlyEnabled,
     };
   }
 
@@ -372,6 +374,10 @@ export class TenantSettingsService {
     if (input.reviewRequestDelayDays !== undefined)
       data.reviewRequestDelayDays = input.reviewRequestDelayDays;
     if (input.googleReviewUrl !== undefined) data.googleReviewUrl = input.googleReviewUrl || null;
+    if (input.reviewsReminderEnabled !== undefined)
+      data.reviewsReminderEnabled = input.reviewsReminderEnabled;
+    if (input.reviewsYearlyEnabled !== undefined)
+      data.reviewsYearlyEnabled = input.reviewsYearlyEnabled;
 
     const updated =
       Object.keys(data).length === 0
@@ -393,6 +399,8 @@ export class TenantSettingsService {
       reviewsAutoRequest: updated.reviewsAutoRequest,
       reviewRequestDelayDays: updated.reviewRequestDelayDays,
       googleReviewUrl: updated.googleReviewUrl,
+      reviewsReminderEnabled: updated.reviewsReminderEnabled,
+      reviewsYearlyEnabled: updated.reviewsYearlyEnabled,
     };
   }
 
@@ -973,10 +981,27 @@ export class TenantSettingsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException('Tenant no encontrado');
     }
+    return this.referralsDto(tenant);
+  }
+
+  private referralsDto(t: {
+    referralEnabled: boolean;
+    referralRewardType: TenantReferralSettingsResponse['referralRewardType'];
+    referralRewardValue: unknown;
+    referralFriendRewardType: string | null;
+    referralFriendRewardValue: unknown;
+    referralMaxRewardsPerYear: number | null;
+  }): TenantReferralSettingsResponse {
     return {
-      referralEnabled: tenant.referralEnabled,
-      referralRewardType: tenant.referralRewardType,
-      referralRewardValue: Number(tenant.referralRewardValue),
+      referralEnabled: t.referralEnabled,
+      referralRewardType: t.referralRewardType,
+      referralRewardValue: Number(t.referralRewardValue),
+      referralFriendRewardType:
+        t.referralFriendRewardType === 'percentage' || t.referralFriendRewardType === 'fixed'
+          ? t.referralFriendRewardType
+          : null,
+      referralFriendRewardValue: Number(t.referralFriendRewardValue),
+      referralMaxRewardsPerYear: t.referralMaxRewardsPerYear,
     };
   }
 
@@ -996,6 +1021,16 @@ export class TenantSettingsService {
         referralEnabled: args.input.referralEnabled,
         referralRewardType: args.input.referralRewardType,
         referralRewardValue: args.input.referralRewardValue,
+        // Lo que no se envía se queda como estaba.
+        ...(args.input.referralFriendRewardType !== undefined
+          ? { referralFriendRewardType: args.input.referralFriendRewardType }
+          : {}),
+        ...(args.input.referralFriendRewardValue !== undefined
+          ? { referralFriendRewardValue: args.input.referralFriendRewardValue }
+          : {}),
+        ...(args.input.referralMaxRewardsPerYear !== undefined
+          ? { referralMaxRewardsPerYear: args.input.referralMaxRewardsPerYear }
+          : {}),
       },
     });
 
@@ -1012,16 +1047,20 @@ export class TenantSettingsService {
           from: Number(tenant.referralRewardValue),
           to: Number(updated.referralRewardValue),
         },
+        friendReward: {
+          from: `${tenant.referralFriendRewardType ?? 'ninguna'} ${Number(tenant.referralFriendRewardValue)}`,
+          to: `${updated.referralFriendRewardType ?? 'ninguna'} ${Number(updated.referralFriendRewardValue)}`,
+        },
+        maxRewardsPerYear: {
+          from: tenant.referralMaxRewardsPerYear,
+          to: updated.referralMaxRewardsPerYear,
+        },
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
 
-    return {
-      referralEnabled: updated.referralEnabled,
-      referralRewardType: updated.referralRewardType,
-      referralRewardValue: Number(updated.referralRewardValue),
-    };
+    return this.referralsDto(updated);
   }
 
   async getAccess(tenantId: string): Promise<TenantAccessSettingsResponse> {

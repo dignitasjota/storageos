@@ -787,6 +787,40 @@ function AutoRulesDialog({ onClose }: { onClose: () => void }) {
                 </span>
               </span>
             </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={draft.lowReview.enabled}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    lowReview: { ...draft.lowReview, enabled: e.target.checked },
+                  })
+                }
+              />
+              <span>
+                Llamar a quien deja una mala valoración
+                <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  a los
+                  <Input
+                    type="number"
+                    min={0}
+                    max={30}
+                    className="h-8 w-16"
+                    aria-label="Días tras la valoración"
+                    value={draft.lowReview.days}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        lowReview: { ...draft.lowReview, days: Number(e.target.value) || 0 },
+                      })
+                    }
+                  />
+                  días de una nota de 0 a 6
+                </span>
+              </span>
+            </label>
           </div>
         )}
         <DialogFooter>

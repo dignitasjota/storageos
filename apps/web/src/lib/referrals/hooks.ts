@@ -6,6 +6,7 @@ import type {
   CustomerReferralCodeDto,
   ReferralDto,
   ReferralStatsDto,
+  ReferralTopDto,
   TenantReferralSettingsResponse,
   UpdateTenantReferralSettingsInput,
 } from '@storageos/shared';
@@ -35,6 +36,14 @@ export function useReferralStats() {
   return useQuery({
     queryKey: referralStatsKey,
     queryFn: () => apiFetch<ReferralStatsDto>('/referrals/stats'),
+  });
+}
+
+/** Quiénes recomiendan más. */
+export function useReferralTop() {
+  return useQuery({
+    queryKey: [...referralsKey, 'top'] as const,
+    queryFn: () => apiFetch<ReferralTopDto[]>('/referrals/top'),
   });
 }
 

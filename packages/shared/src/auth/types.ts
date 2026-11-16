@@ -197,6 +197,8 @@ export interface TenantReviewsSettingsResponse {
   reviewsAutoRequest: boolean;
   reviewRequestDelayDays: number;
   googleReviewUrl: string | null;
+  reviewsReminderEnabled: boolean;
+  reviewsYearlyEnabled: boolean;
 }
 
 export interface TenantMonthlyDigestSettingsResponse {

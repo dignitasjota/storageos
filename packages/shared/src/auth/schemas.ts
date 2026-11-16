@@ -280,6 +280,10 @@ export const UpdateTenantReviewsSettingsSchema = z.object({
   reviewRequestDelayDays: z.number().int().min(1).max(180).optional(),
   /** Link "deja tu reseña" en Google Business Profile (vacío = desactivado). */
   googleReviewUrl: z.string().trim().url().max(500).optional().or(z.literal('')),
+  /** Recordar a los 7 días a quien no ha respondido. */
+  reviewsReminderEnabled: z.boolean().optional(),
+  /** Pedir una valoración al año a los inquilinos que siguen. */
+  reviewsYearlyEnabled: z.boolean().optional(),
 });
 export type UpdateTenantReviewsSettingsInput = z.infer<typeof UpdateTenantReviewsSettingsSchema>;
 

@@ -318,10 +318,9 @@ describe('Fidelización: revisión (e2e)', () => {
     expect(availability.body.referralEnabled).toBe(false);
     await bookAndSign(owner.slug, base, { referralCode: code });
     expect((await http().get('/referrals').set(auth)).body).toHaveLength(0);
-    expect((await http().get(`/referrals/customers/${referrerId}/code`).set(auth)).body).toEqual({
-      enabled: false,
-      referralCode: null,
-    });
+    expect(
+      (await http().get(`/referrals/customers/${referrerId}/code`).set(auth)).body,
+    ).toMatchObject({ enabled: false, referralCode: null });
 
     // Un porcentaje no pasa de 100.
     await http()
@@ -334,10 +333,9 @@ describe('Fidelización: revisión (e2e)', () => {
       .set(auth)
       .send({ referralEnabled: true, referralRewardType: 'fixed', referralRewardValue: 50 })
       .expect(200);
-    expect((await http().get(`/referrals/customers/${referrerId}/code`).set(auth)).body).toEqual({
-      enabled: true,
-      referralCode: code,
-    });
+    expect(
+      (await http().get(`/referrals/customers/${referrerId}/code`).set(auth)).body,
+    ).toMatchObject({ enabled: true, referralCode: code });
 
     // Reserva con el código, firma y no paga: nada de recompensa.
     const friend = await bookAndSign(owner.slug, base, { referralCode: code });

@@ -7,6 +7,7 @@ import type {
   CreateUnitOfferInput,
   UnitOfferDto,
   PromotionDto,
+  PromotionResultsDto,
   UpdatePromotionInput,
   ValidatePromotionInput,
   ValidatePromotionResultDto,
@@ -18,6 +19,15 @@ export function usePromotions() {
   return useQuery({
     queryKey: promotionsKey,
     queryFn: () => apiFetch<PromotionDto[]>('/promotions'),
+  });
+}
+
+/** Contratos que usan una promoción y lo que cuesta y trae al mes. */
+export function usePromotionResults(id: string | null) {
+  return useQuery({
+    queryKey: [...promotionsKey, id, 'results'] as const,
+    queryFn: () => apiFetch<PromotionResultsDto>(`/promotions/${id}/results`),
+    enabled: !!id,
   });
 }
 

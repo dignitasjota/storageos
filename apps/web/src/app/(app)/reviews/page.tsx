@@ -1,15 +1,29 @@
 'use client';
 
+import {
+  REVIEW_EXIT_REASON_LABELS,
+  type ReviewDto,
+  type ReviewExitReason,
+} from '@storageos/shared';
 import { Loader2, Plus, Star } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { toast } from 'sonner';
-
-import type { ReviewDto } from '@storageos/shared';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -32,12 +46,14 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCommunicationChannels } from '@/lib/communications/hooks';
 import { useCustomers } from '@/lib/customers/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
 import { formatDate } from '@/lib/format';
 import {
   useRequestReview,
   usePublishReview,
   useRequestGoogleReview,
   useResendReview,
+  useReviewInsights,
   useReviews,
   useReviewStats,
   useReviewsSettings,
@@ -53,8 +69,28 @@ const STATUS_LABELS: Record<
   expired: { label: 'Caducada', variant: 'outline' },
 };
 
+/** Mismo azul que las gráficas de Analítica. */
+const NPS_LINE = '#2a78d6';
+
+function shortMonth(yearMonth: string): string {
+  const [y, m] = yearMonth.split('-').map(Number);
+  return new Date(y!, m! - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
+}
+
 export default function ReviewsPage() {
-  const stats = useReviewStats();
+  // Periodo y local de las cifras (el historial de abajo es siempre completo).
+  const [months, setMonths] = useState<'all' | '3' | '6' | '12'>('all');
+  const [facilityId, setFacilityId] = useState('all');
+  const facilities = useFacilities();
+  const period = {
+    months: months === 'all' ? undefined : Number(months),
+    facilityId: facilityId === 'all' ? undefined : facilityId,
+  };
+  const stats = useReviewStats(period);
+  const insights = useReviewInsights({
+    months: period.months ?? 12,
+    facilityId: period.facilityId,
+  });
   const [status, setStatus] = useState<'all' | ReviewDto['status']>('all');
   const reviews = useReviews(status === 'all' ? undefined : status);
   const items = reviews.data?.pages.flatMap((p) => p.items) ?? [];
@@ -72,6 +108,35 @@ export default function ReviewsPage() {
           </p>
         </div>
         {canWrite && <RequestReviewDialog />}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Select value={months} onValueChange={(v) => setMonths(v as typeof months)}>
+          <SelectTrigger className="h-9 w-48" aria-label="Periodo">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Desde el principio</SelectItem>
+            <SelectItem value="3">Últimos 3 meses</SelectItem>
+            <SelectItem value="6">Últimos 6 meses</SelectItem>
+            <SelectItem value="12">Últimos 12 meses</SelectItem>
+          </SelectContent>
+        </Select>
+        {(facilities.data ?? []).length > 1 && (
+          <Select value={facilityId} onValueChange={setFacilityId}>
+            <SelectTrigger className="h-9 w-52" aria-label="Local">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los locales</SelectItem>
+              {(facilities.data ?? []).map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {stats.isError && <SectionError onRetry={() => void stats.refetch()} />}
@@ -111,6 +176,8 @@ export default function ReviewsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {insights.data && <NpsTrendCard data={insights.data} />}
 
       {canManageSettings && <AutoRequestSettings />}
 
@@ -181,6 +248,115 @@ export default function ReviewsPage() {
   );
 }
 
+/** NPS de cada mes (por el mes de la respuesta) y por local. */
+function NpsTrendCard({
+  data,
+}: {
+  data: NonNullable<ReturnType<typeof useReviewInsights>['data']>;
+}) {
+  const withAnswers = data.trend.filter((m) => m.responses > 0);
+  if (withAnswers.length === 0) return null;
+  const chartData = data.trend.map((m) => ({
+    mes: shortMonth(m.month),
+    NPS: m.nps,
+    respuestas: m.responses,
+  }));
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">NPS mes a mes</CardTitle>
+        <CardDescription>
+          Según el mes en que respondieron. Por encima de 0 hay más promotores que detractores.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {withAnswers.length > 1 && (
+          <div className="h-56">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 300, height: 224 }}
+            >
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                <YAxis
+                  domain={[-100, 100]}
+                  ticks={[-100, -50, 0, 50, 100]}
+                  tick={{ fontSize: 11 }}
+                />
+                <ReferenceLine y={0} stroke="currentColor" strokeOpacity={0.35} />
+                <Tooltip
+                  formatter={(v, _name, item) => [
+                    `${Number(v)} (${(item.payload as { respuestas: number }).respuestas} respuestas)`,
+                    'NPS',
+                  ]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="NPS"
+                  stroke={NPS_LINE}
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  connectNulls
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="py-1.5 pr-3">Mes</th>
+                  <th className="py-1.5 pr-3">Respuestas</th>
+                  <th className="py-1.5 pr-3">NPS</th>
+                  <th className="py-1.5">Estrellas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...withAnswers].reverse().map((m) => (
+                  <tr key={m.month} className="border-b last:border-b-0">
+                    <td className="py-1.5 pr-3">{shortMonth(m.month)}</td>
+                    <td className="py-1.5 pr-3 tabular-nums">{m.responses}</td>
+                    <td className="py-1.5 pr-3 tabular-nums">{m.nps ?? '—'}</td>
+                    <td className="py-1.5 tabular-nums">{m.avgRating ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.byFacility.length > 1 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b text-left text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="py-1.5 pr-3">Local</th>
+                    <th className="py-1.5 pr-3">Respuestas</th>
+                    <th className="py-1.5 pr-3">NPS</th>
+                    <th className="py-1.5">Estrellas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.byFacility.map((f) => (
+                    <tr key={f.facilityId} className="border-b last:border-b-0">
+                      <td className="py-1.5 pr-3">{f.facilityName}</td>
+                      <td className="py-1.5 pr-3 tabular-nums">{f.responses}</td>
+                      <td className="py-1.5 pr-3 tabular-nums">{f.nps ?? '—'}</td>
+                      <td className="py-1.5 tabular-nums">{f.avgRating ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function StatCard({
   title,
   value,
@@ -228,10 +404,27 @@ function ReviewRow({ review, canPublish }: { review: ReviewDto; canPublish: bool
   const noConsent = publishable && !review.publishConsent && !review.publishedOnWeb;
   return (
     <tr className="border-b last:border-b-0">
-      <td className="px-3 py-2 font-medium">{review.customerName}</td>
+      <td className="px-3 py-2 font-medium">
+        <Link href={`/customers/${review.customerId}`} className="hover:underline">
+          {review.customerName}
+        </Link>
+        {review.exit && (
+          <div className="text-xs font-normal text-muted-foreground">
+            Encuesta de salida
+            {review.exitReason
+              ? ` · ${REVIEW_EXIT_REASON_LABELS[review.exitReason as ReviewExitReason] ?? review.exitReason}`
+              : ''}
+          </div>
+        )}
+      </td>
       <td className="px-3 py-2 font-mono text-xs">{review.contractNumber ?? '—'}</td>
       <td className="px-3 py-2">
         <Badge variant={s.variant}>{s.label}</Badge>
+        {review.status === 'pending' && review.remindedAt && (
+          <div className="mt-1 text-xs text-muted-foreground">
+            Recordada el {formatDate(review.remindedAt)}
+          </div>
+        )}
         {review.status !== 'submitted' && canPublish && (
           <div className="mt-1 flex flex-wrap gap-x-2 text-xs">
             <button
@@ -296,6 +489,16 @@ function ReviewRow({ review, canPublish }: { review: ReviewDto; canPublish: bool
         title={review.comment ?? ''}
       >
         {review.comment ?? '—'}
+        {review.status === 'submitted' && review.npsScore !== null && review.npsScore <= 6 && (
+          <div className="mt-0.5 text-xs">
+            <Link
+              href={`/customers/${review.customerId}?tab=chat`}
+              className="text-primary underline-offset-2 hover:underline"
+            >
+              Responder
+            </Link>
+          </div>
+        )}
       </td>
       <td className="px-3 py-2 text-muted-foreground">{formatDate(review.createdAt)}</td>
       <td className="px-3 py-2">
@@ -460,6 +663,18 @@ function AutoRequestSettings() {
     }
   }
 
+  async function toggle(next: {
+    reviewsReminderEnabled?: boolean;
+    reviewsYearlyEnabled?: boolean;
+  }) {
+    try {
+      await update.mutateAsync(next);
+      toast.success('Ajustes guardados.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   async function save(next: { reviewsAutoRequest: boolean; reviewRequestDelayDays: number }) {
     try {
       await update.mutateAsync(next);
@@ -472,7 +687,7 @@ function AutoRequestSettings() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Solicitud automática</CardTitle>
+        <CardTitle className="text-base">Solicitudes automáticas</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex items-start gap-2">
@@ -513,6 +728,37 @@ function AutoRequestSettings() {
             />
           </div>
         )}
+        <div className="space-y-3 border-t pt-3">
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="reviews-reminder"
+              checked={settings.data?.reviewsReminderEnabled ?? false}
+              disabled={settings.isLoading || update.isPending}
+              onCheckedChange={(v) => toggle({ reviewsReminderEnabled: v === true })}
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="reviews-reminder">Recordar a quien no responde</Label>
+              <p className="text-xs text-muted-foreground">
+                Un solo recordatorio, a los 7 días de pedírsela.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="reviews-yearly"
+              checked={settings.data?.reviewsYearlyEnabled ?? false}
+              disabled={settings.isLoading || update.isPending}
+              onCheckedChange={(v) => toggle({ reviewsYearlyEnabled: v === true })}
+            />
+            <div className="space-y-0.5">
+              <Label htmlFor="reviews-yearly">Volver a preguntar cada año</Label>
+              <p className="text-xs text-muted-foreground">
+                A los inquilinos que llevan más de un año y a los que no se les ha pedido ninguna
+                valoración en los últimos 12 meses.
+              </p>
+            </div>
+          </div>
+        </div>
         <div className="space-y-1 border-t pt-3">
           <Label htmlFor="google-url" className="text-sm">
             Enlace de reseña en Google (opcional)

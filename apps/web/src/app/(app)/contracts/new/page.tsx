@@ -52,6 +52,12 @@ const PROMOTION_REJECT: Record<string, string> = {
   max_uses_reached: 'Esa promoción ya no tiene usos disponibles.',
   not_for_unit: 'Esa oferta es de otro trastero.',
   not_with_prepay: 'Los meses gratis no se pueden combinar con el pago semestral o anual.',
+  duration_too_short:
+    'Esa promoción dura menos meses de los que se pagan por adelantado: no se pueden combinar.',
+  unit_type: 'Esa promoción no vale para este tipo de trastero.',
+  facility: 'Esa promoción no vale en este local.',
+  new_customers_only: 'Esa promoción es solo para clientes nuevos.',
+  already_used: 'Este inquilino ya ha usado esa promoción.',
 };
 
 export default function NewContractWizardPage() {
@@ -581,6 +587,7 @@ function StepEconomics(props: {
         monthlyPrice: props.priceMonthly,
         unitId: props.unitId,
         billingIntervalMonths: props.billingIntervalMonths,
+        ...(props.customerId ? { customerId: props.customerId } : {}),
       });
       if (!res.valid) {
         toast.error(PROMOTION_REJECT[res.reason ?? ''] ?? 'Código no aplicable.');
@@ -592,7 +599,13 @@ function StepEconomics(props: {
         discountAmount: res.discountAmount,
         discountReason: `Promoción ${res.code}`,
       });
-      if (res.freeMonths && res.freeMonths > 0) {
+      if (res.durationMonths) {
+        toast.success(
+          `Descuento de ${formatEur(res.discountAmount)}/mes ${
+            res.durationMonths === 1 ? 'el primer mes' : `los ${res.durationMonths} primeros meses`
+          }; después vuelve solo a su precio.`,
+        );
+      } else if (res.freeMonths && res.freeMonths > 0) {
         toast.success(
           `${res.freeMonths} ${res.freeMonths === 1 ? 'mes' : 'meses'} gratis: las primeras facturas saldrán a 0 €.`,
         );

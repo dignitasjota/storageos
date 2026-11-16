@@ -1,10 +1,12 @@
 import { randomInt } from 'node:crypto';
 
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 
 import { customerScopeWhere } from '../../common/customer-scope';
 import { formatEur } from '../../common/format';
+import { tenantBookingUrl } from '../../common/portal-url';
 import {
   type BookingExpiredPayload,
   DOMAIN_EVENTS,
@@ -16,13 +18,29 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import type { FacilityScope } from '../../common/facility-scope';
+import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 import type {
   CustomerReferralCodeDto,
   PortalReferralDto,
   ReferralDto,
+  ReferralRewardInfo,
   ReferralStatsDto,
+  ReferralTopDto,
 } from '@storageos/shared';
+
+/** Lo que se comparte al recomendar: código, enlace y recompensas. */
+export interface ReferralShareInfo {
+  code: string;
+  shareUrl: string;
+  reward: ReferralRewardInfo | null;
+  friendReward: ReferralRewardInfo | null;
+}
+
+function rewardInfo(type: string | null | undefined, value: unknown): ReferralRewardInfo | null {
+  const n = Number(value ?? 0);
+  return (type === 'percentage' || type === 'fixed') && n > 0 ? { type, value: n } : null;
+}
 
 /** Formas de pago que no son dinero que entra (no dan por pagado al recomendado). */
 const NOT_MONEY = ['credit_note', 'withholding', 'deposit'] as const;
@@ -111,6 +129,7 @@ export class ReferralsService {
     private readonly admin: PrismaAdminService,
     private readonly communications: CommunicationsService,
     private readonly notifications: NotificationsService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   private toDto(r: ReferralRow): ReferralDto {
@@ -133,6 +152,7 @@ export class ReferralsService {
             }
           : null,
       referrerActive: r.referrer.contracts.length > 0,
+      rewardSkippedReason: r.rewardSkippedReason,
       createdAt: r.createdAt.toISOString(),
       convertedAt: r.convertedAt?.toISOString() ?? null,
     };
@@ -220,14 +240,34 @@ export class ReferralsService {
       if (!paid) return;
       const tenant = await this.admin.tenant.findUnique({
         where: { id: payload.tenantId },
-        select: { referralEnabled: true, referralRewardType: true, referralRewardValue: true },
+        select: {
+          referralEnabled: true,
+          referralRewardType: true,
+          referralRewardValue: true,
+          referralMaxRewardsPerYear: true,
+        },
       });
       if (!tenant?.referralEnabled) return;
 
       // La recompensa es un descuento en las siguientes facturas de quien
       // recomienda (lo aplica la facturación recurrente).
       const rewardValue = Number(tenant.referralRewardValue);
-      const hasReward = rewardValue > 0 && tenant.referralRewardType !== 'free_months';
+      const configured = rewardValue > 0 && tenant.referralRewardType !== 'free_months';
+      // Tope de recompensas por inquilino en un año.
+      const cap = tenant.referralMaxRewardsPerYear;
+      const capped =
+        configured && cap != null
+          ? (await this.admin.referral.count({
+              where: {
+                tenantId: payload.tenantId,
+                referrerCustomerId: referral.referrerCustomerId,
+                status: 'converted',
+                rewardValue: { not: null },
+                convertedAt: { gte: new Date(Date.now() - 365 * 86_400_000) },
+              },
+            })) >= cap
+          : false;
+      const hasReward = configured && !capped;
       // Reserva atómica: dos pagos a la vez no la conceden dos veces.
       const converted = await this.admin.referral.updateMany({
         where: { id: referral.id, status: { in: ['pending', 'cancelled'] } },
@@ -235,6 +275,7 @@ export class ReferralsService {
           status: 'converted',
           convertedAt: new Date(),
           ...(hasReward ? { rewardType: tenant.referralRewardType, rewardValue } : {}),
+          ...(capped ? { rewardSkippedReason: 'yearly_cap' } : {}),
         },
       });
       if (converted.count === 0) return;
@@ -246,7 +287,7 @@ export class ReferralsService {
           ? `un ${rewardValue} % de su cuota`
           : formatEur(rewardValue)
         : null;
-      await this.notifyStaff(payload.tenantId, referral, reward);
+      await this.notifyStaff(payload.tenantId, referral, reward, capped);
       if (hasReward) {
         await this.notifyReferrer(
           payload.tenantId,
@@ -306,6 +347,7 @@ export class ReferralsService {
     tenantId: string,
     referral: { referrerCustomerId: string; referredCustomerId: string },
     reward: string | null,
+    capped = false,
   ): Promise<void> {
     try {
       const people = await this.admin.customer.findMany({
@@ -330,7 +372,9 @@ export class ReferralsService {
         title: `${nameOf(referral.referredCustomerId)} ya es cliente por una recomendación`,
         body: reward
           ? `Le recomendó ${nameOf(referral.referrerCustomerId)}, que tendrá ${reward} de descuento en su próxima factura.`
-          : `Le recomendó ${nameOf(referral.referrerCustomerId)}.`,
+          : capped
+            ? `Le recomendó ${nameOf(referral.referrerCustomerId)}, que ya ha llegado al tope de recompensas de este año.`
+            : `Le recomendó ${nameOf(referral.referrerCustomerId)}.`,
         link: '/referrals',
       });
     } catch (err) {
@@ -492,14 +536,95 @@ export class ReferralsService {
     };
   }
 
-  /** Código de un inquilino para dárselo en mano (lo crea si aún no tiene). */
-  async codeForStaff(tenantId: string, customerId: string): Promise<CustomerReferralCodeDto> {
+  /** Quiénes recomiendan más (los diez primeros). */
+  async top(tenantId: string, scope: FacilityScope = null): Promise<ReferralTopDto[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.referral.findMany({
+          where: { tenantId, ...referralScopeWhere(scope) },
+          select: {
+            referrerCustomerId: true,
+            status: true,
+            rewardType: true,
+            rewardValue: true,
+            referrer: {
+              select: { firstName: true, lastName: true, companyName: true, customerType: true },
+            },
+          },
+        }),
+      tenantId,
+    );
+    const byReferrer = new Map<string, ReferralTopDto>();
+    for (const r of rows) {
+      const row = byReferrer.get(r.referrerCustomerId) ?? {
+        customerId: r.referrerCustomerId,
+        customerName: displayName(r.referrer),
+        referred: 0,
+        converted: 0,
+        rewardsFixedTotal: 0,
+      };
+      row.referred += 1;
+      if (r.status === 'converted') row.converted += 1;
+      if (r.rewardType === 'fixed' && r.rewardValue !== null) {
+        row.rewardsFixedTotal =
+          Math.round((row.rewardsFixedTotal + Number(r.rewardValue)) * 100) / 100;
+      }
+      byReferrer.set(r.referrerCustomerId, row);
+    }
+    return [...byReferrer.values()]
+      .sort((a, b) => b.converted - a.converted || b.referred - a.referred)
+      .slice(0, 10);
+  }
+
+  /** ¿Es el código de un inquilino, con el programa encendido? */
+  async isValidCode(tenantId: string, referralCode: string): Promise<boolean> {
+    const code = referralCode.trim().toUpperCase();
+    if (!code) return false;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: { referralEnabled: true },
     });
-    if (!tenant?.referralEnabled) return { enabled: false, referralCode: null };
-    return { enabled: true, referralCode: await this.ensureCode(tenantId, customerId) };
+    if (!tenant?.referralEnabled) return false;
+    const n = await this.admin.customer.count({
+      where: { tenantId, referralCode: code, deletedAt: null },
+    });
+    return n > 0;
+  }
+
+  /**
+   * Lo que un inquilino comparte para recomendar: su código, el enlace a la
+   * reserva con el código puesto y las recompensas. Null con el programa apagado.
+   */
+  async shareInfo(tenantId: string, customerId: string): Promise<ReferralShareInfo | null> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        referralEnabled: true,
+        referralRewardType: true,
+        referralRewardValue: true,
+        referralFriendRewardType: true,
+        referralFriendRewardValue: true,
+      },
+    });
+    if (!tenant?.referralEnabled) return null;
+    const code = await this.ensureCode(tenantId, customerId);
+    const booking = tenantBookingUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant);
+    return {
+      code,
+      shareUrl: `${booking}?ref=${encodeURIComponent(code)}`,
+      reward: rewardInfo(tenant.referralRewardType, tenant.referralRewardValue),
+      friendReward: rewardInfo(tenant.referralFriendRewardType, tenant.referralFriendRewardValue),
+    };
+  }
+
+  /** Código de un inquilino para dárselo en mano (lo crea si aún no tiene). */
+  async codeForStaff(tenantId: string, customerId: string): Promise<CustomerReferralCodeDto> {
+    const share = await this.shareInfo(tenantId, customerId);
+    if (!share) return { enabled: false, referralCode: null, shareUrl: null };
+    return { enabled: true, referralCode: share.code, shareUrl: share.shareUrl };
   }
 
   // ---------------------------------------------------------------------
@@ -507,14 +632,19 @@ export class ReferralsService {
   // ---------------------------------------------------------------------
 
   async getPortalView(tenantId: string, customerId: string): Promise<PortalReferralDto> {
-    const tenant = await this.admin.tenant.findUnique({
-      where: { id: tenantId },
-      select: { referralEnabled: true },
-    });
-    if (!tenant?.referralEnabled) {
-      return { enabled: false, referralCode: null, referrals: [], rewards: [] };
+    const share = await this.shareInfo(tenantId, customerId);
+    if (!share) {
+      return {
+        enabled: false,
+        referralCode: null,
+        shareUrl: null,
+        reward: null,
+        friendReward: null,
+        referrals: [],
+        rewards: [],
+      };
     }
-    const referralCode = await this.ensureCode(tenantId, customerId);
+    const referralCode = share.code;
     const referrals = await this.prisma.withTenant(
       (tx) =>
         tx.referral.findMany({
@@ -533,6 +663,9 @@ export class ReferralsService {
     return {
       enabled: true,
       referralCode,
+      shareUrl: share.shareUrl,
+      reward: share.reward,
+      friendReward: share.friendReward,
       referrals: referrals.map((r) => ({
         referredName: displayName(r.referred),
         status: r.status as PortalReferralDto['referrals'][number]['status'],

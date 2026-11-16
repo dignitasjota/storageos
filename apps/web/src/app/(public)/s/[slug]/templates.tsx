@@ -16,6 +16,7 @@ import { ContactForm } from './contact-form';
 import { trackEvent } from './google-analytics';
 import { bookHrefFor, facilityHref, type BookSite, type PublicWebLocale } from './i18n/messages';
 import { grossPrice, formatPrice } from './price-format';
+import { promoBookMonths, promoOfferText } from './promo-offer';
 import { StorageCalculator } from './storage-calculator';
 
 import type { DayHours, OpeningException, OpeningHours, PublicLandingDto } from '@storageos/shared';
@@ -664,15 +665,12 @@ export function PromoBanner({ data }: { data: PublicLandingDto }) {
   const promo = data.activePromotion;
   if (!promo) return null;
   const brand = brandOf(data);
+  const months = promoBookMonths(promo);
   const bookWithCode = bookHrefFor(data, intlLocale.startsWith('en') ? 'en' : 'es', {
     coupon: promo.code,
+    ...(months ? { months } : {}),
   });
-  const discountText =
-    promo.discountType === 'percentage'
-      ? t('percentageOff', { value: promo.discountValue })
-      : promo.discountType === 'fixed'
-        ? t('fixedOff', { value: `${promo.discountValue} €` })
-        : t('freeMonths', { count: promo.discountValue });
+  const discountText = promoOfferText(promo, t);
   return (
     <div
       className="mb-8 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-lg border-2 border-dashed px-4 py-3 text-center text-sm"

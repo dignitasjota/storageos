@@ -17,17 +17,45 @@ export const UpdateTenantReferralSettingsSchema = z
       message: 'La recompensa debe ser porcentaje o importe fijo',
     }),
     referralRewardValue: z.number().nonnegative().max(1_000_000),
+    /** Recompensa del recomendado en su primer pago (null = ninguna). */
+    referralFriendRewardType: z.enum(['percentage', 'fixed']).nullable().optional(),
+    referralFriendRewardValue: z.number().nonnegative().max(1_000_000).optional(),
+    /** Recompensas que puede ganar un inquilino en un año (null = sin tope). */
+    referralMaxRewardsPerYear: z.number().int().min(1).max(100).nullable().optional(),
   })
   .refine((v) => v.referralRewardType !== 'percentage' || v.referralRewardValue <= 100, {
     message: 'El porcentaje no puede superar 100',
     path: ['referralRewardValue'],
-  });
+  })
+  .refine(
+    (v) => v.referralFriendRewardType !== 'percentage' || (v.referralFriendRewardValue ?? 0) <= 100,
+    { message: 'El porcentaje no puede superar 100', path: ['referralFriendRewardValue'] },
+  );
 export type UpdateTenantReferralSettingsInput = z.infer<typeof UpdateTenantReferralSettingsSchema>;
 
 export interface TenantReferralSettingsResponse {
   referralEnabled: boolean;
   referralRewardType: z.infer<typeof PromotionDiscountTypeEnum>;
   referralRewardValue: number;
+  referralFriendRewardType: 'percentage' | 'fixed' | null;
+  referralFriendRewardValue: number;
+  referralMaxRewardsPerYear: number | null;
+}
+
+/** Una recompensa, para enseñarla («10 %», «20,00 €»). */
+export interface ReferralRewardInfo {
+  type: 'percentage' | 'fixed';
+  value: number;
+}
+
+/** Quién recomienda más. */
+export interface ReferralTopDto {
+  customerId: string;
+  customerName: string;
+  referred: number;
+  converted: number;
+  /** Recompensas concedidas en importe fijo (los porcentajes no se suman). */
+  rewardsFixedTotal: number;
 }
 
 /** Fila de la lista de referidos en el panel de staff. */
@@ -44,6 +72,8 @@ export interface ReferralDto {
   reward: ReferralRewardDto | null;
   /** Quien recomienda sigue con contrato: sin él no hay factura donde descontar. */
   referrerActive: boolean;
+  /** Por qué no lleva recompensa (`yearly_cap` = llegó al tope del año). */
+  rewardSkippedReason: string | null;
   createdAt: string;
   convertedAt: string | null;
 }
@@ -53,6 +83,8 @@ export interface CustomerReferralCodeDto {
   /** Programa de referidos encendido. */
   enabled: boolean;
   referralCode: string | null;
+  /** Enlace a la reserva con el código ya puesto. */
+  shareUrl?: string | null;
 }
 
 export interface ReferralStatsDto {
@@ -65,6 +97,11 @@ export interface ReferralStatsDto {
 export interface PortalReferralDto {
   enabled: boolean;
   referralCode: string | null;
+  /** Enlace a la reserva con el código ya puesto, para compartirlo. */
+  shareUrl: string | null;
+  /** Lo que gana quien recomienda y lo que gana su recomendado. */
+  reward: ReferralRewardInfo | null;
+  friendReward: ReferralRewardInfo | null;
   referrals: Array<{
     referredName: string;
     status: ReferralStatusValue;

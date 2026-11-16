@@ -88,6 +88,8 @@ export function BookPageBody({
   });
   const [website, setWebsite] = useState(''); // honeypot
   const [referralCode, setReferralCode] = useState('');
+  // El que se manda al resumen: al salir del campo o al llegar por un enlace.
+  const [referralApplied, setReferralApplied] = useState('');
   const [months, setMonths] = useState<FirstPaymentMonths>(1);
   const [couponInput, setCouponInput] = useState('');
   const [couponCode, setCouponCode] = useState<string | null>(null);
@@ -156,6 +158,12 @@ export function BookPageBody({
     }
     const m = Number(sp.get('months'));
     if (m === 3 || m === 6 || m === 12) setMonths(m);
+    // Enlace de un inquilino que recomienda: su código ya puesto.
+    const ref = sp.get('ref')?.trim().toUpperCase();
+    if (ref && /^[A-Z0-9-]{4,20}$/.test(ref)) {
+      setReferralCode(ref);
+      setReferralApplied(ref);
+    }
   }, [slug]);
 
   // Con un solo local no hace falta elegirlo: se selecciona solo.
@@ -185,6 +193,7 @@ export function BookPageBody({
         unitTypeId,
         months: preOpening ? 1 : months,
         ...(couponCode ? { couponCode } : {}),
+        ...(data?.referralEnabled && referralApplied ? { referralCode: referralApplied } : {}),
         ...(holdToken ? { holdToken } : {}),
         ...(!preOpening && /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? { startDate } : {}),
       },
@@ -198,7 +207,18 @@ export function BookPageBody({
     return () => {
       cancelled = true;
     };
-  }, [slug, facilityId, unitTypeId, months, couponCode, startDate, preOpening, holdToken]);
+  }, [
+    slug,
+    facilityId,
+    unitTypeId,
+    months,
+    couponCode,
+    startDate,
+    preOpening,
+    holdToken,
+    referralApplied,
+    data?.referralEnabled,
+  ]);
   const couponValid = !!(couponCode && quote?.coupon?.valid);
   const [showErrors, setShowErrors] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);
@@ -581,8 +601,12 @@ export function BookPageBody({
                       id="book-referral"
                       value={referralCode}
                       onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                      onBlur={() => setReferralApplied(referralCode.trim())}
                       placeholder={t('referralPlaceholder')}
                     />
+                    {quote?.referralFriend && (
+                      <p className="text-xs text-green-600">{t('referralApplied')}</p>
+                    )}
                   </div>
                 )}
               </div>

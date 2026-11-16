@@ -136,6 +136,8 @@ describe('Landing pública por tenant (e2e)', () => {
       name: 'Descuento de verano',
       discountType: 'percentage',
       discountValue: 20,
+      kind: 'promotion',
+      durationMonths: null,
     });
 
     // Inactiva -> ya no se muestra.

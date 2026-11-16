@@ -17,7 +17,12 @@ import { PrismaService } from '../database/prisma.service';
 
 import { ReferralsService } from './referrals.service';
 
-import type { CustomerReferralCodeDto, ReferralDto, ReferralStatsDto } from '@storageos/shared';
+import type {
+  CustomerReferralCodeDto,
+  ReferralDto,
+  ReferralStatsDto,
+  ReferralTopDto,
+} from '@storageos/shared';
 
 /** Panel de staff: lista y métricas de referidos. */
 @Controller('referrals')
@@ -37,6 +42,13 @@ export class ReferralsController {
   @Get('stats')
   stats(@CurrentUser() user: AuthenticatedUser): Promise<ReferralStatsDto> {
     return this.referrals.stats(user.tenantId, user.facilityScope ?? null);
+  }
+
+  /** Quiénes recomiendan más. */
+  @RequirePermission('referrals:read')
+  @Get('top')
+  top(@CurrentUser() user: AuthenticatedUser): Promise<ReferralTopDto[]> {
+    return this.referrals.top(user.tenantId, user.facilityScope ?? null);
   }
 
   /** Código de referido de un inquilino, para dárselo en mano. */

@@ -613,42 +613,77 @@ export class LandingService {
    */
   private async loadActivePromotion(tenantId: string): Promise<PublicActivePromotionDto | null> {
     const now = new Date();
-    const candidates = await this.admin.promotion.findMany({
-      where: {
-        tenantId,
-        isActive: true,
-        announceOnWeb: true,
-        // Nunca las recompensas personales de un referido (código de un solo
-        // uso de otra persona): la web las anunciaría a todo el mundo.
-        referrals: { none: {} },
-        AND: [
-          { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
-          { OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
-        ],
-      },
-      select: {
-        appliesTo: true,
-        code: true,
-        name: true,
-        discountType: true,
-        discountValue: true,
-        maxUses: true,
-        usedCount: true,
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    });
+    const inDates = [
+      { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+      { OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
+    ];
+    const [candidates, coupons] = await Promise.all([
+      this.admin.promotion.findMany({
+        where: {
+          tenantId,
+          isActive: true,
+          announceOnWeb: true,
+          // Nunca las recompensas personales de un referido (código de un solo
+          // uso de otra persona): la web las anunciaría a todo el mundo.
+          referrals: { none: {} },
+          AND: inDates,
+        },
+        select: {
+          appliesTo: true,
+          code: true,
+          name: true,
+          discountType: true,
+          discountValue: true,
+          durationMonths: true,
+          maxUses: true,
+          usedCount: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+      // Cupones que el negocio anuncia (nunca los personales ni el del recomendado).
+      this.admin.coupon.findMany({
+        where: { tenantId, isActive: true, announceOnWeb: true, kind: 'standard', AND: inDates },
+        select: {
+          code: true,
+          name: true,
+          discountType: true,
+          discountValue: true,
+          minMonths: true,
+          maxUses: true,
+          usedCount: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
+    ]);
     // Tampoco las ofertas de un trastero concreto: solo valen para ese trastero.
     const promo = candidates.find(
       (p) =>
         promotionUnitId(p.appliesTo) === null && (p.maxUses == null || p.usedCount < p.maxUses),
     );
+    const coupon = coupons.find((c) => c.maxUses == null || c.usedCount < c.maxUses);
+    // Se anuncia lo último que el negocio ha creado.
+    if (coupon && (!promo || coupon.createdAt > promo.createdAt)) {
+      return {
+        code: coupon.code,
+        name: coupon.name,
+        discountType: coupon.discountType,
+        discountValue: Number(coupon.discountValue),
+        kind: 'coupon',
+        minMonths: coupon.minMonths,
+      };
+    }
     if (!promo) return null;
     return {
       code: promo.code,
       name: promo.name,
       discountType: promo.discountType,
       discountValue: Number(promo.discountValue),
+      kind: 'promotion',
+      durationMonths: promo.discountType === 'free_months' ? null : promo.durationMonths,
     };
   }
 

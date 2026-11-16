@@ -28,6 +28,38 @@ describe('promotionRuleIssues', () => {
     expect(issues[0]?.path).toBe('validUntil');
   });
 
+  it('los meses gratis no llevan duración; un descuento sí', () => {
+    expect(
+      promotionRuleIssues({ discountType: 'free_months', discountValue: 2, durationMonths: 3 })[0]
+        ?.path,
+    ).toBe('durationMonths');
+    expect(
+      promotionRuleIssues({ discountType: 'percentage', discountValue: 20, durationMonths: 3 }),
+    ).toEqual([]);
+    const created = CreatePromotionSchema.safeParse({
+      code: 'tresmeses',
+      name: 'Tres meses',
+      discountType: 'fixed',
+      discountValue: 10,
+      durationMonths: 3,
+    });
+    expect(created.success && created.data.durationMonths).toBe(3);
+    // Sin condiciones: todo el contrato, todos los trasteros y cualquier cliente.
+    const plain = CreatePromotionSchema.safeParse({
+      code: 'siempre',
+      name: 'Siempre',
+      discountType: 'percentage',
+      discountValue: 5,
+    });
+    expect(plain.success && plain.data).toMatchObject({
+      durationMonths: null,
+      unitTypeIds: [],
+      facilityIds: [],
+      newCustomersOnly: false,
+      oncePerCustomer: false,
+    });
+  });
+
   it('el alta aplica las mismas reglas y no anuncia en la web por defecto', () => {
     const ok = CreatePromotionSchema.safeParse({
       code: 'verano20',

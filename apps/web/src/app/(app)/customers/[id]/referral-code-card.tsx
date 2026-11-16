@@ -17,6 +17,7 @@ export function ReferralCodeCard({ customerId }: { customerId: string }) {
   const code = useCustomerReferralCode(customerId, canRead);
   if (!canRead || !code.data?.enabled || !code.data.referralCode) return null;
   const value = code.data.referralCode;
+  const shareUrl = code.data.shareUrl ?? null;
   return (
     <Card className="mt-4">
       <CardHeader className="pb-2">
@@ -43,6 +44,18 @@ export function ReferralCodeCard({ customerId }: { customerId: string }) {
           >
             Copiar
           </Button>
+          {shareUrl && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void navigator.clipboard?.writeText(shareUrl);
+                toast.success('Enlace copiado.');
+              }}
+            >
+              Copiar enlace
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ReferralsModule } from '../referrals/referrals.module';
 
 import { ReviewRequestCron } from './review-request.cron';
 import { ReviewsPublicController } from './reviews-public.controller';
@@ -16,7 +17,7 @@ import { ReviewsService } from './reviews.service';
  * - Cron de auto-solicitud (opt-in por tenant), solo donde corren workers.
  */
 @Module({
-  imports: [AuthModule, NotificationsModule],
+  imports: [AuthModule, NotificationsModule, ReferralsModule],
   controllers: [ReviewsController, ReviewsPublicController],
   providers: [ReviewsService, ...(WORKERS_ENABLED_IN_API ? [ReviewRequestCron] : [])],
   exports: [ReviewsService],

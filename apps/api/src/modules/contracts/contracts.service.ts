@@ -825,6 +825,8 @@ export class ContractsService {
     meta: RequestMeta;
     /** Permisos por local: la unidad debe estar en el scope del usuario. */
     facilityScope?: string[] | null;
+    /** El cupón es el del recomendado (lo pone la reserva online). */
+    referralFriendCoupon?: boolean;
   }): Promise<ContractDto> {
     const { tenantId, input } = args;
     // Gating por plan: el seguro requiere la feature `insurance`.
@@ -940,6 +942,8 @@ export class ContractsService {
       let discountReason = input.discountReason?.trim() || null;
       let promotionId: string | null = null;
       let freeMonthsRemaining = 0;
+      // Promoción con duración: el descuento caduca solo (lo quita el repaso diario).
+      let discountExpiresAt: Date | null = null;
       if (input.promotionCode?.trim()) {
         const applied = await this.promotions.applyToContractTx(
           tx,
@@ -948,11 +952,31 @@ export class ContractsService {
           Number(input.priceMonthly),
           input.unitId,
           preOpening ? 1 : input.billingIntervalMonths,
+          input.customerId,
         );
         discountAmount = applied.discountAmount;
         discountReason = applied.discountReason;
         promotionId = applied.promotionId;
         freeMonthsRemaining = applied.freeMonths;
+        if (applied.durationMonths && applied.discountAmount > 0) {
+          // El descuento se quita a los N meses: un pago por adelantado de más
+          // meses lo llevaría en todos.
+          const upfront = preOpening
+            ? 1
+            : Math.max(input.billingIntervalMonths, input.firstPaymentMonths);
+          if (upfront > applied.durationMonths) {
+            throw new BadRequestException({
+              code: 'promotion_duration_too_short',
+              message: `Esta promoción dura ${applied.durationMonths} ${
+                applied.durationMonths === 1 ? 'mes' : 'meses'
+              }: no se puede combinar con un pago de ${upfront} meses por adelantado`,
+            });
+          }
+          discountExpiresAt = this.addMonths(
+            preOpening?.startDate ?? new Date(`${input.startDate}T00:00:00Z`),
+            applied.durationMonths,
+          );
+        }
       }
 
       // Seguro opcional: congela la prima del plan activo en el contrato.
@@ -993,6 +1017,7 @@ export class ContractsService {
           isNewCustomer: signedBefore === 0,
           customerId: input.customerId,
           preOpening: !!preOpening,
+          referralFriend: !!args.referralFriendCoupon,
         });
         // Con prepago semestral/anual con descuento se aplica el mejor de los dos.
         const prepayPct = billingIntervalMonths > 1 ? input.prepayDiscountPct : 0;
@@ -1034,6 +1059,7 @@ export class ContractsService {
           priceMonthly: input.priceMonthly,
           discountAmount,
           discountReason,
+          discountExpiresAt,
           promotionId,
           freeMonthsRemaining,
           // Inquilino «sin fianza»: sus contratos nuevos no llevan fianza.

@@ -1,14 +1,16 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { ReferralDto } from '@storageos/shared';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,6 +28,7 @@ import {
   useReferrals,
   useReferralSettings,
   useReferralStats,
+  useReferralTop,
   useUpdateReferralSettings,
 } from '@/lib/referrals/hooks';
 
@@ -41,7 +44,11 @@ const STATUS: Record<
 /** Qué pasa con la recompensa de quien recomendó. */
 function rewardText(r: ReferralDto): { main: string; note: string } | null {
   const reward = r.reward;
-  if (!reward) return null;
+  if (!reward) {
+    return r.rewardSkippedReason === 'yearly_cap'
+      ? { main: 'Sin recompensa', note: 'ya ha llegado al tope de este año' }
+      : null;
+  }
   const main = reward.type === 'percentage' ? `${reward.value} %` : formatEur(reward.value);
   if (reward.appliedAt) {
     return {
@@ -72,7 +79,8 @@ export default function ReferralsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Referidos</h1>
         <p className="text-sm text-muted-foreground">
           Tus inquilinos recomiendan y, cuando el recomendado paga su primera factura, el que
-          recomienda recibe un descuento en su siguiente factura.
+          recomienda recibe un descuento en su siguiente factura. También puedes premiar al
+          recomendado con un descuento en su primer pago.
         </p>
       </div>
 
@@ -95,6 +103,8 @@ export default function ReferralsPage() {
       )}
 
       {canManageSettings && <ReferralSettingsCard />}
+
+      <TopReferrersCard />
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium">Historial</h2>
@@ -177,25 +187,43 @@ function StatCard({
   );
 }
 
+type RewardKind = 'percentage' | 'fixed';
+
 function ReferralSettingsCard() {
   const settings = useReferralSettings();
   const update = useUpdateReferralSettings();
-  const [type, setType] = useState<'percentage' | 'fixed' | null>(null);
-  const [value, setValue] = useState<number | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [type, setType] = useState<RewardKind>('fixed');
+  const [value, setValue] = useState('0');
+  const [friendOn, setFriendOn] = useState(false);
+  const [friendType, setFriendType] = useState<RewardKind>('percentage');
+  const [friendValue, setFriendValue] = useState('10');
+  const [capOn, setCapOn] = useState(false);
+  const [cap, setCap] = useState('5');
 
-  const enabled = settings.data?.referralEnabled ?? false;
-  const rewardType = (type ?? settings.data?.referralRewardType ?? 'fixed') as
-    | 'percentage'
-    | 'fixed';
-  const rewardValue = value ?? settings.data?.referralRewardValue ?? 0;
+  useEffect(() => {
+    const d = settings.data;
+    if (!d) return;
+    setEnabled(d.referralEnabled);
+    setType(d.referralRewardType === 'percentage' ? 'percentage' : 'fixed');
+    setValue(String(d.referralRewardValue));
+    setFriendOn(!!d.referralFriendRewardType && d.referralFriendRewardValue > 0);
+    if (d.referralFriendRewardType) setFriendType(d.referralFriendRewardType);
+    if (d.referralFriendRewardValue > 0) setFriendValue(String(d.referralFriendRewardValue));
+    setCapOn(d.referralMaxRewardsPerYear != null);
+    if (d.referralMaxRewardsPerYear != null) setCap(String(d.referralMaxRewardsPerYear));
+  }, [settings.data]);
 
-  async function save(next: {
-    referralEnabled: boolean;
-    referralRewardType: 'percentage' | 'fixed';
-    referralRewardValue: number;
-  }) {
+  async function save(nextEnabled = enabled) {
     try {
-      await update.mutateAsync(next);
+      await update.mutateAsync({
+        referralEnabled: nextEnabled,
+        referralRewardType: type,
+        referralRewardValue: Number(value) || 0,
+        referralFriendRewardType: friendOn ? friendType : null,
+        referralFriendRewardValue: friendOn ? Number(friendValue) || 0 : 0,
+        referralMaxRewardsPerYear: capOn ? Math.min(100, Math.max(1, Number(cap) || 1)) : null,
+      });
       toast.success('Ajustes guardados.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -207,70 +235,153 @@ function ReferralSettingsCard() {
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Programa de referidos</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         <div className="flex items-start gap-2">
           <Checkbox
             id="ref-enabled"
             checked={enabled}
             disabled={settings.isLoading || update.isPending}
-            onCheckedChange={(v) =>
-              save({
-                referralEnabled: v === true,
-                referralRewardType: rewardType,
-                referralRewardValue: rewardValue,
-              })
-            }
+            onCheckedChange={(v) => {
+              setEnabled(v === true);
+              void save(v === true);
+            }}
           />
           <div className="space-y-0.5">
             <Label htmlFor="ref-enabled">Activar el programa de referidos</Label>
             <p className="text-xs text-muted-foreground">
-              Cada inquilino obtiene un código. Cuando el recomendado paga su primera factura, al
-              que recomienda se le descuenta la recompensa de su siguiente factura: un porcentaje de
-              su cuota o un importe fijo (si es mayor que la cuota, el resto pasa a las siguientes).
+              Cada inquilino obtiene un código y un enlace para compartir. Cuando el recomendado
+              paga su primera factura, al que recomienda se le descuenta la recompensa de su
+              siguiente factura.
             </p>
           </div>
         </div>
         {enabled && (
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <Label className="text-sm">Recompensa</Label>
-              <Select
-                value={rewardType}
-                onValueChange={(v) => setType(v as 'percentage' | 'fixed')}
-              >
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fixed">Importe fijo (€)</SelectItem>
-                  <SelectItem value="percentage">Porcentaje (%)</SelectItem>
-                </SelectContent>
-              </Select>
+          <>
+            <div className="space-y-1.5">
+              <Label className="text-sm">Para quien recomienda</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={type} onValueChange={(v) => setType(v as RewardKind)}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Importe fijo (€)</SelectItem>
+                    <SelectItem value="percentage">Porcentaje de su cuota (%)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min={0}
+                  max={type === 'percentage' ? 100 : undefined}
+                  step="0.01"
+                  className="w-28"
+                  aria-label="Recompensa de quien recomienda"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Se descuenta de su siguiente factura. Un importe fijo mayor que su cuota se reparte
+                entre las siguientes.
+              </p>
             </div>
-            <Input
-              type="number"
-              min={0}
-              max={rewardType === 'percentage' ? 100 : undefined}
-              step="0.01"
-              className="w-28"
-              value={rewardValue}
-              onChange={(e) => setValue(Number(e.target.value))}
-            />
-            <button
-              type="button"
-              className="text-sm font-medium text-primary hover:underline"
-              onClick={() =>
-                save({
-                  referralEnabled: true,
-                  referralRewardType: rewardType,
-                  referralRewardValue: rewardValue,
-                })
-              }
-            >
-              Guardar recompensa
-            </button>
-          </div>
+
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={friendOn} onCheckedChange={(v) => setFriendOn(v === true)} />
+                Premiar también al recomendado
+              </label>
+              {friendOn && (
+                <>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={friendType}
+                      onValueChange={(v) => setFriendType(v as RewardKind)}
+                    >
+                      <SelectTrigger className="w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percentage">Porcentaje (%)</SelectItem>
+                        <SelectItem value="fixed">Importe fijo (€)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={friendType === 'percentage' ? 100 : undefined}
+                      step="0.01"
+                      className="w-28"
+                      aria-label="Recompensa del recomendado"
+                      value={friendValue}
+                      onChange={(e) => setFriendValue(e.target.value)}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Descuento en el primer pago de quien reserva en tu web con el código o el enlace
+                    de un inquilino. Solo para clientes nuevos y no se suma a otro código.
+                  </p>
+                </>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox checked={capOn} onCheckedChange={(v) => setCapOn(v === true)} />
+                Poner un tope de recompensas por inquilino al año
+              </label>
+              {capOn && (
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  className="w-28"
+                  aria-label="Recompensas al año"
+                  value={cap}
+                  onChange={(e) => setCap(e.target.value)}
+                />
+              )}
+            </div>
+
+            <Button onClick={() => void save()} disabled={update.isPending}>
+              {update.isPending ? 'Guardando...' : 'Guardar'}
+            </Button>
+          </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TopReferrersCard() {
+  const top = useReferralTop();
+  if (!top.data || top.data.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Quién recomienda más</CardTitle>
+        <CardDescription>Tus inquilinos que más clientes te han traído.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="divide-y">
+          {top.data.map((t) => (
+            <li
+              key={t.customerId}
+              className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+            >
+              <Link href={`/customers/${t.customerId}`} className="font-medium hover:underline">
+                {t.customerName}
+              </Link>
+              <span className="text-muted-foreground">
+                {t.converted} {t.converted === 1 ? 'cliente' : 'clientes'} de {t.referred}{' '}
+                {t.referred === 1 ? 'recomendado' : 'recomendados'}
+                {t.rewardsFixedTotal > 0
+                  ? ` · ${formatEur(t.rewardsFixedTotal)} en recompensas`
+                  : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );

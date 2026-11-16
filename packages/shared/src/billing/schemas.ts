@@ -580,6 +580,7 @@ const promotionCodeField = z
 interface PromotionRuleFields {
   discountType?: string | undefined;
   discountValue?: number | undefined;
+  durationMonths?: number | null | undefined;
   validFrom?: string | null | undefined;
   validUntil?: string | null | undefined;
 }
@@ -603,8 +604,24 @@ export function promotionRuleIssues(v: PromotionRuleFields): { path: string; mes
       message: 'La fecha de fin debe ser posterior a la de inicio',
     });
   }
+  if (v.discountType === 'free_months' && v.durationMonths) {
+    issues.push({
+      path: 'durationMonths',
+      message: 'Los meses gratis ya tienen su duración: deja la duración vacía',
+    });
+  }
   return issues;
 }
+
+/** Condiciones de una promoción (las mismas que las de un cupón). */
+const promotionConditions = {
+  /** Meses que dura el descuento; null = todo el contrato. */
+  durationMonths: z.number().int().min(1).max(36).nullable(),
+  unitTypeIds: z.array(z.string().uuid()).max(100),
+  facilityIds: z.array(z.string().uuid()).max(100),
+  newCustomersOnly: z.boolean(),
+  oncePerCustomer: z.boolean(),
+};
 
 export const CreatePromotionSchema = z
   .object({
@@ -619,6 +636,11 @@ export const CreatePromotionSchema = z
     isActive: z.boolean().default(true),
     /** Se anuncia en la web pública y su código vale en la reserva online. */
     announceOnWeb: z.boolean().default(false),
+    durationMonths: promotionConditions.durationMonths.default(null),
+    unitTypeIds: promotionConditions.unitTypeIds.default([]),
+    facilityIds: promotionConditions.facilityIds.default([]),
+    newCustomersOnly: promotionConditions.newCustomersOnly.default(false),
+    oncePerCustomer: promotionConditions.oncePerCustomer.default(false),
   })
   .superRefine((v, ctx) => {
     for (const issue of promotionRuleIssues(v)) {
@@ -638,6 +660,11 @@ export const UpdatePromotionSchema = z.object({
   validUntil: z.string().datetime({ offset: true }).nullable().optional(),
   isActive: z.boolean().optional(),
   announceOnWeb: z.boolean().optional(),
+  durationMonths: promotionConditions.durationMonths.optional(),
+  unitTypeIds: promotionConditions.unitTypeIds.optional(),
+  facilityIds: promotionConditions.facilityIds.optional(),
+  newCustomersOnly: promotionConditions.newCustomersOnly.optional(),
+  oncePerCustomer: promotionConditions.oncePerCustomer.optional(),
 });
 export type UpdatePromotionInput = z.infer<typeof UpdatePromotionSchema>;
 
@@ -649,6 +676,8 @@ export const ValidatePromotionSchema = z.object({
   unitId: z.string().uuid().optional(),
   /** Cada cuántos meses se factura: los meses gratis no valen con prepago. */
   billingIntervalMonths: z.number().int().min(1).max(12).optional(),
+  /** Para «solo clientes nuevos» y «un uso por cliente». */
+  customerId: z.string().uuid().optional(),
 });
 export type ValidatePromotionInput = z.infer<typeof ValidatePromotionSchema>;
 

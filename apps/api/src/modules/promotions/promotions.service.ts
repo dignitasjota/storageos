@@ -9,6 +9,7 @@ import {
 import { promotionRuleIssues } from '@storageos/shared';
 
 import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { CUSTOMER_CONTRACT_WHERE } from '../../common/online-booking';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -17,6 +18,7 @@ import type {
   CreatePromotionInput,
   CreateUnitOfferInput,
   PromotionDto,
+  PromotionResultsDto,
   UnitOfferDto,
   UpdatePromotionInput,
   ValidatePromotionResultDto,
@@ -49,6 +51,22 @@ export function toActiveUnitOffer(p: PromotionRow, now = new Date()): UnitOfferD
   };
 }
 
+/** Dónde y a quién se aplica la promoción (lo que se sabe en ese momento). */
+export interface PromotionContext {
+  unitId?: string | undefined;
+  unitTypeId?: string | undefined;
+  facilityId?: string | undefined;
+  /** null = no se sabe (resumen público): no se rechaza por esto. */
+  isNewCustomer?: boolean | null | undefined;
+  usedByCustomer?: boolean | null | undefined;
+}
+
+/** «durante los 3 primeros meses» / «» (todo el contrato). */
+export function promotionDurationLabel(months: number | null): string {
+  if (!months) return '';
+  return months === 1 ? ' (el primer mes)' : ` (los ${months} primeros meses)`;
+}
+
 /** Redondea a céntimos (2 decimales). */
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -75,6 +93,11 @@ export class PromotionsService {
       validUntil: p.validUntil?.toISOString() ?? null,
       isActive: p.isActive,
       announceOnWeb: p.announceOnWeb,
+      durationMonths: p.durationMonths,
+      unitTypeIds: p.unitTypeIds,
+      facilityIds: p.facilityIds,
+      newCustomersOnly: p.newCustomersOnly,
+      oncePerCustomer: p.oncePerCustomer,
       createdAt: p.createdAt.toISOString(),
     };
   }
@@ -101,6 +124,7 @@ export class PromotionsService {
     input: CreatePromotionInput,
     userId: string | null = null,
   ): Promise<PromotionDto> {
+    await this.assertScopeIds(tenantId, input.unitTypeIds, input.facilityIds);
     try {
       const created = await this.prisma.withTenant(
         (tx) =>
@@ -117,6 +141,11 @@ export class PromotionsService {
               validUntil: input.validUntil ? new Date(input.validUntil) : null,
               isActive: input.isActive,
               announceOnWeb: input.announceOnWeb,
+              durationMonths: input.durationMonths,
+              unitTypeIds: input.unitTypeIds,
+              facilityIds: input.facilityIds,
+              newCustomersOnly: input.newCustomersOnly,
+              oncePerCustomer: input.oncePerCustomer,
             },
           }),
         tenantId,
@@ -156,6 +185,8 @@ export class PromotionsService {
     const issue = promotionRuleIssues({
       discountType: input.discountType ?? current.discountType,
       discountValue: input.discountValue ?? Number(current.discountValue),
+      durationMonths:
+        input.durationMonths !== undefined ? input.durationMonths : current.durationMonths,
       validFrom:
         input.validFrom !== undefined
           ? input.validFrom
@@ -168,6 +199,20 @@ export class PromotionsService {
     if (issue) {
       throw new BadRequestException({ code: 'invalid_promotion', message: issue.message });
     }
+    // Ya usada: el descuento no se toca (los contratos lo llevan congelado y
+    // el código puede estar repartido con ese valor).
+    if (
+      current.usedCount > 0 &&
+      ((input.discountType !== undefined && input.discountType !== current.discountType) ||
+        (input.discountValue !== undefined &&
+          input.discountValue !== Number(current.discountValue)))
+    ) {
+      throw new ConflictException({
+        code: 'promotion_discount_locked',
+        message: 'Esta promoción ya se ha usado: su descuento no se puede cambiar',
+      });
+    }
+    await this.assertScopeIds(tenantId, input.unitTypeIds ?? [], input.facilityIds ?? []);
     const data: Prisma.PromotionUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.discountType !== undefined) data.discountType = input.discountType;
@@ -176,6 +221,11 @@ export class PromotionsService {
     if (input.maxUses !== undefined) data.maxUses = input.maxUses;
     if (input.isActive !== undefined) data.isActive = input.isActive;
     if (input.announceOnWeb !== undefined) data.announceOnWeb = input.announceOnWeb;
+    if (input.durationMonths !== undefined) data.durationMonths = input.durationMonths;
+    if (input.unitTypeIds !== undefined) data.unitTypeIds = input.unitTypeIds;
+    if (input.facilityIds !== undefined) data.facilityIds = input.facilityIds;
+    if (input.newCustomersOnly !== undefined) data.newCustomersOnly = input.newCustomersOnly;
+    if (input.oncePerCustomer !== undefined) data.oncePerCustomer = input.oncePerCustomer;
     if (input.validFrom !== undefined)
       data.validFrom = input.validFrom ? new Date(input.validFrom) : null;
     if (input.validUntil !== undefined)
@@ -229,6 +279,7 @@ export class PromotionsService {
     monthlyPrice: number,
     unitId?: string,
     billingIntervalMonths = 1,
+    customerId?: string,
   ): Promise<ValidatePromotionResultDto> {
     const normalized = code.trim().toUpperCase();
     const promo = await this.prisma.withTenant(
@@ -245,10 +296,18 @@ export class PromotionsService {
       freeMonths: null,
     });
     if (!promo) return fail('not_found');
-    const check = this.checkUsable(promo, unitId);
+    const ctx = await this.prisma.withTenant(
+      (tx) => this.contextInTx(tx, tenantId, promo, unitId, customerId),
+      tenantId,
+    );
+    const check = this.checkUsable(promo, ctx);
     if (check) return fail(check);
     if (promo.discountType === 'free_months' && billingIntervalMonths > 1) {
       return fail('not_with_prepay');
+    }
+    // El descuento se quita a los N meses: no con un pago de más meses.
+    if (promo.durationMonths && billingIntervalMonths > promo.durationMonths) {
+      return fail('duration_too_short');
     }
 
     // free_months: no es un descuento mensual; son las primeras N facturas
@@ -274,6 +333,49 @@ export class PromotionsService {
       discountAmount,
       effectivePrice: round2(monthlyPrice - discountAmount),
       freeMonths: null,
+      durationMonths: promo.durationMonths,
+    };
+  }
+
+  /** Trastero y cliente a los que se quiere aplicar, para las condiciones. */
+  private async contextInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    promo: PromotionRow,
+    unitId?: string | null,
+    customerId?: string | null,
+  ): Promise<PromotionContext> {
+    const needsUnit = promo.unitTypeIds.length > 0 || promo.facilityIds.length > 0;
+    const unit =
+      unitId && needsUnit
+        ? await tx.unit.findFirst({
+            where: { id: unitId, tenantId },
+            select: { unitTypeId: true, facilityId: true },
+          })
+        : null;
+    const isNewCustomer =
+      promo.newCustomersOnly && customerId
+        ? (await tx.contract.count({
+            where: { tenantId, customerId, ...CUSTOMER_CONTRACT_WHERE },
+          })) === 0
+        : null;
+    const usedByCustomer =
+      promo.oncePerCustomer && customerId
+        ? (await tx.contract.count({
+            where: {
+              tenantId,
+              customerId,
+              promotionId: promo.id,
+              status: { not: 'cancelled' },
+            },
+          })) > 0
+        : null;
+    return {
+      unitId: unitId ?? undefined,
+      unitTypeId: unit?.unitTypeId,
+      facilityId: unit?.facilityId,
+      isNewCustomer,
+      usedByCustomer,
     };
   }
 
@@ -287,6 +389,7 @@ export class PromotionsService {
     code: string,
     monthlyPrice: number,
     unitId: string,
+    customerId?: string | null,
   ): Promise<WebPromotionDto | null> {
     const normalized = code.trim().toUpperCase();
     const promo = await this.prisma.withTenant(
@@ -294,7 +397,12 @@ export class PromotionsService {
         tx.promotion.findFirst({ where: { tenantId, code: normalized, announceOnWeb: true } }),
       tenantId,
     );
-    if (!promo || this.checkUsable(promo, unitId)) return null;
+    if (!promo) return null;
+    const ctx = await this.prisma.withTenant(
+      (tx) => this.contextInTx(tx, tenantId, promo, unitId, customerId),
+      tenantId,
+    );
+    if (this.checkUsable(promo, ctx)) return null;
     const freeMonths =
       promo.discountType === 'free_months'
         ? Math.max(0, Math.trunc(Number(promo.discountValue)))
@@ -305,6 +413,7 @@ export class PromotionsService {
       listPrice: round2(monthlyPrice),
       monthlyDiscount: freeMonths > 0 ? 0 : this.computeDiscount(promo, monthlyPrice),
       freeMonths,
+      durationMonths: freeMonths > 0 ? null : promo.durationMonths,
     };
   }
 
@@ -320,11 +429,14 @@ export class PromotionsService {
     monthlyPrice: number,
     unitId: string,
     billingIntervalMonths = 1,
+    customerId?: string | null,
   ): Promise<{
     discountAmount: number;
     discountReason: string;
     freeMonths: number;
     promotionId: string;
+    /** Meses que dura el descuento (null = todo el contrato). */
+    durationMonths: number | null;
   }> {
     const normalized = code.trim().toUpperCase();
     const promo = await tx.promotion.findFirst({ where: { tenantId, code: normalized } });
@@ -334,7 +446,10 @@ export class PromotionsService {
         message: 'Código promocional no encontrado',
       });
     }
-    const check = this.checkUsable(promo, unitId);
+    const check = this.checkUsable(
+      promo,
+      await this.contextInTx(tx, tenantId, promo, unitId, customerId),
+    );
     if (check) {
       throw new ConflictException({
         code: `promotion_${check}`,
@@ -373,15 +488,17 @@ export class PromotionsService {
         discountReason: `Promoción ${promo.code} (${label})`,
         freeMonths,
         promotionId: promo.id,
+        durationMonths: null,
       };
     }
 
     const discountAmount = this.computeDiscount(promo, monthlyPrice);
     return {
       discountAmount,
-      discountReason: `Promoción ${promo.code}`,
+      discountReason: `Promoción ${promo.code}${promotionDurationLabel(promo.durationMonths)}`,
       freeMonths: 0,
       promotionId: promo.id,
+      durationMonths: promo.durationMonths,
     };
   }
 
@@ -561,15 +678,111 @@ export class PromotionsService {
   }
 
   /** Devuelve el motivo si NO es usable, o null si lo es. */
-  private checkUsable(promo: PromotionRow, unitId?: string): string | null {
+  private checkUsable(promo: PromotionRow, ctx: PromotionContext = {}): string | null {
     const now = new Date();
     const onlyUnit = promotionUnitId(promo.appliesTo);
-    if (onlyUnit && onlyUnit !== unitId) return 'not_for_unit';
+    if (onlyUnit && onlyUnit !== ctx.unitId) return 'not_for_unit';
     if (!promo.isActive) return 'inactive';
     if (promo.validFrom && promo.validFrom > now) return 'not_started';
     if (promo.validUntil && promo.validUntil < now) return 'expired';
     if (promo.maxUses !== null && promo.usedCount >= promo.maxUses) return 'max_uses_reached';
+    // Las condiciones solo cuentan cuando se conoce el trastero o el cliente.
+    if (
+      promo.unitTypeIds.length > 0 &&
+      ctx.unitTypeId &&
+      !promo.unitTypeIds.includes(ctx.unitTypeId)
+    ) {
+      return 'unit_type';
+    }
+    if (
+      promo.facilityIds.length > 0 &&
+      ctx.facilityId &&
+      !promo.facilityIds.includes(ctx.facilityId)
+    ) {
+      return 'facility';
+    }
+    if (promo.newCustomersOnly && ctx.isNewCustomer === false) return 'new_customers_only';
+    if (promo.oncePerCustomer && ctx.usedByCustomer === true) return 'already_used';
     return null;
+  }
+
+  /** Los tipos y locales de la promoción deben ser del tenant. */
+  private async assertScopeIds(
+    tenantId: string,
+    unitTypeIds: string[],
+    facilityIds: string[],
+  ): Promise<void> {
+    if (unitTypeIds.length === 0 && facilityIds.length === 0) return;
+    const [types, facilities] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          unitTypeIds.length
+            ? tx.unitType.count({ where: { tenantId, id: { in: unitTypeIds } } })
+            : Promise.resolve(0),
+          facilityIds.length
+            ? tx.facility.count({ where: { tenantId, id: { in: facilityIds }, deletedAt: null } })
+            : Promise.resolve(0),
+        ]),
+      tenantId,
+    );
+    if (types !== new Set(unitTypeIds).size || facilities !== new Set(facilityIds).size) {
+      throw new BadRequestException({
+        code: 'invalid_scope',
+        message: 'Algún tipo de trastero o local no existe',
+      });
+    }
+  }
+
+  /** Contratos que usan la promoción y lo que cuesta y trae cada mes. */
+  async results(tenantId: string, id: string): Promise<PromotionResultsDto> {
+    await this.findOrThrow(tenantId, id);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.findMany({
+          where: { tenantId, promotionId: id, deletedAt: null, status: { not: 'cancelled' } },
+          orderBy: { createdAt: 'desc' },
+          take: 300,
+          select: {
+            id: true,
+            contractNumber: true,
+            status: true,
+            startDate: true,
+            priceMonthly: true,
+            discountAmount: true,
+            freeMonthsRemaining: true,
+            customerId: true,
+            customer: {
+              select: { customerType: true, firstName: true, lastName: true, companyName: true },
+            },
+            unit: { select: { code: true } },
+          },
+        }),
+      tenantId,
+    );
+    const live = rows.filter((c) => c.status === 'active' || c.status === 'ending');
+    const sum = (values: number[]) => round2(values.reduce((a, b) => a + b, 0));
+    return {
+      contracts: rows.map((c) => ({
+        id: c.id,
+        contractNumber: c.contractNumber,
+        customerId: c.customerId,
+        customerName:
+          c.customer.customerType === 'business'
+            ? (c.customer.companyName ?? 'Empresa')
+            : [c.customer.firstName, c.customer.lastName].filter(Boolean).join(' ').trim() ||
+              'Cliente',
+        unitCode: c.unit.code,
+        status: c.status,
+        startDate: c.startDate.toISOString().slice(0, 10),
+        monthlyDiscount: Number(c.discountAmount),
+        freeMonthsRemaining: c.freeMonthsRemaining,
+      })),
+      liveContracts: live.length,
+      monthlyCost: sum(live.map((c) => Number(c.discountAmount))),
+      monthlyRevenue: sum(
+        live.map((c) => Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount))),
+      ),
+    };
   }
 
   private computeDiscount(promo: PromotionRow, monthlyPrice: number): number {
@@ -595,6 +808,14 @@ export class PromotionsService {
         return 'La promoción ha alcanzado su límite de usos';
       case 'not_with_prepay':
         return 'Los meses gratis no se pueden combinar con el pago semestral o anual';
+      case 'unit_type':
+        return 'Esta promoción no vale para este tipo de trastero';
+      case 'facility':
+        return 'Esta promoción no vale en este local';
+      case 'new_customers_only':
+        return 'Esta promoción es solo para clientes nuevos';
+      case 'already_used':
+        return 'Este cliente ya ha usado esta promoción';
       default:
         return 'Código promocional no válido';
     }

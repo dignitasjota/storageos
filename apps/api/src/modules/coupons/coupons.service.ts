@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
@@ -13,14 +15,19 @@ import {
   quoteCoupon,
   rentTax,
   type CouponDto,
+  type CouponKind,
   type CouponQuote,
   type CouponQuoteContext,
   type CouponQuoteDto,
   type CouponRedemptionDto,
+  type CouponResultsDto,
   type CouponRules,
+  type CouponSettingsDto,
   type CreateCouponInput,
+  type CreatePersonalCouponInput,
   type FirstPaymentQuoteDto,
   type UpdateCouponInput,
+  type UpdateCouponSettingsInput,
   type ValidateCouponInput,
 } from '@storageos/shared';
 
@@ -61,6 +68,18 @@ function toRules(c: CouponRow): CouponRules {
 
 const normalizeCode = (code: string): string => code.trim().toUpperCase();
 
+/** Código del cupón del recomendado (si está cogido, con un sufijo). */
+const REFERRAL_FRIEND_CODES = ['AMIGO', 'RECOMENDADO', 'AMIGO-REF', 'RECOMENDADO-REF'];
+// Sin caracteres que se confunden (0/O, 1/I).
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function randomCode(length: number): string {
+  const bytes = randomBytes(length);
+  let out = '';
+  for (let i = 0; i < length; i++) out += CODE_ALPHABET[bytes[i]! % CODE_ALPHABET.length];
+  return out;
+}
+
 /**
  * Cupones: descuento sobre el pago que se hace en ese momento (no sobre las
  * renovaciones). El cálculo es `quoteCoupon` (shared, también lo usa la web);
@@ -92,22 +111,221 @@ export class CouponsService {
       validFrom: c.validFrom?.toISOString() ?? null,
       validUntil: c.validUntil?.toISOString() ?? null,
       isActive: c.isActive,
+      announceOnWeb: c.announceOnWeb,
+      kind: (c.kind as CouponKind) ?? 'standard',
+      personalFor: c.personalFor,
       createdAt: c.createdAt.toISOString(),
     };
   }
 
+  /** Cupones del negocio y personales (el del recomendado lo lleva Referidos). */
   async list(tenantId: string): Promise<CouponDto[]> {
     const rows = await this.prisma.withTenant(
-      (tx) => tx.coupon.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } }),
+      (tx) =>
+        tx.coupon.findMany({
+          where: { tenantId, kind: { not: 'referral_friend' } },
+          orderBy: { createdAt: 'desc' },
+        }),
       tenantId,
     );
     return rows.map((r) => this.toDto(r));
   }
 
+  /**
+   * Cupón personal: un solo uso, con caducidad y código puesto por el sistema.
+   * Para un presupuesto o para quien dejó la reserva a medias.
+   */
+  async createPersonal(
+    tenantId: string,
+    input: CreatePersonalCouponInput,
+    userId: string | null = null,
+  ): Promise<CouponDto> {
+    const validUntil = new Date(Date.now() + input.validDays * 86_400_000);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const row = await this.prisma.withTenant(
+          (tx) =>
+            tx.coupon.create({
+              data: {
+                tenantId,
+                code: `P-${randomCode(6)}`,
+                name: `Cupón personal — ${input.personalFor}`.slice(0, 120),
+                discountType: input.discountType,
+                discountValue: input.discountValue,
+                minMonths: input.minMonths,
+                maxUses: 1,
+                validUntil,
+                kind: 'personal',
+                personalFor: input.personalFor,
+              },
+            }),
+          tenantId,
+        );
+        await this.audit.write({
+          tenantId,
+          userId,
+          action: 'coupon.created',
+          entityType: 'Coupon',
+          entityId: row.id,
+          changes: {
+            code: row.code,
+            personalFor: input.personalFor,
+            discountType: row.discountType,
+            discountValue: Number(row.discountValue),
+          },
+        });
+        return this.toDto(row);
+      } catch (err) {
+        if ((err as { code?: string }).code !== 'P2002' || attempt === 4) throw err;
+      }
+    }
+    throw new ConflictException({ code: 'coupon_code_taken', message: 'Inténtalo de nuevo' });
+  }
+
+  /**
+   * Cupón del recomendado, al día con los ajustes de Referidos. Devuelve su
+   * código, o null si el negocio no premia al recomendado. Solo lo aplica la
+   * reserva cuando llega un código de referido válido.
+   */
+  async ensureReferralFriendCoupon(tenantId: string): Promise<string | null> {
+    try {
+      return await this.syncReferralFriendCoupon(tenantId);
+    } catch (err) {
+      // Dos reservas a la vez la primera vez: la otra ya lo ha creado.
+      if ((err as { code?: string }).code !== 'P2002') throw err;
+      return this.syncReferralFriendCoupon(tenantId);
+    }
+  }
+
+  private syncReferralFriendCoupon(tenantId: string): Promise<string | null> {
+    return this.prisma.withTenant(async (tx) => {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          referralEnabled: true,
+          referralFriendRewardType: true,
+          referralFriendRewardValue: true,
+        },
+      });
+      const type = tenant?.referralFriendRewardType;
+      const value = Number(tenant?.referralFriendRewardValue ?? 0);
+      const on =
+        !!tenant?.referralEnabled && (type === 'percentage' || type === 'fixed') && value > 0;
+      const current = await tx.coupon.findFirst({ where: { tenantId, kind: 'referral_friend' } });
+      if (!on) {
+        if (current?.isActive) {
+          await tx.coupon.update({ where: { id: current.id }, data: { isActive: false } });
+        }
+        return null;
+      }
+      const data = {
+        name: 'Recomendado por un inquilino',
+        discountType: type as 'percentage' | 'fixed',
+        discountValue: value,
+        minMonths: 1,
+        newCustomersOnly: true,
+        oncePerCustomer: true,
+        isActive: true,
+      };
+      if (current) {
+        if (
+          current.discountType !== data.discountType ||
+          Number(current.discountValue) !== value ||
+          !current.isActive
+        ) {
+          await tx.coupon.update({ where: { id: current.id }, data });
+        }
+        return current.code;
+      }
+      const taken = new Set(
+        (
+          await tx.coupon.findMany({
+            where: { tenantId, code: { in: REFERRAL_FRIEND_CODES } },
+            select: { code: true },
+          })
+        ).map((c) => c.code),
+      );
+      const code = REFERRAL_FRIEND_CODES.find((c) => !taken.has(c)) ?? `AMIGO-${randomCode(4)}`;
+      await tx.coupon.create({ data: { tenantId, code, kind: 'referral_friend', ...data } });
+      return code;
+    }, tenantId);
+  }
+
+  /** Cuánto ha descontado y lo que traen al mes los contratos que lo usaron. */
+  async results(tenantId: string, id: string): Promise<CouponResultsDto> {
+    await this.findOrThrow(tenantId, id);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.couponRedemption.findMany({
+          where: { tenantId, couponId: id },
+          select: {
+            discountAmount: true,
+            contract: { select: { status: true, priceMonthly: true, discountAmount: true } },
+          },
+        }),
+      tenantId,
+    );
+    const live = rows.filter(
+      (r) => r.contract && (r.contract.status === 'active' || r.contract.status === 'ending'),
+    );
+    const round = (n: number) => Math.round(n * 100) / 100;
+    return {
+      uses: rows.length,
+      totalDiscount: round(rows.reduce((sum, r) => sum + Number(r.discountAmount), 0)),
+      liveContracts: live.length,
+      monthlyRevenue: round(
+        live.reduce(
+          (sum, r) =>
+            sum +
+            Math.max(0, Number(r.contract!.priceMonthly) - Number(r.contract!.discountAmount)),
+          0,
+        ),
+      ),
+    };
+  }
+
+  async getSettings(tenantId: string): Promise<CouponSettingsDto> {
+    const t = await this.prisma.withTenant(
+      (tx) =>
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: { bookingRecoveryCouponPct: true, bookingRecoveryCouponDays: true },
+        }),
+      tenantId,
+    );
+    return {
+      bookingRecoveryCouponPct: t?.bookingRecoveryCouponPct ?? 0,
+      bookingRecoveryCouponDays: t?.bookingRecoveryCouponDays ?? 2,
+    };
+  }
+
+  async updateSettings(
+    tenantId: string,
+    input: UpdateCouponSettingsInput,
+    userId: string | null = null,
+  ): Promise<CouponSettingsDto> {
+    await this.prisma.withTenant(
+      (tx) => tx.tenant.update({ where: { id: tenantId }, data: input }),
+      tenantId,
+    );
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'coupon.settings_changed',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: input,
+    });
+    return this.getSettings(tenantId);
+  }
+
   /** ¿Hay un cupón con ese código? (la reserva online prueba después con una promoción). */
   async exists(tenantId: string, code: string): Promise<boolean> {
     const n = await this.prisma.withTenant(
-      (tx) => tx.coupon.count({ where: { tenantId, code: normalizeCode(code) } }),
+      (tx) =>
+        tx.coupon.count({
+          where: { tenantId, code: normalizeCode(code), kind: { not: 'referral_friend' } },
+        }),
       tenantId,
     );
     return n > 0;
@@ -140,6 +358,7 @@ export class CouponsService {
               validFrom: input.validFrom ? new Date(input.validFrom) : null,
               validUntil: input.validUntil ? new Date(input.validUntil) : null,
               isActive: input.isActive,
+              announceOnWeb: input.announceOnWeb,
             },
           }),
         tenantId,
@@ -208,6 +427,7 @@ export class CouponsService {
     if (input.preOpeningOnly !== undefined) data.preOpeningOnly = input.preOpeningOnly;
     if (input.maxUses !== undefined) data.maxUses = input.maxUses;
     if (input.isActive !== undefined) data.isActive = input.isActive;
+    if (input.announceOnWeb !== undefined) data.announceOnWeb = input.announceOnWeb;
     if (input.validFrom !== undefined)
       data.validFrom = input.validFrom ? new Date(input.validFrom) : null;
     if (input.validUntil !== undefined)
@@ -338,13 +558,18 @@ export class CouponsService {
   }
 
   /** Calcula el cupón para un pago, sin reservar el uso. */
-  async quote(tenantId: string, code: string, ctx: CouponQuoteContext): Promise<CouponQuoteDto> {
+  async quote(
+    tenantId: string,
+    code: string,
+    ctx: CouponQuoteContext & { referralFriend?: boolean | undefined },
+  ): Promise<CouponQuoteDto> {
     const normalized = normalizeCode(code);
     const coupon = await this.prisma.withTenant(
       (tx) => tx.coupon.findFirst({ where: { tenantId, code: normalized } }),
       tenantId,
     );
-    if (!coupon) {
+    // El cupón del recomendado solo lo aplica la reserva con un código de referido.
+    if (!coupon || (coupon.kind === 'referral_friend' && !ctx.referralFriend)) {
       return {
         valid: false,
         reason: 'not_found',
@@ -380,6 +605,8 @@ export class CouponsService {
       startDate?: string | null | undefined;
       /** Local por abrir: una mensualidad completa (admite cupones de preapertura). */
       preOpening?: boolean;
+      /** El cupón es el del recomendado (lo pone la reserva, no el visitante). */
+      referralFriend?: boolean;
     },
   ): Promise<FirstPaymentQuoteDto> {
     const code = args.couponCode?.trim();
@@ -394,9 +621,10 @@ export class CouponsService {
           usedByCustomer: args.customerId
             ? await this.usedByCustomer(tenantId, code, args.customerId)
             : null,
+          referralFriend: args.referralFriend,
         })
       : null;
-    return buildFirstPaymentQuote({
+    const result = buildFirstPaymentQuote({
       monthlyPrice: args.monthlyPrice,
       months: args.months,
       vatRate: rentTax(args.propertyKind).taxRate,
@@ -421,6 +649,7 @@ export class CouponsService {
           }
         : null,
     });
+    return args.referralFriend && quote?.valid ? { ...result, referralFriend: true } : result;
   }
 
   /** Cliente nuevo = sin ningún contrato firmado antes. */
@@ -441,11 +670,14 @@ export class CouponsService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     code: string,
-    ctx: CouponQuoteContext & { customerId?: string | null | undefined },
+    ctx: CouponQuoteContext & {
+      customerId?: string | null | undefined;
+      referralFriend?: boolean | undefined;
+    },
   ): Promise<RedeemedCoupon> {
     const normalized = normalizeCode(code);
     const coupon = await tx.coupon.findFirst({ where: { tenantId, code: normalized } });
-    if (!coupon) {
+    if (!coupon || (coupon.kind === 'referral_friend' && !ctx.referralFriend)) {
       throw new BadRequestException({
         code: 'coupon_not_found',
         message: couponRejectMessage('not_found'),
@@ -534,7 +766,7 @@ export class CouponsService {
 
   private async findOrThrow(tenantId: string, id: string): Promise<CouponRow> {
     const row = await this.prisma.withTenant(
-      (tx) => tx.coupon.findFirst({ where: { id, tenantId } }),
+      (tx) => tx.coupon.findFirst({ where: { id, tenantId, kind: { not: 'referral_friend' } } }),
       tenantId,
     );
     if (!row) {

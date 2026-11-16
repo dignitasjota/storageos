@@ -74,7 +74,16 @@ export function publicBusinessContextLines(args: {
           : p.discountType === 'fixed'
             ? `${p.discountValue} € de descuento`
             : `${p.discountValue} meses gratis`;
-      lines.push('', `## Promoción activa\n${p.name}: ${value} con el código ${p.code}.`);
+      // Un cupón descuenta solo el primer pago; una promoción, las cuotas.
+      const scope =
+        p.kind === 'coupon'
+          ? p.minMonths && p.minMonths > 1
+            ? ` en el primer pago, pagando ${p.minMonths} meses por adelantado`
+            : ' en el primer pago'
+          : p.durationMonths
+            ? ` durante ${p.durationMonths === 1 ? 'el primer mes' : `los ${p.durationMonths} primeros meses`}`
+            : '';
+      lines.push('', `## Promoción activa\n${p.name}: ${value}${scope} con el código ${p.code}.`);
     }
   }
   if (args.faqs.length > 0) {
