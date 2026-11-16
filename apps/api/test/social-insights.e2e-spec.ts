@@ -25,13 +25,29 @@ describe('Instagram y Facebook orgánico (e2e)', () => {
   });
 
   const http = () => request(app.getHttpServer());
+  /** La primera descarga va en segundo plano: se espera a que termine. */
+  const waitSynced = async (auth: Record<string, string>): Promise<SocialSettingsDto> => {
+    for (let i = 0; i < 100; i++) {
+      const res = await http().get('/marketing/social').set(auth).expect(200);
+      const body = res.body as SocialSettingsDto;
+      if (body.lastSyncedAt || body.status === 'error') return body;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error('la descarga no terminó');
+  };
 
   it('conecta la página con su Instagram y descarga métricas y publicaciones', async () => {
     const owner = await registerVerifiedUser(app, 'social');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
-    // Sin Web Premium no está disponible.
-    await http().get('/marketing/social').set(auth).expect(403);
+    // Sin Web Premium no se conecta (ver la conexión y desconectar, sí).
+    await http()
+      .put('/marketing/social')
+      .set(auth)
+      .send({ accessToken: 'page-token-0000000000000000' })
+      .expect(403);
+    await http().get('/marketing/social/report').set(auth).expect(403);
+    await http().get('/marketing/social').set(auth).expect(200);
     await setTenantFeatureOverride(owner.slug, 'web_premium', true);
 
     const empty = await http().get('/marketing/social').set(auth).expect(200);
@@ -67,6 +83,7 @@ describe('Instagram y Facebook orgánico (e2e)', () => {
       pageName: 'Trasteros Norte',
       instagramUsername: null,
     });
+    await waitSynced(auth);
 
     const admin = app.get(PrismaAdminService);
     const tenantId = (await admin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } })).id;
@@ -82,11 +99,11 @@ describe('Instagram y Facebook orgánico (e2e)', () => {
       .set(auth)
       .send({ accessToken: 'page-token-0000000000000000' })
       .expect(200);
-    const settings = demo.body as SocialSettingsDto;
-    expect(settings).toMatchObject({
+    expect(demo.body).toMatchObject({
       pageName: 'Trasteros Demo',
       instagramUsername: 'trasteros_demo',
     });
+    const settings = await waitSynced(auth);
     expect(settings.lastSyncedAt).not.toBeNull();
     expect(await count('instagram')).toBe(30);
     const yesterday = await admin.socialDailyMetric.findFirstOrThrow({
@@ -134,6 +151,7 @@ describe('Instagram y Facebook orgánico (e2e)', () => {
       .set(auth)
       .send({ accessToken: 'page-token-0000000000000000' })
       .expect(200);
+    await waitSynced(auth);
     // Un visitante que llega desde Instagram.
     await http()
       .post(`/public/landing/${owner.slug}/events`)

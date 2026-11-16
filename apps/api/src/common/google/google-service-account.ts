@@ -1,6 +1,6 @@
 import { createSign } from 'node:crypto';
 
-import { Logger } from '@nestjs/common';
+import { BadGatewayException, Logger } from '@nestjs/common';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
@@ -12,6 +12,19 @@ export class GoogleApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** Google no responde ahora (límite de peticiones o error suyo): se puede reintentar. */
+export function isGoogleTransient(err: unknown): err is GoogleApiError {
+  return err instanceof GoogleApiError && (err.status === 429 || err.status >= 500);
+}
+
+/** Error para el panel cuando Google no responde: 502 con un mensaje claro. */
+export function googleUnavailable(err: GoogleApiError): BadGatewayException {
+  return new BadGatewayException({
+    code: 'google_unavailable',
+    message: `Google no responde ahora mismo (${err.status}). Inténtalo de nuevo en unos minutos.`,
+  });
 }
 
 interface ServiceAccountKey {

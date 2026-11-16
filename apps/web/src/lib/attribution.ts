@@ -163,6 +163,8 @@ export function trackWebEvent(slug: string, kind: WebEventKind, path = window.lo
   if (typeof window === 'undefined' || navigator.webdriver) return;
   // «Solo necesarias» o «No medir mis visitas»: nada.
   if (!measurementAllowed(slug)) return;
+  // La vista previa de una landing (la abre el equipo) no es una visita.
+  if (/[?&]preview=/.test(window.location.search)) return;
   const origin = currentTrafficSource(slug);
   void fetch(`${API_URL}/public/landing/${encodeURIComponent(slug)}/events`, {
     method: 'POST',

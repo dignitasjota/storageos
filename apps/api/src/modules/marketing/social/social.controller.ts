@@ -18,7 +18,8 @@ import { SocialService } from './social.service';
 class ConnectSocialDto extends createZodDto(ConnectSocialSchema) {}
 
 /** Instagram y Facebook orgánico del tenant. Dentro de Web Premium. */
-@RequireFeature('web_premium')
+// Ver la conexión y desconectar no piden Web Premium: sin el extra se puede
+// borrar lo guardado (el token de Meta, por ejemplo).
 @Controller('marketing/social')
 export class SocialController {
   constructor(private readonly social: SocialService) {}
@@ -30,6 +31,7 @@ export class SocialController {
   }
 
   @RequirePermission('marketing:manage')
+  @RequireFeature('web_premium')
   @Put()
   connect(
     @CurrentUser() user: AuthenticatedUser,
@@ -46,6 +48,7 @@ export class SocialController {
 
   /** Descarga ya los últimos días (sin esperar al cron). */
   @RequirePermission('marketing:manage')
+  @RequireFeature('web_premium')
   @Post('sync')
   async sync(@CurrentUser() user: AuthenticatedUser): Promise<SocialSettingsDto> {
     await this.social.sync(user.tenantId);
@@ -53,6 +56,7 @@ export class SocialController {
   }
 
   @RequirePermission('marketing:read')
+  @RequireFeature('web_premium')
   @Get('report')
   report(
     @CurrentUser() user: AuthenticatedUser,

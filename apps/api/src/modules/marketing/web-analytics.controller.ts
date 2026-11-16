@@ -5,6 +5,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Ip,
   Param,
   Post,
   Query,
@@ -18,6 +19,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { marketingViewer } from './marketing-viewer';
 import { WebAnalyticsService } from './web-analytics.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
@@ -37,9 +39,10 @@ export class WebAnalyticsPublicController {
   async event(
     @Param('slug') slug: string,
     @Body() body: WebEventDto,
+    @Ip() ip: string,
     @Headers('user-agent') userAgent?: string,
   ): Promise<void> {
-    await this.analytics.record(slug, body, userAgent);
+    await this.analytics.record(slug, body, userAgent, ip);
   }
 }
 
@@ -54,6 +57,6 @@ export class WebAnalyticsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('days') days?: string,
   ): Promise<WebAnalyticsDto> {
-    return this.analytics.report(user.tenantId, Number(days) || 30);
+    return this.analytics.report(user.tenantId, Number(days) || 30, marketingViewer(user));
   }
 }

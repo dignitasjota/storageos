@@ -14,7 +14,8 @@ import { Ga4Service } from './ga4.service';
 class ConnectGa4Dto extends createZodDto(ConnectGa4Schema) {}
 
 /** Google Analytics 4 de la web del tenant. Dentro de Web Premium. */
-@RequireFeature('web_premium')
+// Ver la conexión y desconectar no piden Web Premium: sin el extra se puede
+// borrar lo guardado (el token de Meta, por ejemplo).
 @Controller('marketing/ga4')
 export class Ga4Controller {
   constructor(private readonly ga4: Ga4Service) {}
@@ -26,6 +27,7 @@ export class Ga4Controller {
   }
 
   @RequirePermission('marketing:manage')
+  @RequireFeature('web_premium')
   @Put()
   connect(
     @CurrentUser() user: AuthenticatedUser,
@@ -42,6 +44,7 @@ export class Ga4Controller {
 
   /** Descarga ya los últimos días (sin esperar al cron). */
   @RequirePermission('marketing:manage')
+  @RequireFeature('web_premium')
   @Post('sync')
   async sync(@CurrentUser() user: AuthenticatedUser): Promise<Ga4SettingsDto> {
     await this.ga4.sync(user.tenantId);
@@ -49,6 +52,7 @@ export class Ga4Controller {
   }
 
   @RequirePermission('marketing:read')
+  @RequireFeature('web_premium')
   @Get('report')
   report(
     @CurrentUser() user: AuthenticatedUser,

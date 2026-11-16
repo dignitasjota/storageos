@@ -137,6 +137,8 @@ export interface SocialReportDto {
   days: number;
   from: string;
   to: string;
+  /** Hay datos de todo el periodo anterior (si no, no se enseña la variación). */
+  previousComplete: boolean;
   networks: SocialNetworkReportDto[];
   /** Las mejores publicaciones del periodo (por alcance o interacción). */
   topPosts: SocialPostDto[];
@@ -184,14 +186,19 @@ export function summarizeSocial(
     if (mine.length === 0) continue;
     const totals = emptyTotals();
     const previous = emptyTotals();
-    const daily: SocialNetworkReportDto['daily'] = [];
+    const reachByDay = new Map<string, number | null>();
     for (const r of mine) {
       if (r.date >= range.from && r.date <= range.to) {
         addDay(totals, r);
-        daily.push({ date: r.date, reach: r.reach });
+        reachByDay.set(r.date, r.reach);
       } else if (r.date >= range.previousFrom && r.date < range.from) {
         addDay(previous, r);
       }
+    }
+    // Todos los días del periodo: un día sin dato queda en blanco (no se une en la gráfica).
+    const daily: SocialNetworkReportDto['daily'] = [];
+    for (let d = range.from; d <= range.to && daily.length < 400; d = nextDay(d)) {
+      daily.push({ date: d, reach: reachByDay.get(d) ?? null });
     }
     const known = mine.filter((r) => r.followers != null && r.date <= range.to);
     const last = known.at(-1);
@@ -206,13 +213,26 @@ export function summarizeSocial(
       daily,
     });
   }
-  const topPosts = posts
-    .filter((p) => {
-      const d = p.publishedAt.slice(0, 10);
-      return d >= range.from && d <= range.to;
-    })
-    .sort((a, b) => socialPostScore(b) - socialPostScore(a))
-    .slice(0, 6)
-    .map(({ externalId: _id, ...p }) => p);
+  // Las mejores de cada red por separado: el alcance de Instagram y la
+  // interacción de Facebook no se pueden comparar entre sí.
+  const inRange = posts.filter((p) => {
+    const d = p.publishedAt.slice(0, 10);
+    return d >= range.from && d <= range.to;
+  });
+  const topPosts = SOCIAL_NETWORKS.flatMap((network) =>
+    inRange
+      .filter((p) => p.network === network)
+      .sort((a, b) => socialPostScore(b) - socialPostScore(a))
+      .slice(0, TOP_POSTS_PER_NETWORK),
+  ).map(({ externalId: _id, ...p }) => p);
   return { from: range.from, to: range.to, networks, topPosts };
+}
+
+/** Publicaciones destacadas de cada red. */
+const TOP_POSTS_PER_NETWORK = 3;
+
+function nextDay(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
 }

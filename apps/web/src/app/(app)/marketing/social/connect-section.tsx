@@ -106,15 +106,29 @@ function ConnectForm() {
 }
 
 /** Estado de la conexión con Meta: conectar, actualizar o desconectar. */
-export function SocialConnectSection({ settings }: { settings: SocialSettingsDto }) {
+export function SocialConnectSection({
+  settings,
+  hasFeature,
+}: {
+  settings: SocialSettingsDto;
+  /** Sin Web Premium solo se puede desconectar (y borrar el token). */
+  hasFeature: boolean;
+}) {
   const canManage = useHasPermission('marketing:manage');
   const action = useSocialAction();
   const ask = useConfirm();
+  // Recién conectado: la primera descarga va en segundo plano.
+  const downloading =
+    settings.connected && settings.status === 'connected' && !settings.lastSyncedAt;
 
   async function sync() {
-    const res = await action.mutateAsync('sync');
-    if (res.status === 'error') toast.error(res.lastError ?? 'No se pudo actualizar');
-    else toast.success('Datos actualizados');
+    try {
+      const res = await action.mutateAsync('sync');
+      if (res.status === 'error') toast.error(res.lastError ?? 'No se pudo actualizar');
+      else toast.success('Datos actualizados');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar');
+    }
   }
 
   async function disconnect() {
@@ -125,7 +139,13 @@ export function SocialConnectSection({ settings }: { settings: SocialSettingsDto
       confirmLabel: 'Desconectar',
       destructive: true,
     });
-    if (ok) await action.mutateAsync(null);
+    if (!ok) return;
+    try {
+      await action.mutateAsync(null);
+      toast.success('Instagram y Facebook desconectados');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo desconectar');
+    }
   }
 
   return (
@@ -135,16 +155,23 @@ export function SocialConnectSection({ settings }: { settings: SocialSettingsDto
           <CardTitle className="text-base">Conexión con Meta</CardTitle>
           <CardDescription>
             {settings.connected
-              ? `Página «${settings.pageName}»${settings.instagramUsername ? ` · Instagram @${settings.instagramUsername}` : ' · sin Instagram vinculado'} · actualizado ${sinceLabel(settings.lastSyncedAt)}`
+              ? `Página «${settings.pageName}»${settings.instagramUsername ? ` · Instagram @${settings.instagramUsername}` : ' · sin Instagram vinculado'}${downloading ? '' : ` · actualizado ${sinceLabel(settings.lastSyncedAt)}`}`
               : 'Las estadísticas de tu página de Facebook y tu cuenta de Instagram, cada día.'}
           </CardDescription>
         </div>
         {settings.connected && canManage && (
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={sync} disabled={action.isPending}>
-              <RefreshCw className={`mr-2 size-4 ${action.isPending ? 'animate-spin' : ''}`} />
-              Actualizar
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            {hasFeature && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={sync}
+                disabled={action.isPending || downloading}
+              >
+                <RefreshCw className={`mr-2 size-4 ${action.isPending ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={disconnect} disabled={action.isPending}>
               Desconectar
             </Button>
@@ -152,12 +179,24 @@ export function SocialConnectSection({ settings }: { settings: SocialSettingsDto
         )}
       </CardHeader>
       <CardContent className="space-y-3">
-        {settings.status === 'error' && settings.lastError && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {settings.lastError}
+        {downloading && (
+          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Descargando tus datos del último mes. Tarda
+            unos minutos; puedes seguir trabajando.
           </p>
         )}
-        {(!settings.connected || settings.status === 'error') && <ConnectForm />}
+        {settings.status === 'error' && settings.lastError && (
+          <p
+            role="alert"
+            className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+          >
+            {settings.lastError}
+            {settings.lastSyncedAt
+              ? ` Lo que ves es hasta el ${sinceLabel(settings.lastSyncedAt)}.`
+              : ''}
+          </p>
+        )}
+        {hasFeature && (!settings.connected || settings.status === 'error') && <ConnectForm />}
       </CardContent>
     </Card>
   );

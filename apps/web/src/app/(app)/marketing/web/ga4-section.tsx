@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -120,20 +121,23 @@ function ConnectForm({ settings }: { settings: Ga4SettingsDto }) {
   );
 }
 
-function Report({ report, ownVisitors }: { report: Ga4ReportDto; ownVisitors: number }) {
+function Report({ report, ownVisitors }: { report: Ga4ReportDto; ownVisitors: number | null }) {
   const t = report.totals;
+  // Sin datos de todo el periodo anterior (recién conectado) no se compara.
+  const cmp = (now: number, before: number) =>
+    report.previousComplete ? delta(now, before) : null;
   const kpis = [
-    { label: 'Sesiones', value: int(t.sessions), d: delta(t.sessions, report.previous.sessions) },
+    { label: 'Sesiones', value: int(t.sessions), d: cmp(t.sessions, report.previous.sessions) },
     { label: 'Con interacción', value: pct(t.engagementRate), d: null },
     {
       label: 'Páginas vistas',
       value: int(t.pageViews),
-      d: delta(t.pageViews, report.previous.pageViews),
+      d: cmp(t.pageViews, report.previous.pageViews),
     },
     {
       label: 'Eventos clave',
       value: int(t.keyEvents),
-      d: delta(t.keyEvents, report.previous.keyEvents),
+      d: cmp(t.keyEvents, report.previous.keyEvents),
     },
   ];
   return (
@@ -154,7 +158,8 @@ function Report({ report, ownVisitors }: { report: Ga4ReportDto; ownVisitors: nu
       </div>
       <p className="text-xs text-muted-foreground">
         Hasta ayer: Google Analytics tarda un día en tener los datos.
-        {ownVisitors > 0 &&
+        {ownVisitors != null &&
+          ownVisitors > 0 &&
           ` TrasterOS contó ${int(ownVisitors)} ${ownVisitors === 1 ? 'visitante' : 'visitantes'} en este periodo; las cifras no coinciden porque Google Analytics cuenta sesiones y solo de quien acepta las cookies.`}
       </p>
       {report.sources.length === 0 ? (
@@ -193,19 +198,27 @@ function Report({ report, ownVisitors }: { report: Ga4ReportDto; ownVisitors: nu
 }
 
 /** Google Analytics 4 en la página de visitas (Web Premium). */
-export function Ga4Section({ days, ownVisitors }: { days: number; ownVisitors: number }) {
+export function Ga4Section({ days, ownVisitors }: { days: number; ownVisitors: number | null }) {
   const hasFeature = useHasFeature('web_premium');
   const canManage = useHasPermission('marketing:manage');
-  const settings = useGa4Settings(hasFeature);
-  const connected = settings.data?.status === 'connected';
-  const report = useGa4Report(days, hasFeature && connected);
+  // La conexión se ve también sin Web Premium: así se puede desconectar.
+  const settings = useGa4Settings(true);
+  const s = settings.data;
+  const connected = s?.status === 'connected';
+  // Con un fallo de la última descarga se siguen viendo los datos que ya había.
+  const hasData = !!s?.propertyId && (connected || !!s.lastSyncedAt);
+  const report = useGa4Report(days, hasFeature && hasData);
   const action = useGa4Action();
   const ask = useConfirm();
 
   async function sync() {
-    const res = await action.mutateAsync('sync');
-    if (res.status === 'error') toast.error(res.lastError ?? 'No se pudo actualizar');
-    else toast.success('Datos actualizados');
+    try {
+      const res = await action.mutateAsync('sync');
+      if (res.status === 'error') toast.error(res.lastError ?? 'No se pudo actualizar');
+      else toast.success('Datos actualizados');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar');
+    }
   }
 
   async function disconnect() {
@@ -215,7 +228,13 @@ export function Ga4Section({ days, ownVisitors }: { days: number; ownVisitors: n
       confirmLabel: 'Desconectar',
       destructive: true,
     });
-    if (ok) await action.mutateAsync(null);
+    if (!ok) return;
+    try {
+      await action.mutateAsync(null);
+      toast.success('Google Analytics desconectado');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo desconectar');
+    }
   }
 
   return (
@@ -224,43 +243,70 @@ export function Ga4Section({ days, ownVisitors }: { days: number; ownVisitors: n
         <div className="space-y-1.5">
           <CardTitle className="text-base">Google Analytics</CardTitle>
           <CardDescription>
-            {connected && settings.data
-              ? `Propiedad ${settings.data.propertyId} · actualizado ${sinceLabel(settings.data.lastSyncedAt)}`
+            {s?.propertyId && hasData
+              ? `Propiedad ${s.propertyId} · actualizado ${sinceLabel(s.lastSyncedAt)}`
               : 'Los datos de tu propiedad de Google Analytics 4, junto a los de TrasterOS.'}
           </CardDescription>
         </div>
-        {connected && canManage && (
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={sync} disabled={action.isPending}>
-              <RefreshCw className={`mr-2 size-4 ${action.isPending ? 'animate-spin' : ''}`} />
-              Actualizar
-            </Button>
+        {s?.propertyId && canManage && (hasData || !hasFeature) && (
+          <div className="flex flex-wrap gap-2">
+            {hasFeature && (
+              <Button size="sm" variant="outline" onClick={sync} disabled={action.isPending}>
+                <RefreshCw className={`mr-2 size-4 ${action.isPending ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={disconnect} disabled={action.isPending}>
               Desconectar
             </Button>
           </div>
         )}
       </CardHeader>
-      <CardContent>
-        {!hasFeature ? (
+      <CardContent className="space-y-4">
+        {settings.isError ? (
+          <SectionError onRetry={() => void settings.refetch()} />
+        ) : !hasFeature ? (
           <p className="text-sm text-muted-foreground">
-            Incluido en <strong>Web Premium</strong>.{' '}
+            {s?.propertyId
+              ? 'Tu plan ya no incluye Web Premium: los datos no se actualizan. Puedes desconectar la propiedad y borrar lo descargado. '
+              : 'Incluido en '}
+            {!s?.propertyId && <strong>Web Premium</strong>}
+            {!s?.propertyId && '. '}
             <Link href="/settings/saas-billing" className="text-primary hover:underline">
               Ver planes y extras
             </Link>
           </p>
-        ) : settings.isLoading || !settings.data ? (
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        ) : !settings.data.available ? (
+        ) : settings.isLoading || !s ? (
+          <div role="status" aria-label="Cargando">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : !s.available ? (
           <p className="text-sm text-muted-foreground">
             La conexión con Google Analytics estará disponible pronto.
           </p>
-        ) : !connected ? (
-          <ConnectForm settings={settings.data} />
-        ) : report.isLoading || !report.data ? (
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        ) : !hasData ? (
+          <ConnectForm settings={s} />
         ) : (
-          <Report report={report.data} ownVisitors={ownVisitors} />
+          <>
+            {s.status === 'error' && s.lastError && (
+              <p
+                role="alert"
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+              >
+                La última descarga falló: {s.lastError} Lo que ves es hasta el{' '}
+                {sinceLabel(s.lastSyncedAt)}; se volverá a intentar mañana o con «Actualizar».
+              </p>
+            )}
+            {report.isError ? (
+              <SectionError onRetry={() => void report.refetch()} />
+            ) : report.isLoading || !report.data ? (
+              <div role="status" aria-label="Cargando">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <Report report={report.data} ownVisitors={ownVisitors} />
+            )}
+          </>
         )}
       </CardContent>
     </Card>

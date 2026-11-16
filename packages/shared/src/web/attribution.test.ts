@@ -73,6 +73,33 @@ describe('detectTrafficSource', () => {
   });
 });
 
+describe('sourceFromReferrer: correo y apps de Android', () => {
+  const own = ['garcia.es'];
+  it('un enlace de un email es «email», no búsqueda de Google', () => {
+    expect(sourceFromReferrer('https://mail.google.com/mail/u/0/', own)).toEqual({
+      source: 'gmail',
+      medium: 'email',
+    });
+    expect(sourceFromReferrer('android-app://com.google.android.gm/', own)).toEqual({
+      source: 'gmail',
+      medium: 'email',
+    });
+  });
+  it('las apps de Facebook e Instagram son sus redes', () => {
+    expect(sourceFromReferrer('android-app://com.facebook.katana/', own)).toEqual({
+      source: 'facebook',
+      medium: 'social',
+    });
+    expect(sourceFromReferrer('android-app://com.instagram.android', own)).toEqual({
+      source: 'instagram',
+      medium: 'social',
+    });
+    expect(
+      sourceFromReferrer('android-app://com.google.android.googlequicksearchbox/', own),
+    ).toEqual({ source: 'google', medium: 'organic' });
+  });
+});
+
 describe('sourceFromReferrer', () => {
   it('ignora referers que no son URL', () => {
     expect(sourceFromReferrer('nada', own)).toBeNull();
