@@ -28,6 +28,8 @@ function build() {
       findMany: jest.fn().mockResolvedValue([{ mediaKey: 't/whatsapp/c/m.jpg' }]),
     },
     webEvent: { deleteMany: jest.fn().mockResolvedValue({ count: 8 }) },
+    webVisit: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    webPageDaily: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     platformLead: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
     superAdminSession: { deleteMany: jest.fn().mockResolvedValue({ count: 9 }) },
     impersonationLog: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },

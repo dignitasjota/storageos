@@ -285,6 +285,31 @@ const SOURCE_NAMES: Record<string, string> = {
   wallapop: 'Wallapop',
 };
 
+/**
+ * Canal que se propone para un origen que no recoge ninguno: el tipo según el
+ * origen (anuncios de Google o Meta, un portal conocido) y su nombre.
+ */
+export function suggestChannelForSource(
+  source: string,
+  paid: boolean,
+): { type: MarketingChannelType; name: string; utmSourceMatch: string } {
+  if (paid && source === 'google') {
+    return { type: 'google_ads', name: 'Anuncios de Google', utmSourceMatch: 'google' };
+  }
+  if (paid && source === 'meta') {
+    return {
+      type: 'meta_ads',
+      name: 'Anuncios de Facebook e Instagram',
+      utmSourceMatch: 'facebook, instagram',
+    };
+  }
+  const name = trafficSourceName(source, paid);
+  if (KNOWN_PORTALS.includes(source)) {
+    return { type: 'real_estate_portal', name, utmSourceMatch: source };
+  }
+  return { type: 'other', name, utmSourceMatch: source };
+}
+
 /** Nombre de un origen para el panel y los correos («Anuncios de Google», «Instagram»…). */
 export function trafficSourceName(
   source: string,

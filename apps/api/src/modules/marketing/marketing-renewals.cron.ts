@@ -2,9 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
 import { claimDailyCronRun } from '../../common/cron-claim';
+import { todayInTimezone } from '../../common/format';
 import { addMonthsUtc } from '../billing-saas/platform-due';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { NotificationsService } from '../notifications/notifications.service';
+
+import { MarketingChannelsService } from './marketing-channels.service';
+
+const shiftDay = (day: string, n: number) =>
+  new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Cron diario de las renovaciones de los canales (suscripción a un portal,
@@ -16,6 +23,10 @@ import { NotificationsService } from '../notifications/notifications.service';
  *    creara con menos de 7 días de margen).
  * Solo canales activos de negocios en marcha. Ligero y sin BullMQ → corre en
  * el API (patrón `claimDailyCronRun`).
+ *
+ * Y otro a media mañana (tras traer el gasto de los anuncios) con el gasto del
+ * mes: presupuesto superado y, desde el día 15, gasto sin ninguna reserva.
+ * Los avisos no llevan importes: los leen también quienes no ven gastos.
  */
 @Injectable()
 export class MarketingRenewalsCron {
@@ -24,6 +35,7 @@ export class MarketingRenewalsCron {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly notifications: NotificationsService,
+    private readonly channels: MarketingChannelsService,
   ) {}
 
   @Cron('0 7 * * *', { name: 'marketing-renewals.daily' })
@@ -35,6 +47,131 @@ export class MarketingRenewalsCron {
       this.logger.error(
         `Cron de avisos de renovación de marketing falló: ${(err as Error).message}`,
       );
+    }
+  }
+
+  @Cron('30 9 * * *', { name: 'marketing-budgets.daily' })
+  async budgetsDaily(): Promise<void> {
+    try {
+      if (!(await claimDailyCronRun(this.admin, 'marketing-budgets.daily'))) return;
+      await this.runBudgets();
+    } catch (err) {
+      this.logger.error(`Cron de presupuestos de marketing falló: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Gasto del mes por canal (en la zona de cada negocio): presupuesto superado
+   * y, desde el día 15, gasto sin reservas ni clientes. Un aviso de cada tipo
+   * por canal y mes. Devuelve los avisos enviados.
+   */
+  async runBudgets(now = new Date()): Promise<number> {
+    const candidates = await this.admin.marketingChannel.findMany({
+      where: {
+        deletedAt: null,
+        status: 'active',
+        tenant: { deletedAt: null, status: { notIn: ['cancelled', 'suspended'] } },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        facilityId: true,
+        monthlyBudget: true,
+        budgetNotifiedMonth: true,
+        midmonthNotifiedMonth: true,
+        tenant: { select: { timezone: true } },
+      },
+    });
+    const byTenant = new Map<string, typeof candidates>();
+    for (const c of candidates) byTenant.set(c.tenantId, [...(byTenant.get(c.tenantId) ?? []), c]);
+
+    let sent = 0;
+    for (const [tenantId, list] of byTenant) {
+      const tz = list[0]!.tenant.timezone || 'Europe/Madrid';
+      const today = todayInTimezone(tz, now).toISOString().slice(0, 10);
+      const month = today.slice(0, 7);
+      const pending = list.filter(
+        (c) =>
+          (c.monthlyBudget !== null && c.budgetNotifiedMonth !== month) ||
+          (Number(today.slice(8, 10)) >= 15 && c.midmonthNotifiedMonth !== month),
+      );
+      if (pending.length === 0) continue;
+      let perf;
+      try {
+        perf = await this.channels.getPerformance(tenantId, { from: `${month}-01`, to: today });
+      } catch (err) {
+        this.logger.warn(`Gasto del mes de ${tenantId}: ${(err as Error).message}`);
+        continue;
+      }
+      const rowOf = new Map(perf.rows.map((r) => [r.channelId, r]));
+      for (const c of pending) {
+        const row = rowOf.get(c.id);
+        if (!row || row.cost <= 0) continue;
+        if (
+          c.monthlyBudget !== null &&
+          c.budgetNotifiedMonth !== month &&
+          row.cost > Number(c.monthlyBudget)
+        ) {
+          const claimed = await this.admin.marketingChannel.updateMany({
+            where: {
+              id: c.id,
+              OR: [{ budgetNotifiedMonth: null }, { budgetNotifiedMonth: { not: month } }],
+            },
+            data: { budgetNotifiedMonth: month },
+          });
+          if (claimed.count > 0) {
+            sent += await this.notify(tenantId, c.facilityId, {
+              type: 'marketing.channel_over_budget',
+              title: `«${c.name}» ha pasado su presupuesto del mes`,
+              body: 'Revisa el gasto del canal o sube el presupuesto.',
+            });
+          }
+        }
+        if (
+          Number(today.slice(8, 10)) >= 15 &&
+          c.midmonthNotifiedMonth !== month &&
+          row.bookings === 0 &&
+          row.wonCount === 0
+        ) {
+          const claimed = await this.admin.marketingChannel.updateMany({
+            where: {
+              id: c.id,
+              OR: [{ midmonthNotifiedMonth: null }, { midmonthNotifiedMonth: { not: month } }],
+            },
+            data: { midmonthNotifiedMonth: month },
+          });
+          if (claimed.count > 0) {
+            sent += await this.notify(tenantId, c.facilityId, {
+              type: 'marketing.channel_no_results',
+              title: `«${c.name}» lleva gasto este mes y ninguna reserva`,
+              body:
+                row.leadsCount > 0
+                  ? `Ha traído ${plural(row.leadsCount, 'contacto', 'contactos')}, pero ninguno ha reservado todavía.`
+                  : 'Aún no ha traído contactos. Revisa la campaña o si conviene pausarla.',
+            });
+          }
+        }
+      }
+    }
+    return sent;
+  }
+
+  private async notify(
+    tenantId: string,
+    facilityId: string | null,
+    input: { type: string; title: string; body: string },
+  ): Promise<number> {
+    try {
+      await this.notifications.createForPermission(tenantId, 'marketing:read', {
+        ...input,
+        link: '/marketing/performance',
+        facilityId,
+      });
+      return 1;
+    } catch (err) {
+      this.logger.warn(`Aviso de marketing falló: ${(err as Error).message}`);
+      return 0;
     }
   }
 
@@ -83,9 +220,29 @@ export class MarketingRenewalsCron {
         facilityId: true,
         renewsOn: true,
         renewalNotifiedOn: true,
+        tenant: { select: { timezone: true } },
       },
     });
     let sent = 0;
+    // Lo que trajo cada canal en los últimos 90 días, por negocio (una consulta por negocio).
+    const results = new Map<string, Map<string, { leads: number; won: number }>>();
+    const resultsOf = async (tenantId: string, tz: string) => {
+      if (!results.has(tenantId)) {
+        const to = todayInTimezone(tz, now).toISOString().slice(0, 10);
+        const map = new Map<string, { leads: number; won: number }>();
+        try {
+          const perf = await this.channels.getPerformance(tenantId, {
+            from: shiftDay(to, -89),
+            to,
+          });
+          for (const r of perf.rows) map.set(r.channelId, { leads: r.leadsCount, won: r.wonCount });
+        } catch (err) {
+          this.logger.warn(`Resultados de ${tenantId}: ${(err as Error).message}`);
+        }
+        results.set(tenantId, map);
+      }
+      return results.get(tenantId)!;
+    };
     for (const c of due) {
       if (c.renewalNotifiedOn && c.renewalNotifiedOn.getTime() === c.renewsOn!.getTime()) continue;
       // Reserva el aviso de esta fecha antes de enviarlo (nunca dos).
@@ -99,6 +256,7 @@ export class MarketingRenewalsCron {
       });
       if (claimed.count === 0) continue;
       const days = Math.round((c.renewsOn!.getTime() - today.getTime()) / 86_400_000);
+      const got = (await resultsOf(c.tenantId, c.tenant.timezone || 'Europe/Madrid')).get(c.id);
       try {
         await this.notifications.createForPermission(c.tenantId, 'marketing:read', {
           type: 'marketing.channel_renewing_soon',
@@ -106,7 +264,9 @@ export class MarketingRenewalsCron {
             days === 0
               ? `«${c.name}» se renueva hoy`
               : `«${c.name}» se renueva en ${days} ${days === 1 ? 'día' : 'días'}`,
-          body: 'Revisa lo que ha traído antes de que se renueve.',
+          body: got
+            ? `En los últimos 90 días: ${plural(got.leads, 'contacto', 'contactos')} y ${plural(got.won, 'cliente', 'clientes')}. Revisa si compensa antes de que se renueve.`
+            : 'Revisa lo que ha traído antes de que se renueve.',
           link: '/marketing/performance',
           facilityId: c.facilityId,
         });

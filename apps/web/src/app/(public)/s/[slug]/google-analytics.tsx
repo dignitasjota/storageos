@@ -39,6 +39,8 @@ export interface TenantSiteRef {
   customDomain?: string | null;
   /** Páginas de zona («trasteros en …») que se enlazan en el pie. */
   areaLinks?: AreaPageLinkDto[];
+  /** Devuelve los contratos a Google Ads o a Meta: pide permiso para guardar el clic. */
+  adConversions?: boolean;
 }
 
 type Consent = TenantConsent;
@@ -50,7 +52,9 @@ const writeConsent = writeTenantConsent;
  * Google Analytics 4 de la web del tenant (si lo configuró en Ajustes → Marca y
  * SEO), **solo con el consentimiento del visitante**: hasta que elige, se
  * muestra el aviso de cookies y no se carga nada de Google (LSSI art. 22.2).
- * Sin GA4 configurado no hay cookies que no sean necesarias: ni aviso ni script.
+ * También se pregunta si el negocio devuelve los contratos a Google Ads o a
+ * Meta (el clic en el anuncio solo se guarda con todas aceptadas). Sin nada de
+ * eso no hay cookies que no sean necesarias: ni aviso ni script.
  */
 export function GoogleAnalyticsScript({
   measurementId,
@@ -69,8 +73,9 @@ export function GoogleAnalyticsScript({
     return () => window.removeEventListener(CONSENT_EVENT, onChange);
   }, [site.tenantSlug]);
 
-  if (!measurementId || consent === undefined) return null;
+  if ((!measurementId && !site.adConversions) || consent === undefined) return null;
   if (consent === 'all') {
+    if (!measurementId) return null;
     return (
       <>
         <Script
@@ -155,7 +160,7 @@ export function TenantLegalLinks({
       >
         {t('terms')}
       </Link>
-      {analytics && (
+      {(analytics || site.adConversions) && (
         <button type="button" onClick={() => writeConsent(site.tenantSlug, null)} className={link}>
           {t('cookieSettings')}
         </button>

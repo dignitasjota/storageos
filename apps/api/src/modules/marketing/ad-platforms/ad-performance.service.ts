@@ -140,6 +140,7 @@ export class AdPerformanceService {
                   utmSource: true,
                   utmMedium: true,
                   utmCampaign: true,
+                  marketingChannelId: true,
                   createdAt: true,
                   bookedAt: true,
                   convertedContractId: true,
@@ -213,11 +214,14 @@ export class AdPerformanceService {
     // cada reserva una vez aunque la compartan dos contactos.
     const counted = new Set<string>();
     for (const l of data.leads) {
-      const channel = attributeChannel(data.allChannels, {
-        source: l.utmSource,
-        medium: l.utmMedium,
-        campaign: l.utmCampaign,
-      });
+      // El canal guardado al llegar o, en los contactos antiguos, el de su origen.
+      const channel = l.marketingChannelId
+        ? (data.allChannels.find((c) => c.id === l.marketingChannelId) ?? null)
+        : attributeChannel(data.allChannels, {
+            source: l.utmSource,
+            medium: l.utmMedium,
+            campaign: l.utmCampaign,
+          });
       if (!channel || !data.channels.some((c) => c.id === channel.id)) continue;
       const f = fig(channel.id);
       if (l.createdAt >= data.since && l.createdAt < data.until) f.contacts += 1;

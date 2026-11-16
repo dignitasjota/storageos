@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AreaPagesModule } from '../area-pages/area-pages.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
 
 import { SearchConsoleClient } from './search-console.client';
@@ -12,7 +13,7 @@ import { SearchConsoleService } from './search-console.service';
 import { SeoReportService } from './seo-report.service';
 
 @Module({
-  imports: [AreaPagesModule, BullModule.registerQueue({ name: QUEUE_EMAIL })],
+  imports: [AreaPagesModule, NotificationsModule, BullModule.registerQueue({ name: QUEUE_EMAIL })],
   controllers: [SearchConsoleController],
   providers: [
     SearchConsoleClient,

@@ -8,7 +8,7 @@ import { trackEvent } from './google-analytics';
 import { legalHref } from './i18n/messages';
 
 import { EmailTypoHint } from '@/components/email-typo-hint';
-import { currentTrafficSource } from '@/lib/attribution';
+import { currentClickIds, currentTrafficSource } from '@/lib/attribution';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -46,6 +46,7 @@ export function ContactForm({
           hp: fd.get('company') || '', // honeypot
           acceptsMarketing: fd.get('marketing') === 'on',
           ...trafficSourceToUtm(currentTrafficSource(slug)),
+          ...(currentClickIds(slug) ? { clickIds: currentClickIds(slug) } : {}),
         }),
       });
       if (!res.ok) throw new Error('fail');

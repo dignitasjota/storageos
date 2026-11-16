@@ -11,6 +11,8 @@ import type {
   WebChatPendingDto,
   WebChatSettingsDto,
   WebChatStatsDto,
+  WebChatTryInput,
+  WebChatTryResultDto,
 } from '@storageos/shared';
 
 const settingsKey = ['web-chat', 'settings'] as const;
@@ -119,6 +121,27 @@ export function useWebChatSetMode(id: string) {
         json: { mode },
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['web-chat'] }),
+  });
+}
+
+/** Quién del equipo lleva la conversación (null: nadie). */
+export function useWebChatAssign(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assignedToUserId: string | null) =>
+      apiFetch<{ mode: WebChatMode }>(`/web-chat/conversations/${id}`, {
+        method: 'PATCH',
+        json: { assignedToUserId },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['web-chat'] }),
+  });
+}
+
+/** Probar el asistente desde Configuración (no guarda nada). */
+export function useWebChatTry() {
+  return useMutation({
+    mutationFn: (input: WebChatTryInput) =>
+      apiFetch<WebChatTryResultDto>('/web-chat/try', { method: 'POST', json: input }),
   });
 }
 

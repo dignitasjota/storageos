@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { WebChatTry } from './web-chat-try';
+
 import type { OpeningHours } from '@storageos/shared';
 
 import { OpeningHoursEditor } from '@/components/opening-hours-editor';
@@ -84,7 +86,7 @@ export function WebChatCard() {
             <p className="text-xs text-muted-foreground">
               {s.ownKey
                 ? 'Con tu propia clave de IA: sin límite de respuestas.'
-                : `${formatNumber(s.used)} de ${formatNumber(s.limit)} respuestas este mes (aparte de las del panel). Se reinicia el ${formatDate(s.resetsOn)}.`}
+                : `${formatNumber(s.used, 0)} de ${formatNumber(s.limit, 0)} respuestas este mes (aparte de las del panel). Se reinicia el ${formatDate(s.resetsOn)}.`}
             </p>
           </div>
           <Checkbox
@@ -232,6 +234,7 @@ export function WebChatCard() {
             </Button>
           </>
         )}
+        {s.available && <WebChatTry />}
       </CardContent>
     </Card>
   );

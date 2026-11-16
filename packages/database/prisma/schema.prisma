@@ -582,6 +582,8 @@ model Tenant {
   webChatSharedInstructions Boolean @default(false) @map("web_chat_shared_instructions")
   /// Horario del equipo para el chat de la web (null = siempre); fuera de él se avisa.
   webChatTeamHours Json? @map("web_chat_team_hours")
+  /// Mes del aviso al 80 % del límite de respuestas del chat.
+  webChatLimitWarned String? @map("web_chat_limit_warned")
   createdAt                    DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                    DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -781,6 +783,10 @@ model Tenant {
   messageAutoReplyEnabled   Boolean  @default(false) @map("message_auto_reply_enabled")
   messageAutoReply          String?  @map("message_auto_reply")
   delinquencyPickupRequests DelinquencyPickupRequest[]
+  adConversionUploads  AdConversionUpload[]
+  webVisits            WebVisit[]
+  webPageDaily         WebPageDaily[]
+  marketingAnnotations MarketingAnnotation[]
   @@index([deletedAt, status])
   @@index([status, trialEndsAt])
   @@index([deletedAt, createdAt])
@@ -921,6 +927,8 @@ model User {
   platformMessageRead       TenantPlatformMessageRead?
   assignedConversations     CustomerConversation[] @relation("ConversationAssignee")
   delinquencyPickupsResolved DelinquencyPickupRequest[] @relation("DelinquencyPickupResolver")
+  webChatAssignments   WebChatConversation[] @relation("WebChatAssignee")
+  marketingAnnotations MarketingAnnotation[] @relation("MarketingAnnotationAuthor")
   @@unique([tenantId, email])
   @@index([tenantId])
   webChatMessages WebChatMessage[]
@@ -1920,6 +1928,7 @@ model Contract {
   scheduledUnit Unit? @relation("ContractScheduledUnit", fields: [scheduledUnitId], references: [id], onDelete: SetNull)
   waitlistConversions WaitlistEntry[] @relation("WaitlistConvertedContract")
 
+  adConversionUploads AdConversionUpload[]
   @@unique([tenantId, contractNumber])
   @@index([tenantId])
   @@index([tenantId, status])
@@ -2068,6 +2077,13 @@ model MarketingChannel {
   lastSyncError      String?   @map("last_sync_error")
   syncFailingSince   DateTime? @map("sync_failing_since") @db.Timestamptz(6)
   syncFailureNotifiedAt DateTime? @map("sync_failure_notified_at") @db.Timestamptz(6)
+  /// Cupón del canal: los contratos con él cuentan para el canal.
+  couponId           String?   @map("coupon_id") @db.Uuid
+  /// Presupuesto del mes (aviso al pasarse).
+  monthlyBudget      Decimal?  @map("monthly_budget") @db.Decimal(10, 2)
+  budgetNotifiedMonth String?  @map("budget_notified_month")
+  /// Mes del aviso de gasto sin reservas a mitad de mes.
+  midmonthNotifiedMonth String? @map("midmonth_notified_month")
   notes              String?
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2077,6 +2093,8 @@ model MarketingChannel {
   facility          Facility?          @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   promotion         Promotion?         @relation(fields: [promotionId], references: [id], onDelete: SetNull)
   promoLanding      PromoLanding?      @relation(fields: [promoLandingId], references: [id], onDelete: SetNull)
+  coupon            Coupon?            @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  leads             Lead[]
   expenses          Expense[]
   adMetrics         AdMetricDaily[]
   recurringExpenses RecurringExpense[]
@@ -2852,6 +2870,7 @@ model Coupon {
   redemptions   CouponRedemption[]
   promoLandings PromoLanding[]
 
+  marketingChannels MarketingChannel[]
   @@unique([tenantId, code], map: "coupons_tenant_code_key")
   @@index([tenantId, isActive], map: "coupons_tenant_active_idx")
   @@map("coupons")
@@ -3909,6 +3928,10 @@ model Lead {
   nurtureLastAt           DateTime?  @map("nurture_last_at") @db.Timestamptz(6)
   convertedCustomerId     String?    @map("converted_customer_id") @db.Uuid
   convertedContractId     String?    @map("converted_contract_id") @db.Uuid
+  /// Canal con el que llegó (al crearlo): renombrar el origen del canal no lo cambia.
+  marketingChannelId      String?    @map("marketing_channel_id") @db.Uuid
+  /// Identificadores de clic de los anuncios (`gclid`, `fbclid`…) para devolver la conversión.
+  clickIds                Json?      @map("click_ids")
   convertedReservationId  String?    @map("converted_reservation_id") @db.Uuid
   deletedAt               DateTime?  @map("deleted_at") @db.Timestamptz(6)
   createdAt               DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -3920,6 +3943,7 @@ model Lead {
   assignedTo           User?           @relation("LeadAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   convertedCustomer    Customer?       @relation("LeadConvertedCustomer", fields: [convertedCustomerId], references: [id], onDelete: SetNull)
   convertedContract    Contract?       @relation("LeadConvertedContract", fields: [convertedContractId], references: [id], onDelete: SetNull)
+  marketingChannel     MarketingChannel? @relation(fields: [marketingChannelId], references: [id], onDelete: SetNull)
   convertedReservation Reservation?    @relation("LeadConvertedReservation", fields: [convertedReservationId], references: [id], onDelete: SetNull)
   communications       Communication[]
   whatsappConversations WhatsappConversation[]
@@ -3934,6 +3958,7 @@ model Lead {
   @@index([tenantId, assignedToUserId])
   @@index([tenantId, createdAt], map: "leads_tenant_created_idx")
   @@index([tenantId, utmSource], map: "leads_tenant_utm_source_idx")
+  @@index([tenantId, marketingChannelId], map: "leads_tenant_channel_idx")
   @@map("leads")
 }
 
@@ -5277,6 +5302,8 @@ model GoogleAdsSettings {
   enabled                 Boolean   @default(false)
   lastSyncAt              DateTime? @map("last_sync_at") @db.Timestamptz(6)
   lastError               String?   @map("last_error")
+  /// Acción de conversión a la que se suben los contratos firmados.
+  conversionActionId      String?   @map("conversion_action_id")
   createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5297,6 +5324,8 @@ model MetaAdsSettings {
   enabled              Boolean   @default(false)
   lastSyncAt           DateTime? @map("last_sync_at") @db.Timestamptz(6)
   lastError            String?   @map("last_error")
+  /// Píxel (conjunto de datos) al que se envían los contratos firmados.
+  pixelId              String?   @map("pixel_id")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5955,6 +5984,7 @@ model TenantSearchConsole {
   /// pending | connected | error
   status       String    @default("pending")
   lastError    String?   @map("last_error")
+  errorNotifiedAt DateTime? @map("error_notified_at") @db.Timestamptz(6)
   connectedAt  DateTime? @map("connected_at") @db.Timestamptz(6)
   lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
   /// Informe mensual por correo a los propietarios.
@@ -5979,6 +6009,7 @@ model TenantGa4 {
   /// pending | connected | error
   status       String    @default("pending")
   lastError    String?   @map("last_error")
+  errorNotifiedAt DateTime? @map("error_notified_at") @db.Timestamptz(6)
   connectedAt  DateTime? @map("connected_at") @db.Timestamptz(6)
   lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
   /// Cuándo se comprobó que la propiedad mide la web del negocio (null = falta).
@@ -6039,6 +6070,7 @@ model TenantSocialAccount {
   /// connected | error
   status               String    @default("connected")
   lastError            String?   @map("last_error")
+  errorNotifiedAt      DateTime? @map("error_notified_at") @db.Timestamptz(6)
   connectedAt          DateTime? @map("connected_at") @db.Timestamptz(6)
   lastSyncedAt         DateTime? @map("last_synced_at") @db.Timestamptz(6)
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -6087,6 +6119,8 @@ model SocialPost {
   saves        Int?
   reach        Int?
   views        Int?
+  /// Clics al enlace (Facebook).
+  linkClicks   Int?     @map("link_clicks")
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -6139,7 +6173,7 @@ model WebEvent {
   id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
   visitorId String   @map("visitor_id")
-  /// page_view | call_click | whatsapp_click | email_click | directions_click
+  /// page_view | call_click | whatsapp_click | email_click | directions_click | booking_start
   kind      String
   path      String
   source    String?
@@ -6147,6 +6181,9 @@ model WebEvent {
   campaign  String?
   /// mobile | tablet | desktop
   device    String?
+  /// Local y tamaño que se miran al empezar una reserva (`booking_start`).
+  facilityId String?  @map("facility_id") @db.Uuid
+  unitTypeId String?  @map("unit_type_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -7379,6 +7416,8 @@ model WebChatConversation {
   utmSource     String?  @map("utm_source")
   utmMedium     String?  @map("utm_medium")
   utmCampaign   String?  @map("utm_campaign")
+  /// Persona del equipo que lleva la conversación.
+  assignedToUserId String? @map("assigned_to_user_id") @db.Uuid
   messageCount  Int      @default(0) @map("message_count")
   lastMessageAt DateTime @default(now()) @map("last_message_at") @db.Timestamptz(6)
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -7386,6 +7425,7 @@ model WebChatConversation {
   tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead     Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
   contract Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  assignedTo User?          @relation("WebChatAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   messages WebChatMessage[]
 
   @@unique([tenantId, visitorId])
@@ -8438,4 +8478,82 @@ model OpportunityDismissal {
 
   @@unique([tenantId, customerId, kind], map: "opportunity_dismissals_key")
   @@map("opportunity_dismissals")
+}
+
+/// Conversión (contrato firmado) devuelta a Google Ads o a Meta.
+model AdConversionUpload {
+  id         String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  contractId String    @map("contract_id") @db.Uuid
+  /// google_ads | meta_ads
+  platform   String
+  /// sent | failed | skipped
+  status     String
+  value      Decimal?  @db.Decimal(10, 2)
+  error      String?
+  sentAt     DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@unique([contractId, platform], map: "ad_conversion_uploads_contract_platform_key")
+  @@index([tenantId, createdAt], map: "ad_conversion_uploads_tenant_idx")
+  @@map("ad_conversion_uploads")
+}
+
+/// Visitas ya sumadas: un registro por visitante, día (zona del negocio) y origen.
+model WebVisit {
+  tenantId      String   @map("tenant_id") @db.Uuid
+  day           DateTime @db.Date
+  visitorId     String   @map("visitor_id")
+  source        String   @default("")
+  medium        String   @default("")
+  campaign      String   @default("")
+  device        String?
+  entryPath     String   @map("entry_path")
+  pageViews     Int      @default(0) @map("page_views")
+  calls         Int      @default(0)
+  whatsapp      Int      @default(0)
+  emails        Int      @default(0)
+  directions    Int      @default(0)
+  bookingStarts Int      @default(0) @map("booking_starts")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, day, visitorId, source, medium, campaign])
+  @@index([tenantId, visitorId, day], map: "web_visits_visitor_idx")
+  @@map("web_visits")
+}
+
+/// Páginas de la web ya sumadas por día (visitas, visitantes del día y clics).
+model WebPageDaily {
+  tenantId String   @map("tenant_id") @db.Uuid
+  day      DateTime @db.Date
+  path     String
+  views    Int      @default(0)
+  visitors Int      @default(0)
+  clicks   Int      @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, day, path])
+  @@map("web_page_daily")
+}
+
+/// Anotación en la gráfica de visitas (una campaña, una promoción…).
+model MarketingAnnotation {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  day             DateTime @db.Date
+  text            String
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("MarketingAnnotationAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, day], map: "marketing_annotations_tenant_day_idx")
+  @@map("marketing_annotations")
 }

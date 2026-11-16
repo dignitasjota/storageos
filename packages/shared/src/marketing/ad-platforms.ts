@@ -16,6 +16,16 @@ export const UpdateGoogleAdsSettingsSchema = z.object({
   refreshToken: z.string().trim().min(1).optional(),
   customerId: z.string().trim().min(1).optional(),
   loginCustomerId: z.string().trim().min(1).optional().or(z.literal('')),
+  /**
+   * Acción de conversión de Google Ads a la que se suman los contratos
+   * firmados de quien llegó por un anuncio ('' la quita).
+   */
+  conversionActionId: z
+    .string()
+    .trim()
+    .regex(/^\d{1,20}$/, 'Solo cifras')
+    .optional()
+    .or(z.literal('')),
   enabled: z.boolean(),
 });
 export type UpdateGoogleAdsSettingsInput = z.infer<typeof UpdateGoogleAdsSettingsSchema>;
@@ -26,8 +36,10 @@ export interface GoogleAdsSettingsDto {
   hasCredentials: boolean;
   customerId: string | null;
   loginCustomerId: string | null;
+  conversionActionId: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
+  conversions: AdConversionStatsDto;
 }
 
 // --- Meta Ads ---
@@ -35,6 +47,13 @@ export interface GoogleAdsSettingsDto {
 export const UpdateMetaAdsSettingsSchema = z.object({
   accessToken: z.string().trim().min(1).optional(),
   adAccountId: z.string().trim().min(1).optional(),
+  /** Píxel de Meta al que se mandan los contratos firmados ('' lo quita). */
+  pixelId: z
+    .string()
+    .trim()
+    .regex(/^\d{1,20}$/, 'Solo cifras')
+    .optional()
+    .or(z.literal('')),
   enabled: z.boolean(),
 });
 export type UpdateMetaAdsSettingsInput = z.infer<typeof UpdateMetaAdsSettingsSchema>;
@@ -43,11 +62,21 @@ export interface MetaAdsSettingsDto {
   enabled: boolean;
   hasAccessToken: boolean;
   adAccountId: string | null;
+  pixelId: string | null;
   lastSyncAt: string | null;
   lastError: string | null;
+  conversions: AdConversionStatsDto;
 }
 
 // --- Común ---
+
+/** Contratos firmados devueltos a la plataforma en los últimos 30 días. */
+export interface AdConversionStatsDto {
+  sent: number;
+  failed: number;
+  lastError: string | null;
+  lastSentAt: string | null;
+}
 
 export interface AdPlatformTestResultDto {
   ok: boolean;

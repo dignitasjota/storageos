@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { utmFields } from '../communications/schemas';
+import { AdClickIdsSchema, utmFields } from '../communications/schemas';
 import { OpeningHoursSchema, type OpeningHours } from '../facilities/schemas';
 
 /**
@@ -86,6 +86,8 @@ export interface PublicWebChatHistoryDto {
   waitingSince: string | null;
   /** El visitante puede pedir hablar con una persona. */
   handoffEnabled: boolean;
+  /** Se puede reservar desde el chat (formulario «Reservar aquí»). */
+  bookingsEnabled?: boolean;
   /** Preguntas para empezar (con los datos reales del negocio). */
   suggestions: string[];
   /** Ya dejó sus datos de contacto en esta conversación. */
@@ -138,16 +140,73 @@ export const PublicWebChatContactSchema = z
   });
 export type PublicWebChatContactInput = z.infer<typeof PublicWebChatContactSchema>;
 
+/**
+ * Reserva con el formulario del chat (sin pasar por la IA): los mismos datos
+ * que la reserva online; la promoción activa se aplica sola.
+ */
+export const PublicWebChatBookingSchema = z.object({
+  visitorId: WebChatVisitorIdSchema,
+  locale: z.enum(['es', 'en']).default('es'),
+  facilityId: z.string().uuid(),
+  unitTypeId: z.string().uuid(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  customer: z.object({
+    firstName: z.string().trim().min(1).max(100),
+    lastName: z.string().trim().min(1).max(120),
+    email: z.string().trim().toLowerCase().email(),
+    phone: z
+      .string()
+      .trim()
+      .regex(/^\+?[\d\s().-]{9,20}$/, 'Teléfono no válido'),
+    documentNumber: z.string().trim().min(5).max(40),
+  }),
+  ...utmFields,
+  clickIds: AdClickIdsSchema.optional(),
+  hp: z.string().max(200).optional(),
+});
+export type PublicWebChatBookingInput = z.infer<typeof PublicWebChatBookingSchema>;
+
+/** Empezar otra conversación (la anterior queda en el panel). */
+export const PublicWebChatNewSchema = z.object({ visitorId: WebChatVisitorIdSchema });
+export type PublicWebChatNewInput = z.infer<typeof PublicWebChatNewSchema>;
+
+/** Probar el asistente desde Configuración (no se guarda nada ni hace reservas). */
+export const WebChatTrySchema = z.object({
+  message: z.string().trim().min(1).max(WEB_CHAT_MESSAGE_MAX),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['visitor', 'assistant']),
+        content: z.string().max(2000),
+      }),
+    )
+    .max(10)
+    .default([]),
+});
+export type WebChatTryInput = z.infer<typeof WebChatTrySchema>;
+
+export interface WebChatTryResultDto {
+  answer: string;
+  /** Lo que habría hecho el asistente (reserva, contacto, visita…), sin hacerlo. */
+  actions: string[];
+}
+
 /** Respuesta del equipo al visitante (panel). */
 export const WebChatStaffReplySchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 export type WebChatStaffReplyInput = z.infer<typeof WebChatStaffReplySchema>;
 
-export const UpdateWebChatConversationSchema = z.object({
-  /** `ai` devuelve la conversación al asistente. */
-  mode: z.enum(['ai', 'human']),
-});
+export const UpdateWebChatConversationSchema = z
+  .object({
+    /** `ai` devuelve la conversación al asistente. */
+    mode: z.enum(['ai', 'human']).optional(),
+    /** Quién del equipo la lleva (null la deja sin responsable). */
+    assignedToUserId: z.string().uuid().nullable().optional(),
+  })
+  .refine((v) => v.mode !== undefined || v.assignedToUserId !== undefined, {
+    message: 'Nada que cambiar',
+  });
 export type UpdateWebChatConversationInput = z.infer<typeof UpdateWebChatConversationSchema>;
 
 /** Conversaciones en las que el visitante espera a una persona (para el menú). */
@@ -219,6 +278,9 @@ export interface WebChatConversationDto {
   /** Reserva hecha en el chat o en la web después de chatear. */
   contractId: string | null;
   bookedInChat: boolean;
+  /** Quién del equipo la lleva. */
+  assignedToUserId: string | null;
+  assignedToName: string | null;
 }
 
 export interface WebChatMessageDto {
@@ -251,6 +313,12 @@ export interface WebChatStatsDto {
   bookedAfterChat: number;
   /** De las reservas anteriores, las ya firmadas. */
   signedBookings: number;
+  /** Con el primer pago cobrado. */
+  paidBookings: number;
+  /** Cobrado en esos primeros pagos (sin IVA ni devoluciones; 0 sin permiso). */
+  revenue: number;
+  /** Visitas al local pedidas en el chat. */
+  visitsRequested: number;
   /** Veces que pidieron hablar con una persona. */
   handoffs: number;
   ratingsUp: number;
@@ -259,6 +327,8 @@ export interface WebChatStatsDto {
   unansweredQuestions: { question: string; count: number }[];
   /** Preguntas que más se repiten (para añadirlas a las preguntas frecuentes). */
   topQuestions: { question: string; count: number }[];
+  /** Respuestas que el visitante marcó con 👎 (las últimas), con su pregunta. */
+  badlyRated: { conversationId: string; question: string; answer: string; at: string }[];
 }
 
 /** Normaliza una pregunta para agruparla (minúsculas, sin acentos ni signos). */

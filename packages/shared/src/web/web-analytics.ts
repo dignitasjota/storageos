@@ -14,6 +14,8 @@ export const WEB_EVENT_KINDS = [
   'whatsapp_click',
   'email_click',
   'directions_click',
+  /** Empieza a rellenar la reserva online (elige local y tamaño o escribe su email). */
+  'booking_start',
 ] as const;
 export type WebEventKind = (typeof WEB_EVENT_KINDS)[number];
 
@@ -24,6 +26,9 @@ export const WebEventSchema = z.object({
   source: z.string().trim().max(120).optional(),
   medium: z.string().trim().max(120).optional(),
   campaign: z.string().trim().max(160).optional(),
+  /** Local y tamaño elegidos al empezar la reserva (`booking_start`). */
+  facilityId: z.string().uuid().optional(),
+  unitTypeId: z.string().uuid().optional(),
 });
 export type WebEventInput = z.infer<typeof WebEventSchema>;
 
@@ -130,6 +135,8 @@ export interface WebAnalyticsSourceDto extends WebAnalyticsFunnelDto {
   /** Gasto de los canales de marketing con ese origen en el periodo. */
   cost: number;
   costPerBooking: number | null;
+  /** Página por la que más se entra desde ese origen. */
+  entryPath: string | null;
 }
 
 export interface WebAnalyticsDayDto {
@@ -147,10 +154,55 @@ export interface WebAnalyticsPageDto {
   contactClicks: number;
 }
 
+/** Embudo de la reserva online: dónde se queda la gente. */
+export interface WebBookingFunnelDto {
+  visitors: number;
+  /** Abrieron la página de la reserva. */
+  bookingPage: number;
+  /** Empezaron a rellenarla (eligieron tamaño o escribieron su email). */
+  started: number;
+  bookings: number;
+  signed: number;
+  paid: number;
+}
+
+/** Clics en llamar y WhatsApp por día de la semana (0 = domingo) y hora (zona del negocio). */
+export interface WebContactHourDto {
+  weekday: number;
+  hour: number;
+  calls: number;
+  whatsapp: number;
+}
+
+/** Interés por local y tamaño: visitas a la ficha del local y reservas empezadas. */
+export interface WebDemandDto {
+  facilityId: string;
+  facilityName: string;
+  pageViews: number;
+  bookingStarts: number;
+  sizes: { unitTypeId: string; name: string; bookingStarts: number }[];
+}
+
+/** Anotación en la gráfica (una campaña, una promoción, una publicación…). */
+export interface MarketingAnnotationDto {
+  /** null en las automáticas (no se pueden borrar). */
+  id: string | null;
+  day: string;
+  text: string;
+  kind: 'manual' | 'channel' | 'promotion' | 'campaign' | 'post';
+}
+
 export interface WebAnalyticsDto {
   days: number;
   from: string;
   to: string;
+  /** Visitantes que no habían venido antes del periodo, y los que vuelven. */
+  newVisitors: number;
+  returningVisitors: number;
+  bookingFunnel: WebBookingFunnelDto;
+  contactHours: WebContactHourDto[];
+  demand: WebDemandDto[];
+  annotations: MarketingAnnotationDto[];
   totals: WebAnalyticsFunnelDto & {
     cost: number;
     /** Reservas del periodo que siguen en pie sin firmar (las caducadas no). */

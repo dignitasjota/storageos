@@ -1,5 +1,6 @@
 'use client';
 
+import { type AdConversionStatsDto } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -42,6 +43,7 @@ export function GoogleAdsCard() {
   const [refreshToken, setRefreshToken] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [loginCustomerId, setLoginCustomerId] = useState('');
+  const [conversionActionId, setConversionActionId] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
@@ -50,6 +52,7 @@ export function GoogleAdsCard() {
     setEnabled(data.enabled);
     setCustomerId(data.customerId ?? '');
     setLoginCustomerId(data.loginCustomerId ?? '');
+    setConversionActionId(data.conversionActionId ?? '');
     setInitialized(true);
   }
 
@@ -63,6 +66,7 @@ export function GoogleAdsCard() {
         ...(refreshToken ? { refreshToken } : {}),
         ...(customerId ? { customerId } : {}),
         loginCustomerId,
+        conversionActionId: conversionActionId.replace(/\D/g, ''),
       });
       setClientSecret('');
       setDeveloperToken('');
@@ -198,6 +202,24 @@ export function GoogleAdsCard() {
             />
           </div>
         </div>
+        <div className="space-y-1">
+          <Label htmlFor="gads-conversion" className="text-xs">
+            Acción de conversión para los contratos firmados (opcional)
+          </Label>
+          <Input
+            id="gads-conversion"
+            inputMode="numeric"
+            value={conversionActionId}
+            onChange={(e) => setConversionActionId(e.target.value)}
+            placeholder="Solo cifras (en Google Ads: Objetivos → Conversiones)"
+          />
+          <p className="text-xs text-muted-foreground">
+            Cuando alguien que llegó por un anuncio firma el contrato, se lo contamos a Google Ads
+            (con su clic, solo si aceptó todas las cookies). Así Google sabe qué anuncios traen
+            clientes y no solo clics.
+          </p>
+          <ConversionStats stats={data?.conversions} />
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
           Sincronizar el gasto automáticamente
@@ -243,6 +265,7 @@ export function MetaAdsCard() {
 
   const [accessToken, setAccessToken] = useState('');
   const [adAccountId, setAdAccountId] = useState('');
+  const [pixelId, setPixelId] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
@@ -250,6 +273,7 @@ export function MetaAdsCard() {
   if (data && !initialized) {
     setEnabled(data.enabled);
     setAdAccountId(data.adAccountId ?? '');
+    setPixelId(data.pixelId ?? '');
     setInitialized(true);
   }
 
@@ -259,6 +283,7 @@ export function MetaAdsCard() {
         enabled,
         ...(accessToken ? { accessToken } : {}),
         ...(adAccountId ? { adAccountId } : {}),
+        pixelId: pixelId.replace(/\D/g, ''),
       });
       setAccessToken('');
       toast.success('Integración con Meta Ads guardada.');
@@ -330,6 +355,24 @@ export function MetaAdsCard() {
             placeholder="act_1234567890 (o solo los dígitos)"
           />
         </div>
+        <div className="space-y-1">
+          <Label htmlFor="meta-ads-pixel" className="text-xs">
+            Píxel para los contratos firmados (opcional)
+          </Label>
+          <Input
+            id="meta-ads-pixel"
+            inputMode="numeric"
+            value={pixelId}
+            onChange={(e) => setPixelId(e.target.value)}
+            placeholder="ID del píxel (Administrador de eventos)"
+          />
+          <p className="text-xs text-muted-foreground">
+            Cuando alguien que llegó por un anuncio de Facebook o Instagram firma el contrato, se lo
+            contamos a Meta (con su clic y su email y teléfono cifrados, solo si aceptó todas las
+            cookies).
+          </p>
+          <ConversionStats stats={data?.conversions} />
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
           Sincronizar el gasto automáticamente
@@ -363,5 +406,25 @@ export function MetaAdsCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Contratos devueltos a la plataforma en los últimos 30 días. */
+function ConversionStats({ stats }: { stats: AdConversionStatsDto | undefined }) {
+  if (!stats || (stats.sent === 0 && stats.failed === 0)) return null;
+  return (
+    <div className="text-xs">
+      <p className="text-muted-foreground">
+        Últimos 30 días: {stats.sent} {stats.sent === 1 ? 'contrato enviado' : 'contratos enviados'}
+        {stats.lastSentAt ? ` (el último, ${formatDateTime(stats.lastSentAt)})` : ''}.
+      </p>
+      {stats.failed > 0 && (
+        <p className="text-destructive">
+          {stats.failed} {stats.failed === 1 ? 'no se pudo enviar' : 'no se pudieron enviar'}
+          {stats.lastError ? `: ${stats.lastError}` : ''}. Al guardar otra configuración se vuelven
+          a intentar.
+        </p>
+      )}
+    </div>
   );
 }

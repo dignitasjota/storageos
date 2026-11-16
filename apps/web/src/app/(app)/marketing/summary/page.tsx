@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
 import {
   useMarketingSummary,
   useSendMarketingReport,
@@ -135,7 +136,9 @@ const TIP_LINK: Record<string, string> = {
 export default function MarketingSummaryPage() {
   const canManage = useHasPermission('marketing:manage');
   const [month, setMonth] = useState<string | null>(null);
-  const summary = useMarketingSummary(month);
+  const [facility, setFacility] = useState('__all__');
+  const facilities = useFacilities();
+  const summary = useMarketingSummary(month, facility === '__all__' ? null : facility);
   const setReport = useSetMarketingReport();
   const sendReport = useSendMarketingReport();
 
@@ -170,19 +173,36 @@ export default function MarketingSummaryPage() {
             De dónde llegaron tus clientes cada mes y qué hacer, frente al mes anterior.
           </p>
         </div>
-        <Select value={selected} onValueChange={(v) => setMonth(v)}>
-          <SelectTrigger className="w-full sm:w-56" aria-label="Mes">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {months.map((m, i) => (
-              <SelectItem key={m} value={m}>
-                {monthLabel(m)}
-                {i === 0 ? ' (en curso)' : ''}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          {(facilities.data?.length ?? 0) > 1 && (
+            <Select value={facility} onValueChange={setFacility}>
+              <SelectTrigger className="w-full sm:w-56" aria-label="Local">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos los locales</SelectItem>
+                {facilities.data!.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={selected} onValueChange={(v) => setMonth(v)}>
+            <SelectTrigger className="w-full sm:w-56" aria-label="Mes">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {months.map((m, i) => (
+                <SelectItem key={m} value={m}>
+                  {monthLabel(m)}
+                  {i === 0 ? ' (en curso)' : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {summary.isError ? (
@@ -199,7 +219,13 @@ export default function MarketingSummaryPage() {
         <>
           {data.partial && (
             <p className="text-sm text-muted-foreground">
-              Mes en curso: se compara con los mismos días del mes anterior.
+              Mes en curso: se compara con los mismos días del mes anterior y del año pasado.
+            </p>
+          )}
+          {data.facilityId && (
+            <p className="text-sm text-muted-foreground">
+              Con un local elegido, los contactos, reservas y gastos son los de ese local (y los de
+              todo el negocio); las visitas de la web son las de toda la web.
             </p>
           )}
           <Card>
@@ -249,6 +275,12 @@ export default function MarketingSummaryPage() {
               const covered = !k.cover || data.previousComplete[k.cover];
               const before = covered ? k.value(data.previous) : null;
               const d = before != null ? delta(now, before) : null;
+              // El año pasado: solo las cifras propias de la web (las de Google y las redes no llegan tan atrás).
+              const year =
+                data.lastYearComplete && (!k.cover || k.cover === 'web')
+                  ? k.value(data.lastYear)
+                  : null;
+              const dy = year != null && year > 0 ? delta(now, year) : null;
               const fmt = (n: number) => (k.money ? eur(n) : int(n));
               return (
                 <div key={k.label} className="rounded-lg border bg-card p-3" title={k.hint}>
@@ -258,6 +290,12 @@ export default function MarketingSummaryPage() {
                     {d && <span className={d.className}>{d.text} </span>}
                     antes {before != null ? fmt(before) : '—'}
                   </div>
+                  {year != null && year > 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      {dy && <span className={dy.className}>{dy.text} </span>}
+                      hace un año {fmt(year)}
+                    </div>
+                  )}
                   {k.hint && <div className="sr-only">{k.hint}</div>}
                 </div>
               );

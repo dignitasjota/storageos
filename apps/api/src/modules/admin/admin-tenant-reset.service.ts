@@ -146,6 +146,9 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'unit_status_history' },
   { table: 'report_runs' },
   { table: 'web_events' },
+  { table: 'web_visits' },
+  { table: 'web_page_daily' },
+  { table: 'marketing_annotations' },
   { table: 'promo_landing_visits' },
   // Chats de la web (sus mensajes caen con ellos); los de un contacto se conservan con él.
   { table: 'web_chat_conversations', where: 'lead_id IS NULL' },

@@ -28,6 +28,13 @@ import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
   useDeleteWebChatConversation,
@@ -37,13 +44,16 @@ import {
   useWebChatMessages,
   useWebChatReply,
   useWebChatSetMode,
+  useWebChatAssign,
   useWebChatSettings,
   useWebChatStats,
   useWebChatSuggestReply,
 } from '@/lib/ai/web-chat-hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
-import { formatDateTime, formatNumber } from '@/lib/format';
+import { useCreateFaqEntry } from '@/lib/faq/hooks';
+import { formatDateTime, formatEur, formatNumber } from '@/lib/format';
+import { useUsers } from '@/lib/users/hooks';
 
 const PERIODS = [7, 30, 90] as const;
 
@@ -84,7 +94,7 @@ function WebChatContent() {
   const s = stats.data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Chat de la web</h1>
@@ -150,6 +160,16 @@ function WebChatContent() {
               { label: 'Reservas en el chat', value: s.bookingsInChat },
               { label: 'Reservaron tras chatear', value: s.bookedAfterChat },
               { label: 'Reservas ya firmadas', value: s.signedBookings },
+              { label: 'Primer pago cobrado', value: s.paidBookings },
+              ...(s.revenue > 0
+                ? [
+                    {
+                      label: 'Cobrado (sin IVA)',
+                      value: formatEur(s.revenue),
+                    },
+                  ]
+                : []),
+              { label: 'Visitas al local pedidas', value: s.visitsRequested },
               { label: 'Pidieron una persona', value: s.handoffs },
               {
                 label: 'Respuestas útiles',
@@ -163,7 +183,7 @@ function WebChatContent() {
                 <CardContent className="py-4">
                   <div className="text-xs text-muted-foreground">{k.label}</div>
                   <div className="text-2xl font-semibold tabular-nums">
-                    {typeof k.value === 'number' ? formatNumber(k.value) : k.value}
+                    {typeof k.value === 'number' ? formatNumber(k.value, 0) : k.value}
                   </div>
                 </CardContent>
               </Card>
@@ -171,7 +191,7 @@ function WebChatContent() {
           </div>
           {s.fallbackReplies > 0 && (
             <p className="text-sm text-amber-700 dark:text-amber-300">
-              {formatNumber(s.fallbackReplies)}{' '}
+              {formatNumber(s.fallbackReplies, 0)}{' '}
               {s.fallbackReplies === 1 ? 'vez no se pudo' : 'veces no se pudo'} responder con IA
               (respuestas del mes gastadas, sin clave o un error del modelo): el visitante vio tu
               contacto.{' '}
@@ -200,9 +220,50 @@ function WebChatContent() {
               {s.unansweredQuestions.map((q) => (
                 <li key={q.question} className="flex items-start justify-between gap-3 py-2">
                   <span>{q.question}</span>
-                  <Badge variant="secondary" className="shrink-0">
-                    {q.count} {q.count === 1 ? 'vez' : 'veces'}
-                  </Badge>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <Badge variant="secondary">
+                      {q.count} {q.count === 1 ? 'vez' : 'veces'}
+                    </Badge>
+                    <AddToFaq question={q.question} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {s && s.badlyRated.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Respuestas que no gustaron</CardTitle>
+            <CardDescription>
+              Las que los visitantes marcaron con 👎. Corrige la respuesta en tus preguntas
+              frecuentes o en las indicaciones del asistente.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y text-sm">
+              {s.badlyRated.map((b) => (
+                <li key={`${b.conversationId}-${b.at}`} className="space-y-1 py-2">
+                  <p>
+                    <span className="text-muted-foreground">Preguntó: </span>
+                    {b.question || '—'}
+                  </p>
+                  <p className="text-muted-foreground">
+                    <ThumbsDown className="mr-1 inline size-3 text-red-600" />
+                    {b.answer}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">{formatDateTime(b.at)}</span>
+                    <Link
+                      href={`/marketing/web-chat?c=${b.conversationId}`}
+                      className="text-primary hover:underline"
+                    >
+                      Ver la conversación
+                    </Link>
+                    {b.question && <AddToFaq question={b.question} />}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -372,6 +433,7 @@ function ConversationRow({
                   Sin respuesta de la IA ({c.fallbackCount})
                 </Badge>
               )}
+              {c.assignedToName && <Badge variant="outline">Lleva: {c.assignedToName}</Badge>}
             </div>
             {c.handoffSummary && (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -390,7 +452,14 @@ function ConversationRow({
           </Link>
         )}
       </div>
-      {open && <Thread id={c.id} mode={c.mode} contractId={c.contractId} />}
+      {open && (
+        <Thread
+          id={c.id}
+          mode={c.mode}
+          contractId={c.contractId}
+          assignedToUserId={c.assignedToUserId}
+        />
+      )}
     </li>
   );
 }
@@ -399,12 +468,16 @@ function Thread({
   id,
   mode,
   contractId,
+  assignedToUserId,
 }: {
   id: string;
   mode: 'ai' | 'human';
   contractId: string | null;
+  assignedToUserId: string | null;
 }) {
   const messages = useWebChatMessages(id);
+  const assign = useWebChatAssign(id);
+  const users = useUsers();
   const reply = useWebChatReply(id);
   const setMode = useWebChatSetMode(id);
   const suggest = useWebChatSuggestReply(id);
@@ -488,17 +561,46 @@ function Thread({
         ) : (
           <span />
         )}
-        {canDelete && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-red-600 hover:text-red-700"
-            disabled={remove.isPending}
-            onClick={() => void deleteConversation()}
-          >
-            <Trash2 className="mr-1.5 size-4" /> Borrar conversación
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {canSend && (
+            <Select
+              value={assignedToUserId ?? '__none__'}
+              disabled={assign.isPending}
+              onValueChange={(v) =>
+                assign
+                  .mutateAsync(v === '__none__' ? null : v)
+                  .catch((err: unknown) =>
+                    toast.error(err instanceof ApiError ? err.body.message : 'No se pudo asignar'),
+                  )
+              }
+            >
+              <SelectTrigger className="h-9 w-48 text-xs" aria-label="Quién lleva la conversación">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Sin responsable</SelectItem>
+                {(users.data ?? [])
+                  .filter((u) => u.isActive)
+                  .map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.fullName}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          )}
+          {canDelete && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-600 hover:text-red-700"
+              disabled={remove.isPending}
+              onClick={() => void deleteConversation()}
+            >
+              <Trash2 className="mr-1.5 size-4" /> Borrar conversación
+            </Button>
+          )}
+        </div>
       </div>
       {canSend && (
         <div className="space-y-2 border-t pt-3">
@@ -568,6 +670,60 @@ function Thread({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+/** «Añadir a preguntas frecuentes» con la pregunta ya puesta. */
+function AddToFaq({ question }: { question: string }) {
+  const canManage = useHasPermission('settings:manage');
+  const create = useCreateFaqEntry();
+  const [open, setOpen] = useState(false);
+  const [answer, setAnswer] = useState('');
+  if (!canManage) return null;
+  if (!open) {
+    return (
+      <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setOpen(true)}>
+        Añadir a preguntas frecuentes
+      </Button>
+    );
+  }
+  return (
+    <div className="mt-2 w-full space-y-2">
+      <Textarea
+        value={answer}
+        onChange={(e) => setAnswer(e.target.value.slice(0, 2000))}
+        rows={2}
+        placeholder="La respuesta que debe dar el asistente"
+        aria-label={`Respuesta a «${question}»`}
+      />
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={!answer.trim() || create.isPending}
+          onClick={() =>
+            create
+              .mutateAsync({
+                question: question.slice(0, 300),
+                answer: answer.trim(),
+                isPublished: true,
+              })
+              .then(() => {
+                toast.success('Añadida a tus preguntas frecuentes');
+                setOpen(false);
+                setAnswer('');
+              })
+              .catch((err: unknown) =>
+                toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar'),
+              )
+          }
+        >
+          Guardar
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+          Cancelar
+        </Button>
+      </div>
     </div>
   );
 }

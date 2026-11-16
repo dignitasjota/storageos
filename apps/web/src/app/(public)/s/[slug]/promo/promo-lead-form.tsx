@@ -9,6 +9,7 @@ import { legalHref } from '../i18n/messages';
 import type { PromoTheme } from './promo-theme';
 
 import { EmailTypoHint } from '@/components/email-typo-hint';
+import { currentClickIds } from '@/lib/attribution';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -82,6 +83,7 @@ export function PromoLeadForm({
             utmSource: utm.utm_source,
             utmMedium: utm.utm_medium,
             utmCampaign: utm.utm_campaign,
+            ...(currentClickIds(tenantSlug) ? { clickIds: currentClickIds(tenantSlug) } : {}),
           }),
         },
       );

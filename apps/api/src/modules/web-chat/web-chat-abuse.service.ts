@@ -7,7 +7,13 @@ import { Queue } from 'bullmq';
 import { QUEUE_BILLING } from '../queues/queues.module';
 
 /** Lo que se cuenta por IP y día (y por negocio y hora). */
-export type WebChatAbuseKind = 'message' | 'conversation' | 'handoff' | 'booking' | 'tenant_hour';
+export type WebChatAbuseKind =
+  | 'message'
+  | 'conversation'
+  | 'handoff'
+  | 'booking'
+  | 'quote'
+  | 'tenant_hour';
 
 /** Conversaciones nuevas por IP y día (cada visitante nuevo abre una). */
 export const WEB_CHAT_CONVERSATIONS_PER_IP = 10;

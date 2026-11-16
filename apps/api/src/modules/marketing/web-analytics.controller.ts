@@ -1,18 +1,20 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
   HttpStatus,
   Ip,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   VERSION_NEUTRAL,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { WebEventSchema } from '@storageos/shared';
+import { CreateMarketingAnnotationSchema, WebEventSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -23,9 +25,10 @@ import { marketingViewer } from './marketing-viewer';
 import { WebAnalyticsService } from './web-analytics.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import type { WebAnalyticsDto } from '@storageos/shared';
+import type { MarketingAnnotationDto, WebAnalyticsDto } from '@storageos/shared';
 
 class WebEventDto extends createZodDto(WebEventSchema) {}
+class CreateMarketingAnnotationDto extends createZodDto(CreateMarketingAnnotationSchema) {}
 
 /** Página vista o clic de contacto en la web pública del tenant. */
 @Public()
@@ -58,5 +61,25 @@ export class WebAnalyticsController {
     @Query('days') days?: string,
   ): Promise<WebAnalyticsDto> {
     return this.analytics.report(user.tenantId, Number(days) || 30, marketingViewer(user));
+  }
+
+  /** Nota en la gráfica de visitas (una campaña en la radio, un cartel nuevo…). */
+  @RequirePermission('marketing:manage')
+  @Post('annotations')
+  addAnnotation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateMarketingAnnotationDto,
+  ): Promise<MarketingAnnotationDto> {
+    return this.analytics.addAnnotation(user.tenantId, user.sub, body);
+  }
+
+  @RequirePermission('marketing:manage')
+  @Delete('annotations/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeAnnotation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.analytics.removeAnnotation(user.tenantId, id);
   }
 }

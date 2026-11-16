@@ -211,6 +211,12 @@ const envSchemaBase = z.object({
   REVALIDATE_SECRET: z.string().default(''),
   /** URL pública del API (para callbacks server-a-servidor, p. ej. notificación Redsys). */
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
+  /**
+   * App de Meta de la plataforma para «Conectar con Facebook» en Marketing →
+   * Redes sociales (sin pegar el token a mano). Vacías = solo se puede pegar el token.
+   */
+  META_APP_ID: z.string().trim().default(''),
+  META_APP_SECRET: z.string().trim().default(''),
 
   // --- Super admin (Fase 8) ---
   // SIN default (a proposito, como JWT_ACCESS_SECRET/MASTER_ENCRYPTION_KEY):
@@ -328,6 +334,11 @@ const envSchemaBase = z.object({
   GSC_MODE: z.enum(['stub', 'live']).optional(),
   /** Instagram y Facebook orgánico: `stub` = sin llamar a Meta. En tests siempre simulado. */
   SOCIAL_MODE: z.enum(['stub', 'live']).optional(),
+  /**
+   * Conversiones devueltas a Google Ads y Meta: `stub` = sin llamar a las
+   * plataformas (desarrollo). En tests siempre simulado.
+   */
+  AD_CONVERSIONS_MODE: z.enum(['stub', 'live']).optional(),
 
   // --- Notificaciones push (Web Push / VAPID) ---
   // Sin claves, el push queda desactivado (no-op). Generar con

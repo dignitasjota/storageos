@@ -5,6 +5,7 @@ import {
   MARKETING_CHANNEL_TYPE_LABELS,
   MarketingChannelStatusEnum,
   MarketingChannelTypeEnum,
+  suggestChannelForSource,
   type MarketingChannelDto,
   type MarketingChannelStatus,
   type MarketingChannelType,
@@ -14,6 +15,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Link2,
   Loader2,
   MousePointerClick,
   Pencil,
@@ -22,7 +24,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { QRCodeCanvas } from 'qrcode.react';
+import { QRCodeCanvas, QRCodeSVG } from 'qrcode.react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -53,6 +55,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { apiFetchBlob, ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
+import { useCoupons } from '@/lib/coupons/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { formatDate, formatDateTime } from '@/lib/format';
 import {
@@ -61,10 +64,11 @@ import {
   useMarketingChannels,
   useSuggestAdCampaign,
   useSyncAdSpend,
+  useUnassignedSources,
   useUpdateMarketingChannel,
 } from '@/lib/marketing/hooks';
 import { usePromotions } from '@/lib/promotions/hooks';
-import { downloadQrPng } from '@/lib/qr-download';
+import { downloadQrPng, downloadQrSvg } from '@/lib/qr-download';
 
 const NONE = '__none__';
 const AD_PLATFORM_TYPES = new Set(['google_ads', 'meta_ads']);
@@ -101,9 +105,13 @@ export default function MarketingChannelsPage() {
   // El coste mensual es un gasto: sin permiso para verlos, ni la columna.
   const seeCost = useHasPermission('expenses:read');
   const hasAi = useHasFeature('ai_assistant');
-  const channels = useMarketingChannels();
+  const [facilityFilter, setFacilityFilter] = useState(NONE);
+  const channels = useMarketingChannels(undefined, facilityFilter === NONE ? null : facilityFilter);
   const facilities = useFacilities();
   const promotions = usePromotions();
+  const coupons = useCoupons();
+  const unassigned = useUnassignedSources(90);
+  const createChannel = useCreateMarketingChannel();
   const del = useDeleteMarketingChannel();
   const suggestAdCampaign = useSuggestAdCampaign();
   const [editing, setEditing] = useState<MarketingChannelDto | null>(null);
@@ -117,6 +125,22 @@ export default function MarketingChannelsPage() {
   const rows = channels.data ?? [];
   const facilityOptions = facilities.data ?? [];
   const promotionOptions = promotions.data ?? [];
+  const couponOptions = (coupons.data ?? []).filter((c) => c.isActive);
+
+  async function createFromSource(source: string, paid: boolean) {
+    const suggested = suggestChannelForSource(source, paid);
+    try {
+      await createChannel.mutateAsync({
+        type: suggested.type,
+        status: 'active',
+        name: suggested.name,
+        utmSourceMatch: suggested.utmSourceMatch,
+      });
+      toast.success(`Canal «${suggested.name}» creado.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo crear el canal.');
+    }
+  }
 
   async function remove(id: string) {
     if (
@@ -321,9 +345,64 @@ export default function MarketingChannelsPage() {
         </Card>
       )}
 
+      {canManage && (unassigned.data?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Orígenes sin canal</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              En los últimos 90 días han llegado visitas o contactos desde aquí y no hay un canal
+              que los recoja. Crea el canal para ver lo que te trae (y su coste, si pagas por él).
+            </p>
+            <ul className="divide-y rounded-md border">
+              {unassigned.data!.map((u) => (
+                <li
+                  key={`${u.source}-${u.paidTraffic}`}
+                  className="flex flex-wrap items-center justify-between gap-2 p-2 text-sm"
+                >
+                  <div>
+                    <p className="font-medium">{u.suggestedName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {u.visitors} {u.visitors === 1 ? 'visitante' : 'visitantes'} · {u.contacts}{' '}
+                      {u.contacts === 1 ? 'contacto' : 'contactos'} · {u.bookings}{' '}
+                      {u.bookings === 1 ? 'reserva' : 'reservas'}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9"
+                    disabled={createChannel.isPending}
+                    onClick={() => createFromSource(u.source, u.paidTraffic)}
+                  >
+                    <Plus className="mr-1 size-4" /> Crear canal
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
           <CardTitle className="text-base">Canales</CardTitle>
+          {facilityOptions.length > 1 && (
+            <Select value={facilityFilter} onValueChange={setFacilityFilter}>
+              <SelectTrigger className="h-9 w-56" aria-label="Local">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Todos los locales</SelectItem>
+                {facilityOptions.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </CardHeader>
         <CardContent>
           {channels.isError ? (
@@ -409,6 +488,19 @@ export default function MarketingChannelsPage() {
                       {seeCost && (
                         <td className="p-2 text-right tabular-nums">
                           {c.monthlyCost !== null ? eur(c.monthlyCost) : '—'}
+                          {c.spentThisMonth !== null &&
+                          (c.spentThisMonth > 0 || c.monthlyBudget) ? (
+                            <span
+                              className={`block text-xs ${
+                                c.monthlyBudget !== null && c.spentThisMonth > c.monthlyBudget
+                                  ? 'text-red-700 dark:text-red-400'
+                                  : 'text-muted-foreground'
+                              }`}
+                            >
+                              Este mes: {eur(c.spentThisMonth)}
+                              {c.monthlyBudget !== null ? ` de ${eur(c.monthlyBudget)}` : ''}
+                            </span>
+                          ) : null}
                         </td>
                       )}
                       <td className="p-2 text-muted-foreground">
@@ -424,6 +516,16 @@ export default function MarketingChannelsPage() {
                       </td>
                       <td className="p-2">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-9"
+                            aria-label={`Copiar el enlace de seguimiento de ${c.name}`}
+                            title="Copiar el enlace de seguimiento (tu web con el origen del canal)"
+                            onClick={() => copyLink(c.trackingUrl)}
+                          >
+                            <Link2 className="size-4" />
+                          </Button>
                           {c.shortUrl && (
                             <Button
                               variant="outline"
@@ -472,6 +574,8 @@ export default function MarketingChannelsPage() {
           channel={editing}
           facilities={facilityOptions}
           promotions={promotionOptions}
+          coupons={couponOptions}
+          seeCost={seeCost}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -502,21 +606,49 @@ export default function MarketingChannelsPage() {
                 <>
                   <div className="flex flex-col items-center gap-3">
                     <div className="rounded-md border bg-white p-4">
-                      <QRCodeCanvas
-                        id={`channel-qr-${showLink.id}`}
+                      <QRCodeSVG
+                        id={`channel-qr-svg-${showLink.id}`}
                         value={showLink.shortUrl}
                         size={200}
-                        marginSize={1}
+                        marginSize={2}
                       />
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => downloadQrPng(`channel-qr-${showLink.id}`, showLink.name)}
-                    >
-                      <Download className="mr-1 size-4" /> Descargar PNG
-                    </Button>
+                    {/* Para imprimir: PNG grande (1024 px) y SVG, que no pierde calidad. */}
+                    <QRCodeCanvas
+                      id={`channel-qr-${showLink.id}`}
+                      value={showLink.shortUrl}
+                      size={1024}
+                      marginSize={2}
+                      className="hidden"
+                    />
+                    {showLink.shortCode && (
+                      <p className="text-center text-sm">
+                        Código para teclear:{' '}
+                        <span className="font-mono text-base font-semibold tracking-widest">
+                          {showLink.shortCode}
+                        </span>
+                      </p>
+                    )}
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => downloadQrPng(`channel-qr-${showLink.id}`, showLink.name)}
+                      >
+                        <Download className="mr-1 size-4" /> PNG (alta resolución)
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          downloadQrSvg(`channel-qr-svg-${showLink.id}`, showLink.name)
+                        }
+                      >
+                        <Download className="mr-1 size-4" /> SVG (para imprenta)
+                      </Button>
+                    </div>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {showLink.promoLandingName
@@ -549,11 +681,15 @@ function ChannelDialog({
   channel,
   facilities,
   promotions,
+  coupons,
+  seeCost,
   onClose,
 }: {
   channel: MarketingChannelDto | null;
   facilities: { id: string; name: string }[];
   promotions: { id: string; code: string; name: string }[];
+  coupons: { id: string; code: string; name: string }[];
+  seeCost: boolean;
   onClose: () => void;
 }) {
   const create = useCreateMarketingChannel();
@@ -564,6 +700,12 @@ function ChannelDialog({
   const [status, setStatus] = useState<MarketingChannelStatus>(channel?.status ?? 'active');
   const [facilityId, setFacilityId] = useState(channel?.facilityId ?? NONE);
   const [promotionId, setPromotionId] = useState(channel?.promotionId ?? NONE);
+  const [couponId, setCouponId] = useState(channel?.couponId ?? NONE);
+  const [monthlyBudget, setMonthlyBudget] = useState(
+    channel?.monthlyBudget !== null && channel?.monthlyBudget !== undefined
+      ? String(channel.monthlyBudget)
+      : '',
+  );
   const [externalUrl, setExternalUrl] = useState(channel?.externalUrl ?? '');
   const [monthlyCost, setMonthlyCost] = useState(
     channel?.monthlyCost !== null && channel?.monthlyCost !== undefined
@@ -609,6 +751,8 @@ function ChannelDialog({
       status,
       facilityId: facilityId === NONE ? null : facilityId,
       promotionId: promotionId === NONE ? null : promotionId,
+      couponId: couponId === NONE ? null : couponId,
+      ...(seeCost ? { monthlyBudget: monthlyBudget.trim() ? Number(monthlyBudget) : null } : {}),
       externalUrl: externalUrl.trim(),
       // Vacío lo quita (antes no había forma de borrarlo).
       monthlyCost: monthlyCost.trim() ? Number(monthlyCost) : null,
@@ -725,6 +869,49 @@ function ChannelDialog({
               Los contratos con esta promoción que no lleguen por otro canal cuentan para este (los
               clientes de un flyer que llaman o van al local).
             </p>
+          )}
+          <div className="space-y-1">
+            <Label htmlFor="ch-coupon" className="text-xs">
+              Cupón del canal (opcional)
+            </Label>
+            <Select value={couponId} onValueChange={setCouponId}>
+              <SelectTrigger id="ch-coupon">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Ninguno</SelectItem>
+                {coupons.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.code} — {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {couponId !== NONE && (
+              <p className="text-xs text-muted-foreground">
+                Ponlo en el flyer o en el anuncio: los contratos con este cupón que no lleguen por
+                otro canal cuentan para este.
+              </p>
+            )}
+          </div>
+          {seeCost && (
+            <div className="space-y-1">
+              <Label htmlFor="ch-budget" className="text-xs">
+                Presupuesto del mes (€, opcional)
+              </Label>
+              <Input
+                id="ch-budget"
+                type="number"
+                min={0}
+                step="0.01"
+                inputMode="decimal"
+                value={monthlyBudget}
+                onChange={(e) => setMonthlyBudget(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Te avisamos si los gastos del canal de este mes lo pasan.
+              </p>
+            </div>
           )}
           <div className="space-y-1">
             <Label htmlFor="ch-cost" className="text-xs">

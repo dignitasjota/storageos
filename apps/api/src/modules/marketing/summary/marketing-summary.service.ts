@@ -21,6 +21,7 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { assertFacilityAllowed } from '../../../common/facility-scope';
 import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../../common/format';
 import { escapeHtml as esc } from '../../../common/tenant-email-layout';
 import { tenantFeatures } from '../../../common/tenant-features';
@@ -75,11 +76,17 @@ export class MarketingSummaryService {
   async build(
     tenantId: string,
     monthInput?: string,
-    viewer: MarketingViewer = FULL_MARKETING_VIEWER,
+    baseViewer: MarketingViewer = FULL_MARKETING_VIEWER,
+    facilityId: string | null = null,
   ): Promise<MarketingSummaryDto> {
     if (monthInput && !MARKETING_SUMMARY_MONTH_RE.test(monthInput)) {
       throw new BadRequestException({ code: 'invalid_month', message: 'Mes no válido (AAAA-MM)' });
     }
+    // Un local: lo de ese local (y lo de todo el negocio, como con el alcance por local).
+    if (facilityId) assertFacilityAllowed(baseViewer.facilityScope, facilityId);
+    const viewer: MarketingViewer = facilityId
+      ? { ...baseViewer, facilityScope: [facilityId] }
+      : baseViewer;
     const tenant = await this.prisma.withTenant(
       (tx) =>
         tx.tenant.findUnique({
@@ -101,12 +108,20 @@ export class MarketingSummaryService {
     const prevTo = partial
       ? [shiftDay(prevBounds.from, elapsed), prevBounds.to].sort()[0]!
       : prevBounds.to;
+    // El mismo mes del año pasado, hasta el mismo día si el mes está en curso.
+    const yearAgo = `${Number(month.slice(0, 4)) - 1}${month.slice(4)}`;
+    const yearBounds = monthBounds(yearAgo);
+    const yearTo = partial
+      ? [shiftDay(yearBounds.from, elapsed), yearBounds.to].sort()[0]!
+      : yearBounds.to;
 
-    const [current, previous, connections, coverage] = await Promise.all([
+    const [current, previous, lastYear, connections, coverage, yearCoverage] = await Promise.all([
       this.monthFigures(tenantId, { from: bounds.from, to: curTo }, tz, viewer),
       this.monthFigures(tenantId, { from: prevBounds.from, to: prevTo }, tz, viewer),
+      this.monthFigures(tenantId, { from: yearBounds.from, to: yearTo }, tz, viewer),
       this.connections(tenantId),
       this.coverage(tenantId, prevBounds.from, tz, tenant?.createdAt ?? null),
+      this.coverage(tenantId, yearBounds.from, tz, tenant?.createdAt ?? null),
     ]);
     const allSources: MarketingSummarySourceDto[] = current.web.sources
       .filter((s) => s.visitors + s.contacts + s.bookings + s.cost > 0)
@@ -131,6 +146,9 @@ export class MarketingSummaryService {
       previous: previous.figures,
       previousComplete: coverage,
       partial,
+      lastYear: lastYear.figures,
+      lastYearComplete: yearCoverage.web,
+      facilityId,
       money,
       sources: allSources.slice(0, 8),
       connections,

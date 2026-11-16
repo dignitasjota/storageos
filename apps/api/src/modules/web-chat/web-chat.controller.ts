@@ -18,7 +18,11 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
+  PublicWebChatBookingSchema,
   PublicWebChatContactSchema,
+  PublicWebChatNewSchema,
+  WebChatTrySchema,
+  type WebChatTryResultDto,
   PublicWebChatFeedbackSchema,
   PublicWebChatHandoffSchema,
   PublicWebChatSchema,
@@ -45,6 +49,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { parsePageRequest } from '../../common/pagination';
+import { marketingViewer } from '../marketing/marketing-viewer';
 
 import { WebChatService } from './web-chat.service';
 
@@ -59,6 +64,9 @@ class WebChatHandoffDto extends createZodDto(PublicWebChatHandoffSchema) {}
 class WebChatUpdatesDto extends createZodDto(PublicWebChatUpdatesSchema) {}
 class WebChatFeedbackDto extends createZodDto(PublicWebChatFeedbackSchema) {}
 class WebChatContactBodyDto extends createZodDto(PublicWebChatContactSchema) {}
+class WebChatBookingBodyDto extends createZodDto(PublicWebChatBookingSchema) {}
+class WebChatNewBodyDto extends createZodDto(PublicWebChatNewSchema) {}
+class WebChatTryBodyDto extends createZodDto(WebChatTrySchema) {}
 class WebChatStaffReplyDto extends createZodDto(WebChatStaffReplySchema) {}
 class UpdateWebChatConversationDto extends createZodDto(UpdateWebChatConversationSchema) {}
 class UpdateWebChatSettingsDto extends createZodDto(UpdateWebChatSettingsSchema) {}
@@ -170,6 +178,30 @@ export class WebChatPublicController {
     return this.chat.leaveContact(slug, body, { ipAddress: ip, userAgent });
   }
 
+  /** Reserva con el formulario del chat (sin pasar por la IA). */
+  @Post(':slug/chat/book')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  book(
+    @Param('slug') slug: string,
+    @Body() body: WebChatBookingBodyDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<PublicWebChatResultDto> {
+    return this.chat.bookFromForm(slug, body, { ipAddress: ip, userAgent });
+  }
+
+  /** Empezar otra conversación (la anterior sigue en el panel del equipo). */
+  @Post(':slug/chat/new')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  newConversation(
+    @Param('slug') slug: string,
+    @Body() body: WebChatNewBodyDto,
+  ): Promise<{ ok: boolean }> {
+    return this.chat.newConversation(slug, body.visitorId);
+  }
+
   /** 👍/👎 a una respuesta del asistente. */
   @Post(':slug/chat/feedback')
   @HttpCode(HttpStatus.OK)
@@ -206,13 +238,29 @@ export class WebChatController {
     });
   }
 
+  /**
+   * Probar el asistente como lo vería un visitante (Configuración → Asistente
+   * IA): no guarda nada, no reserva ni crea contactos. Gasta una respuesta del mes.
+   */
+  @RequirePermission('settings:manage')
+  @RequireFeature('ai_assistant')
+  @Post('try')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  tryAssistant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: WebChatTryBodyDto,
+  ): Promise<WebChatTryResultDto> {
+    return this.chat.tryAssistant(user.tenantId, body);
+  }
+
   @RequirePermission('marketing:read')
   @Get('stats')
   stats(
     @CurrentUser() user: AuthenticatedUser,
     @Query('days') d?: string,
   ): Promise<WebChatStatsDto> {
-    return this.chat.stats(user.tenantId, days(d));
+    return this.chat.stats(user.tenantId, days(d), marketingViewer(user).revenue);
   }
 
   /**
@@ -252,7 +300,10 @@ export class WebChatController {
     return this.chat.staffReply(user.tenantId, id, user.sub, body.body);
   }
 
-  /** Devuelve la conversación al asistente (`ai`) o la pasa al equipo (`human`). */
+  /**
+   * Devuelve la conversación al asistente (`ai`), la pasa al equipo (`human`)
+   * o cambia quién la lleva.
+   */
   @RequirePermission('communications:send')
   @Patch('conversations/:id')
   setMode(
@@ -260,7 +311,7 @@ export class WebChatController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpdateWebChatConversationDto,
   ): Promise<{ mode: 'ai' | 'human' }> {
-    return this.chat.setMode(user.tenantId, id, body.mode);
+    return this.chat.setMode(user.tenantId, id, body, user.sub);
   }
 
   /** Borrador de respuesta con IA (gasta una consulta del asistente del panel). */

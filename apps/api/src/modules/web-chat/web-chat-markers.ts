@@ -1,7 +1,8 @@
 /**
  * Lectura de la respuesta del asistente del chat de la web: separa el texto
  * que ve el visitante de las marcas que pide el prompt (`[[RESERVA {…}]]`,
- * `[[ESPERA {…}]]`, `[[CONTACTO {…}]]`, `[[HUMANO]]`, `[[SIN_RESPUESTA]]`).
+ * `[[ESPERA {…}]]`, `[[CONTACTO {…}]]`, `[[VISITA {…}]]`,
+ * `[[PRESUPUESTO {…}]]`, `[[HUMANO]]`, `[[SIN_RESPUESTA]]`).
  *
  * Es tolerante con lo que el modelo escribe de más (mayúsculas, espacios, dos
  * puntos) y nunca deja una marca a la vista: si queda alguna mal escrita o
@@ -18,6 +19,10 @@ export interface ParsedAssistantReply {
   waitlist: string | null;
   /** JSON de la primera `[[CONTACTO {…}]]`. */
   contact: string | null;
+  /** JSON de la primera `[[VISITA {…}]]` (quiere ver el local). */
+  visit: string | null;
+  /** JSON del primer `[[PRESUPUESTO {…}]]` (quiere el precio por email). */
+  quote: string | null;
   handoff: boolean;
   unanswered: boolean;
   /** Había una marca de reserva que no se pudo leer (mal escrita o cortada). */
@@ -26,7 +31,8 @@ export interface ParsedAssistantReply {
   brokenMarker: boolean;
 }
 
-const DATA_MARKER_RE = /\[\[\s*(RESERVA|ESPERA|CONTACTO)\s*:?\s*(\{[\s\S]*?\})\s*\]\]/gi;
+const DATA_MARKER_RE =
+  /\[\[\s*(RESERVA|ESPERA|CONTACTO|VISITA|PRESUPUESTO)\s*:?\s*(\{[\s\S]*?\})\s*\]\]/gi;
 const HANDOFF_RE = /\[\[\s*HUMANO\s*\]\]/gi;
 const UNANSWERED_RE = /\[\[\s*SIN[\s_-]*RESPUESTA\s*\]\]/gi;
 /** Cualquier otra marca cerrada. */
@@ -54,6 +60,8 @@ export function parseAssistantReply(raw: string): ParsedAssistantReply {
     booking: null,
     waitlist: null,
     contact: null,
+    visit: null,
+    quote: null,
     handoff: false,
     unanswered: false,
     brokenBooking: false,
@@ -63,6 +71,8 @@ export function parseAssistantReply(raw: string): ParsedAssistantReply {
     const k = kind.toUpperCase();
     if (k === 'RESERVA') out.booking ??= json;
     else if (k === 'ESPERA') out.waitlist ??= json;
+    else if (k === 'VISITA') out.visit ??= json;
+    else if (k === 'PRESUPUESTO') out.quote ??= json;
     else out.contact ??= json;
     return '';
   });

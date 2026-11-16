@@ -14,6 +14,7 @@ import {
   type WebLegalSettingsDto,
 } from '@storageos/shared';
 
+import { adConversionsEnabled } from '../../common/marketing/ad-conversions-enabled';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -186,6 +187,7 @@ export class WebLegalService {
       },
       websiteUrl: domain ? `https://${domain}` : `${base}/s/${t.slug}`,
       analytics: !!t.googleAnalyticsId,
+      adConversions: await adConversionsEnabled(this.admin, t.id),
       whatsapp: !!whatsapp?.enabled,
       webChat,
       tradeName: t.name,

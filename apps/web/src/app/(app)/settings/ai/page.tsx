@@ -83,8 +83,8 @@ export default function AiSettingsPage() {
             <CardDescription>
               {own
                 ? 'Usáis vuestra propia clave: las consultas no tienen límite de TrasterOS.'
-                : `${formatNumber(u.used)} de ${formatNumber(u.limit)} consultas. Se reinicia el ${formatDate(u.resetsOn)}.`}
-              {u.ownQueries > 0 && ` ${formatNumber(u.ownQueries)} con vuestra clave.`}
+                : `${formatNumber(u.used, 0)} de ${formatNumber(u.limit, 0)} consultas. Se reinicia el ${formatDate(u.resetsOn)}.`}
+              {u.ownQueries > 0 && ` ${formatNumber(u.ownQueries, 0)} con vuestra clave.`}
             </CardDescription>
           </CardHeader>
         </Card>

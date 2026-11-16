@@ -31,7 +31,40 @@ export function writeTenantConsent(slug: string, value: TenantConsent | null): v
   window.dispatchEvent(new CustomEvent(TENANT_CONSENT_EVENT, { detail: value }));
 }
 
-/** ¿Se pueden medir sus visitas? No, si eligió «Solo necesarias» o «No medir mis visitas». */
+/**
+ * Navegador del equipo del negocio: sus visitas no cuentan. Se marca solo al
+ * entrar en el panel (mismo dominio que la web en la plataforma) y, en el
+ * dominio propio, abriendo la web una vez con `?no_track=1` (`?no_track=0` lo
+ * quita). `off` = el usuario pidió que sí se cuenten (el panel no lo vuelve a marcar).
+ */
+const NO_TRACK_KEY = 'storageos.notrack';
+
+export function isStaffBrowser(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const flag = new URLSearchParams(window.location.search).get('no_track');
+    if (flag === '1') window.localStorage.setItem(NO_TRACK_KEY, '1');
+    else if (flag === '0') window.localStorage.setItem(NO_TRACK_KEY, 'off');
+    return window.localStorage.getItem(NO_TRACK_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Marca (o desmarca) este navegador como del equipo. `auto` respeta un «sí, cuéntame». */
+export function setStaffBrowser(on: boolean, auto = false): void {
+  try {
+    if (auto && window.localStorage.getItem(NO_TRACK_KEY) === 'off') return;
+    window.localStorage.setItem(NO_TRACK_KEY, on ? '1' : 'off');
+  } catch {
+    // Sin almacenamiento: no se puede recordar.
+  }
+}
+
+/**
+ * ¿Se pueden medir sus visitas? No, si eligió «Solo necesarias» o si es el
+ * navegador de alguien del equipo.
+ */
 export function measurementAllowed(slug: string): boolean {
-  return readTenantConsent(slug) !== 'necessary';
+  return readTenantConsent(slug) !== 'necessary' && !isStaffBrowser();
 }

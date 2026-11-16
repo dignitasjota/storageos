@@ -8,6 +8,7 @@ import {
 } from '@storageos/shared';
 import Papa from 'papaparse';
 
+import { withLeadChannel } from '../../common/marketing/lead-channel';
 import { PrismaService } from '../database/prisma.service';
 
 import {
@@ -266,30 +267,39 @@ export class LeadsImportService {
         create: async () => {
           const created = await this.prisma.withTenant(
             (tx) =>
-              tx.lead.create({
-                data: {
-                  tenantId: ctx.tenantId,
-                  source,
-                  status,
-                  firstName: firstName || null,
-                  lastName: lastName || null,
-                  companyName: companyName || null,
-                  email: email || null,
-                  phone: phone || null,
-                  message: message || null,
-                  preferredFacilityId: facilityId,
-                  preferredUnitTypeId: unitTypeId,
-                  budgetMonthly: budget,
-                  // Importado: no recibe la secuencia de correos automáticos.
-                  nurtureStep: 3,
-                  createdAt: at,
-                  ...(status !== 'new' ? { contactedAt: at } : {}),
-                  ...(status === 'qualified' ? { qualifiedAt: at } : {}),
-                  ...(status === 'lost' ? { lostAt: at, lostReasonCode: 'other' } : {}),
-                  metadata: { origin: 'import' },
-                },
-                select: { id: true },
-              }),
+              withLeadChannel(
+                tx,
+                tx.lead.create({
+                  data: {
+                    tenantId: ctx.tenantId,
+                    source,
+                    status,
+                    firstName: firstName || null,
+                    lastName: lastName || null,
+                    companyName: companyName || null,
+                    email: email || null,
+                    phone: phone || null,
+                    message: message || null,
+                    preferredFacilityId: facilityId,
+                    preferredUnitTypeId: unitTypeId,
+                    budgetMonthly: budget,
+                    // Importado: no recibe la secuencia de correos automáticos.
+                    nurtureStep: 3,
+                    createdAt: at,
+                    ...(status !== 'new' ? { contactedAt: at } : {}),
+                    ...(status === 'qualified' ? { qualifiedAt: at } : {}),
+                    ...(status === 'lost' ? { lostAt: at, lostReasonCode: 'other' } : {}),
+                    metadata: { origin: 'import' },
+                  },
+                  select: {
+                    id: true,
+                    source: true,
+                    utmSource: true,
+                    utmMedium: true,
+                    utmCampaign: true,
+                  },
+                }),
+              ),
             ctx.tenantId,
           );
           return created.id;

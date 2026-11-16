@@ -341,6 +341,8 @@ export class DataRetentionService {
       whatsappConversations,
       whatsappMessages,
       webEvents,
+      webVisits,
+      webPageDaily,
       webChatConversations,
       webChatMessages,
       promoLandingVisits,
@@ -375,8 +377,10 @@ export class DataRetentionService {
       this.admin.whatsappMessage.deleteMany({
         where: { createdAt: { lt: cutoff(whatsappDays) } },
       }),
-      // Analítica propia de la web de los tenants.
+      // Analítica propia de la web de los tenants (eventos y lo ya sumado).
       this.admin.webEvent.deleteMany({ where: { createdAt: { lt: cutoff(webEventsDays) } } }),
+      this.admin.webVisit.deleteMany({ where: { day: { lt: cutoff(webEventsDays) } } }),
+      this.admin.webPageDaily.deleteMany({ where: { day: { lt: cutoff(webEventsDays) } } }),
       // Chat con IA de la web: conversaciones sin movimiento en 90 días (con sus
       // mensajes) y, en las que siguen vivas, los mensajes de hace más de 90 días.
       this.admin.webChatConversation.deleteMany({
@@ -459,7 +463,7 @@ export class DataRetentionService {
       platformEmails: platformEmails.count,
       whatsappConversations: whatsappConversations.count,
       whatsappMessages: whatsappMessages.count,
-      webEvents: webEvents.count,
+      webEvents: webEvents.count + webVisits.count + webPageDaily.count,
       webChatConversations: webChatConversations.count,
       webChatMessages: webChatMessages.count,
       promoLandingVisits: promoLandingVisits.count,

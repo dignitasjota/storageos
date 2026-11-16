@@ -246,7 +246,41 @@ export class AiQuotaService {
     }
     if (outcome.kind === 'own') return { kind: 'ok', reservation: { id: outcome.id, ownKey: own } };
     if (limit > 0 && outcome.used >= limit) void this.notifyWebLimit(tenantId, month.key, limit);
+    else if (limit > 0 && outcome.used >= Math.ceil(limit * 0.8)) {
+      void this.notifyWebNearLimit(tenantId, month.key, limit, !!own);
+    }
     return { kind: 'ok', reservation: { id: outcome.id, ownKey: null } };
+  }
+
+  /** Aviso (una vez al mes) de que el chat de la web va por el 80 % de sus respuestas. */
+  private async notifyWebNearLimit(
+    tenantId: string,
+    month: string,
+    limit: number,
+    hasOwnKey: boolean,
+  ): Promise<void> {
+    try {
+      const claimed = await this.admin.tenant.updateMany({
+        where: {
+          id: tenantId,
+          OR: [{ webChatLimitWarned: null }, { webChatLimitWarned: { not: month } }],
+        },
+        data: { webChatLimitWarned: month },
+      });
+      if (claimed.count === 0) return;
+      await this.notifications.create(tenantId, {
+        type: 'ai.web_chat_limit_near',
+        title: 'El chat de tu web va por el 80 % de sus respuestas del mes',
+        body: hasOwnKey
+          ? `Lleva ${Math.ceil(limit * 0.8)} de ${limit}. Al llegar al límite seguirá respondiendo con tu clave de IA.`
+          : `Lleva ${Math.ceil(limit * 0.8)} de ${limit}. Al llegar al límite dejará de responder hasta el mes que viene; con tu propia clave de IA seguiría respondiendo.`,
+        link: '/settings/ai',
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[ai-quota] aviso del 80 % del chat de la web: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /** Aviso (una vez al mes) de que el chat no responde: va con su clave y no hay ninguna. */

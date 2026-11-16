@@ -8,6 +8,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
 
 import { AdCampaignDraftController } from './ad-campaign-draft.controller';
+import { AdConversionsCron } from './ad-platforms/ad-conversions.cron';
+import { AdConversionsService } from './ad-platforms/ad-conversions.service';
 import { AdPerformanceService } from './ad-platforms/ad-performance.service';
 import { AdSpendSyncCron } from './ad-platforms/ad-spend-sync.cron';
 import { AdSpendSyncService } from './ad-platforms/ad-spend-sync.service';
@@ -67,6 +69,7 @@ import { WebAnalyticsService } from './web-analytics.service';
     MetaAdsSettingsService,
     AdSpendSyncService,
     AdPerformanceService,
+    AdConversionsService,
     CatalogFeedService,
     WebAnalyticsService,
     Ga4Client,
@@ -74,7 +77,9 @@ import { WebAnalyticsService } from './web-analytics.service';
     MarketingSummaryService,
     MetaGraphClient,
     SocialService,
-    ...(WORKERS_ENABLED_IN_API ? [AdSpendSyncCron, Ga4Cron, MarketingSummaryCron, SocialCron] : []),
+    ...(WORKERS_ENABLED_IN_API
+      ? [AdSpendSyncCron, AdConversionsCron, Ga4Cron, MarketingSummaryCron, SocialCron]
+      : []),
   ],
   exports: [MarketingChannelsService],
 })

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -31,8 +32,11 @@ import type {
   AdPerformanceDto,
   MarketingChannelDto,
   MarketingPerformanceDto,
+  MarketingUnassignedSourceDto,
   SyncAdSpendResultDto,
 } from '@storageos/shared';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class CreateMarketingChannelDto extends createZodDto(CreateMarketingChannelSchema) {}
 class UpdateMarketingChannelDto extends createZodDto(UpdateMarketingChannelSchema) {}
@@ -51,8 +55,12 @@ export class MarketingController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query('status') status?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<MarketingChannelDto[]> {
-    return this.channels.list(user.tenantId, status, marketingViewer(user));
+    if (facilityId && !UUID_RE.test(facilityId)) {
+      throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
+    return this.channels.list(user.tenantId, status, marketingViewer(user), facilityId || null);
   }
 
   /**
@@ -65,10 +73,37 @@ export class MarketingController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('model') model?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<MarketingPerformanceDto> {
+    if (model && model !== 'first' && model !== 'last') {
+      throw new BadRequestException({ code: 'invalid_model', message: 'Modelo no válido' });
+    }
+    if (facilityId && !UUID_RE.test(facilityId)) {
+      throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
     return this.channels.getPerformance(
       user.tenantId,
-      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      {
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+        ...(model ? { model: model as 'first' | 'last' } : {}),
+        ...(facilityId ? { facilityId } : {}),
+      },
+      marketingViewer(user),
+    );
+  }
+
+  /** Orígenes con visitas o contactos que no recoge ningún canal (antes de `:id`). */
+  @RequirePermission('marketing:read')
+  @Get('unassigned-sources')
+  unassignedSources(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('days') days?: string,
+  ): Promise<MarketingUnassignedSourceDto[]> {
+    return this.channels.unassignedSources(
+      user.tenantId,
+      Number(days) || 90,
       marketingViewer(user),
     );
   }

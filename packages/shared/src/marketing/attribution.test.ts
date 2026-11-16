@@ -7,6 +7,7 @@ import {
   defaultChannelSource,
   isPaidMedium,
   normalizeTrafficSource,
+  suggestChannelForSource,
   trafficKey,
   type AttributableChannel,
 } from './attribution';
@@ -131,5 +132,21 @@ describe('atribución a canales de marketing', () => {
     );
     // Y no avisa de que comparte origen.
     expect(channelSourceConflicts([gone, live]).size).toBe(0);
+  });
+
+  it('propone el canal de un origen sin canal', () => {
+    expect(suggestChannelForSource('google', true).type).toBe('google_ads');
+    expect(suggestChannelForSource('meta', true)).toMatchObject({
+      type: 'meta_ads',
+      utmSourceMatch: 'facebook, instagram',
+    });
+    expect(suggestChannelForSource('idealista', false)).toMatchObject({
+      type: 'real_estate_portal',
+      name: 'Idealista',
+    });
+    expect(suggestChannelForSource('instagram', false)).toMatchObject({
+      type: 'other',
+      name: 'Instagram',
+    });
   });
 });
