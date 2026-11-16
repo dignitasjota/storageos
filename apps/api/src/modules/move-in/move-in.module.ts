@@ -9,6 +9,7 @@ import { ContractsModule } from '../contracts/contracts.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { LandingModule } from '../landing/landing.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { PromotionsModule } from '../promotions/promotions.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 
 import { BookingExpiryCron } from './booking-expiry.cron';
@@ -31,6 +32,7 @@ import { SignaturesService } from './signatures.service';
   imports: [
     ContractsModule,
     CouponsModule,
+    PromotionsModule,
     BillingModule,
     ReferralsModule,
     CommunicationsModule,

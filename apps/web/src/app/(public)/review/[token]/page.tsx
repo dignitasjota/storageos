@@ -9,6 +9,7 @@ import type { PublicReviewContextDto, SubmitReviewResultDto } from '@storageos/s
 import { TenantMiniChrome } from '@/components/public/tenant-mini-chrome';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, apiFetch } from '@/lib/auth/api';
@@ -22,6 +23,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
   const [rating, setRating] = useState<number>(0);
   const [hoverRating, setHoverRating] = useState<number>(0);
   const [comment, setComment] = useState('');
+  const [publishConsent, setPublishConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [googleUrl, setGoogleUrl] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
           npsScore: nps,
           ...(rating > 0 ? { rating } : {}),
           ...(comment.trim() ? { comment: comment.trim() } : {}),
+          publishConsent: publishConsent && !!comment.trim(),
         },
       });
       setGoogleUrl(res.googleReviewUrl);
@@ -193,6 +196,19 @@ export default function ReviewPage({ params }: { params: Promise<{ token: string
               rows={4}
               placeholder="Tu comentario..."
             />
+            {comment.trim() && (
+              <label className="flex items-start gap-2 pt-1 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={publishConsent}
+                  onCheckedChange={(v) => setPublishConsent(v === true)}
+                  className="mt-0.5"
+                />
+                <span>
+                  {ctx.tenantName} puede publicar mi opinión en su web, con mi nombre de pila y la
+                  inicial de mi apellido.
+                </span>
+              </label>
+            )}
           </div>
 
           <Button onClick={submit} disabled={submitting || nps === null} className="w-full">

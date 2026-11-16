@@ -27,6 +27,7 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { assertWholeBusiness } from '../../common/facility-scope';
 
 import { PromotionsService } from './promotions.service';
 
@@ -62,7 +63,10 @@ export class PromotionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateUnitOfferDto,
   ): Promise<UnitOfferDto> {
-    return this.promotions.createUnitOffer(user.tenantId, body);
+    return this.promotions.createUnitOffer(user.tenantId, body, {
+      userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('promotions:manage')
@@ -72,7 +76,10 @@ export class PromotionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('unitId', new ParseUUIDPipe()) unitId: string,
   ): Promise<void> {
-    await this.promotions.cancelUnitOffer(user.tenantId, unitId);
+    await this.promotions.cancelUnitOffer(user.tenantId, unitId, {
+      userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
   @RequirePermission('promotions:manage')
@@ -81,7 +88,8 @@ export class PromotionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreatePromotionDto,
   ): Promise<PromotionDto> {
-    return this.promotions.create(user.tenantId, body);
+    assertWholeBusiness(user.facilityScope);
+    return this.promotions.create(user.tenantId, body, user.sub);
   }
 
   @RequirePermission('promotions:manage')
@@ -91,7 +99,8 @@ export class PromotionsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdatePromotionDto,
   ): Promise<PromotionDto> {
-    return this.promotions.update(user.tenantId, id, body);
+    assertWholeBusiness(user.facilityScope);
+    return this.promotions.update(user.tenantId, id, body, user.sub);
   }
 
   @RequirePermission('promotions:manage')
@@ -101,7 +110,8 @@ export class PromotionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.promotions.remove(user.tenantId, id);
+    assertWholeBusiness(user.facilityScope);
+    await this.promotions.remove(user.tenantId, id, user.sub);
   }
 
   /** Previsualiza el descuento de un código (usado por el wizard de contrato). */
@@ -112,6 +122,12 @@ export class PromotionsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: ValidatePromotionDto,
   ): Promise<ValidatePromotionResultDto> {
-    return this.promotions.validate(user.tenantId, body.code, body.monthlyPrice, body.unitId);
+    return this.promotions.validate(
+      user.tenantId,
+      body.code,
+      body.monthlyPrice,
+      body.unitId,
+      body.billingIntervalMonths,
+    );
   }
 }

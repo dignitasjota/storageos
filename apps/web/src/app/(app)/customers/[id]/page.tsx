@@ -26,6 +26,7 @@ import { CustomerPaymentHistoryTab } from './payment-history-tab';
 import { CustomerPaymentMethodsTab } from './payment-methods-tab';
 import { PortalLinkButton } from './portal-link-button';
 import { QuickContact } from './quick-contact';
+import { ReferralCodeCard } from './referral-code-card';
 import { CustomerReservationsTab } from './reservations-tab';
 import { CustomerTimelineTab } from './timeline-tab';
 
@@ -430,6 +431,7 @@ export default function CustomerDetailPage() {
           </Card>
           <DepositExemptCard customerId={c.id} exempt={c.depositExempt} />
           <MarketingPreferenceCard customerId={c.id} optOutAt={c.marketingOptOutAt} />
+          <ReferralCodeCard customerId={c.id} />
         </TabsContent>
       </Tabs>
     </div>

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import type { ReviewDto } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,6 +37,7 @@ import {
   useRequestReview,
   usePublishReview,
   useRequestGoogleReview,
+  useResendReview,
   useReviews,
   useReviewStats,
   useReviewsSettings,
@@ -53,7 +55,9 @@ const STATUS_LABELS: Record<
 
 export default function ReviewsPage() {
   const stats = useReviewStats();
-  const reviews = useReviews();
+  const [status, setStatus] = useState<'all' | ReviewDto['status']>('all');
+  const reviews = useReviews(status === 'all' ? undefined : status);
+  const items = reviews.data?.pages.flatMap((p) => p.items) ?? [];
   const canWrite = useHasPermission('reviews:write');
   const canPublish = canWrite;
   const canManageSettings = useHasPermission('settings:manage');
@@ -70,7 +74,8 @@ export default function ReviewsPage() {
         {canWrite && <RequestReviewDialog />}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {stats.isError && <SectionError onRetry={() => void stats.refetch()} />}
+      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-4 ${stats.isError ? 'hidden' : ''}`}>
         <StatCard
           title="NPS"
           value={stats.data?.npsScore ?? null}
@@ -110,13 +115,32 @@ export default function ReviewsPage() {
       {canManageSettings && <AutoRequestSettings />}
 
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">Historial</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-medium">Historial</h2>
+          <Select value={status} onValueChange={(v) => setStatus(v as typeof status)}>
+            <SelectTrigger className="h-9 w-44" aria-label="Estado">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todas</SelectItem>
+              <SelectItem value="submitted">Recibidas</SelectItem>
+              <SelectItem value="pending">Pendientes</SelectItem>
+              <SelectItem value="expired">Caducadas</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         {reviews.isLoading ? (
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
-        ) : (reviews.data?.items ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aún no has solicitado ninguna valoración.</p>
+        ) : reviews.isError ? (
+          <SectionError onRetry={() => void reviews.refetch()} />
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {status === 'all'
+              ? 'Aún no has solicitado ninguna valoración.'
+              : 'No hay valoraciones en ese estado.'}
+          </p>
         ) : (
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full text-sm">
@@ -133,11 +157,23 @@ export default function ReviewsPage() {
                 </tr>
               </thead>
               <tbody>
-                {(reviews.data?.items ?? []).map((r) => (
+                {items.map((r) => (
                   <ReviewRow key={r.id} review={r} canPublish={canPublish} />
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {reviews.hasNextPage && (
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={reviews.isFetchingNextPage}
+              onClick={() => void reviews.fetchNextPage()}
+            >
+              {reviews.isFetchingNextPage ? 'Cargando...' : 'Cargar más'}
+            </Button>
           </div>
         )}
       </section>
@@ -186,13 +222,47 @@ function ReviewRow({ review, canPublish }: { review: ReviewDto; canPublish: bool
   const s = STATUS_LABELS[review.status];
   const publish = usePublishReview();
   const google = useRequestGoogleReview();
+  const resend = useResendReview();
   const publishable = review.status === 'submitted' && !!review.comment?.trim();
+  // Sin el permiso de su autor no se publica (las ya publicadas se pueden retirar).
+  const noConsent = publishable && !review.publishConsent && !review.publishedOnWeb;
   return (
     <tr className="border-b last:border-b-0">
       <td className="px-3 py-2 font-medium">{review.customerName}</td>
       <td className="px-3 py-2 font-mono text-xs">{review.contractNumber ?? '—'}</td>
       <td className="px-3 py-2">
         <Badge variant={s.variant}>{s.label}</Badge>
+        {review.status !== 'submitted' && canPublish && (
+          <div className="mt-1 flex flex-wrap gap-x-2 text-xs">
+            <button
+              type="button"
+              className="text-primary underline-offset-2 hover:underline disabled:opacity-50"
+              disabled={resend.isPending}
+              onClick={async () => {
+                try {
+                  await resend.mutateAsync(review.id);
+                  toast.success('Se la hemos vuelto a enviar.');
+                } catch (err) {
+                  toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar');
+                }
+              }}
+            >
+              Reenviar
+            </button>
+            {review.reviewUrl && (
+              <button
+                type="button"
+                className="text-primary underline-offset-2 hover:underline"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(review.reviewUrl ?? '');
+                  toast.success('Enlace copiado.');
+                }}
+              >
+                Copiar enlace
+              </button>
+            )}
+          </div>
+        )}
       </td>
       <td className="px-3 py-2">
         {review.npsScore === null ? (
@@ -229,7 +299,9 @@ function ReviewRow({ review, canPublish }: { review: ReviewDto; canPublish: bool
       </td>
       <td className="px-3 py-2 text-muted-foreground">{formatDate(review.createdAt)}</td>
       <td className="px-3 py-2">
-        {publishable ? (
+        {noConsent ? (
+          <span className="text-xs text-muted-foreground">Sin permiso para publicarla</span>
+        ) : publishable ? (
           <label className="inline-flex items-center gap-2 text-xs">
             <Checkbox
               checked={review.publishedOnWeb}
@@ -295,7 +367,11 @@ function RequestReviewDialog() {
     }
     try {
       const res = await request.mutateAsync({ customerId, channel });
-      toast.success(res.enqueued ? 'Solicitud de valoración enviada.' : 'Solicitud creada.');
+      toast.success(
+        res.enqueued
+          ? 'Solicitud de valoración enviada.'
+          : 'Solicitud creada, pero no se pudo enviar: copia el enlace del historial.',
+      );
       setOpen(false);
       setCustomerId('');
     } catch (err) {

@@ -2510,3 +2510,22 @@ Migración `20270128100000_deposit_service_invoice` (se aplica sola al arrancar 
 - **Depósito de las fianzas de trasteros**: Configuración → Plantilla de contrato → «Depositar también las fianzas de los trasteros». Las de vivienda se depositan siempre. Actívalo solo si tu comunidad autónoma lo pide: la ficha del contrato tendrá dónde anotarlo y «Hoy» avisará de las que faltan.
 
 **Tras desplegar**: preguntar en la Generalitat Valenciana si un trastero alquilado tiene que depositar la fianza y, si es así, activar el ajuste.
+
+## 144. Revisión de Fidelización: arreglos (2026-11-16)
+
+Migración `20270129100000_loyalty_review` (se aplica sola al arrancar el API):
+
+- `promotions.announce_on_web`: en cada negocio queda marcada la promoción que su web anunciaba hasta hoy (la más reciente en vigor), para que el aviso no desaparezca;
+- `referrals.reward_applied_amount` (lo ya descontado de una recompensa fija);
+- los referidos con la recompensa concedida y sin descontar cuyo recomendado no ha pagado nada vuelven a «pendiente»: se concederá con su primer pago;
+- `reviews.publish_consent` (permiso del autor para publicar su valoración).
+
+Sin variables nuevas. Lo que cambia:
+
+- **Referidos**: la recompensa se gana cuando el recomendado paga su primera factura, no al firmar. Una recompensa fija mayor que la cuota se reparte entre las facturas siguientes. Con el programa apagado, la reserva online no pide el código.
+- **Promociones en la web**: la web solo anuncia las promociones marcadas «En la web», y su código vale en la reserva online (antes se rechazaba). Las demás las aplica el equipo al crear el contrato.
+- **Meses gratis** no se combinan con el pago semestral o anual.
+- **Promociones y cupones** los crea y cambia quien ve todos los locales. Una promoción ya usada se desactiva, no se borra.
+- **Valoraciones**: para publicar una en la web hace falta que su autor marque la casilla al responder (las ya publicadas se quedan). El equipo recibe un aviso de las notas de 0 a 6. Se pueden reenviar y copiar el enlace.
+
+**Tras desplegar**: en Promociones, revisar cuál está marcada «En la web» (si era una promoción interna, desmarcarla).

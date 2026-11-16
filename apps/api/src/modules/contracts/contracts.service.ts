@@ -23,6 +23,7 @@ import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facil
 import { formatDateLong, todayInTimezone } from '../../common/format';
 import { addAmounts, isAtLeast, isGreaterThan, subtractAmounts, toCents } from '../../common/money';
 import { endDateAfterCancellingMoveOut } from '../../common/move-out';
+import { CUSTOMER_CONTRACT_WHERE } from '../../common/online-booking';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { nextPriceChange, pendingPriceChanges } from '../../common/price-changes';
@@ -946,6 +947,7 @@ export class ContractsService {
           input.promotionCode,
           Number(input.priceMonthly),
           input.unitId,
+          preOpening ? 1 : input.billingIntervalMonths,
         );
         discountAmount = applied.discountAmount;
         discountReason = applied.discountReason;
@@ -980,7 +982,7 @@ export class ContractsService {
       if (input.couponCode?.trim()) {
         const months = billingIntervalMonths > 1 ? billingIntervalMonths : firstPaymentMonths;
         const signedBefore = await tx.contract.count({
-          where: { tenantId, customerId: input.customerId, signedAt: { not: null } },
+          where: { tenantId, customerId: input.customerId, ...CUSTOMER_CONTRACT_WHERE },
         });
         const monthlyPrice = Number(input.priceMonthly) - Number(discountAmount);
         redeemed = await this.coupons.redeemInTx(tx, tenantId, input.couponCode, {
@@ -3611,6 +3613,8 @@ export class ContractsService {
       await this.cancelScheduledDunning(tx, args.tenantId, args.contractId, 'Contrato cancelado');
       // Un cupón de un contrato que no llegó a pagarse vuelve a quedar libre.
       await this.coupons.releaseForContractInTx(tx, args.tenantId, args.contractId);
+      // Y el uso de su promoción (también la oferta del trastero, que sigue en pie).
+      await this.promotions.releaseForContractInTx(tx, args.tenantId, args.contractId);
       return row;
     }, args.tenantId);
     await this.audit.write({

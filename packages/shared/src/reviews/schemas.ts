@@ -19,6 +19,8 @@ export const SubmitReviewSchema = z.object({
   npsScore: z.number().int().min(0).max(10),
   rating: z.number().int().min(1).max(5).optional(),
   comment: z.string().trim().max(2000).optional().or(z.literal('')),
+  /** Permiso para publicar la opinión en la web del negocio (nombre e inicial). */
+  publishConsent: z.boolean().optional(),
   /** Honeypot anti-bot: debe venir vacío. */
   website: z.string().optional(),
 });

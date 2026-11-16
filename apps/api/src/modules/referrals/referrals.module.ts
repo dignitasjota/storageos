@@ -1,17 +1,18 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 import { ReferralsController } from './referrals.controller';
 import { ReferralsService } from './referrals.service';
 
 /**
  * Crecimiento/CRM: programa de referidos. Registro en el alta (best-effort),
- * conversión + recompensa al firmar el primer contrato del referido (listener
- * `contract_signed`), panel de staff y vista del portal del inquilino.
+ * conversión + recompensa cuando el recomendado paga su primera factura
+ * (listener `invoice_paid`), panel de staff y vista del portal del inquilino.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, NotificationsModule],
   controllers: [ReferralsController],
   providers: [ReferralsService],
   exports: [ReferralsService],

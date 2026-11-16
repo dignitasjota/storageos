@@ -6,7 +6,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { promotionRuleIssues } from '@storageos/shared';
 
+import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -17,6 +20,7 @@ import type {
   UnitOfferDto,
   UpdatePromotionInput,
   ValidatePromotionResultDto,
+  WebPromotionDto,
 } from '@storageos/shared';
 
 type PromotionRow = Prisma.PromotionGetPayload<object>;
@@ -52,7 +56,10 @@ function round2(n: number): number {
 
 @Injectable()
 export class PromotionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   private toDto(p: PromotionRow): PromotionDto {
     return {
@@ -67,19 +74,33 @@ export class PromotionsService {
       validFrom: p.validFrom?.toISOString() ?? null,
       validUntil: p.validUntil?.toISOString() ?? null,
       isActive: p.isActive,
+      announceOnWeb: p.announceOnWeb,
       createdAt: p.createdAt.toISOString(),
     };
   }
 
+  /**
+   * Promociones del negocio. Las ofertas de un trastero concreto (se llevan
+   * desde el trastero) y los códigos de recompensa antiguos de los referidos
+   * no son promociones que gestionar aquí.
+   */
   async list(tenantId: string): Promise<PromotionDto[]> {
     const rows = await this.prisma.withTenant(
-      (tx) => tx.promotion.findMany({ where: { tenantId }, orderBy: { createdAt: 'desc' } }),
+      (tx) =>
+        tx.promotion.findMany({
+          where: { tenantId, referrals: { none: {} } },
+          orderBy: { createdAt: 'desc' },
+        }),
       tenantId,
     );
-    return rows.map((r) => this.toDto(r));
+    return rows.filter((r) => promotionUnitId(r.appliesTo) === null).map((r) => this.toDto(r));
   }
 
-  async create(tenantId: string, input: CreatePromotionInput): Promise<PromotionDto> {
+  async create(
+    tenantId: string,
+    input: CreatePromotionInput,
+    userId: string | null = null,
+  ): Promise<PromotionDto> {
     try {
       const created = await this.prisma.withTenant(
         (tx) =>
@@ -95,10 +116,23 @@ export class PromotionsService {
               validFrom: input.validFrom ? new Date(input.validFrom) : null,
               validUntil: input.validUntil ? new Date(input.validUntil) : null,
               isActive: input.isActive,
+              announceOnWeb: input.announceOnWeb,
             },
           }),
         tenantId,
       );
+      await this.audit.write({
+        tenantId,
+        userId,
+        action: 'promotion.created',
+        entityType: 'Promotion',
+        entityId: created.id,
+        changes: {
+          code: created.code,
+          discountType: created.discountType,
+          discountValue: Number(created.discountValue),
+        },
+      });
       return this.toDto(created);
     } catch (err) {
       if (this.isUniqueViolation(err)) {
@@ -111,8 +145,29 @@ export class PromotionsService {
     }
   }
 
-  async update(tenantId: string, id: string, input: UpdatePromotionInput): Promise<PromotionDto> {
-    await this.findOrThrow(tenantId, id);
+  async update(
+    tenantId: string,
+    id: string,
+    input: UpdatePromotionInput,
+    userId: string | null = null,
+  ): Promise<PromotionDto> {
+    const current = await this.findOrThrow(tenantId, id);
+    // Las reglas que cruzan campos se comprueban sobre el resultado.
+    const issue = promotionRuleIssues({
+      discountType: input.discountType ?? current.discountType,
+      discountValue: input.discountValue ?? Number(current.discountValue),
+      validFrom:
+        input.validFrom !== undefined
+          ? input.validFrom
+          : (current.validFrom?.toISOString() ?? null),
+      validUntil:
+        input.validUntil !== undefined
+          ? input.validUntil
+          : (current.validUntil?.toISOString() ?? null),
+    })[0];
+    if (issue) {
+      throw new BadRequestException({ code: 'invalid_promotion', message: issue.message });
+    }
     const data: Prisma.PromotionUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.discountType !== undefined) data.discountType = input.discountType;
@@ -120,6 +175,7 @@ export class PromotionsService {
     if (input.appliesTo !== undefined) data.appliesTo = input.appliesTo as Prisma.InputJsonValue;
     if (input.maxUses !== undefined) data.maxUses = input.maxUses;
     if (input.isActive !== undefined) data.isActive = input.isActive;
+    if (input.announceOnWeb !== undefined) data.announceOnWeb = input.announceOnWeb;
     if (input.validFrom !== undefined)
       data.validFrom = input.validFrom ? new Date(input.validFrom) : null;
     if (input.validUntil !== undefined)
@@ -129,12 +185,41 @@ export class PromotionsService {
       (tx) => tx.promotion.update({ where: { id }, data }),
       tenantId,
     );
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'promotion.updated',
+      entityType: 'Promotion',
+      entityId: id,
+      changes: { code: current.code, fields: Object.keys(data) },
+    });
     return this.toDto(updated);
   }
 
-  async remove(tenantId: string, id: string): Promise<void> {
-    await this.findOrThrow(tenantId, id);
+  /** Una promoción ya usada no se borra (se perdería su rastro): se desactiva. */
+  async remove(tenantId: string, id: string, userId: string | null = null): Promise<void> {
+    const promo = await this.findOrThrow(tenantId, id);
+    // Los contratos cancelados sin llegar a pagar ya devolvieron su uso.
+    const contracts = await this.prisma.withTenant(
+      (tx) =>
+        tx.contract.count({ where: { tenantId, promotionId: id, status: { not: 'cancelled' } } }),
+      tenantId,
+    );
+    if (promo.usedCount > 0 || contracts > 0) {
+      throw new ConflictException({
+        code: 'promotion_in_use',
+        message: 'Esta promoción ya se ha usado: desactívala en lugar de borrarla',
+      });
+    }
     await this.prisma.withTenant((tx) => tx.promotion.delete({ where: { id } }), tenantId);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'promotion.deleted',
+      entityType: 'Promotion',
+      entityId: id,
+      changes: { code: promo.code },
+    });
   }
 
   /** Previsualiza el descuento de un código sobre un precio mensual. */
@@ -143,6 +228,7 @@ export class PromotionsService {
     code: string,
     monthlyPrice: number,
     unitId?: string,
+    billingIntervalMonths = 1,
   ): Promise<ValidatePromotionResultDto> {
     const normalized = code.trim().toUpperCase();
     const promo = await this.prisma.withTenant(
@@ -161,6 +247,9 @@ export class PromotionsService {
     if (!promo) return fail('not_found');
     const check = this.checkUsable(promo, unitId);
     if (check) return fail(check);
+    if (promo.discountType === 'free_months' && billingIntervalMonths > 1) {
+      return fail('not_with_prepay');
+    }
 
     // free_months: no es un descuento mensual; son las primeras N facturas
     // gratis. El precio mensual queda intacto y se informa `freeMonths`.
@@ -189,6 +278,37 @@ export class PromotionsService {
   }
 
   /**
+   * Promoción que el visitante escribe en la reserva online: solo las que el
+   * negocio anuncia en su web (las demás son para aplicarlas el equipo). Null
+   * si no existe, no es pública o ya no se puede usar.
+   */
+  async quoteForWeb(
+    tenantId: string,
+    code: string,
+    monthlyPrice: number,
+    unitId: string,
+  ): Promise<WebPromotionDto | null> {
+    const normalized = code.trim().toUpperCase();
+    const promo = await this.prisma.withTenant(
+      (tx) =>
+        tx.promotion.findFirst({ where: { tenantId, code: normalized, announceOnWeb: true } }),
+      tenantId,
+    );
+    if (!promo || this.checkUsable(promo, unitId)) return null;
+    const freeMonths =
+      promo.discountType === 'free_months'
+        ? Math.max(0, Math.trunc(Number(promo.discountValue)))
+        : 0;
+    return {
+      code: promo.code,
+      name: promo.name,
+      listPrice: round2(monthlyPrice),
+      monthlyDiscount: freeMonths > 0 ? 0 : this.computeDiscount(promo, monthlyPrice),
+      freeMonths,
+    };
+  }
+
+  /**
    * Aplica un código en el alta de un contrato DENTRO de su transacción:
    * valida, calcula el descuento mensual y marca un uso (incrementa
    * `used_count`). Lanza si el código no es válido. Solo percentage/fixed.
@@ -199,6 +319,7 @@ export class PromotionsService {
     code: string,
     monthlyPrice: number,
     unitId: string,
+    billingIntervalMonths = 1,
   ): Promise<{
     discountAmount: number;
     discountReason: string;
@@ -218,6 +339,14 @@ export class PromotionsService {
       throw new ConflictException({
         code: `promotion_${check}`,
         message: this.reasonMessage(check),
+      });
+    }
+    // Los meses gratis se aplican a las cuotas mensuales: con un pago semestral
+    // o anual no llegarían nunca.
+    if (promo.discountType === 'free_months' && billingIntervalMonths > 1) {
+      throw new BadRequestException({
+        code: 'promotion_not_with_prepay',
+        message: this.reasonMessage('not_with_prepay'),
       });
     }
     // Claim ATÓMICO del uso: el increment condicionado a `usedCount < maxUses`
@@ -256,6 +385,38 @@ export class PromotionsService {
     };
   }
 
+  /**
+   * Devuelve el uso de la promoción de un contrato que se cancela sin haber
+   * llegado a pagar nada (un borrador o una reserva que caducó): el código
+   * vuelve a valer y la oferta de un trastero sigue en pie.
+   */
+  async releaseForContractInTx(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    contractId: string,
+  ): Promise<void> {
+    const contract = await tx.contract.findFirst({
+      where: { id: contractId, tenantId, promotionId: { not: null } },
+      select: { promotionId: true },
+    });
+    if (!contract?.promotionId) return;
+    const paid = await tx.invoice.count({
+      where: {
+        tenantId,
+        contractId,
+        OR: [
+          { amountPaid: { gt: 0 } },
+          { status: { in: ['paid', 'refunded', 'partially_refunded'] } },
+        ],
+      },
+    });
+    if (paid > 0) return;
+    await tx.promotion.updateMany({
+      where: { id: contract.promotionId, usedCount: { gt: 0 } },
+      data: { usedCount: { decrement: 1 } },
+    });
+  }
+
   // ---- ofertas de un trastero concreto (las crea el staff a mano) ----
 
   /** Ofertas activas de los trasteros indicados (todas si no se indican). */
@@ -279,18 +440,23 @@ export class PromotionsService {
       .filter((o): o is UnitOfferDto => o !== null && (!wanted || wanted.has(o.unitId)));
   }
 
-  async createUnitOffer(tenantId: string, input: CreateUnitOfferInput): Promise<UnitOfferDto> {
+  async createUnitOffer(
+    tenantId: string,
+    input: CreateUnitOfferInput,
+    actor: { userId?: string | null; facilityScope?: FacilityScope } = {},
+  ): Promise<UnitOfferDto> {
     const unit = await this.prisma.withTenant(
       (tx) =>
         tx.unit.findFirst({
           where: { id: input.unitId, tenantId },
-          select: { id: true, code: true, status: true },
+          select: { id: true, code: true, status: true, facilityId: true },
         }),
       tenantId,
     );
     if (!unit) {
       throw new NotFoundException({ code: 'unit_not_found', message: 'Trastero no encontrado' });
     }
+    assertFacilityAllowed(actor.facilityScope, unit.facilityId);
     if (unit.status !== 'available') {
       throw new BadRequestException({
         code: 'unit_not_available',
@@ -328,11 +494,31 @@ export class PromotionsService {
         }),
       tenantId,
     );
+    await this.audit.write({
+      tenantId,
+      userId: actor.userId ?? null,
+      action: 'promotion.unit_offer_created',
+      entityType: 'Promotion',
+      entityId: created.id,
+      changes: { unitCode: unit.code, freeMonths: input.freeMonths, validDays: input.validDays },
+    });
     return toActiveUnitOffer(created, now)!;
   }
 
   /** Retira la oferta activa de un trastero (la desactiva; no la borra). */
-  async cancelUnitOffer(tenantId: string, unitId: string): Promise<void> {
+  async cancelUnitOffer(
+    tenantId: string,
+    unitId: string,
+    actor: { userId?: string | null; facilityScope?: FacilityScope } = {},
+  ): Promise<void> {
+    if (actor.facilityScope) {
+      const unit = await this.prisma.withTenant(
+        (tx) =>
+          tx.unit.findFirst({ where: { id: unitId, tenantId }, select: { facilityId: true } }),
+        tenantId,
+      );
+      if (unit) assertFacilityAllowed(actor.facilityScope, unit.facilityId);
+    }
     const offers = await this.activeUnitOffers(tenantId, [unitId]);
     if (offers.length === 0) {
       throw new NotFoundException({
@@ -348,6 +534,14 @@ export class PromotionsService {
         }),
       tenantId,
     );
+    await this.audit.write({
+      tenantId,
+      userId: actor.userId ?? null,
+      action: 'promotion.unit_offer_cancelled',
+      entityType: 'Promotion',
+      entityId: offers[0]?.promotionId ?? null,
+      changes: { unitId },
+    });
   }
 
   // -------------------------------------------------------------------
@@ -399,6 +593,8 @@ export class PromotionsService {
         return 'La promoción ha caducado';
       case 'max_uses_reached':
         return 'La promoción ha alcanzado su límite de usos';
+      case 'not_with_prepay':
+        return 'Los meses gratis no se pueden combinar con el pago semestral o anual';
       default:
         return 'Código promocional no válido';
     }

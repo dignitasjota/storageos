@@ -14,9 +14,12 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { OptionalDateSelect } from '@/components/optional-date-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -43,7 +46,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import { formatDate } from '@/lib/format';
 import {
   useCreatePromotion,
@@ -63,7 +66,9 @@ export default function PromotionsPage() {
   const promotions = usePromotions();
   const update = useUpdatePromotion();
   const remove = useDeletePromotion();
-  const canManage = useHasPermission('promotions:manage');
+  // Valen para todo el negocio: las gestiona quien ve todos los locales.
+  const companyWide = useCompanyWide();
+  const canManage = useHasPermission('promotions:manage') && companyWide;
 
   async function toggleActive(p: PromotionDto) {
     try {
@@ -73,10 +78,23 @@ export default function PromotionsPage() {
     }
   }
 
+  async function toggleWeb(p: PromotionDto) {
+    try {
+      await update.mutateAsync({ id: p.id, input: { announceOnWeb: !p.announceOnWeb } });
+      toast.success(
+        p.announceOnWeb
+          ? 'Ya no se anuncia en tu web.'
+          : 'Se anuncia en tu web y su código vale en la reserva online.',
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
   async function handleDelete(id: string) {
     if (
       !(await ask({
-        title: '¿Eliminar esta promoción? No afecta a contratos que ya la usaron.',
+        title: '¿Eliminar esta promoción? Si ya se ha usado no se puede borrar: desactívala.',
         destructive: true,
       }))
     )
@@ -135,6 +153,26 @@ export default function PromotionsPage() {
         ),
     },
     {
+      id: 'web',
+      header: 'En la web',
+      cell: ({ row }) =>
+        canManage ? (
+          <button
+            type="button"
+            onClick={() => toggleWeb(row.original)}
+            title="Anunciarla en tu web: su código valdrá en la reserva online"
+          >
+            <Badge variant={row.original.announceOnWeb ? 'default' : 'outline'}>
+              {row.original.announceOnWeb ? 'Anunciada' : 'No'}
+            </Badge>
+          </button>
+        ) : (
+          <Badge variant={row.original.announceOnWeb ? 'default' : 'outline'}>
+            {row.original.announceOnWeb ? 'Anunciada' : 'No'}
+          </Badge>
+        ),
+    },
+    {
       id: 'actions',
       header: '',
       cell: ({ row }) =>
@@ -161,19 +199,30 @@ export default function PromotionsPage() {
           <Link href="/coupons" className="underline">
             cupones
           </Link>
-          .
+          . La que marques «En la web» se anuncia en tu web y su código vale en la reserva online;
+          las demás las aplica el equipo.
         </p>
+        {!companyWide && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Las promociones valen para todo el negocio: las crea y cambia quien ve todos los
+            locales.
+          </p>
+        )}
       </div>
 
-      <DataTable
-        columns={columns}
-        data={promotions.data ?? []}
-        isLoading={promotions.isLoading}
-        searchPlaceholder="Buscar por código o nombre..."
-        guide="promociones"
-        emptyText="Una promoción descuenta todas las cuotas del contrato en el que se aplica."
-        toolbarRight={canManage ? <CreatePromotionDialog /> : null}
-      />
+      {promotions.isError ? (
+        <SectionError onRetry={() => void promotions.refetch()} />
+      ) : (
+        <DataTable
+          columns={columns}
+          data={promotions.data ?? []}
+          isLoading={promotions.isLoading}
+          searchPlaceholder="Buscar por código o nombre..."
+          guide="promociones"
+          emptyText="Una promoción descuenta todas las cuotas del contrato en el que se aplica."
+          toolbarRight={canManage ? <CreatePromotionDialog /> : null}
+        />
+      )}
     </div>
   );
 }
@@ -190,6 +239,7 @@ function CreatePromotionDialog() {
       discountValue: 10,
       appliesTo: {},
       isActive: true,
+      announceOnWeb: false,
     },
   });
 
@@ -322,31 +372,44 @@ function CreatePromotionDialog() {
                 </FormItem>
               )}
             />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="promo-from">Válida desde (opcional)</Label>
-                <Input
-                  id="promo-from"
-                  type="date"
-                  value={fromDay}
-                  onChange={(e) => setFromDay(e.target.value)}
-                />
+                <Label>Válida desde (opcional)</Label>
+                <OptionalDateSelect value={fromDay} onChange={setFromDay} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="promo-until">Válida hasta (opcional)</Label>
-                <Input
-                  id="promo-until"
-                  type="date"
-                  value={untilDay}
-                  onChange={(e) => setUntilDay(e.target.value)}
-                />
+                <Label>Válida hasta (opcional)</Label>
+                <OptionalDateSelect value={untilDay} onChange={setUntilDay} />
               </div>
             </div>
             {form.watch('discountType') === 'free_months' && (
               <p className="text-xs text-muted-foreground">
-                Los meses gratis se aplican a las primeras facturas mensuales del contrato.
+                Los meses gratis se aplican a las primeras facturas mensuales del contrato. No se
+                pueden combinar con el pago semestral o anual.
               </p>
             )}
+            <FormField
+              control={form.control}
+              name="announceOnWeb"
+              render={({ field }) => (
+                <FormItem className="flex items-start gap-2 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(v) => field.onChange(v === true)}
+                      className="mt-0.5"
+                    />
+                  </FormControl>
+                  <div>
+                    <FormLabel className="font-normal">Anunciarla en tu web</FormLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Sale en un aviso de tu web con su código, que valdrá también en la reserva
+                      online. Sin marcar, solo la aplica el equipo al crear un contrato.
+                    </p>
+                  </div>
+                </FormItem>
+              )}
+            />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancelar

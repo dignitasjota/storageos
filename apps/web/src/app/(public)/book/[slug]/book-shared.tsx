@@ -239,7 +239,9 @@ export function BookPageBody({
           unitTypeId,
           startDate: preOpening ? todayInSpain() : startDate,
           customer: form,
-          ...(referralCode.trim() ? { referralCode: referralCode.trim() } : {}),
+          ...(data?.referralEnabled && referralCode.trim()
+            ? { referralCode: referralCode.trim() }
+            : {}),
           months: preOpening ? 1 : months,
           ...(couponValid && couponCode ? { couponCode } : {}),
           ...(holdToken ? { holdToken } : {}),
@@ -572,15 +574,17 @@ export function BookPageBody({
                   />
                   <FieldError message={err('documentNumber')} />
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="book-referral">{t('referralLabel')}</Label>
-                  <Input
-                    id="book-referral"
-                    value={referralCode}
-                    onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
-                    placeholder={t('referralPlaceholder')}
-                  />
-                </div>
+                {data.referralEnabled && (
+                  <div className="space-y-1">
+                    <Label htmlFor="book-referral">{t('referralLabel')}</Label>
+                    <Input
+                      id="book-referral"
+                      value={referralCode}
+                      onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                      placeholder={t('referralPlaceholder')}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Honeypot anti-bot: oculto para humanos. */}

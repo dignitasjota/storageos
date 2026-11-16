@@ -25,7 +25,9 @@ export function FirstPaymentSummary({
   const t = useTranslations('publicWeb.book');
   const vat = quote.rentTotalWithVat - quote.rentTotal;
   const monthlyWithVat = quote.monthlyPrice * (1 + quote.vatRate / 100);
-  const code = quote.coupon?.valid ? quote.coupon.code : null;
+  const promo = quote.promotion ?? null;
+  // Con promoción, el «cupón» del resumen es ella: no descuenta el primer pago.
+  const code = quote.coupon?.valid && !promo ? quote.coupon.code : null;
   const fm = quote.firstMonth;
   const labels = fm ? firstMonthLabels(fm, intlLocaleFor(locale)) : null;
   const row = (label: string, value: string, strong = false) => (
@@ -37,6 +39,17 @@ export function FirstPaymentSummary({
   return (
     <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-sm">
       <p className="font-medium">{t('summaryTitle')}</p>
+      {promo && (
+        <p className="text-xs text-green-700 dark:text-green-400">
+          {promo.freeMonths > 0
+            ? t('summaryPromotionFree', { code: promo.code, count: promo.freeMonths })
+            : t('summaryPromotion', {
+                code: promo.code,
+                price: money(promo.listPrice - promo.monthlyDiscount, locale),
+                list: money(promo.listPrice, locale),
+              })}
+        </p>
+      )}
       {quote.preOpening ? (
         row(t('summaryPreOpeningRent'), money(quote.rentSubtotal, locale))
       ) : fm && labels ? (

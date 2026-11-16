@@ -44,7 +44,7 @@ describe('Referrals (e2e)', () => {
     return consume.body.accessToken as string;
   }
 
-  it('flujo completo: alta con código → firma → conversión + recompensa', async () => {
+  it('flujo completo: alta con código → firma → primer pago → conversión + recompensa', async () => {
     const owner = await registerVerifiedUser(app, 'referrals');
 
     // Activar el programa (recompensa 15€ fijos).
@@ -126,6 +126,36 @@ describe('Referrals (e2e)', () => {
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(sign.status).toBe(200);
 
+    // Firmar no basta: la recompensa se gana cuando el recomendado paga.
+    await sleep(600);
+    const afterSign = await request(app.getHttpServer())
+      .get('/referrals')
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(afterSign.body[0].status).toBe('pending');
+    expect(afterSign.body[0].reward).toBeNull();
+
+    // Su primera factura, emitida y cobrada.
+    await app.get(BillingJobsService).processGenerateRecurring({
+      tenantId: owner.tenantId,
+      periodStart: '2026-07-01',
+      periodEnd: '2026-07-31',
+    });
+    const referredInvoices = await request(app.getHttpServer())
+      .get('/invoices')
+      .query({ customerId: referredId })
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    const first = referredInvoices.body[0] as { id: string; total: number };
+    expect(first).toBeTruthy();
+    await request(app.getHttpServer())
+      .post(`/invoices/${first.id}/issue`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/invoices/${first.id}/mark-paid`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ amount: Number(first.total), methodType: 'cash' })
+      .expect(200);
+
     // La conversión es async (listener): reintentar.
     type Row = {
       status: string;
@@ -145,6 +175,13 @@ describe('Referrals (e2e)', () => {
     // La recompensa es un descuento en la siguiente factura (ya no un código).
     expect(converted?.rewardCode).toBeNull();
     expect(converted?.reward).toMatchObject({ type: 'fixed', value: 15, appliedAt: null });
+    // El equipo recibe el aviso.
+    const notes = await request(app.getHttpServer())
+      .get('/notifications')
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(
+      (notes.body.items as { type: string }[]).some((n) => n.type === 'referral.converted'),
+    ).toBe(true);
     // El que recomienda recibe un correo con su recompensa.
     let rewardMail = 0;
     for (let i = 0; i < 20 && rewardMail === 0; i++) {

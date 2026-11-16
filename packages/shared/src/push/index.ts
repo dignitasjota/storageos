@@ -48,6 +48,7 @@ export const STAFF_PUSH_TYPES: Record<string, string> = {
   'unit_request.created': 'Un inquilino quiere otro trastero',
   'unit_change.requested': 'Un inquilino pide cambiar de trastero',
   'customer.offer_interested': 'A un inquilino le interesa una oferta',
+  'review.low_score': 'Un inquilino os ha puesto una nota baja',
   'payment_plan.broken': 'Un plan de pagos se ha incumplido',
   'collections.long_overdue': 'Un impago lleva tiempo sin resolverse',
   'collections.case_opened': 'Se ha abierto un expediente de impago',

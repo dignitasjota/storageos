@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import type { ReferralDto } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -32,10 +33,33 @@ const STATUS: Record<
   ReferralDto['status'],
   { label: string; variant: 'default' | 'secondary' | 'outline' }
 > = {
-  pending: { label: 'Pendiente', variant: 'secondary' },
-  converted: { label: 'Convertido', variant: 'default' },
-  cancelled: { label: 'Cancelado', variant: 'outline' },
+  pending: { label: 'Pendiente de su primer pago', variant: 'secondary' },
+  converted: { label: 'Ya es cliente', variant: 'default' },
+  cancelled: { label: 'No llegó a ser cliente', variant: 'outline' },
 };
+
+/** Qué pasa con la recompensa de quien recomendó. */
+function rewardText(r: ReferralDto): { main: string; note: string } | null {
+  const reward = r.reward;
+  if (!reward) return null;
+  const main = reward.type === 'percentage' ? `${reward.value} %` : formatEur(reward.value);
+  if (reward.appliedAt) {
+    return {
+      main,
+      note: `descontado${reward.invoiceNumber ? ` en ${reward.invoiceNumber}` : ''}`,
+    };
+  }
+  if (!r.referrerActive) {
+    return { main, note: 'sin descontar: quien recomendó ya no tiene contrato' };
+  }
+  if (reward.type === 'fixed' && reward.appliedAmount > 0) {
+    return {
+      main,
+      note: `descontados ${formatEur(reward.appliedAmount)}; el resto, en su próxima factura`,
+    };
+  }
+  return { main, note: 'en su próxima factura' };
+}
 
 export default function ReferralsPage() {
   const referrals = useReferrals();
@@ -47,24 +71,28 @@ export default function ReferralsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Referidos</h1>
         <p className="text-sm text-muted-foreground">
-          Tus inquilinos recomiendan y, al firmar el referido, el que recomienda recibe un descuento
-          en su siguiente factura.
+          Tus inquilinos recomiendan y, cuando el recomendado paga su primera factura, el que
+          recomienda recibe un descuento en su siguiente factura.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <StatCard title="Referidos" value={stats.data?.total ?? null} loading={stats.isLoading} />
-        <StatCard
-          title="Pendientes"
-          value={stats.data?.pending ?? null}
-          loading={stats.isLoading}
-        />
-        <StatCard
-          title="Convertidos"
-          value={stats.data?.converted ?? null}
-          loading={stats.isLoading}
-        />
-      </div>
+      {stats.isError ? (
+        <SectionError onRetry={() => void stats.refetch()} />
+      ) : (
+        <div className="grid grid-cols-3 gap-3">
+          <StatCard title="Referidos" value={stats.data?.total ?? null} loading={stats.isLoading} />
+          <StatCard
+            title="Pendientes"
+            value={stats.data?.pending ?? null}
+            loading={stats.isLoading}
+          />
+          <StatCard
+            title="Ya son clientes"
+            value={stats.data?.converted ?? null}
+            loading={stats.isLoading}
+          />
+        </div>
+      )}
 
       {canManageSettings && <ReferralSettingsCard />}
 
@@ -74,6 +102,8 @@ export default function ReferralsPage() {
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
+        ) : referrals.isError ? (
+          <SectionError onRetry={() => void referrals.refetch()} />
         ) : (referrals.data ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">Aún no hay referidos.</p>
         ) : (
@@ -81,8 +111,8 @@ export default function ReferralsPage() {
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
                 <tr>
-                  <th className="px-3 py-2">Referidor</th>
-                  <th className="px-3 py-2">Referido</th>
+                  <th className="px-3 py-2">Quién recomienda</th>
+                  <th className="px-3 py-2">Recomendado</th>
                   <th className="px-3 py-2">Estado</th>
                   <th className="px-3 py-2">Recompensa</th>
                   <th className="px-3 py-2">Fecha</th>
@@ -91,6 +121,7 @@ export default function ReferralsPage() {
               <tbody>
                 {(referrals.data ?? []).map((r) => {
                   const s = STATUS[r.status];
+                  const reward = rewardText(r);
                   return (
                     <tr key={r.id} className="border-b last:border-b-0">
                       <td className="px-3 py-2 font-medium">{r.referrerName}</td>
@@ -99,16 +130,10 @@ export default function ReferralsPage() {
                         <Badge variant={s.variant}>{s.label}</Badge>
                       </td>
                       <td className="px-3 py-2 text-xs">
-                        {r.reward ? (
+                        {reward ? (
                           <>
-                            {r.reward.type === 'percentage'
-                              ? `${r.reward.value} %`
-                              : formatEur(r.reward.value)}{' '}
-                            <span className="text-muted-foreground">
-                              {r.reward.appliedAt
-                                ? `· aplicado${r.reward.invoiceNumber ? ` en ${r.reward.invoiceNumber}` : ''}`
-                                : '· en su próxima factura'}
-                            </span>
+                            {reward.main}{' '}
+                            <span className="text-muted-foreground">· {reward.note}</span>
                           </>
                         ) : (
                           <span className="font-mono">{r.rewardCode ?? '—'}</span>
@@ -199,9 +224,9 @@ function ReferralSettingsCard() {
           <div className="space-y-0.5">
             <Label htmlFor="ref-enabled">Activar el programa de referidos</Label>
             <p className="text-xs text-muted-foreground">
-              Cada inquilino obtiene un código. Al firmar el referido, al que recomienda se le
-              descuenta la recompensa de su siguiente factura (un porcentaje sobre su cuota o un
-              importe fijo).
+              Cada inquilino obtiene un código. Cuando el recomendado paga su primera factura, al
+              que recomienda se le descuenta la recompensa de su siguiente factura: un porcentaje de
+              su cuota o un importe fijo (si es mayor que la cuota, el resto pasa a las siguientes).
             </p>
           </div>
         </div>
@@ -225,6 +250,7 @@ function ReferralSettingsCard() {
             <Input
               type="number"
               min={0}
+              max={rewardType === 'percentage' ? 100 : undefined}
               step="0.01"
               className="w-28"
               value={rewardValue}

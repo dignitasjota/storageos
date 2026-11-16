@@ -44,13 +44,13 @@ export class ReviewsController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ReviewListQueryDto,
   ): Promise<ReviewListDto> {
-    return this.reviews.list(user.tenantId, query);
+    return this.reviews.list(user.tenantId, query, user.facilityScope ?? null);
   }
 
   @RequirePermission('reviews:read')
   @Get('stats')
   stats(@CurrentUser() user: AuthenticatedUser): Promise<ReviewStatsDto> {
-    return this.reviews.stats(user.tenantId);
+    return this.reviews.stats(user.tenantId, user.facilityScope ?? null);
   }
 
   @RequirePermission('reviews:write')
@@ -59,27 +59,43 @@ export class ReviewsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: RequestReviewDto,
   ): Promise<RequestReviewResultDto> {
-    return this.reviews.request({ tenantId: user.tenantId, input: body });
+    return this.reviews.request({
+      tenantId: user.tenantId,
+      input: body,
+      facilityScope: user.facilityScope ?? null,
+    });
   }
 
-  /** Publica o retira la valoración como testimonio en la web pública. */
+  /** Vuelve a enviar una valoración sin responder (enlace nuevo de 30 días). */
+  @RequirePermission('reviews:write')
+  @Post(':id/resend')
+  @HttpCode(HttpStatus.OK)
+  resend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ReviewDto> {
+    return this.reviews.resend(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** Pide al autor de una valoración publicada que la deje también en Google. */
   @RequirePermission('reviews:write')
   @Post(':id/google-request')
-  @RequirePermission('reviews:write')
   @HttpCode(HttpStatus.OK)
   requestGoogle(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<ReviewDto> {
-    return this.reviews.requestGoogleReview(user.tenantId, id);
+    return this.reviews.requestGoogleReview(user.tenantId, id, user.facilityScope ?? null);
   }
 
+  /** Publica o retira la valoración como testimonio en la web pública. */
+  @RequirePermission('reviews:write')
   @Patch(':id/web')
   publish(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: PublishReviewDto,
   ): Promise<ReviewDto> {
-    return this.reviews.setPublished(user.tenantId, id, body.published);
+    return this.reviews.setPublished(user.tenantId, id, body.published, user.facilityScope ?? null);
   }
 }

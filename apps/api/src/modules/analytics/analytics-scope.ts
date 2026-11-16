@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { COMMITTED_CONTRACT_WHERE } from '../../common/online-booking';
 import { STARTED_CONTRACT_WHERE } from '../../common/pre-opening';
 
 import type { Prisma } from '@storageos/database';
@@ -71,14 +72,6 @@ export function leadWhere(scope: AnalyticsScope): Prisma.LeadWhereInput {
 
 /** El inquilino de prueba de la puesta en marcha no es un cliente: fuera de las cifras. */
 export const REAL_CONTRACT_WHERE = { customer: { isTest: false } } as const;
-
-/**
- * Una reserva online cuenta cuando se paga: hasta entonces solo retiene el
- * trastero. El plazo se limpia tarde, así que se mira también la factura.
- */
-const COMMITTED_CONTRACT_WHERE: Prisma.ContractWhereInput = {
-  OR: [{ firstPaymentDeadline: null }, { invoices: { some: { status: 'paid', kind: 'invoice' } } }],
-};
 
 /** Contratos que han empezado de verdad, vivos o ya terminados. */
 export const SIGNED_CONTRACT_WHERE: Prisma.ContractWhereInput = {
