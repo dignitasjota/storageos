@@ -421,6 +421,13 @@ export class WebChatService {
     const base = {
       contact: this.contactOf(tenant, landing),
       handoffEnabled: tenant.webChatHandoffEnabled,
+      bookingsEnabled:
+        tenant.webChatBookingsEnabled &&
+        !!landing &&
+        landing.facilities.length > 0 &&
+        (await this.bookingReadyCache.get(tenant.id, async () =>
+          bookingReady(await tenantReadiness(this.admin, tenant.id)),
+        )),
       suggestions: await this.suggestions(tenant.id, landing, locale),
     };
     const conversation = await this.admin.webChatConversation.findUnique({

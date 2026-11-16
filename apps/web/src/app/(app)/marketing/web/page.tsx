@@ -13,6 +13,7 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -20,6 +21,14 @@ import {
 } from 'recharts';
 
 import { Ga4Section } from './ga4-section';
+import {
+  AnnotationsCard,
+  BookingFunnelCard,
+  ContactHoursCard,
+  DemandCard,
+  StaffVisitsNote,
+  visitorsSplit,
+} from './insights-sections';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -80,8 +89,16 @@ function Kpi({
   );
 }
 
-function VisitsChart({ data }: { data: WebAnalyticsDto['daily'] }) {
+function VisitsChart({
+  data,
+  marks = [],
+}: {
+  data: WebAnalyticsDto['daily'];
+  /** Días con notas (líneas en la gráfica). */
+  marks?: string[];
+}) {
   const points = data.map((d) => ({ ...d, label: dayLabel(d.date) }));
+  const markLabels = [...new Set(marks)].filter((m) => data.some((d) => d.date === m));
   return (
     <div className="h-56 w-full">
       <ResponsiveContainer
@@ -134,6 +151,14 @@ function VisitsChart({ data }: { data: WebAnalyticsDto['daily'] }) {
             fill="url(#visitsFill)"
             activeDot={{ r: 4 }}
           />
+          {markLabels.map((m) => (
+            <ReferenceLine
+              key={m}
+              x={dayLabel(m)}
+              stroke="hsl(var(--muted-foreground))"
+              strokeDasharray="3 3"
+            />
+          ))}
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -160,6 +185,7 @@ function SourcesTable({
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="px-2 py-2 font-medium">Origen</th>
+            <th className="px-2 py-2 font-medium">Entran por</th>
             <th className="px-2 py-2 text-right font-medium">Visitantes</th>
             <th className="px-2 py-2 text-right font-medium">Clics en llamar</th>
             <th className="px-2 py-2 text-right font-medium">Clics en WhatsApp</th>
@@ -179,6 +205,9 @@ function SourcesTable({
           {rows.map((r) => (
             <tr key={`${r.source}-${r.paidTraffic}`} className="border-b last:border-0">
               <td className="px-2 py-2 font-medium">{sourceLabel(r.source, r.paidTraffic)}</td>
+              <td className="max-w-[10rem] truncate px-2 py-2 font-mono text-xs text-muted-foreground">
+                {r.entryPath ?? '—'}
+              </td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.visitors)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.calls)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.whatsapp)}</td>
@@ -289,13 +318,23 @@ export default function WebAnalyticsPage() {
               <CardTitle className="text-base">Visitantes por día</CardTitle>
               <CardDescription>
                 {int(t.pageViews)} {t.pageViews === 1 ? 'página vista' : 'páginas vistas'} ·{' '}
-                {int(t.visitors)} {t.visitors === 1 ? 'visitante' : 'visitantes'}
+                {int(t.visitors)} {t.visitors === 1 ? 'visitante' : 'visitantes'} (
+                {visitorsSplit(data)})
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <VisitsChart data={data.daily} />
+              <VisitsChart data={data.daily} marks={data.annotations.map((a) => a.day)} />
             </CardContent>
           </Card>
+
+          <AnnotationsCard annotations={data.annotations} />
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <BookingFunnelCard funnel={data.bookingFunnel} />
+            <DemandCard demand={data.demand} />
+          </div>
+
+          <ContactHoursCard hours={data.contactHours} />
 
           <Card>
             <CardHeader>
@@ -411,8 +450,9 @@ export default function WebAnalyticsPage() {
             cookies o «No medir mis visitas» en tu política de cookies no cuenta, así que puede no
             coincidir con Google Analytics. Las visitas de robots no cuentan. El origen se recuerda
             30 días: si alguien llega desde Instagram y reserva una semana después, la reserva
-            cuenta para Instagram.
+            cuenta para Instagram. Los visitantes de cada página se cuentan por día.
           </p>
+          <StaffVisitsNote />
         </>
       )}
 

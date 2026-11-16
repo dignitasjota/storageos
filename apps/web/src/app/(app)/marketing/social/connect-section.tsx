@@ -2,7 +2,8 @@
 
 import { type SocialPageOptionDto, type SocialSettingsDto } from '@storageos/shared';
 import { Loader2, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -11,32 +12,78 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useSocialAction } from '@/lib/marketing/hooks';
+import { useSocialAction, useSocialOauthStart } from '@/lib/marketing/hooks';
+
+const OAUTH_ERRORS: Record<string, string> = {
+  state: 'La conexión con Facebook ha caducado: vuelve a intentarlo.',
+  cancelled: 'Has cancelado la conexión con Facebook.',
+  exchange: 'Facebook no ha dado acceso. Vuelve a intentarlo o pega el token.',
+  unavailable: 'La conexión con un botón no está disponible: pega el token.',
+};
 
 function sinceLabel(iso: string | null): string {
   if (!iso) return 'nunca';
   return new Date(iso).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-/** Pegar el token de Meta y, si da acceso a varias páginas, elegir una. */
-function ConnectForm() {
+/**
+ * Conectar con Facebook (botón, si la plataforma tiene app de Meta) o pegando
+ * el token; si da acceso a varias páginas, elegir una.
+ */
+function ConnectForm({ oauthAvailable }: { oauthAvailable: boolean }) {
   const canManage = useHasPermission('marketing:manage');
   const action = useSocialAction();
+  const start = useSocialOauthStart();
+  const router = useRouter();
+  const params = useSearchParams();
   const [token, setToken] = useState('');
+  const [oauthKey, setOauthKey] = useState<string | null>(null);
+  const [showToken, setShowToken] = useState(!oauthAvailable);
   const [pages, setPages] = useState<SocialPageOptionDto[] | null>(null);
+  const handled = useRef(false);
 
-  async function connect(pageId?: string) {
+  async function connect(pageId?: string, key = oauthKey) {
     try {
-      await action.mutateAsync({ accessToken: token.trim(), ...(pageId ? { pageId } : {}) });
+      await action.mutateAsync({
+        ...(key ? { oauthKey: key } : { accessToken: token.trim() }),
+        ...(pageId ? { pageId } : {}),
+      });
       toast.success('Instagram y Facebook conectados');
       setPages(null);
       setToken('');
+      setOauthKey(null);
     } catch (err) {
       if (err instanceof ApiError && err.body.code === 'social_choose_page') {
         setPages((err.body.details as { pages: SocialPageOptionDto[] }).pages);
         return;
       }
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo conectar');
+    }
+  }
+
+  // Vuelta de Facebook: `?oauth=<clave>` (o `?oauth_error=`).
+  useEffect(() => {
+    if (handled.current) return;
+    const key = params.get('oauth');
+    const error = params.get('oauth_error');
+    if (!key && !error) return;
+    handled.current = true;
+    router.replace('/marketing/social');
+    if (error) {
+      toast.error(OAUTH_ERRORS[error] ?? 'No se pudo conectar con Facebook.');
+      return;
+    }
+    setOauthKey(key);
+    void connect(undefined, key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
+
+  async function startOauth() {
+    try {
+      const { url } = await start.mutateAsync();
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo abrir Facebook');
     }
   }
 
@@ -50,36 +97,69 @@ function ConnectForm() {
 
   return (
     <div className="space-y-4 text-sm">
-      <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
-        <li>
-          Tu cuenta de Instagram debe ser <strong>profesional</strong> (empresa o creador) y estar
-          vinculada a tu página de Facebook.
-        </li>
-        <li>
-          En <strong>Meta Business Suite → Configuración del negocio → Usuarios del sistema</strong>
-          , crea un usuario del sistema, dale acceso a tu página y genera un token con los permisos{' '}
-          <code className="text-xs">pages_show_list</code>,{' '}
-          <code className="text-xs">pages_read_engagement</code>,{' '}
-          <code className="text-xs">read_insights</code>,{' '}
-          <code className="text-xs">instagram_basic</code> e{' '}
-          <code className="text-xs">instagram_manage_insights</code>. Ese token no caduca.
-        </li>
-        <li>Pégalo aquí. Lo guardamos cifrado y solo lo usamos para leer tus estadísticas.</li>
-      </ol>
-      <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
-        <Input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Token de Meta"
-          autoComplete="off"
-          aria-label="Token de Meta"
-        />
-        <Button onClick={() => connect()} disabled={token.trim().length < 20 || action.isPending}>
-          {action.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-          Conectar
-        </Button>
-      </div>
+      {oauthAvailable && (
+        <div className="space-y-2">
+          <Button onClick={startOauth} disabled={start.isPending || action.isPending}>
+            {(start.isPending || (action.isPending && !!oauthKey)) && (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            )}
+            Conectar con Facebook
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Entras con tu cuenta de Facebook y eliges la página. Tu Instagram tiene que ser
+            profesional y estar vinculado a esa página.{' '}
+            {!showToken && (
+              <button
+                type="button"
+                className="text-primary hover:underline"
+                onClick={() => setShowToken(true)}
+              >
+                Prefiero pegar un token
+              </button>
+            )}
+          </p>
+        </div>
+      )}
+      {showToken && (
+        <>
+          <ol className="list-decimal space-y-2 pl-5 text-muted-foreground">
+            <li>
+              Tu cuenta de Instagram debe ser <strong>profesional</strong> (empresa o creador) y
+              estar vinculada a tu página de Facebook.
+            </li>
+            <li>
+              En{' '}
+              <strong>
+                Meta Business Suite → Configuración del negocio → Usuarios del sistema
+              </strong>
+              , crea un usuario del sistema, dale acceso a tu página y genera un token con los
+              permisos <code className="text-xs">pages_show_list</code>,{' '}
+              <code className="text-xs">pages_read_engagement</code>,{' '}
+              <code className="text-xs">read_insights</code>,{' '}
+              <code className="text-xs">instagram_basic</code> e{' '}
+              <code className="text-xs">instagram_manage_insights</code>. Ese token no caduca.
+            </li>
+            <li>Pégalo aquí. Lo guardamos cifrado y solo lo usamos para leer tus estadísticas.</li>
+          </ol>
+          <div className="flex max-w-xl flex-col gap-2 sm:flex-row">
+            <Input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Token de Meta"
+              autoComplete="off"
+              aria-label="Token de Meta"
+            />
+            <Button
+              onClick={() => connect(undefined, null)}
+              disabled={token.trim().length < 20 || action.isPending}
+            >
+              {action.isPending && !oauthKey && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Conectar
+            </Button>
+          </div>
+        </>
+      )}
       {pages && (
         <div className="space-y-2 rounded-md border p-3">
           <p className="font-medium">El token da acceso a varias páginas: ¿cuál conectamos?</p>
@@ -196,7 +276,11 @@ export function SocialConnectSection({
               : ''}
           </p>
         )}
-        {hasFeature && (!settings.connected || settings.status === 'error') && <ConnectForm />}
+        {hasFeature && (!settings.connected || settings.status === 'error') && (
+          <Suspense fallback={null}>
+            <ConnectForm oauthAvailable={settings.oauthAvailable} />
+          </Suspense>
+        )}
       </CardContent>
     </Card>
   );

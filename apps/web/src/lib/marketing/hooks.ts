@@ -10,9 +10,12 @@ import type {
   Ga4ReportDto,
   Ga4SettingsDto,
   GoogleAdsSettingsDto,
+  MarketingAnnotationDto,
+  MarketingAttributionModel,
   MarketingChannelDto,
   MarketingPerformanceDto,
   MarketingSummaryDto,
+  MarketingUnassignedSourceDto,
   MetaAdsSettingsDto,
   ConnectSocialInput,
   SocialReportDto,
@@ -30,18 +33,28 @@ import { apiFetch } from '@/lib/auth/api';
 
 const key = ['marketing', 'channels'] as const;
 
-export function useMarketingChannels(status?: string) {
-  const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
+export function useMarketingChannels(status?: string, facilityId?: string | null) {
+  const qs = new URLSearchParams();
+  if (status) qs.set('status', status);
+  if (facilityId) qs.set('facilityId', facilityId);
+  const suffix = qs.toString() ? `?${qs}` : '';
   return useQuery({
-    queryKey: [...key, status ?? 'all'],
+    queryKey: [...key, status ?? 'all', facilityId ?? 'all'],
     queryFn: () => apiFetch<MarketingChannelDto[]>(`/marketing/channels${suffix}`),
   });
 }
 
-export function useMarketingPerformance(filters: { from?: string; to?: string }) {
+export function useMarketingPerformance(filters: {
+  from?: string;
+  to?: string;
+  model?: MarketingAttributionModel;
+  facilityId?: string | null;
+}) {
   const qs = new URLSearchParams();
   if (filters.from) qs.set('from', filters.from);
   if (filters.to) qs.set('to', filters.to);
+  if (filters.model && filters.model !== 'first') qs.set('model', filters.model);
+  if (filters.facilityId) qs.set('facilityId', filters.facilityId);
   const suffix = qs.toString() ? `?${qs}` : '';
   return useQuery({
     queryKey: ['marketing', 'performance', filters],
@@ -49,14 +62,28 @@ export function useMarketingPerformance(filters: { from?: string; to?: string })
   });
 }
 
+/** Orígenes con visitas o contactos que no recoge ningún canal. */
+export function useUnassignedSources(days = 90) {
+  return useQuery({
+    queryKey: [...key, 'unassigned', days],
+    queryFn: () =>
+      apiFetch<MarketingUnassignedSourceDto[]>(
+        `/marketing/channels/unassigned-sources?days=${days}`,
+      ),
+  });
+}
+
 const summaryKey = ['marketing', 'summary'] as const;
 
 /** Resumen de marketing de un mes (`YYYY-MM`; por defecto, el pasado). */
-export function useMarketingSummary(month: string | null) {
+export function useMarketingSummary(month: string | null, facilityId: string | null = null) {
+  const qs = new URLSearchParams();
+  if (month) qs.set('month', month);
+  if (facilityId) qs.set('facilityId', facilityId);
+  const suffix = qs.toString() ? `?${qs}` : '';
   return useQuery({
-    queryKey: [...summaryKey, month ?? 'last'],
-    queryFn: () =>
-      apiFetch<MarketingSummaryDto>(`/marketing/summary${month ? `?month=${month}` : ''}`),
+    queryKey: [...summaryKey, month ?? 'last', facilityId ?? 'all'],
+    queryFn: () => apiFetch<MarketingSummaryDto>(`/marketing/summary${suffix}`),
   });
 }
 
@@ -290,5 +317,34 @@ export function useTestMetaAds() {
   return useMutation({
     mutationFn: () =>
       apiFetch<AdPlatformTestResultDto>('/settings/marketing/meta-ads/test', { method: 'POST' }),
+  });
+}
+
+/** Notas en la gráfica de visitas (crear y borrar). */
+export function useMarketingAnnotation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      action: { kind: 'add'; day: string; text: string } | { kind: 'delete'; id: string },
+    ): Promise<MarketingAnnotationDto | null> => {
+      if (action.kind === 'add') {
+        return apiFetch<MarketingAnnotationDto>('/marketing/web-analytics/annotations', {
+          method: 'POST',
+          json: { day: action.day, text: action.text },
+        });
+      }
+      await apiFetch<void>(`/marketing/web-analytics/annotations/${action.id}`, {
+        method: 'DELETE',
+      });
+      return null;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['marketing', 'web-analytics'] }),
+  });
+}
+
+/** «Conectar con Facebook»: dirección de Meta a la que ir. */
+export function useSocialOauthStart() {
+  return useMutation({
+    mutationFn: () => apiFetch<{ url: string }>('/marketing/social/oauth/start'),
   });
 }

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { WebChatTry } from './web-chat-try';
+
 import type { OpeningHours } from '@storageos/shared';
 
 import { OpeningHoursEditor } from '@/components/opening-hours-editor';
@@ -232,6 +234,7 @@ export function WebChatCard() {
             </Button>
           </>
         )}
+        {s.available && <WebChatTry />}
       </CardContent>
     </Card>
   );

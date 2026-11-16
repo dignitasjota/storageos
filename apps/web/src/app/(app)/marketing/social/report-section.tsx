@@ -31,6 +31,24 @@ const NETWORK: Record<SocialNetwork, { label: string; color: string }> = {
   facebook: { label: 'Facebook', color: '#d97706' },
 };
 
+const WEEKDAY_NAMES = [
+  'los domingos',
+  'los lunes',
+  'los martes',
+  'los miércoles',
+  'los jueves',
+  'los viernes',
+  'los sábados',
+];
+
+const FORMAT_LABELS: Record<string, string> = {
+  IMAGE: 'Foto (Instagram)',
+  VIDEO: 'Vídeo o reel (Instagram)',
+  REELS: 'Reel (Instagram)',
+  CAROUSEL_ALBUM: 'Carrusel (Instagram)',
+  post: 'Publicación (Facebook)',
+};
+
 function dayLabel(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(y!, m! - 1, d!).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
@@ -196,8 +214,15 @@ function Report({ report }: { report: SocialReportDto }) {
       </p>
     );
   }
+  const pi = report.postInsights;
   return (
     <div className="space-y-4">
+      {report.dataUntil && report.dataUntil < report.to && (
+        <p className="text-xs text-muted-foreground">
+          Meta da los datos con uno o dos días de retraso: hay datos hasta el{' '}
+          {dayLabel(report.dataUntil)}.
+        </p>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         {report.networks.map((n) => (
           <NetworkCard key={n.network} n={n} compare={report.previousComplete} />
@@ -247,6 +272,66 @@ function Report({ report }: { report: SocialReportDto }) {
           </table>
         </CardContent>
       </Card>
+
+      {pi.posts > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Qué funciona en tus publicaciones</CardTitle>
+            <CardDescription>
+              {int(pi.posts)} {pi.posts === 1 ? 'publicación' : 'publicaciones'} en el periodo ·{' '}
+              {int(pi.interactions)} interacciones
+              {pi.engagementRate != null
+                ? ` · ${(pi.engagementRate * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} % de interacción sobre el alcance`
+                : ''}
+              {pi.linkClicks > 0 ? ` · ${int(pi.linkClicks)} clics al enlace (Facebook)` : ''}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {(pi.bestWeekday || pi.bestHour) && (
+              <p>
+                Mejor momento para publicar:{' '}
+                <strong>
+                  {[
+                    pi.bestWeekday ? WEEKDAY_NAMES[pi.bestWeekday.weekday] : null,
+                    pi.bestHour ? `hacia las ${pi.bestHour.hour}:00` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}
+                </strong>{' '}
+                <span className="text-muted-foreground">
+                  (las publicaciones de entonces tienen más interacción de media).
+                </span>
+              </p>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="px-2 py-2 font-medium">Formato</th>
+                    <th className="px-2 py-2 text-right font-medium">Publicaciones</th>
+                    <th className="px-2 py-2 text-right font-medium">Interacción media</th>
+                    <th className="px-2 py-2 text-right font-medium">Alcance medio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pi.formats.map((f) => (
+                    <tr key={f.format} className="border-b last:border-0">
+                      <td className="px-2 py-2">{FORMAT_LABELS[f.format] ?? f.format}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{int(f.posts)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">
+                        {f.avgInteractions.toLocaleString('es-ES', { maximumFractionDigits: 1 })}
+                      </td>
+                      <td className="px-2 py-2 text-right tabular-nums">
+                        {f.avgReach != null ? int(f.avgReach) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">
@@ -302,6 +387,10 @@ function Report({ report }: { report: SocialReportDto }) {
                       p.likes != null ? `${int(p.likes)} me gusta` : null,
                       p.comments != null ? `${int(p.comments)} comentarios` : null,
                       p.saves ? `${int(p.saves)} guardados` : null,
+                      p.linkClicks ? `${int(p.linkClicks)} clics al enlace` : null,
+                      p.engagementRate != null
+                        ? `${(p.engagementRate * 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} % de interacción`
+                        : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}

@@ -86,6 +86,8 @@ export interface PublicWebChatHistoryDto {
   waitingSince: string | null;
   /** El visitante puede pedir hablar con una persona. */
   handoffEnabled: boolean;
+  /** Se puede reservar desde el chat (formulario «Reservar aquí»). */
+  bookingsEnabled?: boolean;
   /** Preguntas para empezar (con los datos reales del negocio). */
   suggestions: string[];
   /** Ya dejó sus datos de contacto en esta conversación. */

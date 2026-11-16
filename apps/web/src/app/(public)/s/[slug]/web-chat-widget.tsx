@@ -12,11 +12,14 @@ import {
 } from '@storageos/shared';
 import {
   Bot,
+  CalendarCheck,
   Hand,
   Loader2,
   Mail,
   MessageCircle,
   Phone,
+  RotateCcw,
+  Ruler,
   Send,
   ThumbsDown,
   ThumbsUp,
@@ -27,6 +30,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { legalHref } from './i18n/messages';
+import { WebChatBookingForm } from './web-chat-booking-form';
 
 import { EmailTypoHint } from '@/components/email-typo-hint';
 import { currentTrafficSource, visitorId } from '@/lib/attribution';
@@ -180,6 +184,10 @@ export function WebChatWidget({
   const [now, setNow] = useState(() => Date.now());
   const [askContact, setAskContact] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [bookingsEnabled, setBookingsEnabled] = useState(false);
+  const [bookingOpen, setBookingOpen] = useState(false);
+  /** «Déjanos tus datos» pulsado (sin esperar a que nadie responda). */
+  const [contactOpen, setContactOpen] = useState(false);
   /** Mensajes del equipo que aún no ha visto (con la burbuja cerrada). */
   const [unseen, setUnseen] = useState(0);
   /** Tiene conversación reciente: con ella se mira de vez en cuando si respondió el equipo. */
@@ -210,6 +218,7 @@ export function WebChatWidget({
     setMode(data.mode);
     setWaitingSince(data.waitingSince);
     setHandoffEnabled(data.handoffEnabled);
+    setBookingsEnabled(!!data.bookingsEnabled);
     setSuggestions(data.suggestions);
     setLeadCaptured(data.leadCaptured);
     // Ya hizo hoy todas las preguntas: se bloquea sin esperar a que vuelva a escribir.
@@ -307,6 +316,25 @@ export function WebChatWidget({
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [lines, sending, open]);
+
+  // Abierto al cambiar de página: se recuerda en la sesión del navegador.
+  const openKey = `storageos.webchat.open.${slug}`;
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(openKey) === '1') setOpen(true);
+    } catch {
+      /* sin almacenamiento */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al montar
+  }, []);
+  useEffect(() => {
+    try {
+      if (open) window.sessionStorage.setItem(openKey, '1');
+      else window.sessionStorage.removeItem(openKey);
+    } catch {
+      /* sin almacenamiento */
+    }
+  }, [open, openKey]);
 
   if (!enabled) return null;
 
@@ -417,6 +445,25 @@ export function WebChatWidget({
     setOpen(false);
     writeSeen(slug, new Date().toISOString());
     window.setTimeout(() => openButtonRef.current?.focus(), 0);
+  }
+
+  /** Otra conversación: la anterior queda para el equipo, aquí se empieza de cero. */
+  async function newConversation() {
+    if (sending) return;
+    await fetch(`${base}/chat/new`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visitorId: visitorId() }),
+    }).catch(() => undefined);
+    setLines([]);
+    setMode('ai');
+    setWaitingSince(null);
+    setAskContact(false);
+    setContactOpen(false);
+    setBookingOpen(false);
+    setLeadCaptured(false);
+    setActive(false);
+    void loadHistory();
   }
 
   async function rate(index: number, value: 1 | -1) {
@@ -540,6 +587,17 @@ export function WebChatWidget({
                 {mode === 'human' ? t('subtitleHuman') : t('subtitle')}
               </div>
             </div>
+            {lines.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void newConversation()}
+                aria-label={t('newConversation')}
+                title={t('newConversation')}
+                className="flex size-9 items-center justify-center rounded-full hover:bg-white/20"
+              >
+                <RotateCcw className="size-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={close}
@@ -635,13 +693,40 @@ export function WebChatWidget({
             {mode === 'human' && waitingSince && !waitedTooLong && (
               <p className="text-center text-xs text-neutral-500">{t('waiting')}</p>
             )}
-            {(waitedTooLong || askContact) && !leadCaptured && (
+            {bookingOpen && (
+              <WebChatBookingForm
+                slug={slug}
+                locale={locale}
+                color={color}
+                attribution={attribution}
+                onCancel={() => setBookingOpen(false)}
+                onDone={(data) => {
+                  setBookingOpen(false);
+                  setLines((l) => [
+                    ...l,
+                    {
+                      id: data.messageId ?? undefined,
+                      role: 'assistant',
+                      content: data.answer,
+                      rating: null,
+                    },
+                  ]);
+                  setLeadCaptured(data.leadCaptured);
+                  setActive(true);
+                  setAnnounce(data.answer);
+                }}
+              />
+            )}
+            {(waitedTooLong || askContact || contactOpen) && !leadCaptured && (
               <ContactForm
                 base={base}
                 color={color}
                 onSaved={() => setLeadCaptured(true)}
                 labels={{
-                  title: t('contactTitle'),
+                  title:
+                    contactOpen && !waitedTooLong && !askContact
+                      ? t('contactTitleAny')
+                      : t('contactTitle'),
                   name: t('contactName'),
                   email: t('contactEmail'),
                   phone: t('contactPhone'),
@@ -650,7 +735,7 @@ export function WebChatWidget({
                 }}
               />
             )}
-            {(waitedTooLong || askContact) && leadCaptured && (
+            {(waitedTooLong || askContact || contactOpen) && leadCaptured && (
               <p className="text-center text-xs text-neutral-500">{t('contactThanks')}</p>
             )}
             {(blocked || waitedTooLong || askContact) &&
@@ -684,6 +769,43 @@ export function WebChatWidget({
               void send();
             }}
           >
+            {mode === 'ai' && !blocked && !bookingOpen && (
+              <div className="mb-2 flex flex-wrap gap-2 px-1">
+                {bookingsEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBookingOpen(true);
+                      setContactOpen(false);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium hover:bg-neutral-100"
+                    style={{ borderColor: color, color }}
+                  >
+                    <CalendarCheck className="size-3.5" /> {t('bookHere')}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void send(t('sizeQuestion'))}
+                  disabled={sending}
+                  className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50"
+                >
+                  <Ruler className="size-3.5" /> {t('sizeHelp')}
+                </button>
+                {!leadCaptured && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setContactOpen(true);
+                      setBookingOpen(false);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
+                  >
+                    <Mail className="size-3.5" /> {t('leaveData')}
+                  </button>
+                )}
+              </div>
+            )}
             {(whatsappHref || (handoffEnabled && mode === 'ai')) && (
               <div className="mb-2 flex flex-wrap gap-2 px-1">
                 {handoffEnabled && mode === 'ai' && lines.length > 0 && (
