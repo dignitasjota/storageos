@@ -2532,6 +2532,15 @@ export class AdminTenantsService {
       await tx.socialPost.deleteMany({ where: { tenantId } });
       await tx.socialDailyMetric.deleteMany({ where: { tenantId } });
       await tx.tenantSocialAccount.deleteMany({ where: { tenantId } });
+      // Anuncios y Google: fuera las credenciales (si no, se seguían usando cada
+      // día) y lo descargado de Google Analytics y Search Console.
+      await tx.googleAdsSettings.deleteMany({ where: { tenantId } });
+      await tx.metaAdsSettings.deleteMany({ where: { tenantId } });
+      await tx.ga4SourceRow.deleteMany({ where: { tenantId } });
+      await tx.ga4PageRow.deleteMany({ where: { tenantId } });
+      await tx.tenantGa4.deleteMany({ where: { tenantId } });
+      await tx.searchConsoleRow.deleteMany({ where: { tenantId } });
+      await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
 
       const users = await tx.user.findMany({ where: { tenantId }, select: { id: true } });
       for (const user of users) {

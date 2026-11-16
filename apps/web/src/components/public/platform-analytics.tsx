@@ -4,6 +4,7 @@ import Script from 'next/script';
 import { useEffect, useState } from 'react';
 
 import { CONSENT_EVENT, readConsent, type CookieConsent } from '@/components/public/cookie-consent';
+import { gaInitScript } from '@/lib/analytics/ga-init';
 
 /**
  * Google Analytics 4 de la web de TrasterOS (ID en panel admin → Web de
@@ -28,10 +29,7 @@ export function PlatformAnalytics({ measurementId }: { measurementId: string }) 
         strategy="afterInteractive"
       />
       <Script id="platform-ga4" strategy="afterInteractive">
-        {`window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', '${measurementId}', { anonymize_ip: true });`}
+        {gaInitScript(measurementId, { anonymize_ip: true })}
       </Script>
     </>
   );

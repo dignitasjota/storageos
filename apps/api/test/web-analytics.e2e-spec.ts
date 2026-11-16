@@ -93,15 +93,23 @@ describe('Analítica propia de la web (e2e)', () => {
       contacts: 1,
       cost: 50,
     });
+    // Las visitas de Instagram (publicaciones) no son resultado de los anuncios:
+    // el gasto del canal de Meta Ads va a su fila de anuncios.
     const instagram = report.sources.find((s) => s.source === 'instagram');
     expect(instagram).toMatchObject({
+      paidTraffic: false,
       visitors: 1,
       pageViews: 2,
       calls: 1,
       contacts: 1,
-      cost: 50,
+      cost: 0,
       bookings: 0,
       costPerBooking: null,
+    });
+    expect(report.sources.find((s) => s.source === 'meta')).toMatchObject({
+      paidTraffic: true,
+      visitors: 0,
+      cost: 50,
     });
     expect(report.sources.find((s) => s.source === 'web')).toMatchObject({ visitors: 1 });
     // Rutas como las ve el visitante y clics de contacto por página.

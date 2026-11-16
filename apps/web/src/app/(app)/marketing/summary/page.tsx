@@ -2,6 +2,7 @@
 
 import {
   leadSourceLabel,
+  trafficSourceName,
   monthLabel,
   previousMonth,
   type MarketingMonthFigures,
@@ -32,7 +33,7 @@ import {
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const int = (n: number) => n.toLocaleString('es-ES');
-const sourceLabel = (s: string) => (s === 'web' ? 'Directo / sin origen' : leadSourceLabel(s));
+const sourceLabel = (s: string, paid = false) => trafficSourceName(s, paid, leadSourceLabel);
 
 /** Variación frente al mes anterior; null sin datos de antes. */
 function delta(now: number, before: number): { text: string; className: string } | null {
@@ -244,8 +245,10 @@ export default function MarketingSummaryPage() {
                     </thead>
                     <tbody>
                       {data.sources.map((s) => (
-                        <tr key={s.source} className="border-b last:border-0">
-                          <td className="px-2 py-2 font-medium">{sourceLabel(s.source)}</td>
+                        <tr key={`${s.source}-${s.paidTraffic}`} className="border-b last:border-0">
+                          <td className="px-2 py-2 font-medium">
+                            {sourceLabel(s.source, s.paidTraffic)}
+                          </td>
                           <td className="px-2 py-2 text-right tabular-nums">{int(s.visitors)}</td>
                           <td className="px-2 py-2 text-right tabular-nums">{int(s.contacts)}</td>
                           <td className="px-2 py-2 text-right tabular-nums">{int(s.bookings)}</td>

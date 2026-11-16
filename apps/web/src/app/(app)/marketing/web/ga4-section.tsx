@@ -37,6 +37,7 @@ function ConnectForm({ settings }: { settings: Ga4SettingsDto }) {
   const canManage = useHasPermission('marketing:manage');
   const action = useGa4Action();
   const [propertyId, setPropertyId] = useState(settings.propertyId ?? '');
+  const [error, setError] = useState<string | null>(null);
 
   async function copyEmail() {
     if (!settings.serviceAccountEmail) return;
@@ -45,19 +46,27 @@ function ConnectForm({ settings }: { settings: Ga4SettingsDto }) {
   }
 
   async function connect() {
+    setError(null);
     try {
       await action.mutateAsync({ propertyId });
       toast.success('Google Analytics conectado');
     } catch (err) {
-      // Sin acceso a la propiedad: el motivo ya sale debajo del formulario.
-      if (err instanceof ApiError && err.body.code === 'ga4_no_access') return;
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo conectar');
+      // El motivo (sin acceso, no es la propiedad de tu web…) sale debajo del formulario.
+      setError(err instanceof ApiError ? err.body.message : 'No se pudo conectar');
     }
   }
+  const shownError = error ?? (settings.status === 'error' ? settings.lastError : null);
 
   return (
     <div className="space-y-4 text-sm">
       <ol className="list-decimal space-y-3 pl-5 text-muted-foreground">
+        <li>
+          Pon el <strong>ID de medición</strong> de tu web («G-…») en{' '}
+          <Link href="/settings/branding" className="text-primary hover:underline">
+            Configuración → Marca y SEO
+          </Link>
+          . Con él comprobamos que la propiedad es la de tu web.
+        </li>
         <li>
           En Google Analytics, entra en{' '}
           <strong>Administrar → Gestión del acceso a la propiedad</strong> y añade este email con el
@@ -82,9 +91,12 @@ function ConnectForm({ settings }: { settings: Ga4SettingsDto }) {
           es un número, no el «G-…» de medición) y pégalo aquí.
         </li>
       </ol>
-      {settings.status === 'error' && settings.lastError && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-destructive">
-          {settings.lastError}
+      {shownError && (
+        <p
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-destructive"
+        >
+          {shownError}
         </p>
       )}
       {canManage ? (

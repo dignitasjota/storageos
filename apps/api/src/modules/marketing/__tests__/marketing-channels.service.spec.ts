@@ -36,6 +36,9 @@ function channel(overrides: Record<string, unknown> = {}) {
     type: 'google_ads',
     status: 'active',
     utmSourceMatch: 'google_verano',
+    externalCampaignId: null,
+    externalUrl: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
   };
 }
@@ -69,7 +72,9 @@ describe('MarketingChannelsService.getPerformance', () => {
 
   it('coste vinculado + leads atribuidos por utmSource/source + conversión → CAC y payback', async () => {
     const tx = buildTx();
-    tx.marketingChannel.findMany.mockResolvedValue([channel()]);
+    tx.marketingChannel.findMany.mockResolvedValue([
+      channel({ name: 'Flyers verano', type: 'physical' }),
+    ]);
     tx.expense.findMany.mockResolvedValue([
       { marketingChannelId: 'chan-1', amount: 120 },
       { marketingChannelId: 'chan-1', amount: 80 },
@@ -97,6 +102,37 @@ describe('MarketingChannelsService.getPerformance', () => {
     expect(row.paybackMonths).toBe(2.22); // round2(200 / 90)
 
     expect(res.totals).toEqual({ cost: 200, leadsCount: 2, wonCount: 1, mrrGenerated: 90 });
+  });
+
+  it('Google Ads solo cuenta el tráfico de pago y cada contacto va a un solo canal', async () => {
+    const tx = buildTx();
+    tx.marketingChannel.findMany.mockResolvedValue([
+      channel({ id: 'ads', name: 'Google Ads', utmSourceMatch: 'google_ads_norte' }),
+      channel({
+        id: 'seo',
+        name: 'Google orgánico',
+        type: 'other',
+        utmSourceMatch: 'google',
+        createdAt: new Date('2026-02-01T00:00:00Z'),
+      }),
+      // Mismo origen que el primero: los contactos van al más antiguo, no a los dos.
+      channel({
+        id: 'seo-2',
+        name: 'SEO duplicado',
+        type: 'other',
+        utmSourceMatch: 'google',
+        createdAt: new Date('2026-03-01T00:00:00Z'),
+      }),
+    ]);
+    tx.lead.findMany.mockResolvedValue([
+      { source: 'web', utmSource: 'google', utmMedium: 'cpc', status: 'new' },
+      { source: 'web', utmSource: 'google', utmMedium: 'organic', status: 'new' },
+      { source: 'web', utmSource: 'google', utmMedium: null, status: 'new' },
+    ]);
+    const res = await buildService(tx).getPerformance(TENANT, {});
+    const leads = Object.fromEntries(res.rows.map((r) => [r.channelId, r.leadsCount]));
+    expect(leads).toEqual({ ads: 1, seo: 2, 'seo-2': 0 });
+    expect(res.totals.leadsCount).toBe(3);
   });
 
   it('un contrato ganado que ya no está activo/ending no aporta MRR', async () => {

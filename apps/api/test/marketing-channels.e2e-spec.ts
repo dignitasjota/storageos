@@ -49,7 +49,9 @@ describe('Canales de marketing (e2e)', () => {
     expect(created.status).toBe(201);
     expect(created.body.shortCode).toBeTruthy();
     expect(created.body.shortUrl).toContain(`/g/${created.body.shortCode}`);
-    expect(created.body.utmSourceMatch).toBe('idealista_centro');
+    // Un portal conocido se reconoce por su nombre: su origen es el que usa el portal.
+    expect(created.body.utmSourceMatch).toBe('idealista');
+    expect(created.body.sourceConflictWith).toBeNull();
     expect(created.body.status).toBe('active');
     expect(created.body.clickCount).toBe(0);
     const channelId = created.body.id as string;

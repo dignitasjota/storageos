@@ -204,3 +204,26 @@ export async function setTenantFeatureOverride(
     await admin.$disconnect();
   }
 }
+
+/**
+ * Ejecuta código con la conexión de administración (sin RLS) para preparar
+ * datos que la API no deja crear tal cual (p. ej. una conexión antigua).
+ */
+export async function withAdminDb<T>(fn: (db: PrismaClient) => Promise<T>): Promise<T> {
+  const admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
+  try {
+    return await fn(admin);
+  } finally {
+    await admin.$disconnect();
+  }
+}
+
+/** Dominio propio verificado del tenant (lo que activa el super admin). */
+export async function setVerifiedCustomDomain(tenantSlug: string, domain: string): Promise<void> {
+  await withAdminDb((db) =>
+    db.tenant.update({
+      where: { slug: tenantSlug },
+      data: { customDomain: domain, customDomainVerifiedAt: new Date() },
+    }),
+  );
+}

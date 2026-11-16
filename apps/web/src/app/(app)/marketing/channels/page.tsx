@@ -336,6 +336,13 @@ export default function MarketingChannelsPage() {
                             </Badge>
                           )}
                         </div>
+                        {c.sourceConflictWith && (
+                          <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+                            Comparte origen con «{c.sourceConflictWith}»: los contactos van a uno
+                            solo (el activo más antiguo), salvo que el enlace lleve la campaña del
+                            canal.
+                          </p>
+                        )}
                         {c.externalUrl && (
                           <a
                             href={c.externalUrl}
@@ -661,11 +668,13 @@ function ChannelDialog({
             <Input
               value={utmSourceMatch}
               onChange={(e) => setUtmSourceMatch(e.target.value)}
-              placeholder="Se rellena solo a partir del nombre si lo dejas vacío"
+              placeholder="Si lo dejas vacío, se propone según el tipo"
             />
             <p className="text-xs text-muted-foreground">
-              Los leads con este origen (o `utm_source`) se atribuyen a este canal en el
-              rendimiento.
+              Los contactos con este origen (`utm_source`, varios separados por comas) cuentan para
+              este canal. Google Ads y Meta Ads solo cuentan el tráfico de sus anuncios (no el de
+              las búsquedas ni el de las publicaciones), y un portal conocido se reconoce por su
+              nombre.
             </p>
           </div>
           {AD_PLATFORM_TYPES.has(type) && (

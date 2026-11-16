@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { redactSecretPaths } from './secret-paths';
+
 /**
  * Analítica propia de la web del tenant: páginas vistas y clics de contacto
  * (llamar, WhatsApp, email, cómo llegar), con el origen de la visita. Sin IP
@@ -30,7 +32,7 @@ export type WebEventInput = z.infer<typeof WebEventSchema>;
  * `/s/<slug>/precios` → `/precios` y `/book/<slug>` → `/reservar`.
  */
 export function normalizeWebPath(path: string, slug: string): string {
-  let p = (path.split(/[?#]/)[0] ?? '').trim() || '/';
+  let p = redactSecretPaths((path.split(/[?#]/)[0] ?? '').trim()) || '/';
   if (!p.startsWith('/')) p = `/${p}`;
   const web = `/s/${slug}`;
   const book = `/book/${slug}`;
@@ -104,8 +106,13 @@ export interface WebAnalyticsFunnelDto {
 }
 
 export interface WebAnalyticsSourceDto extends WebAnalyticsFunnelDto {
-  /** Origen (`instagram`, `google`, `web` = directo o sin origen…). */
+  /**
+   * Origen (`instagram`, `google`, `web` = directo o sin origen…). Los anuncios
+   * de Facebook e Instagram van juntos como `meta`.
+   */
   source: string;
+  /** Tráfico de pago (`cpc`, `paid_social`…): fila aparte de la orgánica. */
+  paidTraffic: boolean;
   /** Gasto de los canales de marketing con ese origen en el periodo. */
   cost: number;
   costPerBooking: number | null;

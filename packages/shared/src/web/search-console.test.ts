@@ -4,6 +4,7 @@ import {
   areaSlugOfPage,
   ConnectSearchConsoleSchema,
   previousMonthRange,
+  searchConsoleSiteAllowed,
   seoReportTips,
   summarizeRange,
   summarizeSearchConsole,
@@ -97,5 +98,38 @@ describe('Search Console', () => {
     expect(tips.some((t) => t.includes('«Trasteros en Mislata» no tiene texto propio'))).toBe(true);
     expect(tips.some((t) => t.includes('trasteros paterna'))).toBe(true);
     expect(tips.some((t) => t.includes('cerca de mi'))).toBe(false);
+  });
+});
+
+describe('el sitio de Search Console es del negocio', () => {
+  const site = {
+    slug: 'garcia',
+    customDomain: 'www.trasterosgarcia.es',
+    platformUrl: 'https://trasteros.pro',
+  };
+  it('su dominio propio (y el dominio superior en sc-domain)', () => {
+    expect(searchConsoleSiteAllowed('sc-domain:trasterosgarcia.es', site)).toBe(true);
+    expect(searchConsoleSiteAllowed('https://www.trasterosgarcia.es/', site)).toBe(true);
+    expect(searchConsoleSiteAllowed('https://trasterosgarcia.es/', site)).toBe(true);
+    expect(
+      searchConsoleSiteAllowed('sc-domain:garcia.es', {
+        ...site,
+        customDomain: 'reservas.garcia.es',
+      }),
+    ).toBe(true);
+  });
+  it('su dirección en la plataforma', () => {
+    expect(searchConsoleSiteAllowed('https://trasteros.pro/s/garcia/', site)).toBe(true);
+    expect(searchConsoleSiteAllowed('https://trasteros.pro/s/otro/', site)).toBe(false);
+    expect(searchConsoleSiteAllowed('https://trasteros.pro/', site)).toBe(false);
+    expect(searchConsoleSiteAllowed('sc-domain:trasteros.pro', site)).toBe(false);
+  });
+  it('el dominio de otro negocio no', () => {
+    expect(searchConsoleSiteAllowed('sc-domain:competidor.es', site)).toBe(false);
+    expect(searchConsoleSiteAllowed('https://competidor.es/', site)).toBe(false);
+    expect(searchConsoleSiteAllowed('sc-domain:es', site)).toBe(false);
+    expect(
+      searchConsoleSiteAllowed('sc-domain:trasterosgarcia.es', { ...site, customDomain: null }),
+    ).toBe(false);
   });
 });

@@ -10,7 +10,14 @@
  */
 import { round2, type AdDailyStats } from './ad-stats';
 
-const API_VERSION = 'v18';
+/**
+ * Versión de la API. Google retira cada versión al año de publicarla: la v26
+ * (octubre de 2026) se retira en noviembre de 2027. Calendario:
+ * https://developers.google.com/google-ads/api/docs/sunset-dates
+ */
+const API_VERSION = 'v26';
+/** Tiempo máximo de cada petición (una conexión colgada no bloquea la sincronización). */
+const TIMEOUT_MS = 20_000;
 const ADS_BASE = 'https://googleads.googleapis.com';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
@@ -33,6 +40,7 @@ export class GoogleAdsClient {
     let res: Response;
     try {
       res = await fetch(TOKEN_URL, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
         method: 'POST',
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -64,6 +72,7 @@ export class GoogleAdsClient {
     let res: Response;
     try {
       res = await fetch(`${ADS_BASE}/${API_VERSION}/customers/${customerId}/googleAds:search`, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
         method: 'POST',
         headers: {
           authorization: `Bearer ${accessToken}`,

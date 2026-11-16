@@ -20,6 +20,16 @@ describe('sanitizeUrl', () => {
     ['/v1/public/move-in/sign/abc.def123', `/v1/public/move-in/sign/${REDACTED}`],
     ['/public/reviews/Zx9_tok', `/public/reviews/${REDACTED}`],
     ['/v1/invitations/token/inv.secret/accept', `/v1/invitations/token/${REDACTED}/accept`],
+    // Peticiones salientes que acaban en las migas de Sentry.
+    [
+      'https://graph.facebook.com/v25.0/me?fields=id&access_token=EAAB',
+      `https://graph.facebook.com/v25.0/me?fields=id&access_token=${REDACTED}`,
+    ],
+    [
+      'https://oauth2.googleapis.com/token?client_secret=x&refresh_token=y',
+      `https://oauth2.googleapis.com/token?client_secret=${REDACTED}&refresh_token=${REDACTED}`,
+    ],
+    ['/sign/abc.def123/l/en', `/sign/${REDACTED}/l/en`],
     ['/v1/customers?search=ana&cursor=abc', '/v1/customers?search=ana&cursor=abc'],
     ['/health', '/health'],
   ])('%s', (input, expected) => {

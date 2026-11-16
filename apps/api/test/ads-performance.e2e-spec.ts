@@ -103,7 +103,25 @@ describe('Rendimiento de los anuncios (e2e)', () => {
     await http()
       .post('/leads')
       .set(auth)
-      .send({ source: 'web', firstName: 'Luis', email: 'luis@ads.local', utmSource: 'gads_local' })
+      .send({
+        source: 'web',
+        firstName: 'Luis',
+        email: 'luis@ads.local',
+        utmSource: 'gads_local',
+        utmMedium: 'cpc',
+      })
+      .expect(201);
+    // Uno que llegó buscando en Google (sin anuncio): no es resultado de la campaña.
+    await http()
+      .post('/leads')
+      .set(auth)
+      .send({
+        source: 'web',
+        firstName: 'Eva',
+        email: 'eva@ads.local',
+        utmSource: 'google',
+        utmMedium: 'organic',
+      })
       .expect(201);
     const booking = await http()
       .post(`/public/move-in/book/${owner.slug}`)

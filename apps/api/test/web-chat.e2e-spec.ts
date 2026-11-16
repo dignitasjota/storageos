@@ -321,8 +321,23 @@ describe('Chat de la web (e2e)', () => {
     const back = await chat(owner.slug, { visitorId: h, message: 'Gracias' }).expect(200);
     expect(back.body.mode).toBe('ai');
 
+    // Pedir una persona sin haber escrito nada no avisa a nadie (el widget no lo ofrece).
+    const empty = visitor();
+    const refused = await http()
+      .post(`/public/landing/${owner.slug}/chat/handoff`)
+      .set('User-Agent', UA)
+      .send({ visitorId: empty })
+      .expect(200);
+    expect(refused.body.mode).toBe('ai');
+    expect(
+      await db.webChatConversation.count({
+        where: { tenantId: owner.tenantId, visitorId: empty },
+      }),
+    ).toBe(0);
+
     // Datos de contacto si nadie responde.
     const c = visitor();
+    await chat(owner.slug, { visitorId: c, message: '¿Tenéis trasteros de 5 m²?' }).expect(200);
     await http()
       .post(`/public/landing/${owner.slug}/chat/handoff`)
       .set('User-Agent', UA)
@@ -400,5 +415,32 @@ describe('Chat de la web (e2e)', () => {
     expect(text).not.toContain('[[');
     const done = events.find((e) => e.type === 'done');
     expect(done).toMatchObject({ mode: 'human' });
+  });
+
+  it('desde una misma IP, como mucho 10 conversaciones nuevas al día por negocio', async () => {
+    const owner = await registerVerifiedUser(app, 'webchatabuse');
+    await setTenantPlan(owner.slug, 'pro');
+    const first = visitor();
+    for (let i = 0; i < 10; i++) {
+      const res = await chat(owner.slug, {
+        visitorId: i === 0 ? first : visitor(),
+        message: 'Hola',
+      }).expect(200);
+      expect(res.body.limited).toBeNull();
+    }
+    // Cambiar de identificador en cada mensaje ya no da conversaciones sin fin.
+    const extra = visitor();
+    const refused = await chat(owner.slug, { visitorId: extra, message: 'Hola' }).expect(200);
+    expect(refused.body.limited).toBe('visitor');
+    expect(
+      await db.webChatConversation.count({
+        where: { tenantId: owner.tenantId, visitorId: extra },
+      }),
+    ).toBe(0);
+    // Quien ya estaba hablando puede seguir.
+    const again = await chat(owner.slug, { visitorId: first, message: '¿Y el precio?' }).expect(
+      200,
+    );
+    expect(again.body.limited).toBeNull();
   });
 });

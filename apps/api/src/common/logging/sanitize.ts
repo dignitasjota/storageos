@@ -36,6 +36,11 @@ const SENSITIVE_QUERY_KEYS = new Set([
   'code',
   'password',
   'hub.verify_token',
+  // Peticiones salientes (Meta, Google): aunque ya van en cabecera, por si acaso.
+  'access_token',
+  'client_secret',
+  'refresh_token',
+  'fb_exchange_token',
 ]);
 
 /** Rutas cuyo último segmento es un token (con o sin prefijo `/v1`). */
@@ -43,6 +48,8 @@ const TOKEN_PATH_PATTERNS: RegExp[] = [
   /(\/public\/move-in\/sign\/)[^/?#]+/g,
   /(\/public\/reviews\/)(?!stats(?:[/?#]|$))[^/?#]+/g,
   /(\/invitations\/token\/)[^/?#]+/g,
+  // Páginas del web con un token en la ruta.
+  /(\/sign\/)[^/?#]+/g,
 ];
 
 function isSensitiveQueryKey(key: string): boolean {

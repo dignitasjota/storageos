@@ -5958,13 +5958,15 @@ model TenantSearchConsole {
 model TenantGa4 {
   id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId     String    @unique @map("tenant_id") @db.Uuid
-  /// Número de la propiedad de GA4.
-  propertyId   String    @map("property_id")
+  /// Número de la propiedad de GA4 (una propiedad, un negocio).
+  propertyId   String    @unique @map("property_id")
   /// pending | connected | error
   status       String    @default("pending")
   lastError    String?   @map("last_error")
   connectedAt  DateTime? @map("connected_at") @db.Timestamptz(6)
   lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  /// Cuándo se comprobó que la propiedad mide la web del negocio (null = falta).
+  verifiedAt   DateTime? @map("verified_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

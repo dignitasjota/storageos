@@ -123,6 +123,22 @@ describe('Admin: revisión del apartado Tenants (e2e)', () => {
     await db.redsysSettings.create({
       data: { tenantId: owner.tenantId, merchantCode: '999008881', secretKeyEncrypted: 'x' },
     });
+    // Anuncios y Google: credenciales y lo descargado (se seguían usando cada día).
+    await db.googleAdsSettings.create({
+      data: { tenantId: owner.tenantId, refreshTokenEncrypted: 'x', enabled: true },
+    });
+    await db.metaAdsSettings.create({
+      data: { tenantId: owner.tenantId, accessTokenEncrypted: 'x', enabled: true },
+    });
+    await db.tenantGa4.create({
+      data: { tenantId: owner.tenantId, propertyId: `anon-${Date.now()}`, status: 'connected' },
+    });
+    await db.ga4PageRow.create({
+      data: { tenantId: owner.tenantId, date: new Date(), pagePath: '/precios', pageViews: 3 },
+    });
+    await db.tenantSearchConsole.create({
+      data: { tenantId: owner.tenantId, siteUrl: 'sc-domain:anon.es', status: 'connected' },
+    });
     await db.tenant.update({
       where: { id: owner.tenantId },
       data: { contactEmail: 'hola@e2e.local', contactPhone: '911111111' },
@@ -135,18 +151,26 @@ describe('Admin: revisión del apartado Tenants (e2e)', () => {
       .expect(200);
 
     const tenantId = owner.tenantId;
-    const [creds, messages, owners, redsys, tenant] = await Promise.all([
+    const [creds, messages, owners, redsys, tenant, marketing] = await Promise.all([
       db.accessCredential.findMany({ where: { tenantId } }),
       db.customerMessage.findMany({ where: { tenantId } }),
       db.owner.findMany({ where: { tenantId } }),
       db.redsysSettings.count({ where: { tenantId } }),
       db.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
+      Promise.all([
+        db.googleAdsSettings.count({ where: { tenantId } }),
+        db.metaAdsSettings.count({ where: { tenantId } }),
+        db.tenantGa4.count({ where: { tenantId } }),
+        db.ga4PageRow.count({ where: { tenantId } }),
+        db.tenantSearchConsole.count({ where: { tenantId } }),
+      ]),
     ]);
     expect(creds.length).toBeGreaterThan(0);
     expect(creds.every((c) => c.status === 'revoked' && !c.secretEncrypted)).toBe(true);
     expect(messages.every((m) => m.body === '*** ANONIMIZADO ***')).toBe(true);
     expect(owners[0]).toMatchObject({ legalName: 'Propietario SL', email: null, phone: null });
     expect(redsys).toBe(0);
+    expect(marketing).toEqual([0, 0, 0, 0, 0]);
     expect(tenant).toMatchObject({ contactEmail: null, contactPhone: null, status: 'cancelled' });
   });
 

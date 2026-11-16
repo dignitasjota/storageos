@@ -1,11 +1,14 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Prisma } from '@storageos/database';
 import {
   WEB_ANALYTICS_DAYS,
+  redactSecretPaths,
   shiftDate,
   summarizeGa4,
   type Ga4ReportDto,
@@ -59,7 +62,12 @@ export class Ga4Service {
     };
   }
 
-  /** Guarda la propiedad, comprueba el acceso y descarga los últimos meses. */
+  /**
+   * Conecta la propiedad y descarga los últimos meses. Antes comprueba que es
+   * de la web del negocio: la cuenta de servicio es la misma para todos y,
+   * sin esto, un negocio podría ver los datos de otro. Si algo falla, la
+   * conexión que hubiera se queda como estaba.
+   */
   async connect(tenantId: string, propertyId: string): Promise<Ga4SettingsDto> {
     if (!this.client.available) {
       throw new ServiceUnavailableException({
@@ -67,34 +75,111 @@ export class Ga4Service {
         message: 'La conexión con Google Analytics no está disponible todavía.',
       });
     }
-    const denied = await this.client.checkAccess(propertyId);
-    const lastError = denied
-      ? `Nuestra cuenta (${this.client.serviceAccountEmail}) no puede leer la propiedad ${propertyId}. Añádela como «Lector» en Google Analytics → Administrar → Gestión del acceso a la propiedad. (${denied})`
-      : null;
-    const data = {
-      propertyId,
-      status: denied ? 'error' : 'connected',
-      lastError,
-      connectedAt: denied ? null : new Date(),
-    };
-    await this.prisma.withTenant(async (tx) => {
-      const current = await tx.tenantGa4.findUnique({ where: { tenantId } });
-      // Otra propiedad: lo descargado de la anterior ya no vale.
-      if (current && current.propertyId !== propertyId) {
-        await tx.ga4SourceRow.deleteMany({ where: { tenantId } });
-        await tx.ga4PageRow.deleteMany({ where: { tenantId } });
-      }
-      await tx.tenantGa4.upsert({
-        where: { tenantId },
-        create: { tenantId, ...data },
-        update: data,
+    const taken = await this.admin.tenantGa4.findFirst({
+      where: { propertyId, tenantId: { not: tenantId } },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new ConflictException({
+        code: 'ga4_property_taken',
+        message: 'Esa propiedad ya está conectada en otra cuenta de TrasterOS.',
       });
-    }, tenantId);
-    if (denied) {
-      throw new BadRequestException({ code: 'ga4_no_access', message: lastError });
     }
+    const denied = await this.client.checkAccess(propertyId);
+    if (denied) {
+      throw new BadRequestException({
+        code: 'ga4_no_access',
+        message: `Nuestra cuenta (${this.client.serviceAccountEmail}) no puede leer la propiedad ${propertyId}. Añádela como «Lector» en Google Analytics → Administrar → Gestión del acceso a la propiedad. (${denied})`,
+      });
+    }
+    const problem = await this.ownershipProblem(tenantId, propertyId);
+    if (problem) throw new BadRequestException({ code: problem.code, message: problem.message });
+
+    await this.prisma
+      .withTenant(async (tx) => {
+        const current = await tx.tenantGa4.findUnique({ where: { tenantId } });
+        // Otra propiedad: lo descargado de la anterior ya no vale.
+        if (current && current.propertyId !== propertyId) {
+          await tx.ga4SourceRow.deleteMany({ where: { tenantId } });
+          await tx.ga4PageRow.deleteMany({ where: { tenantId } });
+        }
+        const data = {
+          propertyId,
+          status: 'connected',
+          lastError: null,
+          connectedAt: new Date(),
+          verifiedAt: new Date(),
+        };
+        await tx.tenantGa4.upsert({
+          where: { tenantId },
+          create: { tenantId, ...data },
+          update: data,
+        });
+      }, tenantId)
+      .catch((err: unknown) => {
+        // Dos negocios a la vez con la misma propiedad: el índice único decide.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          throw new ConflictException({
+            code: 'ga4_property_taken',
+            message: 'Esa propiedad ya está conectada en otra cuenta de TrasterOS.',
+          });
+        }
+        throw err;
+      });
     await this.sync(tenantId, INITIAL_DAYS);
     return this.settings(tenantId);
+  }
+
+  /**
+   * Por qué la propiedad no se puede dar por del negocio, o null si lo es: el
+   * negocio tiene puesto su ID de medición (Configuración → Marca y SEO), no
+   * lo usa ninguna otra cuenta y es uno de los flujos web de la propiedad.
+   */
+  private async ownershipProblem(
+    tenantId: string,
+    propertyId: string,
+  ): Promise<{ code: string; message: string } | null> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { googleAnalyticsId: true },
+    });
+    const measurementId = tenant?.googleAnalyticsId?.trim().toUpperCase();
+    if (!measurementId) {
+      return {
+        code: 'ga4_measurement_id_required',
+        message:
+          'Antes, pon el ID de medición de Google Analytics de tu web (G-…) en Configuración → Marca y SEO: sirve para comprobar que la propiedad es tuya.',
+      };
+    }
+    const shared = await this.admin.tenant.count({
+      where: {
+        id: { not: tenantId },
+        deletedAt: null,
+        googleAnalyticsId: { equals: measurementId, mode: 'insensitive' },
+      },
+    });
+    if (shared > 0) {
+      return {
+        code: 'ga4_measurement_id_shared',
+        message: `El ID de medición ${measurementId} lo usa otra cuenta de TrasterOS: no se puede comprobar que la propiedad sea tuya. Escríbenos a soporte.`,
+      };
+    }
+    let ids: string[];
+    try {
+      ids = await this.client.measurementIds(propertyId);
+    } catch (err) {
+      return {
+        code: 'ga4_property_unverified',
+        message: `No se ha podido comprobar la propiedad en Google Analytics (${err instanceof Error ? err.message : String(err)}). Inténtalo más tarde.`,
+      };
+    }
+    if (!ids.includes(measurementId)) {
+      return {
+        code: 'ga4_property_mismatch',
+        message: `La propiedad ${propertyId} no mide tu web: ninguno de sus flujos tiene el ID de medición ${measurementId}, el que tienes en Configuración → Marca y SEO.`,
+      };
+    }
+    return null;
   }
 
   async disconnect(tenantId: string): Promise<Ga4SettingsDto> {
@@ -116,13 +201,47 @@ export class Ga4Service {
       tenantId,
     );
     if (!row) return { ok: false };
+    // Conectada antes de comprobar que es del negocio: se comprueba una vez.
+    if (!row.verifiedAt) {
+      const problem = await this.ownershipProblem(tenantId, row.propertyId);
+      if (problem) {
+        await this.prisma.withTenant(
+          (tx) =>
+            tx.tenantGa4.update({
+              where: { tenantId },
+              data: { status: 'error', lastError: problem.message.slice(0, 500) },
+            }),
+          tenantId,
+        );
+        return { ok: false };
+      }
+      await this.prisma.withTenant(
+        (tx) => tx.tenantGa4.update({ where: { tenantId }, data: { verifiedAt: new Date() } }),
+        tenantId,
+      );
+    }
     const end = shiftDate(today(), -1);
     const start = shiftDate(end, -(days - 1));
     try {
-      const [sources, pages] = await Promise.all([
+      const [sources, rawPages] = await Promise.all([
         this.client.sourceRows(row.propertyId, start, end),
         this.client.pageRows(row.propertyId, start, end),
       ]);
+      // La firma del contrato llevaba el enlace secreto en la dirección: se
+      // guarda sin él (y las visitas de varias firmas el mismo día, juntas).
+      const pageMap = new Map<string, (typeof rawPages)[number]>();
+      for (const page of rawPages) {
+        const pagePath = redactSecretPaths(page.pagePath);
+        const key = `${page.date}|${pagePath}`;
+        const prev = pageMap.get(key);
+        if (prev) {
+          prev.pageViews += page.pageViews;
+          prev.sessions += page.sessions;
+        } else {
+          pageMap.set(key, { ...page, pagePath });
+        }
+      }
+      const pages = [...pageMap.values()];
       await this.prisma.withTenant(
         async (tx) => {
           const stale = {
@@ -173,7 +292,11 @@ export class Ga4Service {
   /** Cron diario: todos los tenants conectados que tienen Web Premium. */
   async syncAllDue(): Promise<{ tenants: number; synced: number }> {
     const rows = await this.admin.tenantGa4.findMany({
-      where: { status: { in: ['connected', 'error'] } },
+      // Sin los negocios dados de baja o anonimizados.
+      where: {
+        status: { in: ['connected', 'error'] },
+        tenant: { deletedAt: null, status: { not: 'cancelled' } },
+      },
       select: { tenantId: true },
     });
     let synced = 0;

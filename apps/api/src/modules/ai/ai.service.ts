@@ -135,6 +135,8 @@ const MAX_TOOL_ITERATIONS = 8;
 
 /** Tope de la respuesta del chat de la web (respuestas cortas, menos coste). */
 const WEB_CHAT_MAX_TOKENS = 450;
+/** Tiempo máximo del resumen al pasar a una persona: el visitante espera la respuesta. */
+const SUMMARY_TIMEOUT_MS = 20_000;
 
 /** Áreas del negocio y el permiso para verlas (para decirle al modelo lo que el usuario no puede ver). */
 const AREA_PERMISSIONS: [string, Permission][] = [
@@ -455,24 +457,38 @@ export class AiService {
 
   /**
    * Resumen en dos líneas de una conversación con un visitante, para el equipo
-   * al pasarla a una persona. Con la clave de la plataforma (o la del tenant en
-   * modo `own`), sin gastar respuestas del chat. Nunca lanza: null si no hay IA.
+   * al pasarla a una persona. Gasta una respuesta del chat de la web (como
+   * cualquier otra llamada que provoca un visitante) y no espera más de 20 s.
+   * Nunca lanza: null si no hay IA, si el negocio gastó las del mes o si tarda.
    */
   async webChatSummary(tenantId: string, transcript: string): Promise<string | null> {
     try {
-      const platformKey = this.platformSettings.resolved().apiKey;
-      // Con la IA de la plataforma; sin ella, con la clave del tenant si la tiene.
-      const own = platformKey ? null : await this.quota.ownKey(tenantId);
-      if (!own && !platformKey && process.env.NODE_ENV !== 'test') return null;
       const web = this.platformSettings.web;
+      const reserved = await this.quota.reserveWeb(tenantId, web.model);
+      if (reserved.kind === 'limit') return null;
+      const own = reserved.reservation.ownKey;
+      if (!own && !this.platformSettings.resolved().apiKey && process.env.NODE_ENV !== 'test') {
+        await this.quota.release(reserved.reservation.id);
+        return null;
+      }
       const provider = own
         ? this.provider.forKey(own.apiKey, own.model, 200)
         : this.provider.forModel(web.model, 200);
-      const completion = await provider.createMessage({
-        system: CONVERSATION_SUMMARY_PROMPT,
-        messages: [{ role: 'user', content: transcript.slice(-6000) }],
-        tools: [],
-      });
+      let completion: AiCompletion | null;
+      try {
+        completion = await Promise.race([
+          provider.createMessage({
+            system: CONVERSATION_SUMMARY_PROMPT,
+            messages: [{ role: 'user', content: transcript.slice(-6000) }],
+            tools: [],
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), SUMMARY_TIMEOUT_MS)),
+        ]);
+      } catch (err) {
+        await this.quota.release(reserved.reservation.id);
+        throw err;
+      }
+      if (!completion) return null;
       if (completion.usage) {
         void this.admin.aiUsageEvent
           .create({

@@ -4,10 +4,12 @@ import { ConfigService } from '@nestjs/config';
 import {
   MARKETING_SUMMARY_MONTH_RE,
   hasMarketingActivity,
+  leadSourceLabel,
   marketingSummaryTips,
   monthBounds,
   monthLabel,
   previousMonth,
+  trafficSourceName,
   type MarketingMonthFigures,
   type MarketingSummaryConnections,
   type MarketingSummaryDto,
@@ -80,6 +82,7 @@ export class MarketingSummaryService {
       .slice(0, 8)
       .map((s) => ({
         source: s.source,
+        paidTraffic: s.paidTraffic,
         visitors: s.visitors,
         contacts: s.contacts,
         bookings: s.bookings,
@@ -365,7 +368,7 @@ export class MarketingSummaryService {
           ? `<h3 style="margin:24px 0 8px">Por origen</h3>${table(
               ['Origen', 'Visitantes', 'Contactos', 'Reservas', 'Gasto'],
               s.sources.map((x) => [
-                x.source === 'web' ? 'Directo o sin origen' : x.source,
+                trafficSourceName(x.source, x.paidTraffic, leadSourceLabel),
                 int(x.visitors),
                 int(x.contacts),
                 int(x.bookings),

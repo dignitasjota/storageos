@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import {
   adPerformanceRatios,
+  attributeChannel,
   type AdPerformanceDto,
   type AdPerformanceFigures,
   type AdPerformanceRowDto,
@@ -44,21 +45,23 @@ export class AdPerformanceService {
     const toEnd = new Date(toD.getTime() + DAY_MS - 1);
 
     const data = await this.prisma.withTenant(async (tx) => {
-      const channels = await tx.marketingChannel.findMany({
-        where: { deletedAt: null, type: { in: ['google_ads', 'meta_ads'] } },
+      // Todos los canales: un contacto va a uno solo (aunque no sea de anuncios).
+      const allChannels = await tx.marketingChannel.findMany({
+        where: { deletedAt: null },
         select: {
           id: true,
           name: true,
           type: true,
+          status: true,
           externalCampaignId: true,
+          externalUrl: true,
           utmSourceMatch: true,
+          createdAt: true,
         },
         orderBy: { name: 'asc' },
       });
+      const channels = allChannels.filter((c) => c.type === 'google_ads' || c.type === 'meta_ads');
       const ids = channels.map((c) => c.id);
-      const sources = channels
-        .map((c) => c.utmSourceMatch?.toLowerCase())
-        .filter((s): s is string => !!s);
       const [metrics, lastDates, expenses, leads] = await Promise.all([
         tx.adMetricDaily.groupBy({
           by: ['marketingChannelId'],
@@ -77,11 +80,11 @@ export class AdPerformanceService {
           where: { marketingChannelId: { in: ids }, expenseDate: { gte: fromD, lte: toD } },
           _sum: { amount: true },
         }),
-        sources.length
+        ids.length
           ? tx.lead.findMany({
               where: {
                 deletedAt: null,
-                utmSource: { in: sources, mode: 'insensitive' },
+                utmSource: { not: null },
                 OR: [
                   { createdAt: { gte: fromD, lte: toEnd } },
                   { wonAt: { gte: fromD, lte: toEnd } },
@@ -90,6 +93,8 @@ export class AdPerformanceService {
               },
               select: {
                 utmSource: true,
+                utmMedium: true,
+                utmCampaign: true,
                 createdAt: true,
                 wonAt: true,
                 bookedAt: true,
@@ -111,7 +116,7 @@ export class AdPerformanceService {
             select: { id: true },
           })
         : [];
-      return { channels, metrics, lastDates, expenses, leads, signed };
+      return { channels, allChannels, metrics, lastDates, expenses, leads, signed };
     }, tenantId);
 
     const metricsBy = new Map(data.metrics.map((m) => [m.marketingChannelId, m]));
@@ -121,6 +126,17 @@ export class AdPerformanceService {
     );
     const signedIds = new Set(data.signed.map((c) => c.id));
     const totals = empty();
+    // Canal de cada contacto (uno como mucho: así el total no cuenta doble).
+    const leadsBy = new Map<string, typeof data.leads>();
+    for (const l of data.leads) {
+      const channel = attributeChannel(data.allChannels, {
+        source: l.utmSource,
+        medium: l.utmMedium,
+        campaign: l.utmCampaign,
+      });
+      if (!channel) continue;
+      leadsBy.set(channel.id, [...(leadsBy.get(channel.id) ?? []), l]);
+    }
 
     const rows: AdPerformanceRowDto[] = data.channels.map((c) => {
       const m = metricsBy.get(c.id);
@@ -133,10 +149,8 @@ export class AdPerformanceService {
       } else {
         f.cost = expenseBy.get(c.id) ?? 0;
       }
-      const source = c.utmSourceMatch?.toLowerCase();
       const seen = new Set<string>();
-      for (const l of source ? data.leads : []) {
-        if (l.utmSource?.toLowerCase() !== source) continue;
+      for (const l of leadsBy.get(c.id) ?? []) {
         if (l.createdAt >= fromD && l.createdAt <= toEnd) f.contacts += 1;
         const cid = l.convertedContractId;
         const bookedAt = l.bookedAt ?? l.wonAt;

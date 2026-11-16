@@ -10,6 +10,8 @@ import {
 import type { Env } from '../../../config/env.schema';
 
 const API = 'https://analyticsdata.googleapis.com/v1beta';
+/** API de administración (flujos de datos de la propiedad). Hay que activarla en Google Cloud. */
+const ADMIN_API = 'https://analyticsadmin.googleapis.com/v1beta';
 const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 const PAGE_SIZE = 10_000;
 const MAX_ROWS = 50_000;
@@ -29,7 +31,8 @@ const int = (v: string | undefined) => Math.round(Number(v) || 0);
  * en su propiedad.
  *
  * Con `NODE_ENV=test` o `GSC_MODE=stub` funciona simulado: la propiedad
- * `403403403` no da acceso y el resto devuelve datos generados.
+ * `403403403` no da acceso, la propiedad `N` mide la web con el ID `G-N` y el
+ * resto devuelve datos generados.
  */
 @Injectable()
 export class Ga4Client {
@@ -70,6 +73,34 @@ export class Ga4Client {
       if (err instanceof GoogleApiError && [400, 403, 404].includes(err.status)) return err.message;
       throw err;
     }
+  }
+
+  /**
+   * ID de medición (`G-…`) de los flujos web de la propiedad. Sirve para
+   * comprobar que la propiedad mide la web del negocio que la conecta.
+   */
+  async measurementIds(propertyId: string): Promise<string[]> {
+    if (this.stub) return propertyId === '403403403' ? [] : [`G-${propertyId}`];
+    const out: string[] = [];
+    let pageToken: string | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const qs = new URLSearchParams({ pageSize: '200', ...(pageToken ? { pageToken } : {}) });
+      const res = await this.account.request<{
+        dataStreams?: { type?: string; webStreamData?: { measurementId?: string } }[];
+        nextPageToken?: string;
+      }>(
+        SCOPE,
+        'GET',
+        `${ADMIN_API}/properties/${encodeURIComponent(propertyId)}/dataStreams?${qs.toString()}`,
+      );
+      for (const stream of res.dataStreams ?? []) {
+        const id = stream.webStreamData?.measurementId;
+        if (stream.type === 'WEB_DATA_STREAM' && id) out.push(id.toUpperCase());
+      }
+      if (!res.nextPageToken) break;
+      pageToken = res.nextPageToken;
+    }
+    return out;
   }
 
   /** Sesiones por día, origen/medio/campaña y dispositivo. */
@@ -190,6 +221,9 @@ function stubPages(startDate: string, endDate: string): Ga4PageRowInput[] {
     out.push(
       { date: d, pagePath: '/', pageViews: 12, sessions: 8 },
       { date: d, pagePath: '/precios', pageViews: 7, sessions: 5 },
+      // Dos firmas con su enlace secreto en la dirección (lo que mandaba la web).
+      { date: d, pagePath: '/sign/tok-abc', pageViews: 1, sessions: 1 },
+      { date: d, pagePath: '/sign/tok-def', pageViews: 1, sessions: 1 },
     );
   }
   return out;

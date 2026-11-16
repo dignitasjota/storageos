@@ -1,5 +1,6 @@
 'use client';
 
+import { redactSecretPaths, type AreaPageLinkDto } from '@storageos/shared';
 import Link from 'next/link';
 import Script from 'next/script';
 import { useLocale, useTranslations } from 'next-intl';
@@ -7,7 +8,7 @@ import { useEffect, useState } from 'react';
 
 import { facilityHref, legalHref } from './i18n/messages';
 
-import type { AreaPageLinkDto } from '@storageos/shared';
+import { gaInitScript } from '@/lib/analytics/ga-init';
 
 /**
  * Envía un evento de conversión a GA4 (`gtag('event', ...)`). No-op si el
@@ -17,7 +18,13 @@ import type { AreaPageLinkDto } from '@storageos/shared';
 export function trackEvent(name: string, params?: Record<string, string | number | boolean>): void {
   if (typeof window === 'undefined') return;
   const w = window as unknown as { gtag?: (...args: unknown[]) => void };
-  w.gtag?.('event', name, params ?? {});
+  // En la firma del contrato, la dirección lleva el enlace secreto: se manda sin él.
+  const location = window.location.href;
+  const clean = redactSecretPaths(location);
+  w.gtag?.('event', name, {
+    ...(params ?? {}),
+    ...(clean !== location ? { page_location: clean } : {}),
+  });
 }
 
 /** Lo mínimo de la web del tenant para el aviso de cookies y los enlaces legales. */
@@ -86,10 +93,7 @@ export function GoogleAnalyticsScript({
           strategy="afterInteractive"
         />
         <Script id="ga4-init" strategy="afterInteractive">
-          {`window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', '${measurementId}');`}
+          {gaInitScript(measurementId)}
         </Script>
       </>
     );

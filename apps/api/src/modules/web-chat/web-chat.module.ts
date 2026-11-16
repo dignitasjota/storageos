@@ -8,6 +8,7 @@ import { MoveInModule } from '../move-in/move-in.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
 
+import { WebChatAbuseService } from './web-chat-abuse.service';
 import { WebChatController, WebChatPublicController } from './web-chat.controller';
 import { WebChatService } from './web-chat.service';
 
@@ -23,6 +24,6 @@ import { WebChatService } from './web-chat.service';
     WaitlistModule,
   ],
   controllers: [WebChatPublicController, WebChatController],
-  providers: [WebChatService],
+  providers: [WebChatService, WebChatAbuseService],
 })
 export class WebChatModule {}
