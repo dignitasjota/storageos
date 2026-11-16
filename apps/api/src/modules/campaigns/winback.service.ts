@@ -6,6 +6,8 @@ import {
   DEFAULT_WINBACK_SUBJECT,
   WINBACK_SECOND_TEMPLATE_VARIABLES,
   WINBACK_TEMPLATE_VARIABLES,
+  campaignMarkupToHtml,
+  campaignMarkupToText,
   type UpdateWinbackSettingsInput,
   type WinbackPreviewDto,
   type WinbackRunResultDto,
@@ -319,6 +321,7 @@ export class WinbackService {
     step: 1 | 2,
     subjectTpl: string,
     bodyTpl: string,
+    brandColor: string | null,
   ): Promise<boolean> {
     const allowed = step === 2 ? ALLOWED_SECOND : ALLOWED;
     let subject: string;
@@ -346,7 +349,8 @@ export class WinbackService {
         channel: 'email',
         recipient: c.email,
         subject,
-        bodyText,
+        bodyText: campaignMarkupToText(bodyText),
+        bodyHtml: campaignMarkupToHtml(bodyText, { brandColor }),
         customerId: c.id,
         source: step === 2 ? 'winback.second' : 'winback.auto',
         marketing: true,
@@ -372,6 +376,7 @@ export class WinbackService {
       where: { id: tenantId },
       select: {
         name: true,
+        portalBrandColor: true,
         winbackEnabled: true,
         winbackDelayDays: true,
         winbackSubject: true,
@@ -384,10 +389,10 @@ export class WinbackService {
     const bodyTpl = t.winbackBodyText || DEFAULT_WINBACK_BODY;
     let sent = 0;
     for (const c of await this.firstStepCandidates(tenantId, t, force)) {
-      if (await this.sendOne(tenantId, c, 1, subjectTpl, bodyTpl)) sent += 1;
+      if (await this.sendOne(tenantId, c, 1, subjectTpl, bodyTpl, t.portalBrandColor)) sent += 1;
     }
     if (sent > 0) this.logger.log(`[winback] tenant=${tenantId}: ${sent} oferta(s) de vuelta`);
-    const secondSent = await this.runSecondStep(tenantId, t.name, force);
+    const secondSent = await this.runSecondStep(tenantId, t.name, force, t.portalBrandColor);
     return { sent, secondSent };
   }
 
@@ -395,12 +400,17 @@ export class WinbackService {
    * Segundo aviso, con cupón, a quien recibió el primero hace `secondDelayDays`
    * y sigue sin volver. Una sola vez por cliente (`winback_sends.step = 2`).
    */
-  private async runSecondStep(tenantId: string, tenantName: string, force: boolean) {
+  private async runSecondStep(
+    tenantId: string,
+    tenantName: string,
+    force: boolean,
+    brandColor: string | null,
+  ) {
     const due = await this.secondStepCandidates(tenantId, tenantName, force);
     if (!due) return 0;
     let sent = 0;
     for (const c of due.candidates) {
-      if (await this.sendOne(tenantId, c, 2, due.subjectTpl, due.bodyTpl)) sent += 1;
+      if (await this.sendOne(tenantId, c, 2, due.subjectTpl, due.bodyTpl, brandColor)) sent += 1;
     }
     return sent;
   }

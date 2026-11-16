@@ -27,6 +27,21 @@ export const CustomerSegmentSchema = z.object({
   tag: z.string().trim().max(60).optional().or(z.literal('')),
   /** Solo clientes de este local (por sus contratos). */
   facilityId: z.string().uuid().optional(),
+  /** Antigüedad como cliente (desde su primer contrato firmado), en meses. */
+  minMonths: z.number().int().min(0).max(600).optional(),
+  maxMonths: z.number().int().min(0).max(600).optional(),
+  /** Con un contrato en vigor de este tamaño de trastero. */
+  unitTypeId: z.string().uuid().optional(),
+  /** Con algún contrato en vigor sin protección de contenido. */
+  withoutInsurance: z.boolean().optional(),
+  /** Con un contrato que vence en los próximos N días. */
+  endingWithinDays: z.number().int().min(1).max(365).optional(),
+  /** Idioma del inquilino. */
+  locale: z.enum(['es', 'en']).optional(),
+  /** Sin facturas vencidas ni expedientes de impago. */
+  excludeDebtors: z.boolean().optional(),
+  /** Sin quien recibió otra comunicación comercial en los últimos N días. */
+  excludeRecentDays: z.number().int().min(1).max(90).optional(),
 });
 
 export const LeadSegmentSchema = z.object({
@@ -35,6 +50,10 @@ export const LeadSegmentSchema = z.object({
   leadSource: z.string().trim().min(1).max(60).optional(),
   /** Solo contactos que prefieren este local. */
   facilityId: z.string().uuid().optional(),
+  /** Contactos que llegaron en los últimos N días. */
+  createdWithinDays: z.number().int().min(1).max(730).optional(),
+  /** Sin quien recibió otra comunicación comercial en los últimos N días. */
+  excludeRecentDays: z.number().int().min(1).max(90).optional(),
 });
 
 export const CampaignSegmentSchema = z.discriminatedUnion('audience', [
@@ -43,11 +62,33 @@ export const CampaignSegmentSchema = z.discriminatedUnion('audience', [
 ]);
 export type CampaignSegmentInput = z.infer<typeof CampaignSegmentSchema>;
 
+export const CampaignChannelEnum = z.enum(['email', 'whatsapp']);
+export type CampaignChannel = z.infer<typeof CampaignChannelEnum>;
+
+/** Plantilla aprobada de WhatsApp: los parámetros admiten variables. */
+export const CampaignWhatsappTemplateSchema = z.object({
+  name: z.string().trim().min(1).max(512),
+  language: z.string().trim().min(2).max(15),
+  params: z.array(z.string().trim().min(1).max(500)).max(10).default([]),
+});
+export type CampaignWhatsappTemplate = z.infer<typeof CampaignWhatsappTemplateSchema>;
+
 export const CreateCampaignSchema = z.object({
   name: z.string().trim().min(2).max(120),
+  /** `email` por defecto; `whatsapp` con una plantilla aprobada del número del negocio. */
+  channel: CampaignChannelEnum.default('email'),
   subject: z.string().trim().min(2).max(200),
-  /** Cuerpo del email; admite Handlebars `{{customer.firstName}}` / `{{lead.firstName}}`. */
+  /**
+   * Cuerpo del email; admite `{{customer.firstName}}` / `{{lead.firstName}}`,
+   * `**negrita**`, `[texto](https://…)` y `[[boton: Texto | https://…]]`.
+   */
   bodyText: z.string().trim().min(2).max(20_000),
+  /** Versión en inglés para los inquilinos con ese idioma (opcional). */
+  subjectEn: z.string().trim().max(200).optional().or(z.literal('')),
+  bodyTextEn: z.string().trim().max(20_000).optional().or(z.literal('')),
+  /** Cupón que se ofrece (`{{coupon.code}}`); sus usos salen en los resultados. */
+  couponCode: z.string().trim().max(40).optional().or(z.literal('')),
+  whatsappTemplate: CampaignWhatsappTemplateSchema.optional(),
   segment: CampaignSegmentSchema,
   /** Programar el envío (ISO). Si se omite, se envía de inmediato al pulsar Enviar. */
   scheduledFor: z.string().datetime({ offset: true }).optional(),
@@ -60,6 +101,10 @@ export const UpdateCampaignSchema = z
     name: z.string().trim().min(2).max(120).optional(),
     subject: z.string().trim().min(2).max(200).optional(),
     bodyText: z.string().trim().min(2).max(20_000).optional(),
+    subjectEn: z.string().trim().max(200).optional().or(z.literal('')),
+    bodyTextEn: z.string().trim().max(20_000).optional().or(z.literal('')),
+    couponCode: z.string().trim().max(40).optional().or(z.literal('')),
+    whatsappTemplate: CampaignWhatsappTemplateSchema.nullable().optional(),
     segment: CampaignSegmentSchema.optional(),
     scheduledFor: z.string().datetime({ offset: true }).nullable().optional(),
   })
@@ -71,15 +116,22 @@ export type UpdateCampaignInput = z.infer<typeof UpdateCampaignSchema>;
 /** Previsualiza el tamaño de la audiencia antes de crear/enviar. */
 export const PreviewCampaignSchema = z.object({
   segment: CampaignSegmentSchema,
+  channel: CampaignChannelEnum.default('email'),
 });
 export type PreviewCampaignInput = z.infer<typeof PreviewCampaignSchema>;
 
 export interface CampaignDto {
   id: string;
   name: string;
-  channel: string;
+  channel: CampaignChannel;
   subject: string;
   bodyText: string;
+  subjectEn: string | null;
+  bodyTextEn: string | null;
+  couponCode: string | null;
+  whatsappTemplate: CampaignWhatsappTemplate | null;
+  /** Quién la creó. */
+  createdByName: string | null;
   segment: CampaignSegmentInput;
   status: CampaignStatusValue;
   audienceCount: number;
@@ -90,8 +142,12 @@ export interface CampaignDto {
 }
 
 export interface CampaignPreviewDto {
-  /** Destinatarios con email válido que recibirían la campaña. */
+  /** Destinatarios que recibirían la campaña (con email, o con móvil por WhatsApp). */
   audienceCount: number;
+  /** De ellos, los que recibieron otra comunicación comercial en los últimos 7 días. */
+  recentlyContacted: number;
+  /** De ellos, los inquilinos en inglés (reciben la versión en inglés si la hay). */
+  english: number;
 }
 
 // ============================================================================
@@ -176,8 +232,23 @@ export interface CampaignLinkResultDto {
   clicks: number;
 }
 
+/** Lo que pasó después: contratos, contactos ganados y usos del cupón. */
+export interface CampaignConversionsDto {
+  /** Días tras el envío que se cuentan. */
+  windowDays: number;
+  /** Destinatarios que firmaron un contrato después. */
+  contracts: number;
+  /** Cuota mensual de esos contratos (sin IVA). */
+  monthlyRevenue: number;
+  /** Contactos que pasaron a ganados. */
+  leadsWon: number;
+  /** Usos del cupón de la campaña por sus destinatarios. */
+  couponUses: number;
+}
+
 export interface CampaignResultsDto {
   campaignId: string;
+  conversions?: CampaignConversionsDto;
   recipients: number;
   sent: number;
   delivered: number;
@@ -219,6 +290,7 @@ export const CampaignEmailPreviewSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   bodyText: z.string().trim().min(1).max(20_000),
   audience: z.enum(['customers', 'leads']).default('customers'),
+  couponCode: z.string().trim().max(40).optional().or(z.literal('')),
 });
 export type CampaignEmailPreviewInput = z.infer<typeof CampaignEmailPreviewSchema>;
 
@@ -246,8 +318,21 @@ export const WINBACK_SECOND_TEMPLATE_VARIABLES = [
 
 /** Las de una plantilla guardada (vale para inquilinos y contactos). */
 export const CAMPAIGN_SAVED_TEMPLATE_VARIABLES = [
-  ...new Set([...CAMPAIGN_TEMPLATE_VARIABLES.customers, ...CAMPAIGN_TEMPLATE_VARIABLES.leads]),
+  ...new Set([
+    ...CAMPAIGN_TEMPLATE_VARIABLES.customers,
+    ...CAMPAIGN_TEMPLATE_VARIABLES.leads,
+    'coupon.code',
+  ]),
 ];
+
+/** Variables de una campaña: las de su audiencia y, si ofrece un cupón, su código. */
+export function campaignTemplateVariables(
+  audience: 'customers' | 'leads',
+  withCoupon: boolean,
+): readonly string[] {
+  const base = CAMPAIGN_TEMPLATE_VARIABLES[audience];
+  return withCoupon ? [...base, 'coupon.code'] : base;
+}
 
 const VARIABLE_NAME = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
 
@@ -293,4 +378,119 @@ export function templateTextProblems(text: string, allowed: readonly string[]): 
     );
   }
   return problems;
+}
+export * from './markup';
+
+// ============================================================================
+// Quién la recibió (para los resultados)
+// ============================================================================
+
+export const CampaignRecipientFilterEnum = z.enum([
+  'clicked',
+  'bounced',
+  'unsubscribed',
+  'converted',
+  'failed',
+]);
+export type CampaignRecipientFilter = z.infer<typeof CampaignRecipientFilterEnum>;
+
+export interface CampaignRecipientDto {
+  recipient: string;
+  name: string | null;
+  customerId: string | null;
+  leadId: string | null;
+  /** Motivo (rebote, fallo) o detalle (contrato firmado). */
+  detail: string | null;
+}
+
+// ============================================================================
+// Segmentos guardados
+// ============================================================================
+
+export const SaveCampaignSegmentSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  segment: CampaignSegmentSchema,
+});
+export type SaveCampaignSegmentInput = z.infer<typeof SaveCampaignSegmentSchema>;
+
+export interface CampaignSavedSegmentDto {
+  id: string;
+  name: string;
+  segment: CampaignSegmentInput;
+  createdAt: string;
+}
+
+// ============================================================================
+// Prueba a uno mismo
+// ============================================================================
+
+export const CampaignTestSendSchema = z.object({
+  subject: z.string().trim().min(1).max(200),
+  bodyText: z.string().trim().min(1).max(20_000),
+  audience: z.enum(['customers', 'leads']).default('customers'),
+  /** Enviar la versión en inglés. */
+  english: z.boolean().default(false),
+  couponCode: z.string().trim().max(40).optional().or(z.literal('')),
+});
+export type CampaignTestSendInput = z.infer<typeof CampaignTestSendSchema>;
+
+export interface CampaignTestSendResultDto {
+  sentTo: string;
+}
+
+// ============================================================================
+// Campañas automáticas
+// ============================================================================
+
+/**
+ * - `anniversary`: a los inquilinos con contrato en vigor el día que cumplen
+ *   años con el negocio (una vez al año);
+ * - `cold_leads`: a los contactos con consentimiento que llevan N días sin
+ *   avanzar (una vez).
+ */
+export const CampaignAutomationKindEnum = z.enum(['anniversary', 'cold_leads']);
+export type CampaignAutomationKind = z.infer<typeof CampaignAutomationKindEnum>;
+
+export const CAMPAIGN_AUTOMATION_DEFAULTS: Record<
+  CampaignAutomationKind,
+  { label: string; subject: string; bodyText: string; days: number }
+> = {
+  anniversary: {
+    label: 'Aniversario del contrato',
+    subject: '¡Gracias por este año con nosotros, {{customer.firstName}}!',
+    bodyText:
+      'Hola {{customer.firstName}},\n\nHoy hace un año más que guardas tus cosas en {{tenant.name}}. Gracias por confiar en nosotros.\n\nSi necesitas más espacio o cualquier cosa, escríbenos.\n\nUn saludo,\n{{tenant.name}}',
+    days: 0,
+  },
+  cold_leads: {
+    label: 'Contactos que no avanzan',
+    subject: '¿Sigues buscando trastero, {{lead.firstName}}?',
+    bodyText:
+      'Hola {{lead.firstName}},\n\nHace un tiempo nos preguntaste por un trastero. Si sigues buscando, cuéntanos qué necesitas y te ayudamos a encontrar el tamaño adecuado.\n\nUn saludo,\n{{tenant.name}}',
+    days: 30,
+  },
+};
+
+export const UpdateCampaignAutomationSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    subject: z.string().trim().max(200).optional().or(z.literal('')),
+    bodyText: z.string().trim().max(20_000).optional().or(z.literal('')),
+    /** Contactos que no avanzan: días sin moverse. */
+    days: z.number().int().min(7).max(365).optional(),
+  })
+  .refine((v) => Object.values(v).some((f) => f !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
+export type UpdateCampaignAutomationInput = z.infer<typeof UpdateCampaignAutomationSchema>;
+
+export interface CampaignAutomationDto {
+  kind: CampaignAutomationKind;
+  enabled: boolean;
+  /** null = el texto por defecto. */
+  subject: string | null;
+  bodyText: string | null;
+  days: number;
+  /** Enviados en los últimos 30 días. */
+  sentLast30Days: number;
 }

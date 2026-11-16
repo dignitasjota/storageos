@@ -2,15 +2,21 @@
 
 import {
   COMMUNICATION_CHANNEL_LABELS,
+  COMMUNICATION_SOURCE_GROUPS,
   communicationSourceLabel,
   type CommunicationDto,
+  type CommunicationSourceGroup,
   type CommunicationStatusValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
+import { Download, Eye } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { ProblemAddresses } from './problem-addresses';
+
+import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
@@ -24,9 +30,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ApiError } from '@/lib/auth/api';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ApiError, apiFetchBlob } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
-import { useCommunicationsPage, useRetryCommunication } from '@/lib/communications/hooks';
+import {
+  communicationPageQuery,
+  useCancelCommunication,
+  useCommunicationPreview,
+  useCommunicationStats,
+  useCommunicationsPage,
+  useRetryCommunication,
+} from '@/lib/communications/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilityFilterState } from '@/lib/facilities/store';
 import { formatDateTime } from '@/lib/format';
 
 const STATUS_LABELS: Record<
@@ -65,9 +81,42 @@ function canRetry(c: CommunicationDto): boolean {
 }
 
 export default function CommunicationsPage() {
+  const [tab, setTab] = useState('history');
+  return (
+    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Comunicaciones</h1>
+        <p className="text-sm text-muted-foreground">
+          Los correos y mensajes de WhatsApp enviados a inquilinos y contactos. Pulsa uno para
+          leerlo; los que fallan se pueden reintentar.
+        </p>
+      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="history">Historial</TabsTrigger>
+          <TabsTrigger value="problems">Direcciones con problemas</TabsTrigger>
+        </TabsList>
+        <TabsContent value="history" className="mt-4">
+          <History />
+        </TabsContent>
+        <TabsContent value="problems" className="mt-4">
+          <ProblemAddresses enabled={tab === 'problems'} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function History() {
+  const ask = useConfirm();
   const canSend = useHasPermission('communications:send');
+  const facilities = useFacilities();
+  const facilityList = facilities.data ?? [];
+  const [facilityId, setFacilityId] = useFacilityFilterState();
   const [status, setStatus] = useState<CommunicationStatusValue | undefined>();
   const [channel, setChannel] = useState<string | undefined>();
+  const [sourceGroup, setSourceGroup] = useState<CommunicationSourceGroup | undefined>();
+  const [exporting, setExporting] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [period, setPeriod] = useState('30');
@@ -81,18 +130,58 @@ export default function CommunicationsPage() {
     const days = PERIODS[period]?.days;
     return days ? new Date(Date.now() - days * 86_400_000).toISOString() : undefined;
   }, [period]);
-  const communications = useCommunicationsPage({
+  const params = {
     ...(status ? { status } : {}),
     ...(channel ? { channel } : {}),
     ...(search ? { search } : {}),
     ...(from ? { from } : {}),
-  });
+    ...(sourceGroup ? { sourceGroup } : {}),
+    ...(facilityId ? { facilityId } : {}),
+  };
+  const communications = useCommunicationsPage(params);
+  const stats = useCommunicationStats(params);
   const rows = useMemo(
     () => communications.data?.pages.flatMap((p) => p.items) ?? [],
     [communications.data],
   );
   const opened = rows.find((r) => r.id === openId) ?? null;
   const retry = useRetryCommunication();
+  const cancel = useCancelCommunication();
+
+  async function handleCancel(c: CommunicationDto) {
+    const ok = await ask({
+      title: '¿Cancelar este envío?',
+      description: 'No saldrá. Queda en el historial como omitido.',
+      confirmLabel: 'Cancelar el envío',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await cancel.mutateAsync(c.id);
+      toast.success('Envío cancelado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cancelar');
+    }
+  }
+
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const { status: _s, ...rest } = params;
+      const qs = communicationPageQuery({ ...rest, ...(status ? { status } : {}) });
+      const blob = await apiFetchBlob(`/communications/export?${qs}`);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'comunicaciones.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo exportar');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function handleRetry(c: CommunicationDto) {
     try {
@@ -163,20 +252,22 @@ export default function CommunicationsPage() {
           >
             Reintentar
           </Button>
+        ) : canSend && row.original.status === 'pending' ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void handleCancel(row.original)}
+            disabled={cancel.isPending}
+          >
+            Cancelar
+          </Button>
         ) : null,
     },
   ];
 
+  const st = stats.data;
   return (
-    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Comunicaciones</h1>
-        <p className="text-sm text-muted-foreground">
-          Los correos y mensajes de WhatsApp enviados a inquilinos y contactos. Pulsa uno para
-          leerlo; los que fallan se pueden reintentar.
-        </p>
-      </div>
-
+    <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Input
           value={searchInput}
@@ -227,7 +318,85 @@ export default function CommunicationsPage() {
             <SelectItem value="whatsapp">WhatsApp</SelectItem>
           </SelectContent>
         </Select>
+        <Select
+          value={sourceGroup ?? 'all'}
+          onValueChange={(v) =>
+            setSourceGroup(v === 'all' ? undefined : (v as CommunicationSourceGroup))
+          }
+        >
+          <SelectTrigger className="w-[200px]">
+            <SelectValue placeholder="Tipo" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tipos</SelectItem>
+            {(Object.keys(COMMUNICATION_SOURCE_GROUPS) as CommunicationSourceGroup[]).map((g) => (
+              <SelectItem key={g} value={g}>
+                {COMMUNICATION_SOURCE_GROUPS[g].label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {facilityList.length > 1 && (
+          <Select
+            value={facilityId ?? 'all'}
+            onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
+          >
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Local" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los locales</SelectItem>
+              {facilityList.map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Button variant="outline" onClick={() => void exportCsv()} disabled={exporting}>
+          <Download className="mr-1 size-4" />
+          {exporting ? 'Exportando…' : 'CSV'}
+        </Button>
       </div>
+
+      {st && st.total > 0 && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <StatTile
+            label="Total"
+            value={st.total}
+            active={!status}
+            onClick={() => setStatus(undefined)}
+          />
+          <StatTile
+            label="Enviados"
+            value={st.sent + st.delivered}
+            hint={st.delivered > 0 ? `${st.delivered} entregados` : undefined}
+            active={status === 'sent'}
+            onClick={() => setStatus('sent')}
+          />
+          <StatTile
+            label="Rebotes"
+            value={st.bounced}
+            warn={st.bounced > 0}
+            active={status === 'bounced'}
+            onClick={() => setStatus('bounced')}
+          />
+          <StatTile
+            label="Fallidos"
+            value={st.failed}
+            warn={st.failed > 0}
+            active={status === 'failed'}
+            onClick={() => setStatus('failed')}
+          />
+          <StatTile
+            label="Pendientes"
+            value={st.pending}
+            active={status === 'pending'}
+            onClick={() => setStatus('pending')}
+          />
+        </div>
+      )}
 
       {communications.isError ? (
         <SectionError onRetry={() => void communications.refetch()} />
@@ -249,9 +418,44 @@ export default function CommunicationsPage() {
       <CommunicationDialog
         c={opened}
         onOpenChange={(open) => !open && setOpenId(null)}
-        {...(canSend ? { onRetry: (c: CommunicationDto) => void handleRetry(c) } : {})}
+        {...(canSend
+          ? {
+              onRetry: (c: CommunicationDto) => void handleRetry(c),
+              onCancel: (c: CommunicationDto) => void handleCancel(c),
+            }
+          : {})}
       />
     </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  hint,
+  warn,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  hint?: string | undefined;
+  warn?: boolean;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg border p-2 text-left transition-colors hover:bg-muted/60 ${active ? 'border-primary bg-primary/5' : ''}`}
+    >
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`text-lg font-semibold ${warn ? 'text-amber-600 dark:text-amber-400' : ''}`}>
+        {value.toLocaleString('es-ES')}
+      </p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </button>
   );
 }
 
@@ -299,11 +503,16 @@ function CommunicationDialog({
   c,
   onOpenChange,
   onRetry,
+  onCancel,
 }: {
   c: CommunicationDto | null;
   onOpenChange: (open: boolean) => void;
   onRetry?: (c: CommunicationDto) => void;
+  onCancel?: (c: CommunicationDto) => void;
 }) {
+  const [asSent, setAsSent] = useState(false);
+  const preview = useCommunicationPreview(asSent && c?.channel === 'email' ? c.id : null);
+  useEffect(() => setAsSent(false), [c?.id]);
   return (
     <Dialog open={!!c} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -327,47 +536,85 @@ function CommunicationDialog({
                 <dd>
                   <StatusCell c={c} />
                 </dd>
-                <dt className="text-muted-foreground">Creado</dt>
-                <dd>{formatDateTime(c.createdAt)}</dd>
-                {c.sentAt && (
-                  <>
-                    <dt className="text-muted-foreground">Enviado</dt>
-                    <dd>{formatDateTime(c.sentAt)}</dd>
-                  </>
-                )}
-                {c.deliveredAt && (
-                  <>
-                    <dt className="text-muted-foreground">Entregado</dt>
-                    <dd>{formatDateTime(c.deliveredAt)}</dd>
-                  </>
-                )}
-                {c.failedAt && (
-                  <>
-                    <dt className="text-muted-foreground">Falló</dt>
-                    <dd>{formatDateTime(c.failedAt)}</dd>
-                  </>
-                )}
+                <dt className="text-muted-foreground">Recorrido</dt>
+                <dd>
+                  <Timeline c={c} />
+                </dd>
                 <dt className="text-muted-foreground">Relacionado</dt>
                 <dd>
                   <RelatedLinks c={c} />
                 </dd>
               </dl>
-              <p className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-md border px-3 py-2 text-muted-foreground">
-                {c.bodyText}
-              </p>
+              {asSent && c.channel === 'email' ? (
+                preview.isError ? (
+                  <SectionError onRetry={() => void preview.refetch()} />
+                ) : preview.data ? (
+                  <iframe
+                    title="Correo tal como se envió"
+                    sandbox=""
+                    srcDoc={preview.data.html}
+                    className="h-[55vh] w-full rounded-md border bg-white"
+                  />
+                ) : (
+                  <p className="text-muted-foreground">Cargando…</p>
+                )
+              ) : (
+                <p className="max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-md border px-3 py-2 text-muted-foreground">
+                  {c.bodyText}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Los códigos de los enlaces que dan acceso (firmar, pagar, descargar) se ven como
                 ••••: el destinatario los recibió completos.
               </p>
-              {onRetry && canRetry(c) && (
-                <Button size="sm" variant="outline" onClick={() => onRetry(c)}>
-                  Reintentar el envío
-                </Button>
-              )}
+              <div className="flex flex-wrap gap-2">
+                {c.channel === 'email' && (
+                  <Button size="sm" variant="outline" onClick={() => setAsSent((v) => !v)}>
+                    <Eye className="mr-1 size-4" />
+                    {asSent ? 'Ver el texto' : 'Ver el correo como le llegó'}
+                  </Button>
+                )}
+                {onRetry && canRetry(c) && (
+                  <Button size="sm" variant="outline" onClick={() => onRetry(c)}>
+                    Reintentar el envío
+                  </Button>
+                )}
+                {onCancel && c.status === 'pending' && (
+                  <Button size="sm" variant="ghost" onClick={() => onCancel(c)}>
+                    Cancelar el envío
+                  </Button>
+                )}
+              </div>
             </div>
           </>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Los pasos del envío: creado, programado, enviado, entregado o fallido. */
+function Timeline({ c }: { c: CommunicationDto }) {
+  const steps: { label: string; at: string; tone?: 'bad' }[] = [
+    { label: 'Creado', at: c.createdAt },
+  ];
+  if (isScheduled(c)) steps.push({ label: 'Saldrá', at: c.scheduledFor! });
+  if (c.sentAt) steps.push({ label: 'Enviado', at: c.sentAt });
+  if (c.deliveredAt) steps.push({ label: 'Entregado', at: c.deliveredAt });
+  if (c.failedAt) {
+    steps.push({ label: c.status === 'bounced' ? 'Rebotó' : 'Falló', at: c.failedAt, tone: 'bad' });
+  }
+  return (
+    <ol className="space-y-1">
+      {steps.map((s) => (
+        <li key={s.label} className="flex items-center gap-2">
+          <span
+            className={`size-2 shrink-0 rounded-full ${s.tone === 'bad' ? 'bg-destructive' : 'bg-primary'}`}
+          />
+          <span className={s.tone === 'bad' ? 'text-destructive' : ''}>{s.label}</span>
+          <span className="text-muted-foreground">{formatDateTime(s.at)}</span>
+        </li>
+      ))}
+    </ol>
   );
 }

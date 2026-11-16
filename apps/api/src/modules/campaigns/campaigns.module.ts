@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { WhatsappBusinessModule } from '../whatsapp-business/whatsapp-business.module';
 
+import { CampaignAutomationsService } from './campaign-automations.service';
 import { CampaignClickPublicController } from './campaign-click-public.controller';
 import { CampaignInsightsService } from './campaign-insights.service';
 import { CampaignsResumeCron } from './campaigns-resume.cron';
@@ -18,10 +20,11 @@ import { WinbackService } from './winback.service';
  * deduplica con `winback_sends` + `claimDailyCronRun`), como los demás digests.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, WhatsappBusinessModule],
   controllers: [CampaignsController, CampaignClickPublicController],
   providers: [
     CampaignsService,
+    CampaignAutomationsService,
     CampaignInsightsService,
     CampaignsResumeCron,
     WinbackService,

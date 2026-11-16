@@ -14,6 +14,7 @@ import { AlertTriangle, Plus, Send } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { CampaignAutomationsCard } from './automations-card';
 import {
   CAMPAIGN_STATUS,
   CampaignDetailDialog,
@@ -22,6 +23,7 @@ import {
 } from './campaign-detail-dialog';
 import { CampaignResultsButton, WinbackStatsLine } from './campaign-extras';
 import { CampaignFormDialog } from './campaign-form-dialog';
+import { MarkupTextarea } from './markup-textarea';
 
 import type { CampaignDto } from '@storageos/shared';
 
@@ -34,7 +36,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import {
@@ -101,7 +102,16 @@ export default function CampaignsPage() {
     {
       accessorKey: 'name',
       header: 'Nombre',
-      cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      cell: ({ row }) => (
+        <span className="flex items-center gap-2 font-medium">
+          {row.original.name}
+          {row.original.channel === 'whatsapp' && (
+            <Badge variant="outline" className="font-normal">
+              WhatsApp
+            </Badge>
+          )}
+        </span>
+      ),
     },
     {
       id: 'audience',
@@ -123,7 +133,8 @@ export default function CampaignsPage() {
             <Badge variant={s.variant}>{s.label}</Badge>
             {scheduleMissed(c) && (
               <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
-                <AlertTriangle className="size-3" /> La fecha pasó y no se envió
+                <AlertTriangle className="size-3" />{' '}
+                {c.status === 'draft' ? 'La fecha pasó y no se envió' : 'Aún no ha salido'}
               </p>
             )}
           </div>
@@ -178,11 +189,17 @@ export default function CampaignsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Campañas</h1>
         <p className="text-sm text-muted-foreground">
-          Correos a inquilinos o contactos elegidos por filtros (reactivación, ofertas, avisos).
+          Correos y WhatsApp a inquilinos o contactos elegidos por filtros (reactivación, ofertas,
+          avisos).
         </p>
       </div>
 
-      {canWinback && companyWide && <WinbackCard />}
+      {canWinback && companyWide && (
+        <>
+          <WinbackCard />
+          <CampaignAutomationsCard />
+        </>
+      )}
 
       {campaigns.isError ? (
         <SectionError onRetry={() => void campaigns.refetch()} />
@@ -366,9 +383,10 @@ function WinbackCard() {
         </div>
         <div className="space-y-1">
           <Label>Mensaje</Label>
-          <Textarea
+          <MarkupTextarea
+            id="winback-body"
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={setBody}
             rows={6}
             placeholder={DEFAULT_WINBACK_BODY}
           />
@@ -420,9 +438,10 @@ function WinbackCard() {
               </div>
               <div className="space-y-1">
                 <Label>Mensaje</Label>
-                <Textarea
+                <MarkupTextarea
+                  id="winback-second-body"
                   value={secondBody}
-                  onChange={(e) => setSecondBody(e.target.value)}
+                  onChange={setSecondBody}
                   rows={5}
                   placeholder={DEFAULT_WINBACK_SECOND_BODY}
                 />

@@ -4,6 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import { claimDailyCronRun } from '../../common/cron-claim';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import { CampaignAutomationsService } from './campaign-automations.service';
 import { WinbackService } from './winback.service';
 
 /**
@@ -18,6 +19,7 @@ export class WinbackCron {
   constructor(
     private readonly winback: WinbackService,
     private readonly admin: PrismaAdminService,
+    private readonly automations: CampaignAutomationsService,
   ) {}
 
   @Cron('0 9 * * *', { name: 'winback.daily' })
@@ -30,6 +32,18 @@ export class WinbackCron {
       }
     } catch (err) {
       this.logger.error(`Cron de win-back falló: ${(err as Error).message}`);
+    }
+  }
+
+  /** Campañas automáticas (aniversario, contactos que no avanzan). */
+  @Cron('30 9 * * *', { name: 'campaigns.automations' })
+  async automationsDaily(): Promise<void> {
+    try {
+      if (!(await claimDailyCronRun(this.admin, 'campaigns.automations'))) return;
+      const sent = await this.automations.runDueAll();
+      if (sent > 0) this.logger.log(`Campañas automáticas: ${sent} correo(s)`);
+    } catch (err) {
+      this.logger.error(`Campañas automáticas fallaron: ${(err as Error).message}`);
     }
   }
 }

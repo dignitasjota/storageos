@@ -8,6 +8,8 @@ export const COMMUNICATION_CHANNEL_LABELS: Record<string, string> = {
 
 /** Prefijo del origen → texto. El primero que coincide gana. */
 const SOURCE_LABELS: Array<[string, string]> = [
+  ['campaign_auto.anniversary', 'Campaña automática: aniversario'],
+  ['campaign_auto.cold_leads', 'Campaña automática: contactos que no avanzan'],
   ['winback.second', 'Win-back: segundo aviso con cupón'],
   ['winback', 'Win-back: oferta de vuelta'],
   ['booking.deadline_extended', 'Plazo de la reserva ampliado'],
@@ -57,4 +59,55 @@ export function communicationSourceLabel(
   }
   const hit = SOURCE_LABELS.find(([prefix]) => source.startsWith(prefix));
   return hit ? hit[1] : 'Aviso del sistema';
+}
+
+/** Tipos de envío para filtrar el historial (por el principio de su origen). */
+export const COMMUNICATION_SOURCE_GROUPS = {
+  campaigns: {
+    label: 'Campañas y win-back',
+    prefixes: ['campaign:', 'winback', 'campaign_auto.'],
+  },
+  billing: {
+    label: 'Facturas y cobros',
+    prefixes: [
+      'invoice.',
+      'dunning',
+      'bulk.',
+      'sepa',
+      'payment_plan',
+      'offline_payment',
+      'customer_email.invoice_',
+      'customer_email.payment_',
+      'customer_email.sepa_',
+      'customer_email.deposit_',
+    ],
+  },
+  contracts: {
+    label: 'Contratos y reservas',
+    prefixes: [
+      'contract.',
+      'booking',
+      'pre_opening',
+      'rent_increase',
+      'access',
+      'customer_email.contract_',
+      'customer_email.move_out',
+      'customer_email.reservation_',
+      'customer_email.booking_',
+      'customer_email.unit_request',
+    ],
+  },
+  sales: {
+    label: 'Contactos y ventas',
+    prefixes: ['lead.', 'opportunity', 'retention', 'referrals', 'review', 'waitlist'],
+  },
+  messages: {
+    label: 'Mensajes del equipo',
+    prefixes: ['manual', 'customer_message', 'customer_email.staff_message', 'customer.'],
+  },
+} as const;
+export type CommunicationSourceGroup = keyof typeof COMMUNICATION_SOURCE_GROUPS;
+
+export function isCommunicationSourceGroup(v: string): v is CommunicationSourceGroup {
+  return Object.prototype.hasOwnProperty.call(COMMUNICATION_SOURCE_GROUPS, v);
 }

@@ -20,7 +20,7 @@ import {
   useSendCampaign,
 } from '@/lib/campaigns/hooks';
 import { describeSegment } from '@/lib/campaigns/segment-label';
-import { useFacilities } from '@/lib/facilities/hooks';
+import { useFacilities, useUnitTypes } from '@/lib/facilities/hooks';
 import { formatDateTime } from '@/lib/format';
 
 export const CAMPAIGN_STATUS: Record<
@@ -34,11 +34,12 @@ export const CAMPAIGN_STATUS: Record<
   cancelled: { label: 'Cancelada', variant: 'outline' },
 };
 
-/** Un borrador con fecha que ya pasó: no se ha enviado. */
+/** Un borrador con fecha que ya pasó, o una programada que lleva rato sin salir. */
 export function scheduleMissed(c: CampaignDto): boolean {
-  return (
-    c.status === 'draft' && !!c.scheduledFor && new Date(c.scheduledFor).getTime() <= Date.now()
-  );
+  if (!c.scheduledFor) return false;
+  const at = new Date(c.scheduledFor).getTime();
+  if (c.status === 'draft') return at <= Date.now();
+  return c.status === 'scheduled' && c.sentCount === 0 && at <= Date.now() - 30 * 60_000;
 }
 
 function isFuture(c: CampaignDto): boolean {
@@ -59,7 +60,7 @@ export function useCampaignActions() {
           ? `¿Programar la campaña para el ${formatDateTime(c.scheduledFor!)}?`
           : '¿Enviar la campaña ahora?',
         description: future
-          ? 'Saldrá en esa fecha. Puedes cancelarla hasta entonces.'
+          ? 'Saldrá en esa fecha a quien cumpla los filtros en ese momento. Puedes cancelarla hasta entonces.'
           : `Le llegará a quien cumpla los filtros ahora mismo (unas ${c.audienceCount} direcciones).`,
       }))
     )
@@ -82,10 +83,7 @@ export function useCampaignActions() {
     if (
       !(await ask({
         title: '¿Cancelar la campaña?',
-        description:
-          c.status === 'scheduled'
-            ? 'Los correos programados no se enviarán.'
-            : 'El borrador quedará cancelado.',
+        description: c.status === 'scheduled' ? 'No se enviará.' : 'El borrador quedará cancelado.',
         destructive: true,
       }))
     )
@@ -116,11 +114,14 @@ export function CampaignDetailDialog({
   const ask = useConfirm();
   const canSend = useHasPermission('communications:send');
   const facilities = useFacilities();
+  const unitTypes = useUnitTypes();
   const duplicate = useDuplicateCampaign();
   const remove = useDeleteCampaign();
   const { handleSend, handleCancel } = useCampaignActions();
   const c = campaign;
   const facilityName = (id: string) => facilities.data?.find((f) => f.id === id)?.name;
+  const unitTypeName = (id: string) => unitTypes.data?.find((t) => t.id === id)?.name;
+  const unit = c?.channel === 'whatsapp' ? 'mensajes' : 'correos';
 
   async function handleDuplicate() {
     if (!c) return;
@@ -163,21 +164,35 @@ export function CampaignDetailDialog({
               {scheduleMissed(c) && (
                 <p className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  Estaba programada para el {formatDateTime(c.scheduledFor!)} pero no se llegó a
-                  programar: no se ha enviado. Envíala ahora o cambia la fecha.
+                  {c.status === 'draft'
+                    ? `Estaba programada para el ${formatDateTime(c.scheduledFor!)} pero no se llegó a programar: no se ha enviado. Envíala ahora o cambia la fecha.`
+                    : `Tenía que salir el ${formatDateTime(c.scheduledFor!)} y aún no ha salido. Saldrá en los próximos minutos; si no, avisa a soporte.`}
                 </p>
               )}
               <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-[140px_1fr]">
                 <dt className="text-muted-foreground">A quién va</dt>
-                <dd>{describeSegment(c.segment, facilityName)}</dd>
+                <dd>{describeSegment(c.segment, facilityName, unitTypeName)}</dd>
+                <dt className="text-muted-foreground">Canal</dt>
+                <dd>{c.channel === 'whatsapp' ? 'WhatsApp' : 'Correo'}</dd>
                 <dt className="text-muted-foreground">Destinatarios</dt>
                 <dd>
-                  {c.status === 'sent' || c.status === 'scheduled'
-                    ? `${c.sentCount} correos`
-                    : `${c.audienceCount} ahora mismo`}
+                  {c.status === 'sent' || (c.status === 'scheduled' && c.sentCount > 0)
+                    ? `${c.sentCount} ${unit}`
+                    : c.status === 'scheduled'
+                      ? `${c.audienceCount} ahora mismo (se decide al salir)`
+                      : `${c.audienceCount} ahora mismo`}
                 </dd>
                 <dt className="text-muted-foreground">Creada</dt>
-                <dd>{formatDateTime(c.createdAt)}</dd>
+                <dd>
+                  {formatDateTime(c.createdAt)}
+                  {c.createdByName ? ` por ${c.createdByName}` : ''}
+                </dd>
+                {c.couponCode && (
+                  <>
+                    <dt className="text-muted-foreground">Cupón</dt>
+                    <dd className="font-mono">{c.couponCode}</dd>
+                  </>
+                )}
                 {c.scheduledFor && (
                   <>
                     <dt className="text-muted-foreground">Envío programado</dt>
@@ -191,12 +206,48 @@ export function CampaignDetailDialog({
                   </>
                 )}
               </dl>
-              <div className="rounded-md border">
-                <p className="border-b px-3 py-2 font-medium">{c.subject}</p>
-                <p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 text-muted-foreground">
-                  {c.bodyText}
-                </p>
-              </div>
+              {c.channel === 'whatsapp' && c.whatsappTemplate ? (
+                <div className="rounded-md border">
+                  <p className="border-b px-3 py-2 font-medium">
+                    Plantilla de WhatsApp «{c.whatsappTemplate.name}» ({c.whatsappTemplate.language}
+                    )
+                  </p>
+                  <p className="whitespace-pre-wrap break-words px-3 py-2 text-muted-foreground">
+                    {c.bodyText}
+                  </p>
+                  {c.whatsappTemplate.params.length > 0 && (
+                    <ul className="border-t px-3 py-2 text-xs text-muted-foreground">
+                      {c.whatsappTemplate.params.map((p, i) => (
+                        <li key={i}>
+                          {`{{${i + 1}}}`} = {p}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-md border">
+                    <p className="border-b px-3 py-2 font-medium">{c.subject}</p>
+                    <p className="max-h-72 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 text-muted-foreground">
+                      {c.bodyText}
+                    </p>
+                  </div>
+                  {c.subjectEn && (
+                    <div className="rounded-md border">
+                      <p className="border-b px-3 py-2 font-medium">
+                        <span className="mr-2 text-xs font-normal text-muted-foreground">
+                          En inglés
+                        </span>
+                        {c.subjectEn}
+                      </p>
+                      <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 text-muted-foreground">
+                        {c.bodyTextEn}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
               <div className="flex flex-wrap gap-2">
                 {(c.status === 'sent' || c.status === 'scheduled') && (
                   <CampaignResultsButton campaignId={c.id} />

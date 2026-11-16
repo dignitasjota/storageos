@@ -178,3 +178,29 @@ export interface WidgetUnitTypeDto {
   color: string;
   availableUnits: number;
 }
+
+/** Cifras del historial en el periodo y con los filtros elegidos. */
+export interface CommunicationStatsDto {
+  total: number;
+  sent: number;
+  delivered: number;
+  bounced: number;
+  failed: number;
+  skipped: number;
+  pending: number;
+}
+
+/** Una dirección a la que no llegan los correos (rebota o la marcaron como spam). */
+export interface ProblemAddressDto {
+  email: string;
+  /** hard_bounce | invalid_email | blocked | complaint | soft_bounce */
+  reason: string;
+  label: string;
+  /** Detalle del proveedor, si lo hay. */
+  detail: string | null;
+  since: string;
+  customerId: string | null;
+  customerName: string | null;
+  leadId: string | null;
+  leadName: string | null;
+}

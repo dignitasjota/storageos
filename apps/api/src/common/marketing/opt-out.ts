@@ -40,3 +40,50 @@ export async function applyMarketingOptOutByEmail(
     data: { marketingOptOutAt: null },
   });
 }
+
+/**
+ * De estas direcciones (en minúsculas), las que no pueden recibir ofertas: se
+ * dieron de baja en alguna ficha del negocio, rebotan o marcaron spam.
+ */
+export async function blockedMarketingEmails(
+  db: Db & {
+    emailSuppression: {
+      findMany: (args: {
+        where: Prisma.EmailSuppressionWhereInput;
+        select: { email: true };
+      }) => Promise<Array<{ email: string }>>;
+    };
+  },
+  tenantId: string,
+  emails: string[],
+): Promise<Set<string>> {
+  if (emails.length === 0) return new Set();
+  const [customers, leads, suppressed] = await Promise.all([
+    db.customer.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        marketingOptOutAt: { not: null },
+        email: { in: emails, mode: 'insensitive' },
+      },
+      select: { email: true },
+    }),
+    db.lead.findMany({
+      where: {
+        tenantId,
+        marketingOptOutAt: { not: null },
+        email: { in: emails, mode: 'insensitive' },
+      },
+      select: { email: true },
+    }),
+    db.emailSuppression.findMany({
+      where: { email: { in: emails }, OR: [{ tenantId }, { tenantId: null }] },
+      select: { email: true },
+    }),
+  ]);
+  return new Set(
+    [...customers, ...leads, ...suppressed]
+      .map((r) => r.email?.trim().toLowerCase())
+      .filter((v): v is string => !!v),
+  );
+}

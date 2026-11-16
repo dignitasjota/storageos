@@ -152,7 +152,8 @@ describe('Revisión del CRM (e2e)', () => {
       });
     expect(otherLocal.body.audienceCount).toBe(0);
 
-    // Programada: queda «programada» y se puede cancelar sin que salga nada.
+    // Programada: queda «programada» (los correos se preparan al salir) y se puede
+    // cancelar sin que salga nada.
     const campaign = await http()
       .post('/campaigns')
       .set(auth)
@@ -177,9 +178,8 @@ describe('Revisión del CRM (e2e)', () => {
     const comms = await db.communication.findMany({
       where: { source: `campaign:${campaign.body.id}` },
     });
-    expect(comms.length).toBe(1);
-    expect(comms.every((c) => c.status === 'skipped')).toBe(true);
-    // Una enviada ya no se cancela.
+    expect(comms).toHaveLength(0);
+    // Una cancelada ya no se cancela otra vez.
     await http().post(`/campaigns/${campaign.body.id}/cancel`).set(auth).expect(409);
   });
 

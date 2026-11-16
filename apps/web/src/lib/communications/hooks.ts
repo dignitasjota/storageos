@@ -11,6 +11,8 @@ import type {
   AutomationRunDto,
   CommunicationDto,
   CommunicationPageDto,
+  CommunicationStatsDto,
+  ProblemAddressDto,
   ConvertLeadInput,
   CreateAutomationRuleInput,
   CreateLeadInput,
@@ -72,28 +74,74 @@ export function useLeadReply(leadId: string) {
   });
 }
 
-/** Historial paginado (página de Comunicaciones): búsqueda, periodo y «cargar más». */
-export function useCommunicationsPage(params: {
+export interface CommunicationPageParams {
   status?: string;
   channel?: string;
   search?: string;
   from?: string;
-}) {
+  sourceGroup?: string;
+  facilityId?: string;
+}
+
+/** Los filtros del historial en la URL (lista, cifras y CSV). */
+export function communicationPageQuery(params: CommunicationPageParams): URLSearchParams {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  return qs;
+}
+
+/** Historial paginado (página de Comunicaciones): búsqueda, periodo y «cargar más». */
+export function useCommunicationsPage(params: CommunicationPageParams) {
   return useInfiniteQuery({
     queryKey: ['communications', 'page', params] as const,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) => {
-      const qs = new URLSearchParams({ limit: '50' });
-      if (params.status) qs.set('status', params.status);
-      if (params.channel) qs.set('channel', params.channel);
-      if (params.search) qs.set('search', params.search);
-      if (params.from) qs.set('from', params.from);
+      const qs = communicationPageQuery(params);
+      qs.set('limit', '50');
       if (pageParam) qs.set('cursor', pageParam);
       return apiFetch<CommunicationPageDto>(`/communications/page?${qs}`);
     },
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     // Mientras llega la búsqueda nueva, se siguen viendo los resultados anteriores.
     placeholderData: (prev) => prev,
+  });
+}
+
+/** Cifras del historial con los mismos filtros (sin el de estado). */
+export function useCommunicationStats(params: CommunicationPageParams) {
+  const { status: _status, ...rest } = params;
+  return useQuery({
+    queryKey: ['communications', 'stats', rest] as const,
+    queryFn: () =>
+      apiFetch<CommunicationStatsDto>(`/communications/stats?${communicationPageQuery(rest)}`),
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Cómo le llegó el correo (HTML con la marca del negocio). */
+export function useCommunicationPreview(id: string | null) {
+  return useQuery({
+    queryKey: ['communications', 'preview', id] as const,
+    queryFn: () => apiFetch<{ html: string }>(`/communications/${id}/preview`),
+    enabled: !!id,
+  });
+}
+
+export function useCancelCommunication() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<CommunicationDto>(`/communications/${id}/cancel`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['communications'] }),
+  });
+}
+
+/** Inquilinos y contactos a los que no les llegan los correos. */
+export function useProblemAddresses(enabled: boolean) {
+  return useQuery({
+    queryKey: ['communications', 'problem-addresses'] as const,
+    queryFn: () => apiFetch<ProblemAddressDto[]>('/communications/problem-addresses'),
+    enabled,
   });
 }
 

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -15,7 +16,10 @@ import {
   type CommunicationChannelValue,
   type CommunicationDto,
   type CommunicationPageDto,
+  type CommunicationStatsDto,
   CommunicationStatusEnum,
+  isCommunicationSourceGroup,
+  type ProblemAddressDto,
   type CommunicationStatusValue,
   SendCommunicationSchema,
 } from '@storageos/shared';
@@ -27,7 +31,11 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
-import { CommunicationsService, type ListFilters } from './communications.service';
+import {
+  CommunicationsService,
+  type ListFilters,
+  type PageFilters,
+} from './communications.service';
 
 class SendCommunicationDto extends createZodDto(SendCommunicationSchema) {}
 
@@ -72,50 +80,35 @@ export class CommunicationsController {
   @Get('page')
   page(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('channel') channel?: string,
-    @Query('status') status?: string,
-    @Query('customerId') customerId?: string,
-    @Query('leadId') leadId?: string,
-    @Query('source') source?: string,
+    @Query() q: PageQuery,
   ): Promise<CommunicationPageDto> {
-    for (const [key, value] of [
-      ['cursor', cursor],
-      ['customerId', customerId],
-      ['leadId', leadId],
-    ] as const) {
-      if (value && !UUID_RE.test(value)) {
-        throw new BadRequestException({ code: 'invalid_id', message: `${key} no es un UUID` });
-      }
-    }
-    const date = (key: string, v?: string): Date | undefined => {
-      if (!v) return undefined;
-      const d = new Date(v);
-      if (Number.isNaN(d.getTime())) {
-        throw new BadRequestException({ code: 'invalid_date', message: `${key} no es una fecha` });
-      }
-      return d;
-    };
-    const fromDate = date('from', from);
-    const toDate = date('to', to);
-    const take = Number(limit);
-    return this.service.listPage(user.tenantId, {
-      scope: user.facilityScope ?? null,
-      ...(cursor ? { cursor } : {}),
-      ...(limit && Number.isFinite(take) ? { limit: Math.trunc(take) } : {}),
-      ...(search ? { search } : {}),
-      ...(fromDate ? { from: fromDate } : {}),
-      ...(toDate ? { to: toDate } : {}),
-      ...(channel ? { channel: parseChannel(channel) } : {}),
-      ...(status ? { status: parseStatus(status) } : {}),
-      ...(customerId ? { customerId } : {}),
-      ...(leadId ? { leadId } : {}),
-      ...(source ? { source } : {}),
-    });
+    return this.service.listPage(user.tenantId, pageFilters(user, q));
+  }
+
+  /** Cifras del historial con los mismos filtros. */
+  @RequirePermission('communications:read')
+  @Get('stats')
+  stats(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() q: PageQuery,
+  ): Promise<CommunicationStatsDto> {
+    return this.service.stats(user.tenantId, pageFilters(user, q));
+  }
+
+  /** El historial con estos filtros en CSV (hasta 5.000 envíos). */
+  @RequirePermission('communications:read')
+  @Get('export')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="comunicaciones.csv"')
+  exportCsv(@CurrentUser() user: AuthenticatedUser, @Query() q: PageQuery): Promise<string> {
+    return this.service.exportCsv(user.tenantId, pageFilters(user, q));
+  }
+
+  /** Inquilinos y contactos a los que no les llegan los correos. */
+  @RequirePermission('communications:read')
+  @Get('problem-addresses')
+  problemAddresses(@CurrentUser() user: AuthenticatedUser): Promise<ProblemAddressDto[]> {
+    return this.service.problemAddresses(user.tenantId, user.facilityScope ?? null);
   }
 
   /** Canales que pueden enviar ahora mismo (para habilitar opciones en la UI). */
@@ -132,6 +125,27 @@ export class CommunicationsController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CommunicationDto> {
     return this.service.detail(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** Cómo le llegó el correo (HTML con la marca del negocio). */
+  @RequirePermission('communications:read')
+  @Get(':id/preview')
+  async preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<{ html: string }> {
+    return { html: await this.service.previewHtml(user.tenantId, id, user.facilityScope ?? null) };
+  }
+
+  /** Cancela un envío que aún no ha salido. */
+  @Post(':id/cancel')
+  @RequirePermission('communications:send')
+  @HttpCode(HttpStatus.OK)
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CommunicationDto> {
+    return this.service.cancel(user.tenantId, id, user.facilityScope ?? null, user.sub);
   }
 
   @Post()
@@ -170,4 +184,60 @@ function parseStatus(value: string): CommunicationStatusValue {
     throw new BadRequestException({ code: 'invalid_status', message: 'Estado no válido' });
   }
   return r.data;
+}
+
+interface PageQuery {
+  cursor?: string;
+  limit?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  channel?: string;
+  status?: string;
+  customerId?: string;
+  leadId?: string;
+  facilityId?: string;
+  source?: string;
+  sourceGroup?: string;
+}
+
+/** Filtros del historial a partir de la URL (validados: un id o fecha malos dan 400). */
+function pageFilters(user: AuthenticatedUser, q: PageQuery): PageFilters {
+  for (const key of ['cursor', 'customerId', 'leadId', 'facilityId'] as const) {
+    const value = q[key];
+    if (value && !UUID_RE.test(value)) {
+      throw new BadRequestException({ code: 'invalid_id', message: `${key} no es un UUID` });
+    }
+  }
+  const date = (key: string, v?: string): Date | undefined => {
+    if (!v) return undefined;
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) {
+      throw new BadRequestException({ code: 'invalid_date', message: `${key} no es una fecha` });
+    }
+    return d;
+  };
+  if (q.sourceGroup && !isCommunicationSourceGroup(q.sourceGroup)) {
+    throw new BadRequestException({ code: 'invalid_source_group', message: 'Tipo no válido' });
+  }
+  const fromDate = date('from', q.from);
+  const toDate = date('to', q.to);
+  const take = Number(q.limit);
+  return {
+    scope: user.facilityScope ?? null,
+    ...(q.cursor ? { cursor: q.cursor } : {}),
+    ...(q.limit && Number.isFinite(take) ? { limit: Math.trunc(take) } : {}),
+    ...(q.search ? { search: q.search } : {}),
+    ...(fromDate ? { from: fromDate } : {}),
+    ...(toDate ? { to: toDate } : {}),
+    ...(q.channel ? { channel: parseChannel(q.channel) } : {}),
+    ...(q.status ? { status: parseStatus(q.status) } : {}),
+    ...(q.customerId ? { customerId: q.customerId } : {}),
+    ...(q.leadId ? { leadId: q.leadId } : {}),
+    ...(q.facilityId ? { facilityId: q.facilityId } : {}),
+    ...(q.source ? { source: q.source } : {}),
+    ...(q.sourceGroup && isCommunicationSourceGroup(q.sourceGroup)
+      ? { sourceGroup: q.sourceGroup }
+      : {}),
+  };
 }

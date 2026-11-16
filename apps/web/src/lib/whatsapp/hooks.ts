@@ -22,10 +22,11 @@ import type {
 const settingsKey = ['settings', 'whatsapp'] as const;
 const conversationsKey = ['whatsapp', 'conversations'] as const;
 
-export function useWhatsappSettings() {
+export function useWhatsappSettings(enabled = true) {
   return useQuery({
     queryKey: settingsKey,
     queryFn: () => apiFetch<WhatsappSettingsDto>('/settings/whatsapp'),
+    enabled,
   });
 }
 

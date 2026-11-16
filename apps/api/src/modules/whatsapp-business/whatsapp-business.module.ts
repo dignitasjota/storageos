@@ -20,6 +20,7 @@ import {
   WhatsappConversationsController,
   WhatsappSettingsController,
 } from './whatsapp-business.controller';
+import { WhatsappCampaignSender } from './whatsapp-campaign.sender';
 import { WhatsappCloudClient } from './whatsapp-cloud.client';
 import { WhatsappInboxService } from './whatsapp-inbox.service';
 import { WhatsappSettingsService } from './whatsapp-settings.service';
@@ -49,6 +50,7 @@ import { WhatsappWaitlistService } from './whatsapp-waitlist.service';
     WhatsappAiAdminController,
   ],
   providers: [
+    WhatsappCampaignSender,
     WhatsappWaitlistService,
     WhatsappCloudClient,
     WhatsappAiClient,
@@ -60,6 +62,11 @@ import { WhatsappWaitlistService } from './whatsapp-waitlist.service';
     AdminGuard,
     SuperAdminAuditService,
   ],
-  exports: [WhatsappInboxService, WhatsappSettingsService, WhatsappBookingRemindersService],
+  exports: [
+    WhatsappInboxService,
+    WhatsappSettingsService,
+    WhatsappBookingRemindersService,
+    WhatsappCampaignSender,
+  ],
 })
 export class WhatsappBusinessModule {}
