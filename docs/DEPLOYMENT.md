@@ -2649,3 +2649,23 @@ Lo que cambia:
 1. Para «Conectar con Facebook»: crear en Meta for Developers una app de tipo empresa con «Inicio de sesión con Facebook para empresas», autorizar la dirección de vuelta `https://api.trasteros.pro/v1/marketing/social/oauth/callback`, pedir a Meta los permisos `pages_show_list`, `pages_read_engagement`, `read_insights`, `instagram_basic`, `instagram_manage_insights` y `business_management` (la revisión de la app hace falta para usarlos con cuentas de otros), y poner `META_APP_ID` y `META_APP_SECRET` en Portainer.
 2. Probar las conversiones de Google Ads con una cuenta real: en Google Ads, una acción de conversión de tipo «Importar» → «Clics», y su ID (el número) en Marketing → Canales → Google Ads. En Meta, el ID del píxel; el token del negocio tiene que tener acceso a ese píxel. En las pruebas no se llama a ninguna de las dos.
 3. Revisar con la asesoría el párrafo nuevo de la política de cookies (identificadores de clic de los anuncios).
+
+## 151. Equipo comercial: perfil «Comercial» en el panel de administración (2026-11-16)
+
+Migración `20270203100000_sales_reps` (se aplica sola al arrancar el API): rol `sales` en `super_admins` con su código, teléfono, WhatsApp y enlace de reservas; destinatario en `super_admin_notifications`; comercial de cada cuenta (`tenants.sales_rep_id/sales_assigned_at/sales_source`, `platform_leads.sales_rep_id`) con su historial (`sales_assignments`); ficha de llamada (`sales_account_profiles`); comisiones (planes, conceptos, extras por aprobar, movimientos, liquidaciones y objetivos); ajustes del equipo (`platform_sales_settings`, un registro); materiales, plantillas y cadencias (con dos cadencias y cuatro plantillas de partida); apertura y caducidad de las propuestas; `platform_coupons.sales_allowed`. Todas son tablas de la plataforma, sin acceso para el rol de la app (`REVOKE`).
+
+Sin variables nuevas. Tareas programadas nuevas en el API: `sales.hourly` (minuto 25: extras contratados, comisiones y avisos de los comerciales) y `sales.daily` (3:40: libera los prospectos sin actividad y pone a cero la cuenta de demostración).
+
+Cómo funciona:
+
+- **Quién es de quién**: una cuenta es de un comercial solo si se registra con su enlace o su QR, si el cliente escribe su código al registrarse o en el formulario de la web, o si la crea el propio comercial desde su panel. Desde la web sin código no se asigna a nadie (no hay reparto automático). Si un prospecto de un comercial se registra sin su código, queda en «Equipo comercial → Por decidir».
+- **Lo que ve el comercial**: solo su cartera (prospectos y clientes), con su ficha de llamada, seguimientos, propuestas, lo que podría ofrecer y sus comisiones. Nunca los inquilinos ni la facturación de sus clientes, ni puede entrar en sus cuentas. Puede crear cuentas (prueba estándar), ampliar pruebas hasta su tope, dejar probar un extra y enviar propuestas con los cupones marcados para comerciales; lo demás lo pide a la dirección.
+- **Comisiones** (las fija la dirección en la ficha de cada comercial): % de lo que pagan sus clientes (sin IVA) durante los meses que se indiquen, un fijo por venta, un fijo por cada extra que contrate un cliente **después** de la venta y que la dirección apruebe (si lo contrata sin mediación del comercial, se rechaza y no cuenta), y trabajos extra como la migración de datos. Las liquidaciones mensuales solo dejan constancia: el pago se hace por nómina.
+
+**Tras desplegar**:
+
+1. En «Equipo comercial → Comerciales», «Nuevo comercial» por cada persona: le llega un correo para elegir su contraseña y, al entrar, tiene que activar la verificación en dos pasos antes de ver nada.
+2. En la ficha de cada uno, sus condiciones (%, meses, fijos y trabajos extra) y sus objetivos.
+3. Revisar las reglas del equipo (días de prueba de más con el código, liberar prospectos sin contacto, topes de días) y crear la cuenta de demostración.
+4. En «Catálogo y precios → Cupones», marcar «Lo pueden usar los comerciales» en los cupones que puedan ofrecer.
+5. Subir el material de venta (dossier, tarifas, guion) en «Equipo comercial → Materiales y plantillas» y revisar las plantillas de partida.

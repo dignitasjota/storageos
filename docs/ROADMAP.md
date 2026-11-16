@@ -1143,3 +1143,17 @@ Decisiones de Jota: las siete recomendaciones del análisis (alcance como Analí
 - **Oportunidades**: seis tipos nuevos (renovar, pago anual, completar datos, reseña en Google, recomendar, trastero más pequeño), posponer o descartar, «Me interesa» primero con número en el menú, envío en bloque, resultados, filtro por local, buscador y CSV.
 
 Fuera de esta PR: la secuencia automática por WhatsApp (necesita plantillas aprobadas por Meta) y que el inquilino contrate el pago anual desde su área de clientes (hoy lo prepara el equipo).
+
+### Equipo comercial ✅ (2026-11-16, 1 PR)
+
+Perfil **Comercial** en el panel de administración para los comerciales en plantilla (decisiones de Jota: una sola PR con las 8 partes del plan, comisiones definidas por comercial y extras de después de la venta solo con su aprobación).
+
+- **Acceso**: menú propio (Hoy, Prospectos, Clientes, Propuestas, Qué ofrecer, Peticiones, Mis comisiones, Materiales, Mi enlace y QR) y nada más del panel; verificación en dos pasos obligatoria desde el primer día; nunca ve inquilinos ni facturación de sus clientes ni entra en sus cuentas.
+- **Código, enlace y QR**: la cuenta es suya solo si llega por su enlace o su QR, si el cliente escribe su código o si la crea él. Sin código no se asigna a nadie. Días de prueba de más opcionales con el código. Prospectos sin actividad que se liberan a los N días.
+- **Cartera y ficha de llamada**: nota fija, estado, temperatura, quién decide, mejor momento, resultado de cada llamada con el siguiente seguimiento, resumen para preparar la llamada (con IA), cadencias, plantillas de correo y WhatsApp con sus datos, importar prospectos desde CSV.
+- **Vender**: propuestas que caducan a los 15 días con aviso al abrirlas, cupones marcados para comerciales, ampliar pruebas y probar un extra con topes, peticiones a la dirección para lo demás, crear la cuenta del cliente.
+- **Comisiones**: % de lo cobrado (sin IVA, durante los meses que se fijen), fijo por venta, fijo por extra aprobado y trabajos extra; movimientos, liquidaciones mensuales y objetivos.
+- **Dirección**: equipo con cifras, ficha de cada comercial (condiciones, objetivos, comisiones, liquidaciones y cartera), «Por decidir», materiales y plantillas, reglas del equipo, cuenta de demostración que se pone a cero cada noche y comercial de cada cuenta en la ficha del tenant.
+- **Cliente**: «Tu comercial» en Suscripción y en Soporte; los correos automáticos de la plataforma pueden salir con el nombre de su comercial.
+
+Fuera de esta PR: el pago de las comisiones (las liquidaciones solo dejan constancia; se paga por nómina), un jefe de ventas intermedio (decidido no tenerlo) y WhatsApp desde el número de la plataforma (el comercial escribe desde su móvil).

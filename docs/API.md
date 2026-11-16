@@ -3259,3 +3259,46 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
   - `PATCH /web-chat/conversations/:id {mode?, assignedToUserId?}`: responsable (alguien activo del equipo; 400 `user_not_found`) con aviso `web_chat.assigned` para esa persona. `WebChatConversationDto` gana `assignedToUserId` y `assignedToName`.
   - `GET /web-chat/stats` gana `paidBookings`, `revenue` (0 sin permiso), `visitsRequested` y `badlyRated` (las últimas respuestas con 👎 y su pregunta).
   - Avisos: `web_chat.weekly_ratings` (lunes, tarea `web-chat.weekly-ratings`) y `ai.web_chat_limit_near` (80 % de las respuestas del mes, una vez al mes).
+
+### Comerciales (2026-11-16)
+
+Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administración. Detalle de uso en `docs/DEPLOYMENT.md §151`.
+
+- **Acceso**: `AdminGuard` deniega a un comercial todo lo que no lleve `@SalesAccess()` (403 `sales_not_allowed`); solo tiene `/admin/auth/*`, `/admin/me/push*` y `/admin/sales/*`. La verificación en dos pasos le es obligatoria desde el primer día (403 `admin_two_factor_required` en sus pantallas hasta activarla; `GET /admin/auth/2fa/status` da `required: true` y `deadline: null`; `POST /admin/auth/2fa/disable` → 400 `two_factor_required_by_policy`). Soporte no usa `/admin/sales/*` (403 `sales_only`) y `/admin/sales-team/*` es solo del rol superadmin. Un comercial nunca ve inquilinos ni facturación de sus clientes, ni puede entrar en su cuenta.
+- **Super admins**: `POST /admin/super-admins` con `role: 'sales'` y `PATCH /admin/super-admins/:id/role` desde o hacia `sales` → 400 `sales_role_locked` (se gestionan en «Equipo comercial»). `SuperAdminDto.salesCode` en los comerciales.
+- **Avisos personales**: `super_admin_notifications.recipient_id`. Los avisos con destinatario solo los ve (y le llegan al móvil) esa persona; el feed y el contador del panel de administración solo muestran los que no lo tienen. Tipos `sales.*` en `SUPER_ADMIN_PUSH_TYPES`.
+
+**Público**
+
+- `GET /public/sales/code/:code` (20/min) → `SalesCodeCheckDto {valid, repName, extraTrialDays}`. El código no distingue mayúsculas ni separadores (`normalizeSalesCode`).
+- `GET /v1/public/offers/:id/open?sig=` (30/min) → 302 al enlace de la propuesta (registro con `?comercial=` o Suscripción del tenant). Con la firma correcta anota la primera apertura (`platform_quote_offers.opened_at`) y avisa al comercial (`sales.offer_opened`). Las propuestas valen 15 días (`expires_at`) y se recuerdan 3 días antes de caducar.
+- `POST /auth/register` acepta `salesCode` y `salesCodeFrom` (`link` = enlace o QR; `typed` = escrito por el cliente); `POST /platform-contact` acepta `salesCode`. **Solo así, o si el comercial crea la cuenta, una cuenta es de un comercial**: sin código no se asigna a nadie. Con el código, la prueba suma `platform_sales_settings.signup_extra_trial_days`. Si el email era un prospecto de un comercial y se registra sin su código, queda pendiente de que la dirección decida.
+
+**Comercial** (`/admin/sales`, solo `role = 'sales'`; todo se limita a su cartera, una cuenta de otro → 404)
+
+- `GET/PATCH /me` → `SalesRepProfileDto` (código, enlaces, días de más y sus topes; cambia teléfono, WhatsApp y enlace de reservas).
+- `GET /today` → `SalesTodayDto` (seguimientos, altas con su código, pruebas que acaban, pagos pendientes, pruebas sin arrancar, propuestas sin respuesta, sin contacto y cifras con su objetivo).
+- `GET /leads?search=&status=&filter=no_contact|trial_ending|pending` → `SalesLeadListDto`. `POST /leads` (`CreateSalesProspectSchema`; email o teléfono ya existentes en cualquier contacto → 409 `lead_exists`, sin decir de quién es). `POST /leads/import {csv, commit}` (200) → `SalesImportResultDto` (repasa y, con `commit`, crea; los repetidos no se importan).
+- `GET /accounts/:leadId` → `SalesAccountDto` (lead con actividad, seguimientos y propuestas; ficha; cuenta del cliente sin datos de sus inquilinos; cadencia; `pendingAssignment`). `PATCH /accounts/:leadId` (datos), `PUT …/profile` (`UpdateSalesProfileSchema`: nota fija, estado, temperatura, quién decide, mejor momento, siguiente paso), `POST …/outcome` (`SalesCallOutcomeSchema`: deja la actividad, la temperatura, la fase y el siguiente seguimiento), `POST …/move|lose|reopen|activities|followups|email|registration-link|create-tenant|quote|cadence`, `DELETE …/cadence`, `GET …/summary?ai=1` → `SalesAccountSummaryDto` (con IA si la plataforma la tiene). `PATCH/DELETE /followups/:id`.
+- `create-tenant` (`SalesCreateTenantSchema`): la cuenta con la prueba estándar y en su cartera (`sales_source = 'created'`); el propietario recibe el correo para elegir su contraseña.
+- `GET /clients?filter=trial|trial_ending|paying|past_due|onboarding|no_contact` → `SalesClientRowDto[]`. `POST /clients/:tenantId/extend-trial` (`SalesExtendTrialSchema`; pasado su tope por cliente → 403 `trial_extension_limit` con `details.remaining`). `POST /clients/:tenantId/addon-offer` (`SalesAddonOfferSchema`; `trial` = una prueba del extra por cliente, de los días que fije la dirección).
+- `GET /catalog` (planes, extras y solo los cupones con `sales_allowed`), `POST /quote` (200; simulador; otro cupón → 403 `coupon_not_allowed`), `GET /offers`, `GET /opportunities` (las de sus clientes).
+- `GET/POST /approvals` (`SalesApprovalRequestSchema`: cambio de plan, extra con precio especial o más días de prueba; va a la cola de aprobaciones de la dirección y avisa al comercial al decidirse, `sales.approval_decided`).
+- `GET /claims`, `PUT /claims/:id/note {repNote}`, `GET /commissions` → `SalesCommissionsDto`, `POST /commissions/concepts` (`RequestSalesConceptSchema`: pide un concepto de su plan, queda por aprobar), `GET /settlements`, `GET /targets`.
+- `GET /materials`, `GET /materials/:id/download` → `{url}`, `GET /templates`, `GET /cadences`, `GET /demo` → `SalesDemoStatusDto`, `POST /demo/open` → sesión en la cuenta de demostración (sin solo lectura y sin avisar a nadie).
+- `GET /notifications?cursor=&unread=1`, `GET /notifications/unread-count`, `POST /notifications/:id/read`, `POST /notifications/read-all`.
+
+**Dirección comercial** (`/admin/sales-team`, rol superadmin)
+
+- `GET /` → `SalesTeamDto`; `GET /pending-count`; `GET /pending-assignments` → `SalesPendingAssignmentDto[]`; `POST /assign` (`AssignSalesAccountSchema`, `repId: null` = sin comercial).
+- `POST /reps` (`CreateSalesRepSchema`; le llega el correo para elegir contraseña; código propio o generado; 409 si el código está cogido), `GET/PATCH /reps/:id`, `GET /reps/:id/accounts`, `POST /reps/:id/reassign` (200, `ReassignSalesPortfolioSchema`). Desactivar o reactivar: `PATCH /admin/super-admins/:id/active`.
+- `PUT /reps/:id/plan` (`UpdateSalesCommissionPlanSchema`), `POST/PATCH/DELETE /reps/:id/concepts[/:conceptId]`, `PUT /reps/:id/targets` (`UpsertSalesTargetSchema`).
+- `GET /accounts?tenantId=|leadId=` → `SalesAccountRepDto` (comercial, origen, desde cuándo e historial).
+- `GET /claims?status=`, `POST /claims/:id/approve|reject {note?}`; `GET /commissions?repId=&month=&status=`, `POST /commissions/items` (`CreateSalesCommissionItemSchema`: concepto o ajuste, ya aprobado), `POST /commissions/items/:id/approve|reject`, `POST /commissions/recalculate`; `GET /settlements?repId=`, `POST /settlements {repId, month}` (todo lo aprobado y sin liquidar hasta ese mes; 400 si ya existe), `POST /settlements/:id/paid`.
+- `GET/PUT /settings` (`UpdatePlatformSalesSettingsSchema`: días de más con el código, liberar prospectos sin actividad, días de prueba que amplía un comercial, días de prueba de un extra, correos automáticos de sus clientes con su nombre, puesta a cero nocturna de la demo).
+- `POST /demo` (crea la cuenta de demostración, exenta y fuera de las cifras), `POST /demo/reset`, `POST /demo/open`.
+- Materiales (`GET/POST /materials`, `POST /materials/upload-url`, `PATCH/DELETE /materials/:id`, `GET /materials/:id/download`): fichero (PDF, imagen u Office, 20 MB), enlace o texto; al editar sin `fileKey` se conserva el fichero. Plantillas (`/templates`, correo o WhatsApp con las variables de `SALES_TEMPLATE_VARIABLES`) y cadencias (`/cadences`; una con cuentas que la usaron se desactiva en vez de borrarse).
+
+**Comisiones**: por cada cobro de la suscripción de un cliente (sin IVA y menos lo devuelto) el % del plan del comercial que la tenía al cobrarse, durante los meses que marque su plan desde el primer pago; un fijo por venta al primer pago; un fijo por cada extra contratado **después** de la venta que apruebe la dirección (los contratados antes del primer pago, o antes de asignarse la cuenta, cuentan solos); conceptos (pedidos por el comercial o añadidos por la dirección) y ajustes. Una devolución posterior resta. Se calculan cada hora.
+
+**Panel del cliente**: `GET /settings/sales-rep` → `{rep: TenantSalesRepDto | null}` (nombre, email, teléfono, WhatsApp y enlace de reservas de su comercial, si tiene uno activo).
