@@ -86,7 +86,7 @@ export function WebChatCard() {
             <p className="text-xs text-muted-foreground">
               {s.ownKey
                 ? 'Con tu propia clave de IA: sin límite de respuestas.'
-                : `${formatNumber(s.used)} de ${formatNumber(s.limit)} respuestas este mes (aparte de las del panel). Se reinicia el ${formatDate(s.resetsOn)}.`}
+                : `${formatNumber(s.used, 0)} de ${formatNumber(s.limit, 0)} respuestas este mes (aparte de las del panel). Se reinicia el ${formatDate(s.resetsOn)}.`}
             </p>
           </div>
           <Checkbox

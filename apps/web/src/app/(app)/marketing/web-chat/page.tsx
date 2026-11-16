@@ -52,7 +52,7 @@ import {
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCreateFaqEntry } from '@/lib/faq/hooks';
-import { formatDateTime, formatNumber } from '@/lib/format';
+import { formatDateTime, formatEur, formatNumber } from '@/lib/format';
 import { useUsers } from '@/lib/users/hooks';
 
 const PERIODS = [7, 30, 90] as const;
@@ -94,7 +94,7 @@ function WebChatContent() {
   const s = stats.data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Chat de la web</h1>
@@ -165,10 +165,7 @@ function WebChatContent() {
                 ? [
                     {
                       label: 'Cobrado (sin IVA)',
-                      value: s.revenue.toLocaleString('es-ES', {
-                        style: 'currency',
-                        currency: 'EUR',
-                      }),
+                      value: formatEur(s.revenue),
                     },
                   ]
                 : []),
@@ -186,7 +183,7 @@ function WebChatContent() {
                 <CardContent className="py-4">
                   <div className="text-xs text-muted-foreground">{k.label}</div>
                   <div className="text-2xl font-semibold tabular-nums">
-                    {typeof k.value === 'number' ? formatNumber(k.value) : k.value}
+                    {typeof k.value === 'number' ? formatNumber(k.value, 0) : k.value}
                   </div>
                 </CardContent>
               </Card>
@@ -194,7 +191,7 @@ function WebChatContent() {
           </div>
           {s.fallbackReplies > 0 && (
             <p className="text-sm text-amber-700 dark:text-amber-300">
-              {formatNumber(s.fallbackReplies)}{' '}
+              {formatNumber(s.fallbackReplies, 0)}{' '}
               {s.fallbackReplies === 1 ? 'vez no se pudo' : 'veces no se pudo'} responder con IA
               (respuestas del mes gastadas, sin clave o un error del modelo): el visitante vio tu
               contacto.{' '}
