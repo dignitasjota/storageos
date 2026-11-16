@@ -236,17 +236,31 @@ export class MarketingSummaryService {
           .slice(0, 7),
       );
       if (t.marketingReportLastMonth === month) continue;
+      // Reserva el mes: si dos procesos lo intentan a la vez, solo uno lo envía.
+      const claimed = await this.admin.tenant.updateMany({
+        where: { id: t.id, marketingReportLastMonth: t.marketingReportLastMonth },
+        data: { marketingReportLastMonth: month },
+      });
+      if (claimed.count === 0) continue;
       due += 1;
+      let done = false;
       try {
         const summary = await this.build(t.id, month);
         // Un mes sin nada que contar no se envía (pero no se vuelve a mirar).
-        if (hasMarketingActivity(summary.current)) {
-          if ((await this.deliver(t.id, summary)) > 0) sent += 1;
-        } else {
-          await this.markSent(t.id, month);
+        if (!hasMarketingActivity(summary.current)) done = true;
+        else if ((await this.deliver(t.id, summary)) > 0) {
+          sent += 1;
+          done = true;
         }
       } catch (err) {
         this.logger.warn(`[marketing-summary] tenant ${t.id}: ${(err as Error).message}`);
+      }
+      // Falló o no había a quién enviarlo: se devuelve y se intenta otro día (hasta el 10).
+      if (!done) {
+        await this.admin.tenant.updateMany({
+          where: { id: t.id, marketingReportLastMonth: month },
+          data: { marketingReportLastMonth: t.marketingReportLastMonth },
+        });
       }
     }
     return { tenants: due, sent };

@@ -239,6 +239,16 @@ export function useUpdateGoogleAdsSettings() {
   });
 }
 
+/** Borra las credenciales de Google Ads (la integración queda desactivada). */
+export function useDeleteGoogleAdsSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<GoogleAdsSettingsDto>('/settings/marketing/google-ads', { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['marketing'] }),
+  });
+}
+
 export function useTestGoogleAds() {
   return useMutation({
     mutationFn: () =>
@@ -263,6 +273,16 @@ export function useUpdateMetaAdsSettings() {
     mutationFn: (input: UpdateMetaAdsSettingsInput) =>
       apiFetch<MetaAdsSettingsDto>('/settings/marketing/meta-ads', { method: 'PUT', json: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: metaAdsKey }),
+  });
+}
+
+/** Borra las credenciales de Meta Ads (la integración queda desactivada). */
+export function useDeleteMetaAdsSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<MetaAdsSettingsDto>('/settings/marketing/meta-ads', { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['marketing'] }),
   });
 }
 

@@ -2591,3 +2591,27 @@ Sin variables nuevas. Lo que cambia:
 2. Probar la sincronización del gasto de Google Ads con una cuenta real (Marketing → Canales → editar el canal → «Sincronizar gasto ahora»). En las pruebas no se puede llamar a Google.
 3. Avisar a los negocios que tengan Google Analytics conectado y no hayan puesto el ID de medición en Marca y SEO: su conexión se parará hasta que lo pongan.
 4. Los enlaces de firma que ya llegaron a Google Analytics caducan solos a los pocos días; no hace falta hacer nada.
+
+## 149. Marketing: revisión de fallos medios y menores (2026-11-16)
+
+Migración `20270201100000_marketing_review` (se aplica sola al arrancar el API):
+
+- Chat de la web: horario del equipo por negocio y origen de la visita en cada conversación.
+- Canales de marketing: renovación periódica y estado de la sincronización del gasto por canal. Los avisos de renovación ya enviados no se repiten.
+- Contratos: copia cifrada del enlace de firma, para que los recordatorios reenvíen el mismo enlace en vez de anularlo.
+- Índices nuevos para los informes de Marketing (contactos, visitas y gastos).
+
+Sin variables nuevas. Lo que cambia:
+
+- **Dinero según permisos**: en Marketing, quien no tiene permiso para ver gastos no ve el gasto ni los costes, y quien no ve facturas y cobros no ve lo cobrado ni las cuotas. Quien solo ve unos locales ve los canales, contactos y clientes de sus locales.
+- **Rendimiento**: los clientes son los contratos firmados en el periodo (también los que usaron la promoción del canal), el payback se calcula con los que siguen, los canales borrados con datos siguen saliendo y hay una fila con el gasto de marketing sin canal. Las cifras pueden cambiar respecto a antes.
+- **Gasto de los anuncios**: al vincular una campaña se traen los últimos 90 días; cada día se recuperan los que faltaran; un día que la plataforma rebaja a 0 se borra; nada de un trimestre cerrado en Fiscalidad se toca. Si un canal falla 3 días seguidos, avisa a quien gestiona Marketing.
+- **QR de los canales**: un canal pausado, finalizado o borrado sigue llevando a la web sin contar. Los robots, las vistas previas de WhatsApp y el mismo visitante en 30 minutos ya no cuentan, así que los clics bajarán.
+- **Chat de la web**: si nadie responde en 15 minutos, la IA vuelve a contestar; fuera del horario del equipo (Configuración → Asistente IA) se avisa al visitante y se le piden sus datos.
+- **Correo mensual de marketing**: sale del día 4 al 10 y se reintenta si falla.
+- **Política de cookies**: explica la medición propia de la web; el identificador del visitante dura 13 meses y «Solo necesarias» deja de medir.
+
+**Tras desplegar**:
+
+1. Revisar con la asesoría el texto nuevo de la política de cookies y de privacidad (chat de la web y medición propia).
+2. Los negocios con la renovación de un canal en los próximos 7 días ya avisados no recibirán otro aviso por la misma fecha.

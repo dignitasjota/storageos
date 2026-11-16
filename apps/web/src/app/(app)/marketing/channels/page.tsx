@@ -10,6 +10,7 @@ import {
   type MarketingChannelType,
 } from '@storageos/shared';
 import {
+  AlertTriangle,
   Copy,
   Download,
   ExternalLink,
@@ -28,6 +29,8 @@ import { toast } from 'sonner';
 import { GoogleAdsCard, MetaAdsCard } from './ad-platform-cards';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,6 +54,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { apiFetchBlob, ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
+import { formatDate, formatDateTime } from '@/lib/format';
 import {
   useCreateMarketingChannel,
   useDeleteMarketingChannel,
@@ -75,12 +79,27 @@ const STATUS_VARIANT: Record<MarketingChannelStatus, 'default' | 'secondary' | '
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
+/** Cada cuántos meses se renueva (null = no se renueva). */
+const RENEWAL_OPTIONS: { value: string; label: string }[] = [
+  { value: NONE, label: 'No se renueva' },
+  { value: '1', label: 'Cada mes' },
+  { value: '3', label: 'Cada 3 meses' },
+  { value: '6', label: 'Cada 6 meses' },
+  { value: '12', label: 'Cada año' },
+];
+const renewalLabel = (months: number | null) =>
+  months == null
+    ? null
+    : (RENEWAL_OPTIONS.find((o) => o.value === String(months))?.label ?? `Cada ${months} meses`);
+
 const AD_DRAFT_PLATFORMS = ['google_ads', 'meta_ads'] as const;
 type AdDraftPlatform = (typeof AD_DRAFT_PLATFORMS)[number];
 
 export default function MarketingChannelsPage() {
   const ask = useConfirm();
   const canManage = useHasPermission('marketing:manage');
+  // El coste mensual es un gasto: sin permiso para verlos, ni la columna.
+  const seeCost = useHasPermission('expenses:read');
   const hasAi = useHasFeature('ai_assistant');
   const channels = useMarketingChannels();
   const facilities = useFacilities();
@@ -102,7 +121,9 @@ export default function MarketingChannelsPage() {
   async function remove(id: string) {
     if (
       !(await ask({
-        title: '¿Eliminar este canal? El histórico de gasto/rendimiento se conserva.',
+        title: '¿Eliminar este canal?',
+        description:
+          'Su gasto y sus resultados siguen en Rendimiento (como «borrado»), su QR sigue llevando a tu web sin contar las visitas y sus gastos recurrentes se pausan.',
         destructive: true,
       }))
     )
@@ -167,8 +188,8 @@ export default function MarketingChannelsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Canales de marketing</h1>
           <p className="text-sm text-muted-foreground">
-            Portales inmobiliarios, Google/Meta Ads, publicidad física… Vincula el gasto (Gastos →
-            categoría Marketing) para ver el rendimiento de cada canal.
+            Portales inmobiliarios, Google Ads, Meta Ads, carteles… Vincula su gasto (Gastos,
+            categoría Marketing) y en Rendimiento verás cuánto te cuesta cada cliente.
           </p>
         </div>
         {canManage && (
@@ -238,12 +259,14 @@ export default function MarketingChannelsPage() {
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label className="text-xs">Plataforma</Label>
+                    <Label htmlFor="draft-platform" className="text-xs">
+                      Plataforma
+                    </Label>
                     <Select
                       value={draftPlatform}
                       onValueChange={(v) => setDraftPlatform(v as AdDraftPlatform)}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="draft-platform">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -256,9 +279,11 @@ export default function MarketingChannelsPage() {
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Local a destacar (opcional)</Label>
+                    <Label htmlFor="draft-facility" className="text-xs">
+                      Local a destacar (opcional)
+                    </Label>
                     <Select value={draftFacilityId} onValueChange={setDraftFacilityId}>
-                      <SelectTrigger>
+                      <SelectTrigger id="draft-facility">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -301,8 +326,14 @@ export default function MarketingChannelsPage() {
           <CardTitle className="text-base">Canales</CardTitle>
         </CardHeader>
         <CardContent>
-          {channels.isLoading ? (
-            <div className="flex h-24 items-center justify-center">
+          {channels.isError ? (
+            <SectionError onRetry={() => void channels.refetch()} />
+          ) : channels.isLoading ? (
+            <div
+              className="flex h-24 items-center justify-center"
+              role="status"
+              aria-label="Cargando"
+            >
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
           ) : rows.length === 0 ? (
@@ -318,7 +349,7 @@ export default function MarketingChannelsPage() {
                     <th className="p-2">Tipo</th>
                     <th className="p-2">Estado</th>
                     <th className="p-2">Local</th>
-                    <th className="p-2 text-right">Coste/mes</th>
+                    {seeCost && <th className="p-2 text-right">Coste/mes</th>}
                     <th className="p-2">Renueva</th>
                     <th className="p-2 text-right">Clics</th>
                     <th className="p-2" />
@@ -330,12 +361,24 @@ export default function MarketingChannelsPage() {
                       <td className="p-2">
                         <div className="flex items-center gap-1.5">
                           <span className="font-medium">{c.name}</span>
-                          {c.externalCampaignId && (
+                          {c.externalCampaignId && !c.lastSyncError && (
                             <Badge variant="outline" className="text-[10px]">
                               Gasto sincronizado
                             </Badge>
                           )}
                         </div>
+                        {c.lastSyncError && (
+                          <p className="mt-0.5 flex items-start gap-1 text-xs text-red-700 dark:text-red-400">
+                            <AlertTriangle className="mt-0.5 size-3 shrink-0" aria-hidden />
+                            <span>
+                              El gasto no se sincroniza
+                              {c.syncFailingSince
+                                ? ` desde el ${formatDate(c.syncFailingSince)}`
+                                : ''}
+                              : {c.lastSyncError}
+                            </span>
+                          </p>
+                        )}
                         {c.sourceConflictWith && (
                           <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
                             Comparte origen con «{c.sourceConflictWith}»: los contactos van a uno
@@ -360,11 +403,20 @@ export default function MarketingChannelsPage() {
                           {MARKETING_CHANNEL_STATUS_LABELS[c.status]}
                         </Badge>
                       </td>
-                      <td className="p-2 text-muted-foreground">{c.facilityName ?? '— General'}</td>
-                      <td className="p-2 text-right tabular-nums">
-                        {c.monthlyCost !== null ? eur(c.monthlyCost) : '—'}
+                      <td className="p-2 text-muted-foreground">
+                        {c.facilityName ?? 'Todos los locales'}
                       </td>
-                      <td className="p-2 text-muted-foreground">{c.renewsOn ?? '—'}</td>
+                      {seeCost && (
+                        <td className="p-2 text-right tabular-nums">
+                          {c.monthlyCost !== null ? eur(c.monthlyCost) : '—'}
+                        </td>
+                      )}
+                      <td className="p-2 text-muted-foreground">
+                        {c.renewsOn ? formatDate(c.renewsOn) : '—'}
+                        {c.renewalMonths && (
+                          <span className="block text-xs">{renewalLabel(c.renewalMonths)}</span>
+                        )}
+                      </td>
                       <td className="p-2 text-right tabular-nums">
                         <span className="inline-flex items-center gap-1">
                           <MousePointerClick className="size-3.5" /> {c.clickCount}
@@ -376,7 +428,7 @@ export default function MarketingChannelsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-7 gap-1 px-2"
+                              className="h-9 gap-1 px-2"
                               onClick={() => setShowLink(c)}
                             >
                               <QrCode className="size-4" /> QR
@@ -387,8 +439,8 @@ export default function MarketingChannelsPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="size-7"
-                                aria-label="Editar"
+                                className="size-9"
+                                aria-label={`Editar ${c.name}`}
                                 onClick={() => setEditing(c)}
                               >
                                 <Pencil className="size-4" />
@@ -396,8 +448,8 @@ export default function MarketingChannelsPage() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="size-7 text-muted-foreground hover:text-red-600"
-                                aria-label="Eliminar"
+                                className="size-9 text-muted-foreground hover:text-red-600"
+                                aria-label={`Eliminar ${c.name}`}
                                 onClick={() => remove(c.id)}
                               >
                                 <Trash2 className="size-4" />
@@ -435,10 +487,17 @@ export default function MarketingChannelsPage() {
             </DialogHeader>
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Imprime este QR o el enlace en carteles/flyers. Cada visita se cuenta y se atribuye
-                a este canal ({showLink.clickCount} clic
-                {showLink.clickCount === 1 ? '' : 's'} hasta ahora).
+                Imprime este QR o el enlace en carteles o flyers. Las visitas y las reservas que
+                lleguen por él cuentan para este canal ({showLink.clickCount}{' '}
+                {showLink.clickCount === 1 ? 'visita' : 'visitas'} hasta ahora; la misma persona
+                cuenta una vez cada media hora y las vistas previas de WhatsApp no cuentan).
               </p>
+              {showLink.status !== 'active' && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  Este canal está {MARKETING_CHANNEL_STATUS_LABELS[showLink.status].toLowerCase()}:
+                  el QR sigue llevando a tu web, pero no cuenta las visitas.
+                </p>
+              )}
               {showLink.shortUrl && (
                 <>
                   <div className="flex flex-col items-center gap-3">
@@ -512,6 +571,9 @@ function ChannelDialog({
       : '',
   );
   const [renewsOn, setRenewsOn] = useState(channel?.renewsOn ?? '');
+  const [renewalMonths, setRenewalMonths] = useState(
+    channel?.renewalMonths ? String(channel.renewalMonths) : NONE,
+  );
   const [utmSourceMatch, setUtmSourceMatch] = useState(channel?.utmSourceMatch ?? '');
   const [externalCampaignId, setExternalCampaignId] = useState(channel?.externalCampaignId ?? '');
   const [notes, setNotes] = useState(channel?.notes ?? '');
@@ -520,11 +582,16 @@ function ChannelDialog({
   async function syncNow() {
     if (!channel) return;
     try {
+      // Si se acaba de escribir otra campaña, se guarda antes (si no, sincronizaba la anterior).
+      const campaign = externalCampaignId.trim();
+      if (campaign !== (channel.externalCampaignId ?? '')) {
+        await update.mutateAsync({ id: channel.id, input: { externalCampaignId: campaign } });
+      }
       const res = await sync.mutateAsync({ channelId: channel.id });
       toast.success(
         res.synced > 0
-          ? `Gasto sincronizado: ${res.synced} día(s), ${res.totalCost.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}.`
-          : 'Sincronizado: sin gasto en el periodo.',
+          ? `Gasto sincronizado: ${res.synced} ${res.synced === 1 ? 'día' : 'días'}, ${eur(res.totalCost)}.`
+          : 'Sincronizado: sin gasto en esos días.',
       );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo sincronizar.');
@@ -543,8 +610,10 @@ function ChannelDialog({
       facilityId: facilityId === NONE ? null : facilityId,
       promotionId: promotionId === NONE ? null : promotionId,
       externalUrl: externalUrl.trim(),
-      ...(monthlyCost.trim() ? { monthlyCost: Number(monthlyCost) } : { monthlyCost: undefined }),
+      // Vacío lo quita (antes no había forma de borrarlo).
+      monthlyCost: monthlyCost.trim() ? Number(monthlyCost) : null,
       renewsOn,
+      renewalMonths: renewalMonths === NONE ? null : Number(renewalMonths),
       utmSourceMatch: utmSourceMatch.trim(),
       externalCampaignId: externalCampaignId.trim(),
       notes: notes.trim(),
@@ -568,9 +637,11 @@ function ChannelDialog({
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Tipo</Label>
+              <Label htmlFor="ch-type" className="text-xs">
+                Tipo
+              </Label>
               <Select value={type} onValueChange={(v) => setType(v as MarketingChannelType)}>
-                <SelectTrigger>
+                <SelectTrigger id="ch-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -583,9 +654,11 @@ function ChannelDialog({
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Estado</Label>
+              <Label htmlFor="ch-status" className="text-xs">
+                Estado
+              </Label>
               <Select value={status} onValueChange={(v) => setStatus(v as MarketingChannelStatus)}>
-                <SelectTrigger>
+                <SelectTrigger id="ch-status">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -599,8 +672,11 @@ function ChannelDialog({
             </div>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Nombre</Label>
+            <Label htmlFor="ch-name" className="text-xs">
+              Nombre
+            </Label>
             <Input
+              id="ch-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ej.: Idealista — anuncio Local Norte"
@@ -608,9 +684,11 @@ function ChannelDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Local (opcional)</Label>
+              <Label htmlFor="ch-facility" className="text-xs">
+                Local (opcional)
+              </Label>
               <Select value={facilityId} onValueChange={setFacilityId}>
-                <SelectTrigger>
+                <SelectTrigger id="ch-facility">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -624,9 +702,11 @@ function ChannelDialog({
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Promoción vinculada (opcional)</Label>
+              <Label htmlFor="ch-promotion" className="text-xs">
+                Promoción vinculada (opcional)
+              </Label>
               <Select value={promotionId} onValueChange={setPromotionId}>
-                <SelectTrigger>
+                <SelectTrigger id="ch-promotion">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -640,32 +720,84 @@ function ChannelDialog({
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          {promotionId !== NONE && (
+            <p className="text-xs text-muted-foreground">
+              Los contratos con esta promoción que no lleguen por otro canal cuentan para este (los
+              clientes de un flyer que llaman o van al local).
+            </p>
+          )}
+          <div className="space-y-1">
+            <Label htmlFor="ch-cost" className="text-xs">
+              Coste mensual estimado (€, opcional)
+            </Label>
+            <Input
+              id="ch-cost"
+              type="number"
+              step="0.01"
+              min="0"
+              inputMode="decimal"
+              value={monthlyCost}
+              onChange={(e) => setMonthlyCost(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label className="text-xs">Coste mensual estimado (€, opcional)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={monthlyCost}
-                onChange={(e) => setMonthlyCost(e.target.value)}
-              />
+              <span className="text-xs font-medium">Renueva el (opcional)</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <DateSelect
+                  value={renewsOn || undefined}
+                  onChange={(v) => setRenewsOn(v ?? '')}
+                  around
+                />
+                {renewsOn && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setRenewsOn('')}>
+                    Quitar
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Renueva el (opcional)</Label>
-              <Input type="date" value={renewsOn} onChange={(e) => setRenewsOn(e.target.value)} />
+              <Label htmlFor="ch-renewal" className="text-xs">
+                Se renueva
+              </Label>
+              <Select value={renewalMonths} onValueChange={setRenewalMonths}>
+                <SelectTrigger id="ch-renewal">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RENEWAL_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
+          {renewsOn && (
+            <p className="text-xs text-muted-foreground">
+              Te avisamos una semana antes para que revises lo que ha traído.
+              {renewalMonths !== NONE ? ' Al pasar la fecha, avanza sola a la siguiente.' : ''}
+            </p>
+          )}
           <div className="space-y-1">
-            <Label className="text-xs">URL del anuncio/listado (opcional)</Label>
+            <Label htmlFor="ch-url" className="text-xs">
+              Dirección del anuncio (opcional)
+            </Label>
             <Input
+              id="ch-url"
+              type="url"
               value={externalUrl}
               onChange={(e) => setExternalUrl(e.target.value)}
               placeholder="https://..."
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Origen a atribuir (opcional)</Label>
+            <Label htmlFor="ch-source" className="text-xs">
+              Origen a atribuir (opcional)
+            </Label>
             <Input
+              id="ch-source"
               value={utmSourceMatch}
               onChange={(e) => setUtmSourceMatch(e.target.value)}
               placeholder="Si lo dejas vacío, se propone según el tipo"
@@ -679,8 +811,11 @@ function ChannelDialog({
           </div>
           {AD_PLATFORM_TYPES.has(type) && (
             <div className="space-y-1">
-              <Label className="text-xs">ID de campaña externa (opcional)</Label>
+              <Label htmlFor="ch-campaign" className="text-xs">
+                ID de campaña externa (opcional)
+              </Label>
               <Input
+                id="ch-campaign"
                 value={externalCampaignId}
                 onChange={(e) => setExternalCampaignId(e.target.value)}
                 placeholder={
@@ -690,9 +825,16 @@ function ChannelDialog({
                 }
               />
               <p className="text-xs text-muted-foreground">
-                Vincúlala a una campaña para sincronizar su gasto automáticamente (requiere activar
-                la conexión con {MARKETING_CHANNEL_TYPE_LABELS[type]} arriba).
+                Vincúlala a una campaña para sincronizar su gasto cada día (requiere activar la
+                conexión con {MARKETING_CHANNEL_TYPE_LABELS[type]} arriba). La primera vez se traen
+                los últimos 90 días.
               </p>
+              {channel?.lastSyncAt && (
+                <p className="text-xs text-muted-foreground">
+                  Última sincronización: {formatDateTime(channel.lastSyncAt)}
+                  {channel.lastSyncError ? ` (falló: ${channel.lastSyncError})` : ''}
+                </p>
+              )}
               {channel && externalCampaignId.trim() && (
                 <Button
                   type="button"
@@ -708,8 +850,15 @@ function ChannelDialog({
             </div>
           )}
           <div className="space-y-1">
-            <Label className="text-xs">Notas (opcional)</Label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+            <Label htmlFor="ch-notes" className="text-xs">
+              Notas (opcional)
+            </Label>
+            <Textarea
+              id="ch-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+            />
           </div>
         </div>
         <DialogFooter>

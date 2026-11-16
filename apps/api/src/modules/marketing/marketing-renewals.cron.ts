@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
 import { claimDailyCronRun } from '../../common/cron-claim';
+import { addMonthsUtc } from '../billing-saas/platform-due';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -54,8 +55,13 @@ export class MarketingRenewalsCron {
       select: { id: true, renewsOn: true, renewalMonths: true },
     });
     for (const c of overdue) {
-      const next = new Date(c.renewsOn!);
-      while (next < today) next.setUTCMonth(next.getUTCMonth() + c.renewalMonths!);
+      // Siempre desde la fecha original: del 31 de enero, al 28 de febrero y al 31 de marzo.
+      let steps = 1;
+      let next = addMonthsUtc(c.renewsOn!, c.renewalMonths!);
+      while (next < today) {
+        steps += 1;
+        next = addMonthsUtc(c.renewsOn!, c.renewalMonths! * steps);
+      }
       await this.admin.marketingChannel.updateMany({
         // Solo si nadie la ha cambiado entretanto.
         where: { id: c.id, renewsOn: c.renewsOn },
