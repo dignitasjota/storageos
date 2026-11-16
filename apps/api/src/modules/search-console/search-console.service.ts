@@ -1,10 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
+  searchConsoleSiteAllowed,
   shiftDate,
   summarizeSearchConsole,
   type SearchConsoleSettingsDto,
@@ -17,6 +20,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import { SearchConsoleClient } from './search-console.client';
+
+import type { Env } from '../../config/env.schema';
 
 /** Días que se descargan al conectar la propiedad. */
 const INITIAL_DAYS = 120;
@@ -39,7 +44,32 @@ export class SearchConsoleService {
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
     private readonly client: SearchConsoleClient,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * ¿Es el sitio de la web del negocio? Su dominio propio verificado o su
+   * dirección en la plataforma: la cuenta de servicio es la misma para todos
+   * y, sin esto, un negocio podría ver las búsquedas de otro.
+   */
+  private async siteAllowed(tenantId: string, siteUrl: string): Promise<boolean> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { slug: true, customDomain: true, customDomainVerifiedAt: true },
+    });
+    if (!tenant) return false;
+    return searchConsoleSiteAllowed(siteUrl, {
+      slug: tenant.slug,
+      customDomain: tenant.customDomainVerifiedAt ? tenant.customDomain : null,
+      platformUrl: this.config.get('WEB_BASE_URL', { infer: true }),
+    });
+  }
+
+  private notYours(siteUrl: string): string {
+    return `${siteUrl} no es tu web en TrasterOS. Conecta tu dominio propio (sc-domain:tudominio.es) o tu dirección en la plataforma (${this.config
+      .get('WEB_BASE_URL', { infer: true })
+      .replace(/\/$/, '')}/s/<tu identificador>/).`;
+  }
 
   async settings(tenantId: string): Promise<SearchConsoleSettingsDto> {
     const row = await this.prisma.withTenant(
@@ -64,6 +94,23 @@ export class SearchConsoleService {
       throw new ServiceUnavailableException({
         code: 'search_console_not_configured',
         message: 'La conexión con Search Console no está disponible todavía.',
+      });
+    }
+    if (!(await this.siteAllowed(tenantId, siteUrl))) {
+      throw new BadRequestException({
+        code: 'search_console_site_not_yours',
+        message: this.notYours(siteUrl),
+      });
+    }
+    // Un sitio solo puede estar conectado en un negocio.
+    const taken = await this.admin.tenantSearchConsole.findFirst({
+      where: { siteUrl: { equals: siteUrl, mode: 'insensitive' }, tenantId: { not: tenantId } },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new ConflictException({
+        code: 'search_console_site_taken',
+        message: 'Ese sitio ya está conectado en otra cuenta de TrasterOS.',
       });
     }
     let access = false;
@@ -122,6 +169,18 @@ export class SearchConsoleService {
       tenantId,
     );
     if (!row) return { rows: 0, ok: false };
+    // Conectado antes de comprobarlo (o el dominio ya no es suyo): no se descarga.
+    if (!(await this.siteAllowed(tenantId, row.siteUrl))) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.tenantSearchConsole.update({
+            where: { tenantId },
+            data: { status: 'error', lastError: this.notYours(row.siteUrl) },
+          }),
+        tenantId,
+      );
+      return { rows: 0, ok: false };
+    }
     const end = shiftDate(today(), -1);
     const start = shiftDate(end, -(days - 1));
     try {
@@ -178,7 +237,11 @@ export class SearchConsoleService {
   /** Cron diario: todos los tenants conectados que tienen el extra. */
   async syncAllDue(): Promise<{ tenants: number; synced: number }> {
     const rows = await this.admin.tenantSearchConsole.findMany({
-      where: { status: { in: ['connected', 'error'] } },
+      // Sin los negocios dados de baja o anonimizados.
+      where: {
+        status: { in: ['connected', 'error'] },
+        tenant: { deletedAt: null, status: { not: 'cancelled' } },
+      },
       select: { tenantId: true },
     });
     let synced = 0;

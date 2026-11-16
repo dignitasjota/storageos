@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { trafficSourceName } from './attribution';
+
 /**
  * Resumen mensual del marketing del tenant (Marketing → Resumen y correo
  * «Tu marketing en <mes>»): lo que pasó en la web y en los canales, comparado
@@ -43,6 +45,8 @@ export interface MarketingMonthFigures {
 
 export interface MarketingSummarySourceDto {
   source: string;
+  /** Tráfico de pago: fila aparte de la orgánica del mismo origen. */
+  paidTraffic: boolean;
   visitors: number;
   contacts: number;
   bookings: number;
@@ -135,7 +139,10 @@ const eur = (n: number) =>
     maximumFractionDigits: n % 1 === 0 ? 0 : 2,
   });
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-const sourceName = (s: string) => (s === 'web' ? 'directo o sin origen' : s);
+const sourceName = (s: { source: string; paidTraffic: boolean }) =>
+  s.source === 'web' && !s.paidTraffic
+    ? 'directo o sin origen'
+    : trafficSourceName(s.source, s.paidTraffic);
 
 /** Gasto mínimo para decir que un canal no funciona (evita avisar por 3 €). */
 const WASTED_SPEND_MIN = 20;
@@ -167,7 +174,7 @@ export function marketingSummaryTips(input: {
   if (wasted) {
     warnings.push({
       kind: 'warning',
-      text: `Gastaste ${eur(wasted.cost)} en «${sourceName(wasted.source)}» y no trajo ninguna reserva. Revisa el anuncio y la página a la que lleva, o pásale el presupuesto a lo que sí funciona.`,
+      text: `Gastaste ${eur(wasted.cost)} en «${sourceName(wasted)}» y no trajo ninguna reserva. Revisa el anuncio y la página a la que lleva, o pásale el presupuesto a lo que sí funciona.`,
       href: '/marketing/performance',
     });
   }
@@ -243,7 +250,7 @@ export function marketingSummaryTips(input: {
   if (best) {
     good.push({
       kind: 'good',
-      text: `«${sourceName(best.source)}» es tu canal más rentable: ${plural(best.bookings, 'reserva', 'reservas')} a ${eur(best.costPerBooking!)} cada una. Dale más presupuesto.`,
+      text: `«${sourceName(best)}» es tu canal más rentable: ${plural(best.bookings, 'reserva', 'reservas')} a ${eur(best.costPerBooking!)} cada una. Dale más presupuesto.`,
       href: '/marketing/performance',
     });
   } else {
@@ -253,7 +260,7 @@ export function marketingSummaryTips(input: {
     if (top) {
       good.push({
         kind: 'good',
-        text: `«${top.source}» te trajo ${plural(top.bookings, 'reserva', 'reservas')} sin coste. Sigue publicando ahí.`,
+        text: `«${sourceName(top)}» te trajo ${plural(top.bookings, 'reserva', 'reservas')} sin coste. Sigue publicando ahí.`,
         href: '/marketing/web',
       });
     }

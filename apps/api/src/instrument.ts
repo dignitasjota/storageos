@@ -19,6 +19,16 @@ if (dsn) {
     environment: process.env.NODE_ENV ?? 'development',
     // Solo errores por defecto; subir via env si queremos tracing APM.
     tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? '0'),
+    // Las peticiones salientes (Google, Meta, Redsys…) dejan su dirección en las
+    // migas: con la query saneada no viaja ningún token.
+    beforeBreadcrumb(breadcrumb) {
+      const data = breadcrumb.data as Record<string, unknown> | undefined;
+      if (data) {
+        if (typeof data.url === 'string') data.url = sanitizeUrl(data.url) ?? REDACTED;
+        if ('http.query' in data) data['http.query'] = REDACTED;
+      }
+      return breadcrumb;
+    },
     // La instrumentación http adjunta url/query/cabeceras de la request al
     // evento: mismo saneado que los logs (device key/PIN, tokens en la ruta).
     beforeSend(event) {

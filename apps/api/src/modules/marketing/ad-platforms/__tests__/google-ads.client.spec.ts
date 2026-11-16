@@ -35,6 +35,9 @@ describe('GoogleAdsClient', () => {
 
     const searchCall = spy.mock.calls.find(([u]) => String(u).includes('googleAds:search'))!;
     expect(String(searchCall[0])).toContain('/customers/1234567890/googleAds:search');
+    // Versión vigente de la API (Google retira cada versión al año).
+    expect(String(searchCall[0])).toContain('googleads.googleapis.com/v26/');
+    expect((searchCall[1] as RequestInit).signal).toBeDefined();
     const headers = (searchCall[1] as RequestInit).headers as Record<string, string>;
     expect(headers.authorization).toBe('Bearer tok_abc');
     expect(headers['developer-token']).toBe('dev-token-1');

@@ -41,6 +41,7 @@ export * from './web/sitemap-xml';
 export * from './web/city-pages';
 export * from './web/area-pages';
 export * from './web/search-console';
+export * from './web/secret-paths';
 export * from './web/legal';
 export * from './accounting';
 export * from './notifications';

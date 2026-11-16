@@ -8,7 +8,14 @@
  */
 import { round2, type AdDailyStats } from './ad-stats';
 
-const GRAPH_BASE = 'https://graph.facebook.com/v21.0';
+/**
+ * Versión de la API de anuncios (Marketing API). Meta retira las versiones
+ * viejas: la v21.0 dejó de funcionar el 9-9-2025. Calendario:
+ * https://developers.facebook.com/docs/graph-api/changelog/versions/
+ */
+const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
+/** Tiempo máximo de cada petición. */
+const TIMEOUT_MS = 20_000;
 
 /**
  * Acciones que cuentan como conversión: los tipos agregados de Meta (cada uno
@@ -35,10 +42,14 @@ export class MetaAdsClient {
   constructor(private readonly creds: MetaAdsCredentials) {}
 
   private async request<T>(path: string, params: Record<string, string>): Promise<T> {
-    const qs = new URLSearchParams({ ...params, access_token: this.creds.accessToken });
+    // El token va en la cabecera: en la dirección acabaría en registros y en Sentry.
+    const qs = new URLSearchParams(params);
     let res: Response;
     try {
-      res = await fetch(`${GRAPH_BASE}${path}?${qs.toString()}`);
+      res = await fetch(`${GRAPH_BASE}${path}?${qs.toString()}`, {
+        headers: { authorization: `Bearer ${this.creds.accessToken}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
     } catch (err) {
       throw new Error(
         `Meta Ads: error de red (${err instanceof Error ? err.message : String(err)})`,

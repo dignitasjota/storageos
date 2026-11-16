@@ -23,6 +23,46 @@ export const ConnectSearchConsoleSchema = z.object({
 });
 export type ConnectSearchConsoleInput = z.infer<typeof ConnectSearchConsoleSchema>;
 
+/** Lo que se sabe de la web del negocio para comprobar que el sitio es suyo. */
+export interface SearchConsoleOwnSite {
+  /** Identificador del negocio (su web en la plataforma es `/s/<slug>/`). */
+  slug: string;
+  /** Su dominio propio, solo si está verificado. */
+  customDomain: string | null;
+  /** Dirección de la plataforma (`https://trasteros.pro`). */
+  platformUrl: string;
+}
+
+const hostOfUrl = (url: string): { host: string; path: string } | null => {
+  const m = /^https?:\/\/([^/:?#]+)(?::\d+)?(\/[^?#]*)?/i.exec(url.trim());
+  return m?.[1] ? { host: m[1].toLowerCase(), path: m[2] ?? '/' } : null;
+};
+const bare = (host: string) => host.toLowerCase().replace(/^www\./, '');
+
+/**
+ * ¿Es este sitio de Search Console de la web del negocio? Solo su dominio
+ * propio verificado (`sc-domain:` del dominio o de uno superior, o una
+ * dirección de ese dominio) o su dirección en la plataforma (`/s/<slug>/`).
+ * Todos los negocios dan acceso a la misma cuenta de servicio, así que sin
+ * esto uno podría conectar el sitio de otro y ver sus búsquedas.
+ */
+export function searchConsoleSiteAllowed(siteUrl: string, site: SearchConsoleOwnSite): boolean {
+  const value = siteUrl.trim().toLowerCase();
+  const domain = site.customDomain ? bare(site.customDomain) : null;
+  if (value.startsWith('sc-domain:')) {
+    const prop = value.slice('sc-domain:'.length);
+    if (!domain || !prop.includes('.')) return false;
+    return domain === prop || domain.endsWith(`.${prop}`);
+  }
+  const url = hostOfUrl(value);
+  if (!url) return false;
+  if (domain && bare(url.host) === domain) return true;
+  const platform = hostOfUrl(site.platformUrl);
+  if (!platform || bare(url.host) !== bare(platform.host)) return false;
+  const own = `/s/${site.slug.toLowerCase()}/`;
+  return url.path.toLowerCase().startsWith(own);
+}
+
 export type SearchConsoleStatus = 'pending' | 'connected' | 'error';
 
 export interface SearchConsoleSettingsDto {

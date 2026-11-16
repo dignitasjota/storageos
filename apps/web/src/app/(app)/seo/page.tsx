@@ -212,7 +212,11 @@ function ConnectCard() {
                 </Button>
               </div>
             </li>
-            <li>Escribe aquí tu propiedad tal como sale en Search Console y pulsa «Conectar».</li>
+            <li>
+              Escribe aquí tu propiedad tal como sale en Search Console y pulsa «Conectar». Tiene
+              que ser tu web en TrasterOS: tu dominio propio (<code>sc-domain:tudominio.es</code>) o
+              tu dirección en la plataforma (la que acaba en <code>/s/tu-identificador/</code>).
+            </li>
           </ol>
         )}
 

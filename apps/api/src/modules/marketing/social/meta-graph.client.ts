@@ -333,11 +333,15 @@ export class MetaGraphClient {
   }
 
   private async get<T>(path: string, params: Record<string, string>, token: string): Promise<T> {
-    const qs = new URLSearchParams({ ...params, access_token: token });
+    // El token va en la cabecera: en la dirección acabaría en registros y en Sentry.
+    const qs = new URLSearchParams(params);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
     try {
-      const res = await fetch(`${GRAPH}${path}?${qs.toString()}`, { signal: ctrl.signal });
+      const res = await fetch(`${GRAPH}${path}?${qs.toString()}`, {
+        headers: { authorization: `Bearer ${token}` },
+        signal: ctrl.signal,
+      });
       const body = (await res.json().catch(() => ({}))) as {
         error?: { message?: string; code?: number };
       };

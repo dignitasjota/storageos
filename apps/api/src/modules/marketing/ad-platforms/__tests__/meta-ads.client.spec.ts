@@ -17,6 +17,17 @@ describe('MetaAdsClient', () => {
     expect(String(spy.mock.calls[0]![0])).toContain('/act_555?');
   });
 
+  it('usa la versión vigente y manda el token en la cabecera, nunca en la dirección', async () => {
+    const spy = mockFetch(() => ({ ok: true, status: 200, body: { id: 'act_555' } }));
+    await new MetaAdsClient({ accessToken: 'secreto', adAccountId: '555' }).testConnection();
+    const [url, init] = spy.mock.calls[0]!;
+    expect(String(url)).toContain('graph.facebook.com/v25.0/');
+    expect(String(url)).not.toContain('secreto');
+    expect(String(url)).not.toContain('access_token');
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    expect(headers.authorization).toBe('Bearer secreto');
+  });
+
   it('no duplica el prefijo si ya viene con act_', async () => {
     const spy = mockFetch(() => ({ ok: true, status: 200, body: { id: 'act_555' } }));
     await new MetaAdsClient({ accessToken: 'tok', adAccountId: 'act_555' }).testConnection();

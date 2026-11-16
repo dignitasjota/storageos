@@ -2565,3 +2565,29 @@ Sin migración ni variables nuevas. Va después de §146.
 - Al ampliar el plazo de un contrato ya firmado, el enlace para pagar dura hasta el plazo nuevo.
 
 **Tras desplegar**: a quien firmó antes de este cambio y no ha pagado, se le puede mandar todo desde la ficha de su factura → «Enviar por correo» (si el plazo ha vencido, ampliarlo antes desde el contrato).
+
+## 148. Marketing: seguridad y atribución sin dobles (2026-11-16)
+
+Migración `20270131100000_marketing_security` (se aplica sola al arrancar el API):
+
+- Google Analytics: una propiedad solo puede estar en un negocio. Si alguna estaba en dos, se queda en el que la conectó antes; el otro pierde la conexión y lo descargado.
+- Borra de lo descargado las páginas de firma, que llegaban con el enlace secreto en la dirección.
+- Borra las credenciales de anuncios y las conexiones con Google de los negocios ya anonimizados.
+
+Sin variables nuevas. Lo que cambia:
+
+- **Google Analytics**: para conectar la propiedad, el negocio tiene que poner antes el ID de medición de su web («G-…») en Configuración → Marca y SEO, y la propiedad tiene que medir esa web. Las propiedades ya conectadas se comprueban en la siguiente descarga diaria: si no miden la web del negocio, se paran con el motivo.
+- **Search Console**: solo el dominio propio verificado del negocio o su dirección en la plataforma (`/s/<identificador>/`). Las ya conectadas que no lo cumplan se paran en la siguiente descarga.
+- **Gasto de los anuncios**: Google Ads pasa a la versión v26 de su API y Meta Ads a la v25.0. Las versiones que usábamos (v18 y v21.0) ya no funcionaban, así que la sincronización del gasto fallaba.
+- **Tokens fuera de los registros**: el token de Meta va en la cabecera y Sentry (API y worker) ya no guarda tokens en el rastro de las peticiones.
+- **Firma del contrato**: el enlace secreto ya no llega a Google Analytics (ni al del negocio ni al de TrasterOS). Tampoco los de invitación o cambio de contraseña.
+- **Chat de la web**: topes por IP y día (10 conversaciones nuevas, 3 pasos a una persona y 2 reservas por negocio) y 200 respuestas de la IA por negocio y hora. Pedir una persona sin haber escrito nada ya no avisa al equipo.
+- **Canales de marketing**: cada contacto cuenta en un solo canal. Google Ads y Meta Ads solo cuentan el tráfico de sus anuncios (no las visitas desde las búsquedas de Google ni desde las publicaciones de Instagram). Si dos canales recogen el mismo origen, el panel lo avisa.
+- **Anonimizar un negocio** borra también sus credenciales de anuncios y sus conexiones con Google Analytics y Search Console.
+
+**Tras desplegar**:
+
+1. En el proyecto de Google Cloud de la cuenta de servicio (la de Search Console y Google Analytics), activar la **Google Analytics Admin API**. Sin ella, conectar Google Analytics da «No se ha podido comprobar la propiedad».
+2. Probar la sincronización del gasto de Google Ads con una cuenta real (Marketing → Canales → editar el canal → «Sincronizar gasto ahora»). En las pruebas no se puede llamar a Google.
+3. Avisar a los negocios que tengan Google Analytics conectado y no hayan puesto el ID de medición en Marca y SEO: su conexión se parará hasta que lo pongan.
+4. Los enlaces de firma que ya llegaron a Google Analytics caducan solos a los pocos días; no hace falta hacer nada.

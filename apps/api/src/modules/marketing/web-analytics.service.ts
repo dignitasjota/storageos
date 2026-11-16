@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import {
   WEB_ANALYTICS_DAYS,
+  channelReportSource,
   deviceFromUserAgent,
+  isAdChannel,
+  trafficKey,
   isBotUserAgent,
   normalizeWebPath,
   type WebAnalyticsDto,
@@ -131,6 +134,7 @@ export class WebAnalyticsService {
               kind: true,
               path: true,
               source: true,
+              medium: true,
               device: true,
               createdAt: true,
             },
@@ -157,6 +161,7 @@ export class WebAnalyticsService {
             },
             select: {
               utmSource: true,
+              utmMedium: true,
               createdAt: true,
               wonAt: true,
               bookedAt: true,
@@ -164,8 +169,17 @@ export class WebAnalyticsService {
             },
           }),
           channels: await tx.marketingChannel.findMany({
-            where: { deletedAt: null, utmSourceMatch: { not: null } },
-            select: { id: true, utmSourceMatch: true },
+            where: { deletedAt: null },
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              status: true,
+              utmSourceMatch: true,
+              externalCampaignId: true,
+              externalUrl: true,
+              createdAt: true,
+            },
           }),
           expenses: await tx.expense.findMany({
             where: {
@@ -187,13 +201,21 @@ export class WebAnalyticsService {
     });
     const keyOf = (d: Date) => dayKey.format(d);
 
-    // Embudo por origen.
+    // Embudo por origen: el tráfico de pago va en una fila aparte de la orgánica.
     const bySource = new Map<string, WebAnalyticsSourceDto & { ids: Set<string> }>();
-    const sourceRow = (source: string | null | undefined) => {
-      const key = source || 'web';
+    const sourceRow = (touch: { source: string | null | undefined; medium?: string | null }) => {
+      const k = trafficKey(touch);
+      const key = `${k.source}|${k.paid ? 'paid' : 'free'}`;
       let r = bySource.get(key);
       if (!r) {
-        r = { source: key, ...emptyFunnel(), cost: 0, costPerBooking: null, ids: new Set() };
+        r = {
+          source: k.source,
+          paidTraffic: k.paid,
+          ...emptyFunnel(),
+          cost: 0,
+          costPerBooking: null,
+          ids: new Set(),
+        };
         bySource.set(key, r);
       }
       return r;
@@ -226,7 +248,7 @@ export class WebAnalyticsService {
 
     const totals = { ...emptyFunnel(), cost: 0 };
     for (const e of events) {
-      const src = sourceRow(e.source);
+      const src = sourceRow(e);
       if (e.kind === 'page_view') {
         visitors.add(e.visitorId);
         if (e.device && !deviceOf.has(e.visitorId)) deviceOf.set(e.visitorId, e.device);
@@ -251,11 +273,12 @@ export class WebAnalyticsService {
     // Contactos y contratos por origen (con el primer pago).
     let prevContacts = 0;
     let prevBookings = 0;
-    const converted: { cid: string; source: string | null }[] = [];
+    const converted: { cid: string; touch: { source: string | null; medium: string | null } }[] =
+      [];
     for (const l of leads) {
-      const src = lower(l.utmSource);
+      const touch = { source: l.utmSource, medium: l.utmMedium };
       if (l.createdAt >= since) {
-        sourceRow(src).contacts += 1;
+        sourceRow(touch).contacts += 1;
         totals.contacts += 1;
         dayRow(l.createdAt).contacts += 1;
       } else if (l.createdAt >= prevSince) {
@@ -264,7 +287,7 @@ export class WebAnalyticsService {
       // La reserva cuenta el día que se hizo (el contacto se gana al firmar).
       const bookedAt = l.bookedAt ?? l.wonAt;
       if (l.convertedContractId && bookedAt && bookedAt < until) {
-        if (bookedAt >= since) converted.push({ cid: l.convertedContractId, source: src });
+        if (bookedAt >= since) converted.push({ cid: l.convertedContractId, touch });
         else if (bookedAt >= prevSince) prevBookings += 1;
       }
     }
@@ -299,10 +322,10 @@ export class WebAnalyticsService {
       }
     }
     const seen = new Set<string>();
-    for (const { cid, source } of converted) {
+    for (const { cid, touch } of converted) {
       if (seen.has(cid)) continue;
       seen.add(cid);
-      const r = sourceRow(source);
+      const r = sourceRow(touch);
       r.bookings += 1;
       totals.bookings += 1;
       if (signed.has(cid)) {
@@ -321,13 +344,15 @@ export class WebAnalyticsService {
       }
     }
 
-    // Gasto de los canales de marketing con ese origen.
-    const sourceOfChannel = new Map(channels.map((c) => [c.id, c.utmSourceMatch!.toLowerCase()]));
+    // Gasto de cada canal en la fila de su origen (los de anuncios, en la de pago).
+    const channelById = new Map(channels.map((c) => [c.id, c]));
     for (const e of expenses) {
-      const source = sourceOfChannel.get(e.marketingChannelId!);
-      if (!source) continue;
+      const channel = channelById.get(e.marketingChannelId!);
+      const source = channel ? channelReportSource(channel) : null;
+      if (!channel || !source) continue;
       const amount = Number(e.amount);
-      sourceRow(source).cost += amount;
+      const row = sourceRow({ source, medium: isAdChannel(channel) ? 'cpc' : null });
+      row.cost += amount;
       totals.cost += amount;
     }
 

@@ -97,11 +97,21 @@ describe('Resumen mensual de marketing (e2e)', () => {
       searchClicks: null,
     });
     expect(summary.previous.visitors).toBe(0);
-    expect(summary.sources[0]).toMatchObject({ source: 'instagram', visitors: 1, cost: 60 });
+    // El gasto de Meta Ads va a sus anuncios, no a las visitas orgánicas de Instagram.
+    expect(summary.sources.find((s) => s.source === 'instagram')).toMatchObject({
+      paidTraffic: false,
+      visitors: 1,
+      cost: 0,
+    });
+    expect(summary.sources.find((s) => s.source === 'meta')).toMatchObject({
+      paidTraffic: true,
+      visitors: 0,
+      cost: 60,
+    });
     expect(summary.connections.channelsWithLinks).toBe(1);
     expect(summary.reportEnabled).toBe(true);
     expect(summary.tips[0]).toMatchObject({ kind: 'warning', href: '/marketing/performance' });
-    expect(summary.tips[0]!.text).toContain('instagram');
+    expect(summary.tips[0]!.text).toContain('Anuncios de Meta');
 
     await http().get('/marketing/summary?month=2026-13').set(auth).expect(400);
   });

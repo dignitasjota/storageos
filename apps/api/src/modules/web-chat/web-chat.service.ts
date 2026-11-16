@@ -40,6 +40,15 @@ import { BookingService } from '../move-in/booking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 
+import {
+  WEB_CHAT_ANSWERS_PER_TENANT_HOUR,
+  WEB_CHAT_BOOKINGS_PER_IP,
+  WEB_CHAT_CONVERSATIONS_PER_IP,
+  WEB_CHAT_HANDOFFS_PER_IP,
+  WebChatAbuseService,
+  webChatMessagesPerIp,
+} from './web-chat-abuse.service';
+
 import type { Env } from '../../config/env.schema';
 import type { AiMessageParam, AiSystemPrompt } from '../ai/ai-provider';
 import type { RequestMeta } from '../auth/auth.service';
@@ -86,6 +95,7 @@ const TEXTS = {
       past: 'la fecha de entrada ya ha pasado',
       soldOut: 'ese tamaño acaba de agotarse',
       error: 'ha habido un problema al reservar',
+      tooMany: 'hoy ya se han hecho varias reservas desde aquí',
     },
   },
   en: {
@@ -113,6 +123,7 @@ const TEXTS = {
       past: 'the move-in date has already passed',
       soldOut: 'that size has just sold out',
       error: 'something went wrong',
+      tooMany: 'several bookings have already been made from here today',
     },
   },
 } as const;
@@ -177,6 +188,7 @@ export class WebChatService {
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly abuse: WebChatAbuseService,
   ) {}
 
   // ─── Público ───────────────────────────────────────────────────────────────
@@ -358,6 +370,33 @@ export class WebChatService {
     if (input.hp || isBotUserAgent(meta.userAgent)) {
       return result(t.tenantLimit, { limited: 'tenant' });
     }
+    // Topes que no dependen del identificador del navegador (que se puede
+    // cambiar en cada mensaje): conversaciones nuevas y mensajes por IP y día.
+    const known = await this.admin.webChatConversation.findUnique({
+      where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
+      select: { id: true },
+    });
+    if (
+      !known &&
+      !(await this.abuse.allow(
+        'conversation',
+        tenant.id,
+        meta.ipAddress,
+        WEB_CHAT_CONVERSATIONS_PER_IP,
+      ))
+    ) {
+      return result(t.visitorLimit, { limited: 'visitor' });
+    }
+    if (
+      !(await this.abuse.allow(
+        'message',
+        tenant.id,
+        meta.ipAddress,
+        webChatMessagesPerIp(this.platform.web.visitorDailyLimit),
+      ))
+    ) {
+      return result(t.visitorLimit, { limited: 'visitor' });
+    }
 
     const conversation = await this.admin.webChatConversation.upsert({
       where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
@@ -389,6 +428,17 @@ export class WebChatService {
     const asked = await this.askedToday(conversation.id, tenant.timezone);
     if (asked >= this.platform.web.visitorDailyLimit) {
       return result(t.visitorLimit, { limited: 'visitor' });
+    }
+    // Freno por negocio y hora (un ataque desde muchas IP, o con clave propia).
+    if (
+      !(await this.abuse.allow(
+        'tenant_hour',
+        tenant.id,
+        undefined,
+        WEB_CHAT_ANSWERS_PER_TENANT_HOUR,
+      ))
+    ) {
+      return result(t.tenantLimit, { limited: 'tenant' });
     }
 
     const history = await this.admin.webChatMessage.findMany({
@@ -474,6 +524,7 @@ export class WebChatService {
         landing,
         raw: bookingMatch[1] ?? '',
         lang,
+        meta,
       });
       extras.push(booked.message);
       if (booked.ok) leadCaptured = true;
@@ -533,12 +584,32 @@ export class WebChatService {
         contact,
       };
     }
-    const conversation = await this.admin.webChatConversation.upsert({
+    // Solo quien ha escrito algo (el widget no ofrece el botón antes) y con
+    // tope por IP: cada paso a una persona avisa a todo el equipo.
+    const conversation = await this.admin.webChatConversation.findUnique({
       where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
-      create: { tenantId: tenant.id, visitorId: input.visitorId, locale: input.locale },
-      update: {},
-      select: { id: true, leadId: true, mode: true },
+      select: {
+        id: true,
+        leadId: true,
+        mode: true,
+        _count: { select: { messages: { where: { role: 'visitor' } } } },
+      },
     });
+    const refused = {
+      answer: t.tenantLimit,
+      messageId: null,
+      mode: 'ai' as const,
+      leadCaptured: false,
+      limited: 'tenant' as const,
+      contact,
+    };
+    if (!conversation || conversation._count.messages === 0) return refused;
+    if (
+      conversation.mode !== 'human' &&
+      !(await this.abuse.allow('handoff', tenant.id, meta.ipAddress, WEB_CHAT_HANDOFFS_PER_IP))
+    ) {
+      return refused;
+    }
     let messageId: string | null = null;
     if (conversation.mode !== 'human') {
       messageId = await this.saveMessage(tenant.id, conversation.id, 'assistant', t.handoff);
@@ -678,6 +749,7 @@ export class WebChatService {
     landing: PublicLandingDto;
     raw: string;
     lang: Lang;
+    meta: RequestMeta;
   }): Promise<{ ok: boolean; message: string }> {
     const t = TEXTS[args.lang];
     const fail = (reason: string) => ({ ok: false, message: t.bookingFail(reason) });
@@ -706,14 +778,26 @@ export class WebChatService {
     });
     if (!parsed.success) return fail(t.reasons.invalid);
     if (parsed.data.startDate < todayIn(args.tenant.timezone)) return fail(t.reasons.past);
+    // Cada reserva retiene un trastero 72 h: como mucho unas pocas por IP y día.
+    if (
+      !(await this.abuse.allow(
+        'booking',
+        args.tenant.id,
+        args.meta.ipAddress,
+        WEB_CHAT_BOOKINGS_PER_IP,
+      ))
+    ) {
+      return fail(t.reasons.tooMany);
+    }
     let booked: {
       contractId: string;
       signingToken: string | null;
       signingLinkSentTo: string | null;
     };
     try {
-      booked = await this.booking.createBooking(args.tenant.slug, parsed.data, {});
+      booked = await this.booking.createBooking(args.tenant.slug, parsed.data, args.meta);
     } catch (err) {
+      await this.abuse.giveBack('booking', args.tenant.id, args.meta.ipAddress);
       const code = (err as { response?: { code?: string } } | null)?.response?.code ?? 'error';
       this.logger.warn(`[web-chat] reserva fallida (${code})`);
       return fail(

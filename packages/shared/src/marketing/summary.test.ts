@@ -30,6 +30,7 @@ const figures = (over: Partial<MarketingMonthFigures> = {}): MarketingMonthFigur
 
 const source = (over: Partial<MarketingSummarySourceDto>): MarketingSummarySourceDto => ({
   source: 'instagram',
+  paidTraffic: false,
   visitors: 0,
   contacts: 0,
   bookings: 0,
@@ -70,15 +71,15 @@ describe('marketingSummaryTips', () => {
       current: figures({ visitors: 200, webContacts: 5, bookings: 3, signed: 3, paid: 3 }),
       previous: figures({ visitors: 190 }),
       sources: [
-        source({ source: 'facebook', cost: 120, bookings: 0 }),
-        source({ source: 'google', cost: 90, bookings: 3, costPerBooking: 30 }),
+        source({ source: 'meta', paidTraffic: true, cost: 120, bookings: 0 }),
+        source({ source: 'google', paidTraffic: true, cost: 90, bookings: 3, costPerBooking: 30 }),
       ],
       connections: connected,
     });
     expect(tips.map((t) => t.kind)).toEqual(['warning', 'good']);
     expect(tips[0]!.text).toMatch(/120\s€/);
-    expect(tips[0]!.text).toContain('facebook');
-    expect(tips[1]!.text).toContain('«google»');
+    expect(tips[0]!.text).toContain('«Anuncios de Meta (Facebook e Instagram)»');
+    expect(tips[1]!.text).toContain('«Anuncios de Google»');
     expect(tips[1]!.text).toMatch(/30\s€/);
   });
 

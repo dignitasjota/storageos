@@ -51,9 +51,9 @@ export const CreateMarketingChannelSchema = z.object({
   monthlyCost: z.number().min(0).finite().optional(),
   renewsOn: dateOnly.optional().or(z.literal('')),
   /**
-   * Valor de `leads.source`/`leads.utmSource` que se atribuye a este canal
-   * (sugerido: la versión normalizada del nombre — se rellena sola si se deja
-   * vacío). Vacío = el canal no se cruza con leads (solo tracking de coste).
+   * Orígenes (`utm_source`) que se atribuyen a este canal, separados por comas.
+   * Vacío: se propone según el tipo (Google Ads → `google`, Meta Ads →
+   * `facebook, instagram`, un portal conocido por su nombre) o el nombre.
    */
   utmSourceMatch: z.string().trim().max(120).optional().or(z.literal('')),
   /**
@@ -89,6 +89,11 @@ export interface MarketingChannelDto {
   monthlyCost: number | null;
   renewsOn: string | null;
   utmSourceMatch: string | null;
+  /**
+   * Otro canal con el mismo origen: los contactos de ese origen van al activo
+   * más antiguo, salvo que el enlace lleve la campaña del canal. null si no hay.
+   */
+  sourceConflictWith: string | null;
   externalCampaignId: string | null;
   /** `<slug>` de `/g/<shortCode>` — null si el canal no tiene enlace corto (solo canales físicos lo usan). */
   shortCode: string | null;
@@ -134,7 +139,7 @@ export interface AdPerformanceFigures {
   cost: number;
   /** Conversiones que cuenta Google Ads o Meta Ads. */
   platformConversions: number;
-  /** Contactos con el origen del canal (`utmSourceMatch`). */
+  /** Contactos atribuidos al canal (su campaña o su origen de pago). */
   contacts: number;
   /** Reservas / contratos de esos contactos. */
   bookings: number;
@@ -185,6 +190,7 @@ export interface MarketingShortLinkResolveDto {
   targetUrl: string;
 }
 
+export * from './attribution';
 export * from './ad-platforms';
 export * from './ad-campaign-draft';
 export * from './summary';

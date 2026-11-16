@@ -232,7 +232,8 @@ export class AdSpendSyncService {
     const { from, to } = defaultRange(CRON_SYNC_DAYS);
 
     const googleTenants = await this.admin.googleAdsSettings.findMany({
-      where: { enabled: true },
+      // Sin los negocios dados de baja o anonimizados.
+      where: { enabled: true, tenant: { deletedAt: null, status: { not: 'cancelled' } } },
       select: { tenantId: true },
     });
     for (const { tenantId } of googleTenants) {
@@ -252,7 +253,8 @@ export class AdSpendSyncService {
     }
 
     const metaTenants = await this.admin.metaAdsSettings.findMany({
-      where: { enabled: true },
+      // Sin los negocios dados de baja o anonimizados.
+      where: { enabled: true, tenant: { deletedAt: null, status: { not: 'cancelled' } } },
       select: { tenantId: true },
     });
     for (const { tenantId } of metaTenants) {

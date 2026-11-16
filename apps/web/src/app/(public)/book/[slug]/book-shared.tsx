@@ -7,7 +7,6 @@ import {
   type FirstPaymentMonths,
 } from '@storageos/shared';
 import { Loader2, MailCheck } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -73,7 +72,6 @@ export function BookPageBody({
 }) {
   const t = useTranslations('publicWeb.book');
   const tFunnel = useTranslations('publicWeb.funnel');
-  const router = useRouter();
   const [data, setData] = useState<BookingAvailabilityDto | null>(initialData);
   const [loadError, setLoadError] = useState<string | null>(initialError);
   const [facilityId, setFacilityId] = useState('');
@@ -273,7 +271,9 @@ export function BookPageBody({
       });
       trackEvent('book_submitted');
       if (res.signingToken) {
-        router.push(signHref(res.signingToken, locale));
+        // Carga completa (no navegación dentro de la web): así el Google Analytics
+        // de esta página no ve la dirección de la firma, que lleva el enlace secreto.
+        window.location.assign(signHref(res.signingToken, locale));
       } else {
         setLinkSentTo(res.signingLinkSentTo);
         setSubmitting(false);

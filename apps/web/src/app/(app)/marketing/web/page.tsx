@@ -3,6 +3,7 @@
 import {
   WEB_ANALYTICS_DAYS,
   leadSourceLabel,
+  trafficSourceName,
   type WebAnalyticsDto,
   type WebAnalyticsSourceDto,
 } from '@storageos/shared';
@@ -26,19 +27,7 @@ import { useWebAnalytics } from '@/lib/marketing/hooks';
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const int = (n: number) => n.toLocaleString('es-ES');
 
-const SOURCE_LABELS: Record<string, string> = {
-  web: 'Directo / sin origen',
-  instagram: 'Instagram',
-  facebook: 'Facebook',
-  google: 'Google',
-  bing: 'Bing',
-  tiktok: 'TikTok',
-  youtube: 'YouTube',
-  linkedin: 'LinkedIn',
-  x: 'X (Twitter)',
-  whatsapp: 'WhatsApp',
-};
-const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? leadSourceLabel(s);
+const sourceLabel = (s: string, paid = false) => trafficSourceName(s, paid, leadSourceLabel);
 
 const DEVICE_LABELS = { mobile: 'Móvil', desktop: 'Ordenador', tablet: 'Tableta' } as const;
 
@@ -177,8 +166,8 @@ function SourcesTable({ rows }: { rows: WebAnalyticsSourceDto[] }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.source} className="border-b last:border-0">
-              <td className="px-2 py-2 font-medium">{sourceLabel(r.source)}</td>
+            <tr key={`${r.source}-${r.paidTraffic}`} className="border-b last:border-0">
+              <td className="px-2 py-2 font-medium">{sourceLabel(r.source, r.paidTraffic)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.visitors)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.calls)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.whatsapp)}</td>

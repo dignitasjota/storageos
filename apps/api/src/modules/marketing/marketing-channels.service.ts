@@ -2,7 +2,14 @@ import { randomBytes } from 'node:crypto';
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
-import { normalizeLeadSource, promoCampaign, promoUtmMedium } from '@storageos/shared';
+import {
+  attributeChannel,
+  channelSourceConflicts,
+  defaultChannelSource,
+  normalizeLeadSource,
+  promoCampaign,
+  promoUtmMedium,
+} from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -85,7 +92,8 @@ export class MarketingChannelsService {
         include: CHANNEL_INCLUDE,
         orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
       });
-      return rows.map((r) => this.toDto(r));
+      const conflicts = await this.conflicts(tx);
+      return rows.map((r) => this.toDto(r, conflicts.get(r.id) ?? null));
     }, tenantId);
   }
 
@@ -94,8 +102,15 @@ export class MarketingChannelsService {
     // (publicidad física: carteles, flyers) — se genera siempre, es barato y
     // así el canal puede pasar a físico más tarde sin perder el enlace.
     const shortCode = await this.uniqueShortCode();
+    // Sin origen escrito: el de su tipo (Google Ads → `google`…) o el nombre.
     const utmSourceMatch =
-      input.utmSourceMatch?.trim() || normalizeLeadSource(input.name).slice(0, 60);
+      input.utmSourceMatch?.trim() ||
+      defaultChannelSource({
+        type: input.type,
+        name: input.name,
+        externalUrl: input.externalUrl ?? null,
+        fallback: normalizeLeadSource(input.name).slice(0, 60),
+      });
     return this.prisma.withTenant(async (tx) => {
       if (input.promoLandingId) await assertPromoLanding(tx, input.promoLandingId);
       const row = await tx.marketingChannel.create({
@@ -117,7 +132,7 @@ export class MarketingChannelsService {
         },
         include: CHANNEL_INCLUDE,
       });
-      return this.toDto(row);
+      return this.toDto(row, (await this.conflicts(tx)).get(row.id) ?? null);
     }, tenantId);
   }
 
@@ -174,7 +189,7 @@ export class MarketingChannelsService {
         data,
         include: CHANNEL_INCLUDE,
       });
-      return this.toDto(row);
+      return this.toDto(row, (await this.conflicts(tx)).get(row.id) ?? null);
     }, tenantId);
   }
 
@@ -276,7 +291,10 @@ export class MarketingChannelsService {
           ? { ...(fromD ? { gte: fromD } : {}), ...(toD ? { lte: toD } : {}) }
           : undefined;
 
-      const channels = await tx.marketingChannel.findMany({ where: { deletedAt: null } });
+      const channels = await tx.marketingChannel.findMany({
+        where: { deletedAt: null },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
 
       const [expenses, leads] = await Promise.all([
         tx.expense.findMany({
@@ -288,7 +306,14 @@ export class MarketingChannelsService {
         }),
         tx.lead.findMany({
           where: { deletedAt: null, ...(dateFilter ? { createdAt: dateFilter } : {}) },
-          select: { source: true, utmSource: true, status: true, convertedContractId: true },
+          select: {
+            source: true,
+            utmSource: true,
+            utmMedium: true,
+            utmCampaign: true,
+            status: true,
+            convertedContractId: true,
+          },
         }),
       ]);
 
@@ -298,18 +323,18 @@ export class MarketingChannelsService {
         costByChannel.set(key, (costByChannel.get(key) ?? 0) + num(e.amount));
       }
 
-      const channelByMatch = new Map<string, string>();
-      for (const c of channels) {
-        if (c.utmSourceMatch) channelByMatch.set(c.utmSourceMatch.toLowerCase(), c.id);
-      }
-
       const leadsByChannel = new Map<
         string,
         { total: number; won: number; wonContractIds: string[] }
       >();
       for (const l of leads) {
-        const key = (l.utmSource ?? l.source ?? '').toLowerCase();
-        const channelId = channelByMatch.get(key);
+        // Un contacto va a un canal como mucho: su campaña o su origen (los de
+        // anuncios, solo con tráfico de pago).
+        const channelId = attributeChannel(channels, {
+          source: l.utmSource ?? l.source,
+          medium: l.utmMedium,
+          campaign: l.utmCampaign,
+        })?.id;
         if (!channelId) continue;
         const bucket = leadsByChannel.get(channelId) ?? { total: 0, won: 0, wonContractIds: [] };
         bucket.total += 1;
@@ -390,7 +415,25 @@ export class MarketingChannelsService {
     return randomBytes(9).toString('base64url').slice(0, 12);
   }
 
-  private toDto(r: ChannelRow): MarketingChannelDto {
+  /** Canales que comparten origen con otro (nombre del otro). */
+  private async conflicts(tx: Prisma.TransactionClient): Promise<Map<string, string>> {
+    const all = await tx.marketingChannel.findMany({
+      where: { deletedAt: null, status: { not: 'ended' } },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        status: true,
+        utmSourceMatch: true,
+        externalCampaignId: true,
+        externalUrl: true,
+        createdAt: true,
+      },
+    });
+    return channelSourceConflicts(all);
+  }
+
+  private toDto(r: ChannelRow, sourceConflictWith: string | null = null): MarketingChannelDto {
     // Con dominio propio verificado, el enlace corto va con él (queda mejor en
     // un cartel): `guardalobox.es/g/<código>` en vez de `trasteros.pro/g/…`.
     const base =
@@ -421,6 +464,7 @@ export class MarketingChannelsService {
       monthlyCost: r.monthlyCost !== null ? num(r.monthlyCost) : null,
       renewsOn: r.renewsOn ? r.renewsOn.toISOString().slice(0, 10) : null,
       utmSourceMatch: r.utmSourceMatch,
+      sourceConflictWith,
       externalCampaignId: r.externalCampaignId,
       shortCode: r.shortCode,
       shortUrl: r.shortCode ? `${base.replace(/\/$/, '')}/g/${r.shortCode}` : null,

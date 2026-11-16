@@ -56,6 +56,15 @@ describe('MetaGraphClient (real)', () => {
     ]);
   });
 
+  it('el token va en la cabecera, nunca en la dirección', async () => {
+    const fn = mockFetch(() => ({ body: { data: [] } }));
+    await client.pages('SECRETO').catch(() => undefined);
+    const [url, init] = fn.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(url).not.toContain('SECRETO');
+    expect(url).not.toContain('access_token=');
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer SECRETO');
+  });
+
   it('un token caducado lanza el error de Meta', async () => {
     mockFetch(() => metaError('Error validating access token', 190));
     await expect(client.pages('OLD')).rejects.toMatchObject({ code: 190 });
