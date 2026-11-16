@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -27,6 +28,8 @@ import {
   WebChatVisitorIdSchema,
   type WebChatPendingDto,
   type PublicWebChatHistoryDto,
+  PublicWebChatUpdatesSchema,
+  type PublicWebChatUpdatesDto,
   type PublicWebChatResultDto,
   type WebChatConversationDto,
   type WebChatMessageDto,
@@ -39,6 +42,7 @@ import { z } from 'zod';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { parsePageRequest } from '../../common/pagination';
 
@@ -52,6 +56,7 @@ class WebChatHistoryDto extends createZodDto(
   z.object({ visitorId: WebChatVisitorIdSchema, locale: z.enum(['es', 'en']).default('es') }),
 ) {}
 class WebChatHandoffDto extends createZodDto(PublicWebChatHandoffSchema) {}
+class WebChatUpdatesDto extends createZodDto(PublicWebChatUpdatesSchema) {}
 class WebChatFeedbackDto extends createZodDto(PublicWebChatFeedbackSchema) {}
 class WebChatContactBodyDto extends createZodDto(PublicWebChatContactSchema) {}
 class WebChatStaffReplyDto extends createZodDto(WebChatStaffReplySchema) {}
@@ -87,6 +92,20 @@ export class WebChatPublicController {
     @Body() body: WebChatHistoryDto,
   ): Promise<PublicWebChatHistoryDto> {
     return this.chat.history(slug, body.visitorId, body.locale);
+  }
+
+  /**
+   * Consulta ligera del widget (también con la burbuja cerrada): si alguien del
+   * equipo ha respondido desde el último mensaje que ve el visitante.
+   */
+  @Post(':slug/chat/updates')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  updates(
+    @Param('slug') slug: string,
+    @Body() body: WebChatUpdatesDto,
+  ): Promise<PublicWebChatUpdatesDto> {
+    return this.chat.updates(slug, body);
   }
 
   /**
@@ -196,8 +215,12 @@ export class WebChatController {
     return this.chat.stats(user.tenantId, days(d));
   }
 
-  /** Conversaciones con mensajes en el periodo, por cursor (la última primero). */
-  @RequirePermission('marketing:read')
+  /**
+   * Conversaciones con mensajes en el periodo, por cursor (la última primero).
+   * Leer conversaciones pide `communications:read`, igual que «Hoy», la bandeja
+   * de mensajes y los avisos (las cifras del chat siguen en `marketing:read`).
+   */
+  @RequirePermission('communications:read')
   @Get('conversations/page')
   conversations(
     @CurrentUser() user: AuthenticatedUser,
@@ -212,7 +235,7 @@ export class WebChatController {
   }
 
   /** Conversaciones esperando a una persona (menú y bandeja de mensajes). */
-  @RequirePermission('marketing:read')
+  @RequirePermission('communications:read')
   @Get('pending')
   pending(@CurrentUser() user: AuthenticatedUser): Promise<WebChatPendingDto> {
     return this.chat.pending(user.tenantId);
@@ -242,6 +265,7 @@ export class WebChatController {
 
   /** Borrador de respuesta con IA (gasta una consulta del asistente del panel). */
   @RequirePermission('communications:send')
+  @RequireFeature('ai_assistant')
   @Post('conversations/:id/suggest-reply')
   @HttpCode(HttpStatus.OK)
   suggest(
@@ -251,7 +275,43 @@ export class WebChatController {
     return this.chat.suggestReply(user.tenantId, user.sub, id);
   }
 
-  @RequirePermission('marketing:read')
+  /** Una conversación (la que abre un aviso aunque no esté en la lista). */
+  @RequirePermission('communications:read')
+  @Get('conversations/:id/info')
+  conversation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<WebChatConversationDto> {
+    return this.chat.conversation(user.tenantId, id);
+  }
+
+  /** La abre quien puede responder: sus mensajes quedan leídos. */
+  @RequirePermission('communications:send')
+  @Post('conversations/:id/read')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async read(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.chat.markRead(user.tenantId, id);
+  }
+
+  /** Borra la conversación (p. ej. si el visitante lo pide). */
+  @RequirePermission('marketing:manage')
+  @Delete('conversations/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.chat.deleteConversation(user.tenantId, id, {
+      userId: user.sub,
+      meta: { ipAddress: req.ip, userAgent: req.headers['user-agent'] },
+    });
+  }
+
+  @RequirePermission('communications:read')
   @Get('conversations/:id')
   messages(
     @CurrentUser() user: AuthenticatedUser,

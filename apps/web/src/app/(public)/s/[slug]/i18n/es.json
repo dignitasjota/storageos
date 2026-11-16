@@ -962,7 +962,12 @@
       "necessaryOnly": "Solo necesarias",
       "acceptAll": "Aceptar todas",
       "privacyPolicy": "política de privacidad",
-      "areasLabel": "Zonas"
+      "areasLabel": "Zonas",
+      "measurementTitle": "Medición de tus visitas",
+      "measurementOn": "Ahora contamos tus visitas de forma anónima (sin cookies de terceros ni datos personales) para saber cómo se usa la web.",
+      "measurementOff": "No contamos tus visitas en este navegador.",
+      "measurementStop": "No medir mis visitas",
+      "measurementResume": "Volver a medir mis visitas"
     },
     "city": {
       "heading": "Trasteros en {city}",
@@ -995,7 +1000,7 @@
       "thinking": "Escribiendo…",
       "error": "No he podido responder ahora. Inténtalo de nuevo en un momento.",
       "tooFast": "Vas muy rápido. Espera un momento y vuelve a escribir.",
-      "disclaimer": "Te responde un asistente automático con inteligencia artificial; puede equivocarse. No compartas datos bancarios.",
+      "disclaimer": "Te responde un asistente automático con inteligencia artificial; puede equivocarse. El equipo del negocio puede leer la conversación. No compartas datos bancarios.",
       "privacy": "Privacidad",
       "subtitleHuman": "Te atiende una persona del equipo",
       "placeholderHuman": "Escribe al equipo…",
@@ -1013,7 +1018,12 @@
       "contactPhone": "Teléfono",
       "contactSend": "Enviar",
       "contactError": "No se han podido guardar tus datos. Inténtalo de nuevo.",
-      "contactThanks": "¡Gracias! El equipo te contactará pronto."
+      "contactThanks": "¡Gracias! El equipo te contactará pronto.",
+      "loadError": "No se ha podido cargar la conversación.",
+      "retry": "Reintentar",
+      "closeNudge": "Cerrar",
+      "newMessages": "{count, plural, one {# mensaje nuevo del equipo} other {# mensajes nuevos del equipo}}",
+      "handoffError": "No se ha podido avisar al equipo. Inténtalo de nuevo."
     },
     "features": {
       "24h": "Acceso 24 h",

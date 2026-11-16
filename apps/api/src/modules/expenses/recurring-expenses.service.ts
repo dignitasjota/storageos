@@ -126,8 +126,9 @@ export class RecurringExpensesService {
     }
     if (refs.category !== undefined) await assertCategory(tx, refs.category);
     if (refs.marketingChannelId && refs.category === 'marketing') {
+      // Un canal borrado ya no recibe gastos nuevos.
       const c = await tx.marketingChannel.findFirst({
-        where: { id: refs.marketingChannelId },
+        where: { id: refs.marketingChannelId, deletedAt: null },
         select: { id: true },
       });
       if (!c) {
@@ -251,7 +252,10 @@ export class RecurringExpensesService {
       await this.assertRefs(tx, {
         facilityId: input.facilityId !== undefined ? facilityId : null,
         ...(input.category !== undefined ? { category } : {}),
-        marketingChannelId: input.marketingChannelId !== undefined ? channelId : null,
+        marketingChannelId:
+          input.marketingChannelId !== undefined && channelId !== existing.marketingChannelId
+            ? channelId
+            : null,
         supplierId: input.supplierId ?? null,
       });
       const start =
@@ -399,7 +403,14 @@ export class RecurringExpensesService {
     return this.prisma.withTenant(async (tx) => {
       const today = await this.today(tx);
       const templates = await tx.recurringExpense.findMany({
-        where: { active: true, OR: [{ facilityId: null }, { facility: { deletedAt: null } }] },
+        where: {
+          active: true,
+          AND: [
+            { OR: [{ facilityId: null }, { facility: { deletedAt: null } }] },
+            // Los de un canal de marketing borrado no se generan.
+            { OR: [{ marketingChannelId: null }, { marketingChannel: { deletedAt: null } }] },
+          ],
+        },
         include: RECURRING_INCLUDE,
       });
       const closed = await closedQuarters(tx);

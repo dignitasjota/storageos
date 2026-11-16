@@ -61,7 +61,9 @@ describe('Marketing — feed CSV del catálogo (e2e)', () => {
     const row = lines[1]!;
     expect(row).toContain('Local Catálogo');
     expect(row).toContain('Valencia');
-    expect(row).toContain('60.50'); // 50 * 1.21 IVA incl.
+    expect(row).toContain(';60,50;'); // 50 * 1.21 IVA incl., con coma decimal
+    // Enlace a la reserva con el local y el tamaño ya elegidos.
+    expect(row).toMatch(/\/book\/[^;?]+\?facilityId=[0-9a-f-]+&unitTypeId=[0-9a-f-]+/);
     expect(row).toContain('600222333');
 
     // Filtro por local inexistente -> sin filas.

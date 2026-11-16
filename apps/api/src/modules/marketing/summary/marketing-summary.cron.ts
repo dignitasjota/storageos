@@ -7,8 +7,9 @@ import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { MarketingSummaryService } from './marketing-summary.service';
 
 /**
- * El día 4 de cada mes envía «Tu marketing en <mes>» (GA4 y Search Console
- * ya tienen los datos del mes completo).
+ * Del día 4 al 10 de cada mes envía «Tu marketing en <mes>» (GA4 y Search
+ * Console ya tienen los datos del mes completo). Cada día solo a quien aún no
+ * lo tiene: si un día falla el worker o un negocio, se reintenta el siguiente.
  */
 @Injectable()
 export class MarketingSummaryCron {
@@ -19,7 +20,7 @@ export class MarketingSummaryCron {
     private readonly admin: PrismaAdminService,
   ) {}
 
-  @Cron('0 9 4 * *', { name: 'marketing-summary.monthly' })
+  @Cron('0 9 4-10 * *', { name: 'marketing-summary.monthly' })
   async monthly(): Promise<void> {
     try {
       if (!(await claimDailyCronRun(this.admin, 'marketing-summary.monthly'))) return;

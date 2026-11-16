@@ -101,7 +101,7 @@ export abstract class AiProvider {
    * El proveedor con otra clave y modelo (la clave propia de un tenant). Por
    * defecto el mismo (el de demostración no sale a la red).
    */
-  forKey(_apiKey: string, _model: string, _maxTokens?: number): AiProvider {
+  forKey(_apiKey: string, _model: string, _maxTokens?: number, _effort?: AiEffort): AiProvider {
     return this;
   }
 
@@ -109,7 +109,14 @@ export abstract class AiProvider {
    * La misma clave con otro modelo y otro tope de respuesta (el chat de la web
    * usa uno barato y respuestas cortas). Por defecto, el mismo provider.
    */
-  forModel(_model: string, _maxTokens?: number): AiProvider {
+  forModel(_model: string, _maxTokens?: number, _effort?: AiEffort): AiProvider {
     return this;
   }
 }
+
+/**
+ * Cuánto razona el modelo antes de responder (`output_config.effort`). Los
+ * modelos recientes razonan por defecto y ese razonamiento cuenta dentro del
+ * tope de tokens: para respuestas cortas (chat de la web) se pide `low`.
+ */
+export type AiEffort = 'low' | 'medium' | 'high';

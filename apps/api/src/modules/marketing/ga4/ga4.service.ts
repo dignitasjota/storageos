@@ -16,6 +16,10 @@ import {
   type Ga4Status,
 } from '@storageos/shared';
 
+import {
+  googleUnavailable,
+  isGoogleTransient,
+} from '../../../common/google/google-service-account';
 import { tenantHasFeature } from '../../../common/tenant-features';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
@@ -85,7 +89,14 @@ export class Ga4Service {
         message: 'Esa propiedad ya está conectada en otra cuenta de TrasterOS.',
       });
     }
-    const denied = await this.client.checkAccess(propertyId);
+    let denied: string | null;
+    try {
+      denied = await this.client.checkAccess(propertyId);
+    } catch (err) {
+      // Google no responde ahora: no es que falte acceso.
+      if (isGoogleTransient(err)) throw googleUnavailable(err);
+      throw err;
+    }
     if (denied) {
       throw new BadRequestException({
         code: 'ga4_no_access',
@@ -193,14 +204,19 @@ export class Ga4Service {
 
   /**
    * Descarga los últimos `days` días y sustituye lo guardado de ese tramo.
-   * Un fallo queda en `lastError` (no lanza).
+   * Si las últimas descargas fallaron, recupera desde la última buena (hasta
+   * los días de la primera descarga). Un fallo queda en `lastError` (no lanza).
    */
-  async sync(tenantId: string, days = DAILY_DAYS): Promise<{ ok: boolean }> {
+  async sync(tenantId: string, minDays = DAILY_DAYS): Promise<{ ok: boolean }> {
     const row = await this.prisma.withTenant(
       (tx) => tx.tenantGa4.findUnique({ where: { tenantId } }),
       tenantId,
     );
     if (!row) return { ok: false };
+    const sinceLast = row.lastSyncedAt
+      ? Math.ceil((Date.now() - row.lastSyncedAt.getTime()) / 86_400_000) + DAILY_DAYS
+      : INITIAL_DAYS;
+    const days = Math.max(minDays, Math.min(sinceLast, INITIAL_DAYS));
     // Conectada antes de comprobar que es del negocio: se comprueba una vez.
     if (!row.verifiedAt) {
       const problem = await this.ownershipProblem(tenantId, row.propertyId);
@@ -321,6 +337,14 @@ export class Ga4Service {
       tenantId,
     );
     const day = (d: Date) => d.toISOString().slice(0, 10);
+    // Primer día descargado: los de la primera descarga y, como mucho, lo que se guarda.
+    const conn = await this.prisma.withTenant(
+      (tx) => tx.tenantGa4.findUnique({ where: { tenantId }, select: { connectedAt: true } }),
+      tenantId,
+    );
+    const coverageFrom = conn?.connectedAt
+      ? [shiftDate(day(conn.connectedAt), -INITIAL_DAYS), shiftDate(today(), -KEEP_DAYS)].sort()[1]!
+      : null;
     return summarizeGa4(
       sources.map((r) => ({
         date: day(r.date),
@@ -341,6 +365,7 @@ export class Ga4Service {
       })),
       days,
       to,
+      coverageFrom,
     );
   }
 }

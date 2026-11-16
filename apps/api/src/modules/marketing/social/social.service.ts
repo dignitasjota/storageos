@@ -18,7 +18,12 @@ import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
 import { WebAnalyticsService } from '../web-analytics.service';
 
-import { MetaGraphClient, MetaGraphError, type MetaPage } from './meta-graph.client';
+import {
+  META_RATE_LIMIT_CODES,
+  MetaGraphClient,
+  MetaGraphError,
+  type MetaPage,
+} from './meta-graph.client';
 
 /** Días que se descargan al conectar (Instagram da algunas métricas día a día). */
 const INITIAL_DAYS = 30;
@@ -39,6 +44,9 @@ function readableError(err: MetaGraphError): string {
   }
   if (err.code === 10 || err.code === 200) {
     return `Al token le faltan permisos (necesita pages_show_list, pages_read_engagement, read_insights, instagram_basic e instagram_manage_insights). ${err.message}`;
+  }
+  if (META_RATE_LIMIT_CODES.has(err.code ?? -1)) {
+    return 'Meta ha limitado las consultas por ahora. Los datos que faltan se descargarán en la próxima descarga.';
   }
   return `Meta respondió: ${err.message}`;
 }
@@ -79,7 +87,8 @@ export class SocialService {
 
   /**
    * Comprueba el token, elige la página (si da acceso a varias hay que
-   * indicarla) y descarga el último mes.
+   * indicarla) y descarga el último mes en segundo plano (son decenas de
+   * llamadas a Meta: la petición no espera a que acaben).
    */
   async connect(tenantId: string, input: ConnectSocialInput): Promise<SocialSettingsDto> {
     let pages: MetaPage[];
@@ -121,6 +130,8 @@ export class SocialService {
       status: 'connected',
       lastError: null,
       connectedAt: new Date(),
+      // Aún no se ha descargado nada de esta conexión (se hace en segundo plano).
+      lastSyncedAt: null,
     };
     await this.prisma.withTenant(async (tx) => {
       const current = await tx.tenantSocialAccount.findUnique({ where: { tenantId } });
@@ -135,7 +146,11 @@ export class SocialService {
         update: data,
       });
     }, tenantId);
-    await this.sync(tenantId, INITIAL_DAYS);
+    void this.sync(tenantId, INITIAL_DAYS).catch((err: unknown) =>
+      this.logger.warn(
+        `[social] primera descarga de ${tenantId}: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
     return this.settings(tenantId);
   }
 
@@ -149,15 +164,20 @@ export class SocialService {
   }
 
   /**
-   * Descarga los últimos `days` días y las publicaciones recientes. Un fallo
-   * queda en `lastError` (no lanza).
+   * Descarga los últimos `days` días y las publicaciones recientes. Si las
+   * últimas descargas fallaron, recupera desde la última buena (hasta el mes
+   * que da Meta). Un fallo queda en `lastError` (no lanza).
    */
-  async sync(tenantId: string, days = DAILY_DAYS): Promise<{ ok: boolean }> {
+  async sync(tenantId: string, minDays = DAILY_DAYS): Promise<{ ok: boolean }> {
     const row = await this.prisma.withTenant(
       (tx) => tx.tenantSocialAccount.findUnique({ where: { tenantId } }),
       tenantId,
     );
     if (!row) return { ok: false };
+    const sinceLast = row.lastSyncedAt
+      ? Math.ceil((Date.now() - row.lastSyncedAt.getTime()) / 86_400_000) + DAILY_DAYS
+      : INITIAL_DAYS;
+    const days = Math.max(minDays, Math.min(sinceLast, INITIAL_DAYS));
     const page: MetaPage = {
       id: row.pageId,
       name: row.pageName,
@@ -167,13 +187,20 @@ export class SocialService {
     };
     const end = shiftDate(today(), -1);
     const start = shiftDate(end, -(days - 1));
+    const postsSince = shiftDate(today(), -POSTS_DAYS);
     try {
-      const [daily, posts] = await Promise.all([
+      const [daily, { posts, complete }] = await Promise.all([
         this.client.daily(page, start, end),
-        this.client.posts(page, shiftDate(today(), -POSTS_DAYS)),
+        this.client.posts(page, postsSince),
       ]);
-      await this.prisma.withTenant(
+      const changed = await this.prisma.withTenant(
         async (tx) => {
+          // Mientras se descargaba se conectó otra página: lo descargado no es suyo.
+          const current = await tx.tenantSocialAccount.findUnique({
+            where: { tenantId },
+            select: { pageId: true },
+          });
+          if (current?.pageId !== page.id) return true;
           for (const d of daily) {
             const values = metricValues(d);
             await tx.socialDailyMetric.upsert({
@@ -199,6 +226,19 @@ export class SocialService {
               update: { publishedAt: new Date(publishedAt), ...rest },
             });
           }
+          // Publicaciones borradas en la red (de las que llegó la lista entera).
+          for (const network of complete) {
+            await tx.socialPost.deleteMany({
+              where: {
+                tenantId,
+                network,
+                publishedAt: { gte: asDate(postsSince) },
+                externalId: {
+                  notIn: posts.filter((p) => p.network === network).map((p) => p.externalId),
+                },
+              },
+            });
+          }
           await tx.socialDailyMetric.deleteMany({
             where: { tenantId, date: { lt: asDate(shiftDate(today(), -KEEP_DAYS)) } },
           });
@@ -209,11 +249,12 @@ export class SocialService {
             where: { tenantId },
             data: { status: 'connected', lastError: null, lastSyncedAt: new Date() },
           });
+          return false;
         },
         tenantId,
         { timeout: 30_000 },
       );
-      return { ok: true };
+      return { ok: !changed };
     } catch (err) {
       const message =
         err instanceof MetaGraphError
@@ -242,7 +283,15 @@ export class SocialService {
     const to = shiftDate(today(), -1);
     const from = shiftDate(to, -(days - 1));
     const previousFrom = shiftDate(from, -days);
-    const [rows, posts, web] = await Promise.all([
+    const [account, rows, posts, web] = await Promise.all([
+      this.prisma.withTenant(
+        (tx) =>
+          tx.tenantSocialAccount.findUnique({
+            where: { tenantId },
+            select: { connectedAt: true },
+          }),
+        tenantId,
+      ),
       this.prisma.withTenant(
         (tx) =>
           tx.socialDailyMetric.findMany({
@@ -290,9 +339,17 @@ export class SocialService {
       })),
       { from, to, previousFrom },
     );
+    // Primer día descargado: el mes de la primera descarga (y lo que se guarda).
+    const coverageFrom = account?.connectedAt
+      ? [
+          shiftDate(account.connectedAt.toISOString().slice(0, 10), -INITIAL_DAYS),
+          shiftDate(today(), -KEEP_DAYS),
+        ].sort()[1]!
+      : null;
     return {
       days,
       ...summary,
+      previousComplete: !!coverageFrom && coverageFrom <= previousFrom,
       web: SOCIAL_NETWORKS.map((network) => {
         const s = web.sources.find((x) => x.source === network);
         return {
@@ -308,7 +365,8 @@ export class SocialService {
   /** Cron diario: cuentas conectadas de tenants con Web Premium. */
   async syncAllDue(): Promise<{ tenants: number; synced: number }> {
     const rows = await this.admin.tenantSocialAccount.findMany({
-      where: { tenant: { deletedAt: null } },
+      // Sin los negocios dados de baja o anonimizados.
+      where: { tenant: { deletedAt: null, status: { not: 'cancelled' } } },
       select: { tenantId: true },
     });
     let synced = 0;

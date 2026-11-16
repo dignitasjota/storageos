@@ -80,6 +80,8 @@ export interface Ga4ReportDto {
   to: string;
   totals: Ga4TotalsDto;
   previous: Ga4TotalsDto;
+  /** Hay datos de todo el periodo anterior (si no, no se enseña la variación). */
+  previousComplete: boolean;
   daily: { date: string; sessions: number }[];
   sources: Ga4SourceDto[];
   pages: { path: string; pageViews: number; sessions: number }[];
@@ -111,13 +113,15 @@ function withRate<T extends Ga4TotalsDto>(t: T): T {
 
 /**
  * Resumen de los últimos `days` días que terminan en `to` (incluido) frente
- * al periodo anterior de la misma duración.
+ * al periodo anterior de la misma duración. `coverageFrom` es el primer día
+ * descargado: si el periodo anterior empieza antes, está incompleto.
  */
 export function summarizeGa4(
   sources: Ga4SourceRowInput[],
   pages: Ga4PageRowInput[],
   days: number,
   to: string,
+  coverageFrom: string | null = null,
 ): Ga4ReportDto {
   const from = shiftDate(to, -(days - 1));
   const prevFrom = shiftDate(from, -days);
@@ -164,6 +168,7 @@ export function summarizeGa4(
     to,
     totals: withRate(totals),
     previous: withRate(previous),
+    previousComplete: !!coverageFrom && coverageFrom <= prevFrom,
     daily: [...daily.entries()].map(([date, sessions]) => ({ date, sessions })),
     sources: [...bySource.values()]
       .map(withRate)

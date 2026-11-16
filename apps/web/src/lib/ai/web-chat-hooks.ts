@@ -16,10 +16,11 @@ import type {
 const settingsKey = ['web-chat', 'settings'] as const;
 
 /** Chat con IA de la web pública: si está activo, indicaciones y respuestas del mes. */
-export function useWebChatSettings() {
+export function useWebChatSettings(enabled = true) {
   return useQuery({
     queryKey: settingsKey,
     queryFn: () => apiFetch<WebChatSettingsDto>('/web-chat/settings'),
+    enabled,
   });
 }
 
@@ -32,10 +33,43 @@ export function useUpdateWebChatSettings() {
   });
 }
 
-export function useWebChatStats(days: number) {
+export function useWebChatStats(days: number, enabled = true) {
   return useQuery({
     queryKey: ['web-chat', 'stats', days],
     queryFn: () => apiFetch<WebChatStatsDto>(`/web-chat/stats?days=${days}`),
+    enabled,
+  });
+}
+
+/** Una conversación (la que abre un aviso aunque no esté en la lista cargada). */
+export function useWebChatConversation(id: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ['web-chat', 'conversation-info', id],
+    queryFn: () => apiFetch<WebChatConversationDto>(`/web-chat/conversations/${id}/info`),
+    enabled: enabled && !!id,
+    retry: false,
+  });
+}
+
+/** Quien puede responder la abre: sus mensajes quedan leídos (menú y «Hoy»). */
+export function useWebChatMarkRead(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>(`/web-chat/conversations/${id}/read`, { method: 'POST' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['web-chat', 'pending'] });
+      void qc.invalidateQueries({ queryKey: ['web-chat', 'page'] });
+    },
+  });
+}
+
+/** Borra una conversación (p. ej. si el visitante lo pide). */
+export function useDeleteWebChatConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/web-chat/conversations/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['web-chat'] }),
   });
 }
 

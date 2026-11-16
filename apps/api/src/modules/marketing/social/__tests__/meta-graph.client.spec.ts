@@ -146,4 +146,96 @@ describe('MetaGraphClient (real)', () => {
       ),
     ).rejects.toMatchObject({ code: 10 });
   });
+
+  it('un token de usuario sin páginas da una lista vacía (no un error confuso)', async () => {
+    const fn = mockFetch((path) => {
+      if (path === '/me/accounts') return { body: { data: [] } };
+      return metaError('Tried accessing nonexisting field (instagram_business_account)', 100);
+    });
+    await expect(client.pages('USER_TOKEN')).resolves.toEqual([]);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sigue las páginas de resultados de /me/accounts', async () => {
+    mockFetch((path, params) => {
+      if (path !== '/me/accounts') return { body: {} };
+      if (!params.get('after')) {
+        return {
+          body: {
+            data: [{ id: '1', name: 'Uno', access_token: 'T1' }],
+            paging: { next: 'https://x', cursors: { after: 'C1' } },
+          },
+        };
+      }
+      return { body: { data: [{ id: '2', name: 'Dos', access_token: 'T2' }] } };
+    });
+    const pages = await client.pages('USER_TOKEN');
+    expect(pages.map((p) => p.id)).toEqual(['1', '2']);
+  });
+
+  it('un límite de llamadas de Meta se avisa en vez de quedar como «sin datos»', async () => {
+    mockFetch(() => metaError('(#4) Application request limit reached', 4));
+    await expect(
+      client.daily(
+        { id: '555', name: 'P', accessToken: 'T', instagramUserId: null, instagramUsername: null },
+        '2026-10-20',
+        '2026-10-20',
+      ),
+    ).rejects.toMatchObject({ code: 4 });
+  });
+
+  it('un error pasajero de Meta se reintenta', async () => {
+    let calls = 0;
+    mockFetch(() => {
+      calls += 1;
+      if (calls === 1) return { status: 503, body: { error: { message: 'Service unavailable' } } };
+      return { body: { data: [{ id: '9', name: 'Nueve', access_token: 'T9' }] } };
+    });
+    const pages = await client.pages('USER_TOKEN');
+    expect(pages.map((p) => p.id)).toEqual(['9']);
+    expect(calls).toBe(2);
+  });
+
+  it('publicaciones: sigue las páginas y pide las cifras de Instagram una a una si hace falta', async () => {
+    const since = '2026-09-01';
+    mockFetch((path, params) => {
+      if (path === '/555/posts') {
+        if (!params.get('after')) {
+          return {
+            body: {
+              data: [{ id: 'fb1', created_time: '2026-10-10T10:00:00+0000' }],
+              paging: { next: 'https://x', cursors: { after: 'P2' } },
+            },
+          };
+        }
+        return { body: { data: [{ id: 'fb2', created_time: '2026-09-20T10:00:00+0000' }] } };
+      }
+      if (path === '/1784/media') {
+        return {
+          body: {
+            data: [{ id: 'ig1', timestamp: '2026-10-11T10:00:00+0000', media_type: 'REEL' }],
+          },
+        };
+      }
+      if (path === '/ig1/insights') {
+        const metric = params.get('metric') ?? '';
+        // La petición conjunta falla por una métrica que no vale para un reel.
+        if (metric.includes(',')) return metaError('(#100) saved not supported', 100);
+        if (metric === 'saved') return metaError('(#100) not supported', 100);
+        return { body: { data: [{ name: metric, values: [{ value: 50 }] }] } };
+      }
+      return { body: {} };
+    });
+    const res = await client.posts(
+      { id: '555', name: 'P', accessToken: 'T', instagramUserId: '1784', instagramUsername: 'x' },
+      since,
+    );
+    expect(res.complete.sort()).toEqual(['facebook', 'instagram']);
+    expect(res.posts.filter((p) => p.network === 'facebook').map((p) => p.externalId)).toEqual([
+      'fb1',
+      'fb2',
+    ]);
+    const ig = res.posts.find((p) => p.network === 'instagram')!;
+    expect(ig).toMatchObject({ reach: 50, views: 50, shares: 50, saves: null });
+  });
 });

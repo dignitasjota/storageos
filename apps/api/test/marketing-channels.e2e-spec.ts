@@ -174,17 +174,49 @@ describe('Canales de marketing (e2e)', () => {
     const channelId = channel.body.id as string;
     const shortCode = channel.body.shortCode as string;
 
-    const resolved = await request(app.getHttpServer()).get(`/public/marketing/go/${shortCode}`);
+    const browser =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile Safari';
+    const resolved = await request(app.getHttpServer())
+      .get(`/public/marketing/go/${shortCode}`)
+      .set('User-Agent', browser);
     expect(resolved.status).toBe(200);
     expect(resolved.body.targetUrl).toContain(`/book/${owner.slug}`);
     expect(resolved.body.targetUrl).toContain('utm_source=cartel_nave_3');
+    expect(resolved.body.targetUrl).toContain('utm_medium=offline');
     expect(resolved.body.targetUrl).toContain(`utm_campaign=${channelId}`);
+    // El mismo visitante otra vez, una vista previa de WhatsApp y una petición
+    // que solo comprueba el enlace no cuentan.
+    await request(app.getHttpServer())
+      .get(`/public/marketing/go/${shortCode}`)
+      .set('User-Agent', browser)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`/public/marketing/go/${shortCode}`)
+      .set('User-Agent', 'WhatsApp/2.23.20.0 A')
+      .expect(200);
+    await request(app.getHttpServer())
+      .get(`/public/marketing/go/${shortCode}`)
+      .query({ count: '0' })
+      .set('User-Agent', browser)
+      .expect(200);
 
     const afterClick = await request(app.getHttpServer())
       .get(`/marketing/channels?status=active`)
       .set(auth);
     const found = afterClick.body.find((c: { id: string }) => c.id === channelId);
     expect(found.clickCount).toBe(1);
+
+    // Pausado: el QR impreso sigue llevando a la reserva, sin contar.
+    await request(app.getHttpServer())
+      .patch(`/marketing/channels/${channelId}`)
+      .set(auth)
+      .send({ status: 'paused' })
+      .expect(200);
+    const paused = await request(app.getHttpServer())
+      .get(`/public/marketing/go/${shortCode}`)
+      .set('User-Agent', `${browser} otro`);
+    expect(paused.status).toBe(200);
+    expect(paused.body.targetUrl).toContain(`/book/${owner.slug}`);
 
     await request(app.getHttpServer()).get('/public/marketing/go/no-existe-123').expect(404);
   });
@@ -237,7 +269,8 @@ describe('Canales de marketing (e2e)', () => {
       ),
     ).toBe(true);
 
-    await renewalsCron.daily();
+    // Sin la reserva diaria del cron (otra tanda de pruebas pudo correrlo hoy).
+    await renewalsCron.run();
     let notified = false;
     for (let i = 0; i < 15; i++) {
       const res = await request(app.getHttpServer()).get('/notifications').set(auth);

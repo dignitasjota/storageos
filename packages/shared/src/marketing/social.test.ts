@@ -45,7 +45,10 @@ describe('summarizeSocial', () => {
     expect(ig.previous.reach).toBe(100);
     expect(ig.followers).toBe(1030);
     expect(ig.followersChange).toBe(30);
-    expect(ig.daily.map((d) => d.date)).toEqual(['2026-10-10', '2026-10-12', '2026-10-14']);
+    // Todos los días del periodo; los que no tienen dato, en blanco.
+    expect(ig.daily).toHaveLength(7);
+    expect(ig.daily.find((d) => d.date === '2026-10-10')?.reach).toBe(300);
+    expect(ig.daily.find((d) => d.date === '2026-10-11')?.reach).toBeNull();
     const fb = r.networks.find((n) => n.network === 'facebook')!;
     // Sin dato de seguidores no se inventa.
     expect(fb).toMatchObject({ followers: null, followersChange: null });

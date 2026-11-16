@@ -4,13 +4,17 @@ import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
+import { formatDateTime } from '@/lib/format';
 import {
+  useDeleteGoogleAdsSettings,
+  useDeleteMetaAdsSettings,
   useGoogleAdsSettings,
   useMetaAdsSettings,
   useTestGoogleAds,
@@ -26,9 +30,11 @@ import {
  * a un canal, en vez de introducirlo a mano cada mes.
  */
 export function GoogleAdsCard() {
+  const ask = useConfirm();
   const settings = useGoogleAdsSettings();
   const update = useUpdateGoogleAdsSettings();
   const test = useTestGoogleAds();
+  const remove = useDeleteGoogleAdsSettings();
 
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -68,9 +74,35 @@ export function GoogleAdsCard() {
   }
 
   async function runTest() {
-    const res = await test.mutateAsync();
-    if (res.ok) toast.success(res.message);
-    else toast.error(res.message);
+    try {
+      const res = await test.mutateAsync();
+      if (res.ok) toast.success(res.message);
+      else toast.error(res.message);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo probar');
+    }
+  }
+
+  async function removeCreds() {
+    if (
+      !(await ask({
+        title: '¿Borrar las credenciales de Google Ads?',
+        description:
+          'Se deja de sincronizar el gasto. El gasto y las métricas ya guardados se conservan.',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await remove.mutateAsync();
+      setClientId('');
+      setCustomerId('');
+      setLoginCustomerId('');
+      setEnabled(false);
+      toast.success('Credenciales borradas.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron borrar');
+    }
   }
 
   return (
@@ -94,16 +126,22 @@ export function GoogleAdsCard() {
         </p>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">Client ID</Label>
+            <Label htmlFor="gads-client-id" className="text-xs">
+              Client ID
+            </Label>
             <Input
+              id="gads-client-id"
               value={clientId}
               onChange={(e) => setClientId(e.target.value)}
               placeholder="•••.apps.googleusercontent.com"
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Client secret</Label>
+            <Label htmlFor="gads-client-secret" className="text-xs">
+              Client secret
+            </Label>
             <Input
+              id="gads-client-secret"
               type="password"
               value={clientSecret}
               onChange={(e) => setClientSecret(e.target.value)}
@@ -113,8 +151,11 @@ export function GoogleAdsCard() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">Developer token</Label>
+            <Label htmlFor="gads-dev-token" className="text-xs">
+              Developer token
+            </Label>
             <Input
+              id="gads-dev-token"
               type="password"
               value={developerToken}
               onChange={(e) => setDeveloperToken(e.target.value)}
@@ -122,8 +163,11 @@ export function GoogleAdsCard() {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Refresh token</Label>
+            <Label htmlFor="gads-refresh-token" className="text-xs">
+              Refresh token
+            </Label>
             <Input
+              id="gads-refresh-token"
               type="password"
               value={refreshToken}
               onChange={(e) => setRefreshToken(e.target.value)}
@@ -133,16 +177,25 @@ export function GoogleAdsCard() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">ID de cuenta (customer ID)</Label>
+            <Label htmlFor="gads-customer" className="text-xs">
+              ID de cuenta (customer ID)
+            </Label>
             <Input
+              id="gads-customer"
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
               placeholder="123-456-7890"
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">ID de cuenta gestora (MCC, opcional)</Label>
-            <Input value={loginCustomerId} onChange={(e) => setLoginCustomerId(e.target.value)} />
+            <Label htmlFor="gads-mcc" className="text-xs">
+              ID de cuenta gestora (MCC, opcional)
+            </Label>
+            <Input
+              id="gads-mcc"
+              value={loginCustomerId}
+              onChange={(e) => setLoginCustomerId(e.target.value)}
+            />
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -151,7 +204,7 @@ export function GoogleAdsCard() {
         </label>
         {data?.lastSyncAt && (
           <p className="text-xs text-muted-foreground">
-            Última sincronización: {new Date(data.lastSyncAt).toLocaleString('es-ES')}
+            Última sincronización: {formatDateTime(data.lastSyncAt)}
           </p>
         )}
         {data?.lastError && (
@@ -170,6 +223,11 @@ export function GoogleAdsCard() {
             {test.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Probar conexión
           </Button>
+          {data?.hasCredentials && (
+            <Button variant="ghost" onClick={removeCreds} disabled={remove.isPending}>
+              Borrar credenciales
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -177,9 +235,11 @@ export function GoogleAdsCard() {
 }
 
 export function MetaAdsCard() {
+  const ask = useConfirm();
   const settings = useMetaAdsSettings();
   const update = useUpdateMetaAdsSettings();
   const test = useTestMetaAds();
+  const remove = useDeleteMetaAdsSettings();
 
   const [accessToken, setAccessToken] = useState('');
   const [adAccountId, setAdAccountId] = useState('');
@@ -208,15 +268,39 @@ export function MetaAdsCard() {
   }
 
   async function runTest() {
-    const res = await test.mutateAsync();
-    if (res.ok) toast.success(res.message);
-    else toast.error(res.message);
+    try {
+      const res = await test.mutateAsync();
+      if (res.ok) toast.success(res.message);
+      else toast.error(res.message);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo probar');
+    }
+  }
+
+  async function removeCreds() {
+    if (
+      !(await ask({
+        title: '¿Borrar las credenciales de Meta Ads?',
+        description:
+          'Se deja de sincronizar el gasto. El gasto y las métricas ya guardados se conservan.',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await remove.mutateAsync();
+      setAdAccountId('');
+      setEnabled(false);
+      toast.success('Credenciales borradas.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron borrar');
+    }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Meta Ads (Facebook/Instagram)</CardTitle>
+        <CardTitle className="text-base">Meta Ads (Facebook e Instagram)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
@@ -224,8 +308,11 @@ export function MetaAdsCard() {
           API Explorer con permiso <code>ads_read</code>) y pégalo aquí.
         </p>
         <div className="space-y-1">
-          <Label className="text-xs">Token de acceso</Label>
+          <Label htmlFor="meta-ads-token" className="text-xs">
+            Token de acceso
+          </Label>
           <Input
+            id="meta-ads-token"
             type="password"
             value={accessToken}
             onChange={(e) => setAccessToken(e.target.value)}
@@ -233,8 +320,11 @@ export function MetaAdsCard() {
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">ID de cuenta publicitaria</Label>
+          <Label htmlFor="meta-ads-account" className="text-xs">
+            ID de cuenta publicitaria
+          </Label>
           <Input
+            id="meta-ads-account"
             value={adAccountId}
             onChange={(e) => setAdAccountId(e.target.value)}
             placeholder="act_1234567890 (o solo los dígitos)"
@@ -246,7 +336,7 @@ export function MetaAdsCard() {
         </label>
         {data?.lastSyncAt && (
           <p className="text-xs text-muted-foreground">
-            Última sincronización: {new Date(data.lastSyncAt).toLocaleString('es-ES')}
+            Última sincronización: {formatDateTime(data.lastSyncAt)}
           </p>
         )}
         {data?.lastError && (
@@ -265,6 +355,11 @@ export function MetaAdsCard() {
             {test.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Probar conexión
           </Button>
+          {data?.hasAccessToken && (
+            <Button variant="ghost" onClick={removeCreds} disabled={remove.isPending}>
+              Borrar credenciales
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

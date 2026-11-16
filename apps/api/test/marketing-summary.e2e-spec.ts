@@ -150,4 +150,46 @@ describe('Resumen mensual de marketing (e2e)', () => {
 
     await http().get('/marketing/summary').expect(401);
   });
+
+  it('correo mensual: sin nadie a quien enviarlo no se da por enviado y se reintenta', async () => {
+    const owner = await registerVerifiedUser(app, 'mkt-retry');
+    const admin = app.get(PrismaAdminService);
+    const tenant = await admin.tenant.findUniqueOrThrow({
+      where: { slug: owner.slug },
+      select: { id: true },
+    });
+    // Un contacto del mes pasado: hay algo que contar.
+    const now = new Date();
+    await admin.lead.create({
+      data: {
+        tenantId: tenant.id,
+        source: 'web',
+        firstName: 'Ana',
+        email: `ana-${Date.now()}@e2e.local`,
+        createdAt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15, 12)),
+      },
+    });
+    await admin.user.updateMany({
+      where: { tenantId: tenant.id },
+      data: { emailVerifiedAt: null },
+    });
+    const service = app.get(MarketingSummaryService);
+    const month = async () =>
+      (
+        await admin.tenant.findUniqueOrThrow({
+          where: { id: tenant.id },
+          select: { marketingReportLastMonth: true },
+        })
+      ).marketingReportLastMonth;
+
+    await service.sendDueAll();
+    expect(await month()).toBeNull();
+
+    await admin.user.updateMany({
+      where: { tenantId: tenant.id },
+      data: { emailVerifiedAt: new Date() },
+    });
+    await service.sendDueAll();
+    expect(await month()).not.toBeNull();
+  });
 });

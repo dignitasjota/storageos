@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { permissionsForRole, type Permission } from '@storageos/shared';
 
 import {
   type BookingCreatedPayload,
@@ -109,6 +110,40 @@ export class NotificationsService {
       tenantId,
     );
     for (const user of users) await this.create(tenantId, { ...input, userId: user.id });
+  }
+
+  /**
+   * Aviso solo para quien tiene un permiso (p. ej. los del chat de la web, a
+   * quien puede leer las conversaciones): uno por persona. Mismos permisos
+   * efectivos que la sesión (rol a medida, salvo el propietario).
+   */
+  async createForPermission(
+    tenantId: string,
+    permission: Permission,
+    input: {
+      type: string;
+      title: string;
+      body?: string;
+      link?: string;
+      /** De un local: solo lo ve quien tiene ese local. */
+      facilityId?: string | null;
+    },
+  ): Promise<void> {
+    const users = await this.prisma.withTenant(
+      (tx) =>
+        tx.user.findMany({
+          where: { isActive: true },
+          select: { id: true, role: true, tenantRole: { select: { permissions: true } } },
+        }),
+      tenantId,
+    );
+    for (const u of users) {
+      const perms =
+        u.role !== 'owner' && u.tenantRole
+          ? (u.tenantRole.permissions as string[])
+          : permissionsForRole(u.role);
+      if (perms.includes(permission)) await this.create(tenantId, { ...input, userId: u.id });
+    }
   }
 
   /** Local de un contrato, factura o trastero (null si no se sabe). */

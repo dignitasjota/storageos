@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AiModule } from '../ai/ai.module';
+import { AuditService } from '../auth/audit.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { QUEUE_EMAIL } from '../queues/queue-names';
 
@@ -58,6 +59,8 @@ import { WebAnalyticsService } from './web-analytics.service';
     SocialController,
   ],
   providers: [
+    // Sin depender de AuthModule (este módulo también corre en el worker).
+    AuditService,
     MarketingChannelsService,
     MarketingRenewalsCron,
     GoogleAdsSettingsService,

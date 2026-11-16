@@ -1,5 +1,6 @@
 import {
   type AiCompletion,
+  type AiEffort,
   type AiMessageParam,
   AiProvider,
   type AiSystemPrompt,
@@ -39,27 +40,32 @@ export class DelegatingAiProvider extends AiProvider {
     return this.cached.provider;
   }
 
-  override forKey(apiKey: string, model: string, maxTokens?: number): AiProvider {
+  override forKey(
+    apiKey: string,
+    model: string,
+    maxTokens?: number,
+    effort?: AiEffort,
+  ): AiProvider {
     if (this.testMode) return this.stub;
-    const key = `${model}:${maxTokens ?? ''}:${apiKey}`;
+    const key = `${model}:${maxTokens ?? ''}:${effort ?? ''}:${apiKey}`;
     let provider = this.ownProviders.get(key);
     if (!provider) {
       if (this.ownProviders.size >= 200) this.ownProviders.clear();
-      provider = new AnthropicAiProvider(apiKey, model, maxTokens);
+      provider = new AnthropicAiProvider(apiKey, model, maxTokens, effort);
       this.ownProviders.set(key, provider);
     }
     return provider;
   }
 
-  override forModel(model: string, maxTokens?: number): AiProvider {
+  override forModel(model: string, maxTokens?: number, effort?: AiEffort): AiProvider {
     if (this.testMode) return this.stub;
     const r = this.settings.resolved();
     if (!r.apiKey) return this.stub;
-    const key = `${model}:${maxTokens ?? ''}:${r.apiKey}`;
+    const key = `${model}:${maxTokens ?? ''}:${effort ?? ''}:${r.apiKey}`;
     let provider = this.ownProviders.get(key);
     if (!provider) {
       if (this.ownProviders.size >= 200) this.ownProviders.clear();
-      provider = new AnthropicAiProvider(r.apiKey, model, maxTokens);
+      provider = new AnthropicAiProvider(r.apiKey, model, maxTokens, effort);
       this.ownProviders.set(key, provider);
     }
     return provider;

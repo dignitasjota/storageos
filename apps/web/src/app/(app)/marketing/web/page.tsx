@@ -21,6 +21,7 @@ import {
 
 import { Ga4Section } from './ga4-section';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useWebAnalytics } from '@/lib/marketing/hooks';
 
@@ -139,7 +140,13 @@ function VisitsChart({ data }: { data: WebAnalyticsDto['daily'] }) {
   );
 }
 
-function SourcesTable({ rows }: { rows: WebAnalyticsSourceDto[] }) {
+function SourcesTable({
+  rows,
+  money,
+}: {
+  rows: WebAnalyticsSourceDto[];
+  money: WebAnalyticsDto['money'];
+}) {
   if (rows.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
@@ -154,14 +161,18 @@ function SourcesTable({ rows }: { rows: WebAnalyticsSourceDto[] }) {
           <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="px-2 py-2 font-medium">Origen</th>
             <th className="px-2 py-2 text-right font-medium">Visitantes</th>
-            <th className="px-2 py-2 text-right font-medium">Llamadas</th>
-            <th className="px-2 py-2 text-right font-medium">WhatsApp</th>
+            <th className="px-2 py-2 text-right font-medium">Clics en llamar</th>
+            <th className="px-2 py-2 text-right font-medium">Clics en WhatsApp</th>
             <th className="px-2 py-2 text-right font-medium">Contactos</th>
             <th className="px-2 py-2 text-right font-medium">Reservas</th>
             <th className="px-2 py-2 text-right font-medium">Firmadas</th>
-            <th className="px-2 py-2 text-right font-medium">Ingresos</th>
-            <th className="px-2 py-2 text-right font-medium">Gasto</th>
-            <th className="px-2 py-2 text-right font-medium">Coste/reserva</th>
+            {money.revenue && <th className="px-2 py-2 text-right font-medium">Ingresos</th>}
+            {money.cost && (
+              <>
+                <th className="px-2 py-2 text-right font-medium">Gasto</th>
+                <th className="px-2 py-2 text-right font-medium">Coste/reserva</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -174,13 +185,19 @@ function SourcesTable({ rows }: { rows: WebAnalyticsSourceDto[] }) {
               <td className="px-2 py-2 text-right tabular-nums">{int(r.contacts)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.bookings)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{int(r.signed)}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{eur(r.revenue)}</td>
-              <td className="px-2 py-2 text-right tabular-nums">
-                {r.cost > 0 ? eur(r.cost) : '—'}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums">
-                {r.costPerBooking != null ? eur(r.costPerBooking) : '—'}
-              </td>
+              {money.revenue && (
+                <td className="px-2 py-2 text-right tabular-nums">{eur(r.revenue)}</td>
+              )}
+              {money.cost && (
+                <>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {r.cost > 0 ? eur(r.cost) : '—'}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {r.costPerBooking != null ? eur(r.costPerBooking) : '—'}
+                  </td>
+                </>
+              )}
             </tr>
           ))}
         </tbody>
@@ -206,11 +223,12 @@ export default function WebAnalyticsPage() {
             Quién visita tu web, de dónde viene y cuántos acaban contactando, reservando y pagando.
           </p>
         </div>
-        <div className="flex gap-1 rounded-md border p-1">
+        <div className="flex gap-1 rounded-md border p-1" role="group" aria-label="Periodo">
           {WEB_ANALYTICS_DAYS.map((d) => (
             <button
               key={d}
               type="button"
+              aria-pressed={days === d}
               onClick={() => setDays(d)}
               className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                 days === d
@@ -224,32 +242,45 @@ export default function WebAnalyticsPage() {
         </div>
       </div>
 
-      {q.isLoading || !data || !t ? (
-        <div className="flex justify-center py-16">
+      {q.isError ? (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void q.refetch()} />
+          </CardContent>
+        </Card>
+      ) : q.isLoading || !data || !t ? (
+        <div className="flex justify-center py-16" role="status" aria-label="Cargando">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {/* Sin datos de todo el periodo anterior no se compara (saldría un «+200 %» falso). */}
             <Kpi
               label="Visitantes"
               value={int(t.visitors)}
-              previous={{ now: t.visitors, before: data.previous.visitors }}
+              {...(data.previousComplete
+                ? { previous: { now: t.visitors, before: data.previous.visitors } }
+                : {})}
             />
             <Kpi
-              label="Llamadas y WhatsApp"
+              label="Clics en llamar y WhatsApp"
               value={int(t.calls + t.whatsapp)}
               hint={`${int(contactClicks)} ${contactClicks === 1 ? 'clic' : 'clics'} de contacto en total`}
             />
             <Kpi
               label="Contactos"
               value={int(t.contacts)}
-              previous={{ now: t.contacts, before: data.previous.contacts }}
+              {...(data.previousComplete
+                ? { previous: { now: t.contacts, before: data.previous.contacts } }
+                : {})}
             />
             <Kpi
               label="Reservas"
               value={int(t.bookings)}
-              previous={{ now: t.bookings, before: data.previous.bookings }}
+              {...(data.previousComplete
+                ? { previous: { now: t.bookings, before: data.previous.bookings } }
+                : {})}
             />
           </div>
 
@@ -271,11 +302,11 @@ export default function WebAnalyticsPage() {
               <CardTitle className="text-base">De dónde vienen</CardTitle>
               <CardDescription>
                 Del primer clic a la reserva pagada. El gasto sale de los canales de marketing con
-                ese origen.
+                ese origen; los anuncios van en su propia fila, aparte de las visitas gratis.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <SourcesTable rows={data.sources} />
+              <SourcesTable rows={data.sources} money={data.money} />
             </CardContent>
           </Card>
 
@@ -288,30 +319,34 @@ export default function WebAnalyticsPage() {
                 {data.pages.length === 0 ? (
                   <p className="py-6 text-center text-sm text-muted-foreground">Sin visitas.</p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-xs text-muted-foreground">
-                        <th className="px-2 py-2 font-medium">Página</th>
-                        <th className="px-2 py-2 text-right font-medium">Vistas</th>
-                        <th className="px-2 py-2 text-right font-medium">Visitantes</th>
-                        <th className="px-2 py-2 text-right font-medium">Clics de contacto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.pages.map((p) => (
-                        <tr key={p.path} className="border-b last:border-0">
-                          <td className="max-w-[16rem] truncate px-2 py-2 font-mono text-xs">
-                            {p.path}
-                          </td>
-                          <td className="px-2 py-2 text-right tabular-nums">{int(p.pageViews)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums">{int(p.visitors)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums">
-                            {int(p.contactClicks)}
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs text-muted-foreground">
+                          <th className="px-2 py-2 font-medium">Página</th>
+                          <th className="px-2 py-2 text-right font-medium">Vistas</th>
+                          <th className="px-2 py-2 text-right font-medium">Visitantes</th>
+                          <th className="px-2 py-2 text-right font-medium">Clics de contacto</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {data.pages.map((p) => (
+                          <tr key={p.path} className="border-b last:border-0">
+                            <td className="max-w-[16rem] truncate px-2 py-2 font-mono text-xs">
+                              {p.path}
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums">
+                              {int(p.pageViews)}
+                            </td>
+                            <td className="px-2 py-2 text-right tabular-nums">{int(p.visitors)}</td>
+                            <td className="px-2 py-2 text-right tabular-nums">
+                              {int(p.contactClicks)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -370,16 +405,19 @@ export default function WebAnalyticsPage() {
             </div>
           </div>
 
-          <Ga4Section days={days} ownVisitors={t.visitors} />
-
           <p className="text-xs text-muted-foreground">
-            Lo mide TrasterOS en tu web, sin cookies de terceros: cuenta todas las visitas aunque el
-            visitante no acepte las cookies (por eso puede no coincidir con Google Analytics). Las
-            visitas de robots no cuentan. El origen se recuerda 30 días: si alguien llega desde
-            Instagram y reserva una semana después, la reserva cuenta para Instagram.
+            Lo mide TrasterOS en tu web, sin cookies de terceros y sin datos personales: un
+            identificador aleatorio que dura 13 meses. Quien elige «Solo necesarias» en el aviso de
+            cookies o «No medir mis visitas» en tu política de cookies no cuenta, así que puede no
+            coincidir con Google Analytics. Las visitas de robots no cuentan. El origen se recuerda
+            30 días: si alguien llega desde Instagram y reserva una semana después, la reserva
+            cuenta para Instagram.
           </p>
         </>
       )}
+
+      {/* GA4 va aparte: se ve aunque falle la analítica propia. */}
+      <Ga4Section days={days} ownVisitors={t?.visitors ?? null} />
     </div>
   );
 }

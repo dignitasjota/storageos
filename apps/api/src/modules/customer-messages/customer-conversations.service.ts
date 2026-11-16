@@ -285,7 +285,8 @@ export class CustomerConversationsService {
     const wantsWeb =
       !customersOnly &&
       (q.channel === 'all' || q.channel === 'web') &&
-      can('marketing:read') &&
+      // El mismo permiso que el chat de la web en Marketing, «Hoy» y los avisos.
+      can('communications:read') &&
       (await tenantHasFeature(this.admin, v.tenantId, 'ai_assistant'));
     const [customers, whatsapp, web, counts] = await Promise.all([
       q.channel === 'all' || q.channel === 'customers' ? this.customerItems(v, q) : [],

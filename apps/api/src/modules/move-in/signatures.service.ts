@@ -23,6 +23,7 @@ import {
   withdrawalDeadline,
 } from '@storageos/shared';
 
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { todayInTimezone } from '../../common/format';
 import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
 import { paymentDeadlineMax } from '../../common/payment-deadline';
@@ -89,6 +90,7 @@ export class SignaturesService {
     private readonly jwt: JwtService,
     private readonly generalTerms: GeneralTermsService,
     private readonly events: EventEmitter2,
+    private readonly crypto: CryptoService,
   ) {}
 
   /**
@@ -110,8 +112,41 @@ export class SignaturesService {
    */
   async generateSigningToken(contractId: string): Promise<{ token: string; expiresAt: Date }> {
     const expiresAt = new Date(Date.now() + SIGNING_TOKEN_TTL_MS);
-    const token = await issueSigningToken(this.admin, contractId, expiresAt);
+    // Con la copia cifrada: un recordatorio reenvía este mismo enlace.
+    const token = await issueSigningToken(this.admin, contractId, expiresAt, this.crypto);
     return { token, expiresAt };
+  }
+
+  /**
+   * Enlace de firma para un recordatorio: el vigente si aún le queda margen
+   * (el inquilino puede tenerlo ya, en el chat o en el correo de la reserva, y
+   * generar otro lo anularía) y uno nuevo si no.
+   */
+  async currentOrNewSigningToken(
+    contractId: string,
+    minValidMs = 6 * 3_600_000,
+  ): Promise<{ token: string; expiresAt: Date }> {
+    const c = await this.admin.contract.findUnique({
+      where: { id: contractId },
+      select: { signingTokenHash: true, signingTokenExpiresAt: true, signingTokenEncrypted: true },
+    });
+    if (
+      c?.signingTokenHash &&
+      c.signingTokenEncrypted &&
+      c.signingTokenExpiresAt &&
+      c.signingTokenExpiresAt.getTime() - Date.now() >= minValidMs
+    ) {
+      try {
+        const secret = this.crypto.decryptString(c.signingTokenEncrypted, contractId);
+        // Solo si es el enlace vigente (otro camino pudo emitir uno nuevo después).
+        if (await argonVerify(c.signingTokenHash, secret)) {
+          return { token: `${contractId}.${secret}`, expiresAt: c.signingTokenExpiresAt };
+        }
+      } catch {
+        // Clave maestra cambiada o copia dañada: se genera uno nuevo.
+      }
+    }
+    return this.generateSigningToken(contractId);
   }
 
   /**

@@ -80,4 +80,36 @@ describe('MetaAdsClient', () => {
       new MetaAdsClient({ accessToken: 'bad', adAccountId: '1' }).testConnection(),
     ).rejects.toThrow('Error validating access token');
   });
+
+  it('sigue todas las páginas de días y da la moneda de la cuenta', async () => {
+    const spy = mockFetch((url) =>
+      url.includes('after=CUR1')
+        ? {
+            ok: true,
+            status: 200,
+            body: {
+              data: [{ date_start: '2026-08-02', spend: '3', account_currency: 'USD' }],
+              paging: { cursors: { after: 'CUR2' } },
+            },
+          }
+        : {
+            ok: true,
+            status: 200,
+            body: {
+              data: [{ date_start: '2026-08-01', spend: '5', account_currency: 'USD' }],
+              paging: { cursors: { after: 'CUR1' }, next: 'https://graph.facebook.com/next' },
+            },
+          },
+    );
+    const rows = await new MetaAdsClient({ accessToken: 'tok', adAccountId: '1' }).getCampaignStats(
+      '9988',
+      '2026-08-01',
+      '2026-08-02',
+    );
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(rows.map((r) => [r.date, r.cost, r.currency])).toEqual([
+      ['2026-08-01', 5, 'USD'],
+      ['2026-08-02', 3, 'USD'],
+    ]);
+  });
 });

@@ -4,6 +4,7 @@ import {
   contactKindFromHref,
   deviceFromUserAgent,
   isBotUserAgent,
+  isValidWebPath,
   normalizeWebPath,
 } from './web-analytics';
 
@@ -12,7 +13,18 @@ describe('normalizeWebPath', () => {
     expect(normalizeWebPath('/s/garcia', 'garcia')).toBe('/');
     expect(normalizeWebPath('/s/garcia/precios/', 'garcia')).toBe('/precios');
     expect(normalizeWebPath('/book/garcia', 'garcia')).toBe('/reservar');
-    expect(normalizeWebPath('/book/garcia/l/en', 'garcia')).toBe('/reservar/l/en');
+    // La misma página en otro idioma cuenta como la misma.
+    expect(normalizeWebPath('/book/garcia/l/en', 'garcia')).toBe('/reservar');
+    expect(normalizeWebPath('/s/garcia/l/en/precios', 'garcia')).toBe('/precios');
+    expect(normalizeWebPath('/l/en', 'garcia')).toBe('/');
+    expect(normalizeWebPath('/blog/l/entrada', 'garcia')).toBe('/blog/l/entrada');
+  });
+
+  it('solo valen rutas de la web', () => {
+    expect(isValidWebPath('/trasteros-en-mislata')).toBe(true);
+    expect(isValidWebPath('/precios')).toBe(true);
+    expect(isValidWebPath('/<script>')).toBe(false);
+    expect(isValidWebPath('/con espacio')).toBe(false);
   });
 
   it('deja tal cual las rutas del dominio propio', () => {
@@ -46,6 +58,15 @@ describe('isBotUserAgent', () => {
     expect(isBotUserAgent('facebookexternalhit/1.1')).toBe(true);
     expect(isBotUserAgent('Mozilla/5.0 HeadlessChrome/120')).toBe(true);
     expect(isBotUserAgent('TelegramBot (like TwitterBot)')).toBe(true);
+    expect(isBotUserAgent('AdsBot-Google (+http://www.google.com/adsbot.html)')).toBe(true);
+    expect(
+      isBotUserAgent(
+        'Mozilla/5.0 (Linux; Android 6.0.1) Chrome/120 Mobile (compatible; AdsBot-Google-Mobile)',
+      ),
+    ).toBe(true);
+    expect(isBotUserAgent('Mozilla/5.0 (compatible; Google-InspectionTool/1.0)')).toBe(true);
+    expect(isBotUserAgent('Mozilla/5.0 (compatible; GoogleOther)')).toBe(true);
+    expect(isBotUserAgent('Mozilla/5.0 GTmetrix')).toBe(true);
     expect(isBotUserAgent(undefined)).toBe(true);
     // Un móvil Cubot no es un robot.
     expect(isBotUserAgent('Mozilla/5.0 (Linux; Android 13; Cubot_X70) Mobile')).toBe(false);

@@ -15,6 +15,7 @@ import {
   type SeoPositionsDto,
 } from '@storageos/shared';
 
+import { googleUnavailable, isGoogleTransient } from '../../common/google/google-service-account';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -118,32 +119,39 @@ export class SearchConsoleService {
     try {
       access = await this.client.hasAccess(siteUrl);
     } catch (err) {
+      // Google no responde ahora: no es que falte acceso.
+      if (isGoogleTransient(err)) throw googleUnavailable(err);
       error = err instanceof Error ? err.message : String(err);
     }
     const lastError = access
       ? null
       : (error ??
         `Nuestra cuenta (${this.client.serviceAccountEmail}) no tiene acceso a ${siteUrl}. Añádela como usuario en Search Console → Configuración → Usuarios y permisos.`);
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.tenantSearchConsole.upsert({
-          where: { tenantId },
-          create: {
-            tenantId,
-            siteUrl,
-            status: access ? 'connected' : 'error',
-            lastError,
-            connectedAt: access ? new Date() : null,
-          },
-          update: {
-            siteUrl,
-            status: access ? 'connected' : 'error',
-            lastError,
-            connectedAt: access ? new Date() : null,
-          },
-        }),
+    const current = await this.prisma.withTenant(
+      (tx) => tx.tenantSearchConsole.findUnique({ where: { tenantId } }),
       tenantId,
     );
+    // Un sitio sin acceso no sustituye a otro que ya funciona.
+    if (!access && current && current.status === 'connected' && current.siteUrl !== siteUrl) {
+      throw new BadRequestException({ code: 'search_console_no_access', message: lastError });
+    }
+    await this.prisma.withTenant(async (tx) => {
+      // Otro sitio: lo descargado del anterior ya no vale.
+      if (current && current.siteUrl !== siteUrl) {
+        await tx.searchConsoleRow.deleteMany({ where: { tenantId } });
+      }
+      const data = {
+        siteUrl,
+        status: access ? 'connected' : 'error',
+        lastError,
+        connectedAt: access ? new Date() : null,
+      };
+      await tx.tenantSearchConsole.upsert({
+        where: { tenantId },
+        create: { tenantId, ...data },
+        update: data,
+      });
+    }, tenantId);
     if (!access) {
       throw new BadRequestException({ code: 'search_console_no_access', message: lastError });
     }

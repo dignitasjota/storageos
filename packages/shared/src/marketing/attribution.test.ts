@@ -113,4 +113,23 @@ describe('atribución a canales de marketing', () => {
     );
     expect(channelSourceConflicts([ads, plain]).size).toBe(0);
   });
+
+  it('un canal borrado solo recoge lo que llega con su campaña', () => {
+    const gone = channel({
+      id: 'gone',
+      utmSourceMatch: 'idealista',
+      deletedAt: '2026-03-01T00:00:00Z',
+      createdAt: '2025-01-01T00:00:00Z',
+    });
+    const live = channel({ id: 'live', utmSourceMatch: 'idealista' });
+    // El origen ya es del vivo, aunque el borrado sea más antiguo.
+    expect(attributeChannel([gone, live], { source: 'idealista' })?.id).toBe('live');
+    expect(attributeChannel([gone], { source: 'idealista' })).toBeNull();
+    // Su QR impreso (campaña = id del canal) sigue contando para él.
+    expect(attributeChannel([gone, live], { source: 'idealista', campaign: 'gone' })?.id).toBe(
+      'gone',
+    );
+    // Y no avisa de que comparte origen.
+    expect(channelSourceConflicts([gone, live]).size).toBe(0);
+  });
 });

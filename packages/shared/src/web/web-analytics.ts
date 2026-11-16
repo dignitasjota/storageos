@@ -38,9 +38,19 @@ export function normalizeWebPath(path: string, slug: string): string {
   const book = `/book/${slug}`;
   if (p === web || p.startsWith(`${web}/`)) p = p.slice(web.length) || '/';
   else if (p === book || p.startsWith(`${book}/`)) p = `/reservar${p.slice(book.length)}`;
+  // La misma página en otro idioma (`/l/en/precios`) cuenta como la misma.
+  p = p.replace(/(^|\/)l\/[a-z]{2}(?=\/|$)/, '') || '/';
   if (p.length > 1) p = p.replace(/\/+$/, '');
   return p.slice(0, 300) || '/';
 }
+
+/** Ruta que puede ser de la web (sin espacios ni signos raros): las demás no se guardan. */
+export function isValidWebPath(path: string): boolean {
+  return /^\/[\p{L}\p{N}\-._~/%@+!$&'()*,;=:]*$/u.test(path) && path.length <= 300;
+}
+
+/** Desde cuándo hay analítica propia: un periodo anterior no tiene datos de antes. */
+export const WEB_ANALYTICS_START = '2026-10-22';
 
 /** Tipo de dispositivo a partir del navegador. */
 export function deviceFromUserAgent(ua: string | undefined): 'mobile' | 'tablet' | 'desktop' {
@@ -52,10 +62,14 @@ export function deviceFromUserAgent(ua: string | undefined): 'mobile' | 'tablet'
   return 'desktop';
 }
 
-/** Robots, previsualizaciones de enlaces y navegadores automáticos: no cuentan. */
+/**
+ * Robots, previsualizaciones de enlaces y navegadores automáticos: no cuentan.
+ * Incluye los de Google que ejecutan JavaScript (AdsBot visita cada landing de
+ * los anuncios) y las herramientas de medir la velocidad.
+ */
 export function isBotUserAgent(ua: string | undefined): boolean {
   if (!ua) return true;
-  return /bot[/;)]|\bbot\b|crawl|spider|slurp|headless|lighthouse|pagespeed|preview|facebookexternalhit|whatsapp\/|curl|wget|python-requests|axios|node-fetch/i.test(
+  return /bot[/;)]|\bbot\b|adsbot|slackbot|vkshare|embedly|iframely|crawl|spider|slurp|headless|lighthouse|pagespeed|preview|facebookexternalhit|whatsapp\/|curl|wget|python-requests|axios|node-fetch|google-inspectiontool|googleother|storebot-google|mediapartners-google|apis-google|feedfetcher|gtmetrix|pingdom|uptimerobot/i.test(
     ua,
   );
 }
@@ -101,7 +115,7 @@ export interface WebAnalyticsFunnelDto {
   signed: number;
   /** Con el primer pago cobrado. */
   paid: number;
-  /** Cobrado en el primer pago (sin fianza ni retención). */
+  /** Cobrado en el primer pago: sin IVA, sin fianza, sin compensaciones ni retención y descontando devoluciones. */
   revenue: number;
 }
 
@@ -137,9 +151,22 @@ export interface WebAnalyticsDto {
   days: number;
   from: string;
   to: string;
-  totals: WebAnalyticsFunnelDto & { cost: number };
+  totals: WebAnalyticsFunnelDto & {
+    cost: number;
+    /** Reservas del periodo que siguen en pie sin firmar (las caducadas no). */
+    pendingSignature: number;
+    /** Firmadas que siguen en pie con el primer pago pendiente. */
+    signedUnpaid: number;
+  };
   /** El periodo anterior de la misma duración (para comparar). */
   previous: Pick<WebAnalyticsFunnelDto, 'visitors' | 'contacts' | 'bookings'>;
+  /**
+   * El periodo anterior tiene datos completos (el negocio y la medición ya
+   * existían): si no, no se enseña la variación.
+   */
+  previousComplete: boolean;
+  /** Qué importes puede ver quien consulta (sin permiso salen a 0). */
+  money: { revenue: boolean; cost: boolean };
   daily: WebAnalyticsDayDto[];
   sources: WebAnalyticsSourceDto[];
   pages: WebAnalyticsPageDto[];

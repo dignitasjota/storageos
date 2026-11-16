@@ -14,7 +14,7 @@ import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { DataSubjectRequest } from '@storageos/database';
+import type { DataSubjectRequest, Prisma } from '@storageos/database';
 import type {
   CreateDataSubjectRequestInput,
   DataSubjectRequestDto,
@@ -185,7 +185,18 @@ export class RgpdService {
           },
         },
       });
-      return { customer, whatsappConversations };
+      const webChatConversations = await tx.webChatConversation.findMany({
+        where: webChatConversationsOf(customerId, customer.email),
+        select: {
+          createdAt: true,
+          pagePath: true,
+          messages: {
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: { role: true, content: true, createdAt: true },
+          },
+        },
+      });
+      return { customer, whatsappConversations, webChatConversations };
     }, tenantId);
     return data;
   }
@@ -378,6 +389,11 @@ export class RgpdService {
           errorMessage: null,
         },
       });
+      // Sus conversaciones del chat de la web (nombre, teléfono, DNI de la
+      // reserva…): se borran, antes de quitarle el email al contacto.
+      await tx.webChatConversation.deleteMany({
+        where: webChatConversationsOf(customerId, customer.email),
+      });
       // Su ficha de contacto (lead) de antes de ser cliente.
       if (customer.email) {
         await tx.lead.updateMany({
@@ -538,4 +554,23 @@ export class RgpdService {
       notes: row.notes,
     };
   }
+}
+
+/**
+ * Conversaciones del chat de la web de un inquilino: las de sus contratos, las
+ * de su ficha de contacto y las de cualquier contacto con su email.
+ */
+function webChatConversationsOf(
+  customerId: string,
+  email: string | null,
+): Prisma.WebChatConversationWhereInput {
+  return {
+    OR: [
+      { contract: { is: { customerId } } },
+      { lead: { is: { convertedCustomerId: customerId } } },
+      ...(email
+        ? [{ lead: { is: { email: { equals: email, mode: 'insensitive' as const } } } }]
+        : []),
+    ],
+  };
 }

@@ -4,8 +4,10 @@ import { type AdPerformanceRowDto } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDate } from '@/lib/format';
 import { useAdsPerformance } from '@/lib/marketing/hooks';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -20,11 +22,7 @@ function lastData(row: AdPerformanceRowDto): string {
   if (!row.lastDataDate) {
     return row.externalCampaignId ? 'Sin datos todavía' : 'Sin campaña vinculada';
   }
-  const [y, m, d] = row.lastDataDate.split('-').map(Number);
-  return `Datos hasta el ${new Date(y!, m! - 1, d!).toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-  })}`;
+  return `Datos hasta el ${formatDate(row.lastDataDate)}`;
 }
 
 /** Rendimiento de las campañas de anuncios: lo que da la plataforma + lo que pasa después. */
@@ -32,6 +30,8 @@ export function AdsPerformanceCard({ range }: { range: { from: string; to: strin
   const q = useAdsPerformance(range);
   const rows = q.data?.rows ?? [];
   const t = q.data?.totals;
+  // Sin permiso para ver los gastos, ni gasto ni costes.
+  const seeCost = q.data?.money.cost ?? false;
 
   return (
     <Card>
@@ -43,8 +43,10 @@ export function AdsPerformanceCard({ range }: { range: { from: string; to: strin
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {q.isLoading ? (
-          <div className="flex justify-center py-10">
+        {q.isError ? (
+          <SectionError onRetry={() => void q.refetch()} />
+        ) : q.isLoading ? (
+          <div className="flex justify-center py-10" role="status" aria-label="Cargando">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : rows.length === 0 ? (
@@ -65,8 +67,12 @@ export function AdsPerformanceCard({ range }: { range: { from: string; to: strin
                   <th className="px-2 py-2 text-right font-medium">Impresiones</th>
                   <th className="px-2 py-2 text-right font-medium">Clics</th>
                   <th className="px-2 py-2 text-right font-medium">CTR</th>
-                  <th className="px-2 py-2 text-right font-medium">Coste/clic</th>
-                  <th className="px-2 py-2 text-right font-medium">Gasto</th>
+                  {seeCost && (
+                    <>
+                      <th className="px-2 py-2 text-right font-medium">Coste/clic</th>
+                      <th className="px-2 py-2 text-right font-medium">Gasto</th>
+                    </>
+                  )}
                   <th
                     className="px-2 py-2 text-right font-medium"
                     title="Las que cuenta Google Ads o Meta Ads"
@@ -75,7 +81,7 @@ export function AdsPerformanceCard({ range }: { range: { from: string; to: strin
                   </th>
                   <th className="px-2 py-2 text-right font-medium">Contactos</th>
                   <th className="px-2 py-2 text-right font-medium">Reservas</th>
-                  <th className="px-2 py-2 text-right font-medium">Coste/reserva</th>
+                  {seeCost && <th className="px-2 py-2 text-right font-medium">Coste/reserva</th>}
                 </tr>
               </thead>
               <tbody>
@@ -93,16 +99,22 @@ export function AdsPerformanceCard({ range }: { range: { from: string; to: strin
                     <td className="px-2 py-2 text-right tabular-nums">{int(r.impressions)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{int(r.clicks)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{pct(r.ctr)}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">{money(r.cpc)}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">{eur(r.cost)}</td>
+                    {seeCost && (
+                      <>
+                        <td className="px-2 py-2 text-right tabular-nums">{money(r.cpc)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{eur(r.cost)}</td>
+                      </>
+                    )}
                     <td className="px-2 py-2 text-right tabular-nums">
                       {int(r.platformConversions)}
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums">{int(r.contacts)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{int(r.bookings)}</td>
-                    <td className="px-2 py-2 text-right font-medium tabular-nums">
-                      {money(r.costPerBooking)}
-                    </td>
+                    {seeCost && (
+                      <td className="px-2 py-2 text-right font-medium tabular-nums">
+                        {money(r.costPerBooking)}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -113,14 +125,22 @@ export function AdsPerformanceCard({ range }: { range: { from: string; to: strin
                     <td className="px-2 py-2 text-right tabular-nums">{int(t.impressions)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{int(t.clicks)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{pct(t.ctr)}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">{money(t.cpc)}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">{eur(t.cost)}</td>
+                    {seeCost && (
+                      <>
+                        <td className="px-2 py-2 text-right tabular-nums">{money(t.cpc)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{eur(t.cost)}</td>
+                      </>
+                    )}
                     <td className="px-2 py-2 text-right tabular-nums">
                       {int(t.platformConversions)}
                     </td>
                     <td className="px-2 py-2 text-right tabular-nums">{int(t.contacts)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{int(t.bookings)}</td>
-                    <td className="px-2 py-2 text-right tabular-nums">{money(t.costPerBooking)}</td>
+                    {seeCost && (
+                      <td className="px-2 py-2 text-right tabular-nums">
+                        {money(t.costPerBooking)}
+                      </td>
+                    )}
                   </tr>
                 </tfoot>
               )}
@@ -129,9 +149,9 @@ export function AdsPerformanceCard({ range }: { range: { from: string; to: strin
         )}
         <p className="mt-3 text-xs text-muted-foreground">
           Las <strong>conversiones</strong> son las que cuenta cada plataforma; los{' '}
-          <strong>contactos</strong> y las <strong>reservas</strong> son los que llegaron a
-          TrasterOS con el origen de la campaña (su «origen UTM» en el canal), así que el coste por
-          reserva es el real. Los datos se actualizan cada mañana.
+          <strong>contactos</strong> son los que llegaron en el periodo con el origen de la campaña
+          y las <strong>reservas</strong>, las reservas online hechas en el periodo que siguen en
+          pie (sin las caducadas). Los datos se actualizan cada mañana.
         </p>
       </CardContent>
     </Card>

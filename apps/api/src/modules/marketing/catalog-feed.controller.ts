@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
 
 import {
   type AuthenticatedUser,
@@ -27,7 +27,14 @@ export class CatalogFeedController {
     @Res() res: Response,
     @Query('facilityId') facilityId?: string,
   ): Promise<void> {
-    const csv = await this.feed.exportCsv(user.tenantId, facilityId);
+    if (facilityId && !/^[0-9a-f-]{36}$/i.test(facilityId)) {
+      throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
+    const csv = await this.feed.exportCsv(
+      user.tenantId,
+      facilityId || undefined,
+      user.facilityScope ?? null,
+    );
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="catalogo-trasteros.csv"');
     res.send(csv);

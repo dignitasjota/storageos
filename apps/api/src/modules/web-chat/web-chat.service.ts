@@ -1,8 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@storageos/database';
 import {
   isBotUserAgent,
+  isWithinHours,
   normalizeWebChatQuestion,
+  OpeningHoursSchema,
   PublicBookingSchema,
   type PageDto,
   type PublicLandingDto,
@@ -10,6 +13,8 @@ import {
   type PublicWebChatFeedbackInput,
   type PublicWebChatHandoffInput,
   type PublicWebChatHistoryDto,
+  type PublicWebChatUpdatesDto,
+  type PublicWebChatUpdatesInput,
   type PublicWebChatInput,
   type PublicWebChatResultDto,
   type UpdateWebChatSettingsInput,
@@ -18,6 +23,7 @@ import {
   type WebChatMessageDto,
   type WebChatMode,
   type WebChatPendingDto,
+  type WebChatRole,
   type WebChatSettingsDto,
   type WebChatStatsDto,
 } from '@storageos/shared';
@@ -26,6 +32,7 @@ import { TtlCache } from '../../common/cache/ttl-cache';
 import { currentMonth, zonedDayStart } from '../../common/format';
 import { pageArgs, toPage, type PageRequest } from '../../common/pagination';
 import { tenantHasFeature } from '../../common/tenant-features';
+import { bookingReady, tenantReadiness } from '../../common/tenant-readiness';
 import { AiQuotaService } from '../ai/ai-quota.service';
 import { AiService } from '../ai/ai.service';
 import { PlatformAiSettingsService } from '../ai/platform-ai-settings.service';
@@ -36,6 +43,7 @@ import { PrismaService } from '../database/prisma.service';
 import { LandingService } from '../landing/landing.service';
 import { bookingCodes, publicBusinessContextLines } from '../landing/public-business-context';
 import { LeadsService } from '../leads/leads.service';
+import { bookingFailureKind } from '../move-in/booking-errors';
 import { BookingService } from '../move-in/booking.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
@@ -48,19 +56,54 @@ import {
   WebChatAbuseService,
   webChatMessagesPerIp,
 } from './web-chat-abuse.service';
+import { parseAssistantReply, redactSigningLinks, redactTaxIds } from './web-chat-markers';
 
 import type { Env } from '../../config/env.schema';
 import type { AiMessageParam, AiSystemPrompt } from '../ai/ai-provider';
 import type { RequestMeta } from '../auth/auth.service';
 
 /** Turnos de la conversación que se le pasan al modelo. */
-const HISTORY_MESSAGES = 16;
-/** Marca con la que el modelo pide guardar los datos del visitante. */
-const CONTACT_MARKER_RE = /\[\[CONTACTO\s+(\{[\s\S]*?\})\s*\]\]/;
-/** Marca con la que el modelo pide crear la reserva (JSON con los datos). */
-const BOOKING_MARKER_RE = /\[\[RESERVA\s*(\{[\s\S]*?\})\s*\]\]/;
-/** Marca con la que el modelo apunta al visitante a la lista de espera. */
-const WAITLIST_MARKER_RE = /\[\[ESPERA\s*(\{[\s\S]*?\})\s*\]\]/;
+const HISTORY_MESSAGES = 24;
+/** Sin respuesta del equipo en este tiempo, el asistente vuelve a contestar. */
+const HANDOFF_WAIT_MS = 15 * 60_000;
+
+/** Mensajes que no son preguntas (cortesías), fuera de «Lo que más preguntan». */
+const COURTESY_RE =
+  /^(?:(?:muchas|mil)\s+)?(?:(?:vale|ok|okey|perfecto|genial|estupendo|de acuerdo|si|no|hola|buenas|buenos dias|buenas tardes|adios|hasta luego|thanks|thank you|thx)[\s,.!]*)*(?:gracias|thanks|thank you)?[\s,.!]*$/i;
+
+/** El visitante ve su conversación de las últimas 24 horas. */
+const HISTORY_VISIBLE_MS = 24 * 3_600_000;
+
+function roleOf(role: string): WebChatRole {
+  return role === 'assistant' || role === 'staff' || role === 'system' ? role : 'visitor';
+}
+
+/** Lo que enseña el panel de cada conversación. */
+const CONVERSATION_SELECT = {
+  id: true,
+  createdAt: true,
+  lastMessageAt: true,
+  messageCount: true,
+  locale: true,
+  pagePath: true,
+  leadId: true,
+  mode: true,
+  handoffRequestedAt: true,
+  handoffSummary: true,
+  staffRepliedAt: true,
+  staffUnread: true,
+  contractId: true,
+  bookedInChat: true,
+  lead: { select: { firstName: true, lastName: true, email: true } },
+  messages: {
+    where: { role: 'visitor' },
+    orderBy: { createdAt: 'asc' },
+    take: 1,
+    select: { content: true },
+  },
+  _count: { select: { messages: { where: { fallback: true } } } },
+} satisfies Prisma.WebChatConversationSelect;
+type ConversationRow = Prisma.WebChatConversationGetPayload<{ select: typeof CONVERSATION_SELECT }>;
 /** Marca con la que el modelo pide pasar la conversación a una persona. */
 const HANDOFF_MARKER = '[[HUMANO]]';
 /** Marca con la que el modelo indica que no tenía la información. */
@@ -78,16 +121,26 @@ const TEXTS = {
       'Para que el equipo te contacte necesito un email o un teléfono válidos. ¿Me los dejas?',
     handoff:
       'Te paso con una persona del equipo. Si en unos minutos no te responde nadie, déjanos tu email o teléfono y te contactamos.',
+    refused: 'No puedo ayudarte con eso. Si tienes otra pregunta sobre los trasteros, dime.',
+    bookingBroken:
+      'No he podido preparar la reserva con esos datos. ¿Me los confirmas y lo intento de nuevo?',
+    contactThanks: 'Gracias, el equipo te contactará pronto.',
+    handoffOutside:
+      'Ahora mismo el equipo no está (fuera de su horario de atención). Déjanos tu email o teléfono y te contactamos en cuanto vuelva; mientras, sigo ayudándote yo.',
+    aiBack: 'El equipo no ha podido responderte todavía; mientras tanto, te ayudo yo.',
+    signLinkStored: '(enlace enviado a tu email)',
     bookingFail: (reason: string) =>
       `No he podido completar la reserva (${reason}). Puedes hacerla aquí mismo en la web o te ayudamos por teléfono.`,
     booked: (size: string, place: string, url: string | null, sentTo: string | null) =>
       url
-        ? `¡Listo! Te he reservado un trastero ${size} en ${place}. Para confirmarlo, firma el contrato y paga aquí: ${url}\nTe lo guardamos 72 horas.`
+        ? `¡Listo! Te he reservado un trastero ${size} en ${place}. Para confirmarlo, firma el contrato y paga aquí: ${url}\nTambién te lo hemos enviado por email. Te lo guardamos 72 horas.`
         : `¡Listo! Te he reservado un trastero ${size} en ${place}. Te hemos enviado el enlace para firmar y pagar a tu email${sentTo ? ` (${sentTo})` : ''}. Te lo guardamos 72 horas.`,
     waitlisted: (size: string, place: string) =>
       `Te he apuntado a la lista de espera del trastero ${size} en ${place}. Te avisaremos por email en cuanto quede uno libre.`,
     waitlistFail:
       'No he podido apuntarte a la lista de espera. Puedes hacerlo desde la página de reserva.',
+    waitlistNotNeeded: (size: string) =>
+      `Del trastero ${size} quedan libres, así que no hace falta la lista de espera: si quieres, te lo reservo.`,
     reasons: {
       missing: 'faltan datos',
       size: 'no encuentro ese tamaño',
@@ -96,7 +149,12 @@ const TEXTS = {
       soldOut: 'ese tamaño acaba de agotarse',
       error: 'ha habido un problema al reservar',
       tooMany: 'hoy ya se han hecho varias reservas desde aquí',
+      taxId: 'el DNI o NIE no es válido',
+      tooFar: 'la fecha de entrada es demasiado lejana (como mucho, un año)',
+      unavailable: 'ahora mismo no se pueden hacer reservas online',
     },
+    promoNotApplied: (code: string) =>
+      `La promoción ${code} no se ha podido aplicar a esta reserva; si crees que te corresponde, díselo al equipo.`,
   },
   en: {
     visitorLimit:
@@ -107,15 +165,26 @@ const TEXTS = {
       'So that the team can contact you I need a valid email or phone number. Could you share it?',
     handoff:
       "I'm passing you to a person from the team. If nobody answers in a few minutes, leave us your email or phone and we'll contact you.",
+    refused:
+      "I can't help with that. If you have another question about our storage units, just ask.",
+    bookingBroken:
+      "I couldn't prepare the booking with those details. Could you confirm them so I can try again?",
+    contactThanks: 'Thanks, the team will contact you soon.',
+    handoffOutside:
+      "The team isn't available right now (outside their working hours). Leave us your email or phone and we'll contact you when they're back; in the meantime, I can keep helping you.",
+    aiBack: "The team hasn't been able to reply yet; in the meantime, I'll help you.",
+    signLinkStored: '(link sent to your email)',
     bookingFail: (reason: string) =>
       `I couldn't complete the booking (${reason}). You can book right here on the website or we can help you by phone.`,
     booked: (size: string, place: string, url: string | null, sentTo: string | null) =>
       url
-        ? `Done! I've booked you a ${size} unit at ${place}. To confirm it, sign the contract and pay here: ${url}\nWe'll hold it for 72 hours.`
+        ? `Done! I've booked you a ${size} unit at ${place}. To confirm it, sign the contract and pay here: ${url}\nWe've also emailed it to you. We'll hold it for 72 hours.`
         : `Done! I've booked you a ${size} unit at ${place}. We've sent the link to sign and pay to your email${sentTo ? ` (${sentTo})` : ''}. We'll hold it for 72 hours.`,
     waitlisted: (size: string, place: string) =>
       `I've added you to the waiting list for the ${size} unit at ${place}. We'll email you as soon as one is free.`,
     waitlistFail: "I couldn't add you to the waiting list. You can do it from the booking page.",
+    waitlistNotNeeded: (size: string) =>
+      `There are ${size} units available, so there's no need for the waiting list: I can book one for you if you like.`,
     reasons: {
       missing: 'some details are missing',
       size: "I can't find that size",
@@ -124,7 +193,12 @@ const TEXTS = {
       soldOut: 'that size has just sold out',
       error: 'something went wrong',
       tooMany: 'several bookings have already been made from here today',
+      taxId: 'the ID number is not valid',
+      tooFar: 'the move-in date is too far ahead (up to one year)',
+      unavailable: 'online bookings are not available right now',
     },
+    promoNotApplied: (code: string) =>
+      `The ${code} promotion could not be applied to this booking; if you think it should, tell the team.`,
   },
 } as const;
 
@@ -174,6 +248,8 @@ export class WebChatService {
   private readonly logger = new Logger(WebChatService.name);
   /** La información pública del negocio cambia poco: se reutiliza 60 s por tenant. */
   private readonly landingCache = new TtlCache<PublicLandingDto | null>();
+  /** Si el negocio acepta reservas online (datos fiscales y forma de cobro). */
+  private readonly bookingReadyCache = new TtlCache<boolean>();
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -208,6 +284,7 @@ export class WebChatService {
         webChatSharedInstructions: true,
         webChatBookingsEnabled: true,
         webChatHandoffEnabled: true,
+        webChatTeamHours: true,
         contactPhone: true,
         contactEmail: true,
       },
@@ -226,7 +303,34 @@ export class WebChatService {
   }
 
   private landingOf(slug: string): Promise<PublicLandingDto | null> {
-    return this.landingCache.get(slug, () => this.landing.getBySlug(slug).catch(() => null));
+    // Un fallo no se guarda en la caché (el asistente se quedaría un minuto sin datos).
+    return this.landingCache.get(slug, () => this.landing.getBySlug(slug)).catch(() => null);
+  }
+
+  /** ¿Ha respondido el equipo desde `after`? (sin cargar la conversación entera) */
+  async updates(slug: string, input: PublicWebChatUpdatesInput): Promise<PublicWebChatUpdatesDto> {
+    const tenant = await this.liveTenant(slug);
+    const conversation = await this.admin.webChatConversation.findUnique({
+      where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
+      select: { id: true, mode: true, lastMessageAt: true },
+    });
+    const since = new Date(Date.now() - HISTORY_VISIBLE_MS);
+    if (!conversation || conversation.lastMessageAt < since) {
+      return { active: false, mode: 'ai', staffMessages: 0 };
+    }
+    const after = input.after ? new Date(input.after) : since;
+    const staffMessages = await this.admin.webChatMessage.count({
+      where: {
+        conversationId: conversation.id,
+        role: 'staff',
+        createdAt: { gt: after > since ? after : since },
+      },
+    });
+    return {
+      active: true,
+      mode: conversation.mode === 'human' ? 'human' : 'ai',
+      staffMessages,
+    };
   }
 
   async history(slug: string, visitorId: string, locale: Lang): Promise<PublicWebChatHistoryDto> {
@@ -258,8 +362,14 @@ export class WebChatService {
       };
     }
     const asked = await this.askedToday(conversation.id, tenant.timezone);
+    // Solo lo de las últimas 24 horas: en un ordenador compartido, quien abra el
+    // chat después no ve la conversación del anterior. El DNI que escribió va
+    // tapado y el enlace de firma no se guarda.
     const rows = await this.admin.webChatMessage.findMany({
-      where: { conversationId: conversation.id },
+      where: {
+        conversationId: conversation.id,
+        createdAt: { gte: new Date(Date.now() - HISTORY_VISIBLE_MS) },
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: 40,
       select: { id: true, role: true, content: true, rating: true, createdAt: true },
@@ -268,8 +378,8 @@ export class WebChatService {
       ...base,
       messages: rows.reverse().map((m) => ({
         id: m.id,
-        role: m.role === 'assistant' ? 'assistant' : m.role === 'staff' ? 'staff' : 'visitor',
-        content: m.content,
+        role: roleOf(m.role),
+        content: redactTaxIds(redactSigningLinks(m.content, TEXTS[locale].signLinkStored)),
         rating: m.rating === 1 || m.rating === -1 ? m.rating : null,
         createdAt: m.createdAt.toISOString(),
       })),
@@ -370,6 +480,9 @@ export class WebChatService {
     if (input.hp || isBotUserAgent(meta.userAgent)) {
       return result(t.tenantLimit, { limited: 'tenant' });
     }
+    // Sin los datos de la web (sin publicar o un fallo al cargarlos) el asistente
+    // respondería a ciegas: mejor el contacto del negocio.
+    if (!landing) return result(t.tenantLimit, { limited: 'tenant' });
     // Topes que no dependen del identificador del navegador (que se puede
     // cambiar en cada mensaje): conversaciones nuevas y mensajes por IP y día.
     const known = await this.admin.webChatConversation.findUnique({
@@ -405,13 +518,43 @@ export class WebChatService {
         visitorId: input.visitorId,
         locale: input.locale,
         pagePath: input.pagePath ?? null,
+        // El origen de la visita (Instagram, Google Ads…): reservas y contactos lo heredan.
+        utmSource: input.utmSource ?? null,
+        utmMedium: input.utmMedium ?? null,
+        utmCampaign: input.utmCampaign ?? null,
       },
       update: { locale: input.locale, ...(input.pagePath ? { pagePath: input.pagePath } : {}) },
-      select: { id: true, leadId: true, mode: true, contractId: true },
+      select: {
+        id: true,
+        leadId: true,
+        mode: true,
+        contractId: true,
+        handoffRequestedAt: true,
+        staffRepliedAt: true,
+        utmSource: true,
+        utmMedium: true,
+        utmCampaign: true,
+      },
     });
 
-    // La atiende una persona: se guarda y se avisa al equipo, sin IA.
-    if (conversation.mode === 'human') {
+    // La atiende una persona: se guarda y se avisa al equipo, sin IA. Si nadie
+    // del equipo ha dicho nada en 15 minutos, si está fuera de su horario o si
+    // el negocio apagó el paso a una persona, vuelve el asistente.
+    let aiBack = false;
+    if (conversation.mode === 'human' && this.teamAway(tenant, conversation)) {
+      await this.admin.webChatConversation.update({
+        where: { id: conversation.id },
+        data: { mode: 'ai' },
+      });
+      aiBack = true;
+    } else if (conversation.mode === 'human') {
+      // También aquí hay tope diario: cada mensaje se guarda y avisa al equipo.
+      if (
+        (await this.askedToday(conversation.id, tenant.timezone)) >=
+        this.platform.web.visitorDailyLimit * 2
+      ) {
+        return result(t.visitorLimit, { limited: 'visitor', mode: 'human' });
+      }
       await this.saveMessage(tenant.id, conversation.id, 'visitor', input.message);
       const updated = await this.admin.webChatConversation.update({
         where: { id: conversation.id },
@@ -441,8 +584,9 @@ export class WebChatService {
       return result(t.tenantLimit, { limited: 'tenant' });
     }
 
+    // Sin los mensajes fijos de error: no son respuestas del modelo.
     const history = await this.admin.webChatMessage.findMany({
-      where: { conversationId: conversation.id },
+      where: { conversationId: conversation.id, fallback: false },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: HISTORY_MESSAGES,
       select: { role: true, content: true },
@@ -470,13 +614,20 @@ export class WebChatService {
       bookingUrl: this.bookingUrl(tenant.slug, landing?.customDomain ?? null),
       contact,
       canSaveContact: !conversation.leadId,
-      bookingsEnabled: tenant.webChatBookingsEnabled && !bookingAlive && !!landing,
+      // Sin datos fiscales o sin forma de cobro la reserva fallaría al final.
+      bookingsEnabled:
+        tenant.webChatBookingsEnabled &&
+        !bookingAlive &&
+        !!landing &&
+        (await this.bookingReadyCache.get(tenant.id, async () =>
+          bookingReady(await tenantReadiness(this.admin, tenant.id)),
+        )),
       handoffEnabled: tenant.webChatHandoffEnabled,
     });
     const messages = this.toTurns(history.reverse(), input.message);
 
     const filter = onText ? new MarkerStreamFilter(onText) : null;
-    let completion: { text: string } | { limited: true };
+    let completion: { text: string; stopReason: string } | { limited: true };
     try {
       completion = await this.ai.webChatComplete({
         tenantId: tenant.id,
@@ -501,67 +652,83 @@ export class WebChatService {
       return result(t.tenantLimit, { limited: 'tenant', messageId: id });
     }
 
-    const raw = completion.text;
-    let text = raw
-      .replace(CONTACT_MARKER_RE, '')
-      .replace(BOOKING_MARKER_RE, '')
-      .replace(WAITLIST_MARKER_RE, '')
-      .split(HANDOFF_MARKER)
-      .join('')
-      .split(UNANSWERED_MARKER)
-      .join('')
-      .trim();
+    const parsed = parseAssistantReply(completion.text);
+    // `refusal`: el modelo no contesta a eso. `max_tokens`: llegó cortada (las
+    // marcas cortadas ya las quita `parseAssistantReply`).
+    const refused = completion.stopReason === 'refusal';
+    let text = refused ? t.refused : parsed.text;
     const extras: string[] = [];
     let leadCaptured = false;
     let mode: WebChatMode = 'ai';
 
-    // Reserva preparada en el chat.
-    const bookingMatch = BOOKING_MARKER_RE.exec(raw);
-    if (bookingMatch && tenant.webChatBookingsEnabled && !bookingAlive && landing) {
-      const booked = await this.createBooking({
-        tenant,
-        conversationId: conversation.id,
-        landing,
-        raw: bookingMatch[1] ?? '',
-        lang,
-        meta,
-      });
-      extras.push(booked.message);
-      if (booked.ok) leadCaptured = true;
+    if (!refused) {
+      // Reserva preparada en el chat.
+      if (parsed.booking && tenant.webChatBookingsEnabled && !bookingAlive && landing) {
+        const booked = await this.createBooking({
+          tenant,
+          conversationId: conversation.id,
+          landing,
+          raw: parsed.booking,
+          lang,
+          meta,
+          utm: conversation,
+        });
+        extras.push(booked.message);
+        if (booked.ok) leadCaptured = true;
+      } else if (parsed.brokenBooking && tenant.webChatBookingsEnabled && !bookingAlive) {
+        // El modelo dio a entender que reservaba, pero la marca no se pudo leer.
+        extras.push(t.bookingBroken);
+      }
+      // Lista de espera de un tamaño agotado.
+      if (parsed.waitlist && tenant.webChatBookingsEnabled && landing) {
+        extras.push(await this.joinWaitlist(tenant, landing, parsed.waitlist, lang));
+      }
+      // Datos de contacto.
+      if (parsed.contact && !conversation.leadId && !leadCaptured) {
+        leadCaptured = await this.saveLead(tenant.id, conversation.id, parsed.contact, input, meta);
+        // La respuesta promete que el equipo contactará: sin un dato válido no es verdad.
+        if (!leadCaptured) text = t.contactInvalid;
+        else if (!text) text = t.contactThanks;
+      }
+      if (parsed.unanswered) {
+        await this.admin.webChatMessage
+          .update({ where: { id: visitorMessageId }, data: { unanswered: true } })
+          .catch(() => undefined);
+      }
     }
-    // Lista de espera de un tamaño agotado.
-    const waitMatch = WAITLIST_MARKER_RE.exec(raw);
-    if (waitMatch && tenant.webChatBookingsEnabled && landing) {
-      extras.push(await this.joinWaitlist(tenant, landing, waitMatch[1] ?? '', lang));
-    }
-    // Datos de contacto.
-    const marker = CONTACT_MARKER_RE.exec(raw);
-    if (marker && !conversation.leadId && !leadCaptured) {
-      leadCaptured = await this.saveLead(tenant.id, conversation.id, marker[1]!, input, meta);
-      // La respuesta promete que el equipo contactará: sin un dato válido no es verdad.
-      if (!leadCaptured) text = t.contactInvalid;
-    }
-    if (raw.includes(UNANSWERED_MARKER)) {
-      await this.admin.webChatMessage
-        .update({ where: { id: visitorMessageId }, data: { unanswered: true } })
-        .catch(() => undefined);
-    }
-    const handoff = raw.includes(HANDOFF_MARKER) && tenant.webChatHandoffEnabled;
+    const wantsPerson = !refused && parsed.handoff && tenant.webChatHandoffEnabled;
+    // Fuera del horario del equipo no se pasa a una persona: se avisa desde el
+    // principio y se piden los datos (el equipo recibe el aviso igualmente).
+    const teamHere = this.teamAvailable(tenant);
+    const handoff = wantsPerson && teamHere;
+    // Una respuesta que es solo la marca de pasar a una persona no es un fallo.
+    if (wantsPerson && !teamHere) text = text ? `${text}\n\n${t.handoffOutside}` : t.handoffOutside;
+    else if (!text && handoff) text = t.handoff;
+    if (aiBack && text) text = `${t.aiBack}\n\n${text}`;
 
     let answer = [text, ...extras].filter(Boolean).join('\n\n');
     const fallback = !answer;
     if (fallback) answer = t.error;
-    const messageId = await this.saveMessage(tenant.id, conversation.id, 'assistant', answer, {
-      fallback,
-    });
+    // El visitante recibe el enlace de firma en la respuesta (y por email); ni el
+    // historial ni el panel lo vuelven a enseñar.
+    const messageId = await this.saveMessage(
+      tenant.id,
+      conversation.id,
+      'assistant',
+      redactSigningLinks(answer, t.signLinkStored),
+      { fallback },
+    );
     if (handoff) {
       await this.startHandoff(tenant.id, conversation.id);
       mode = 'human';
+    } else if (wantsPerson) {
+      this.notifyOutsideHours(tenant.id, conversation.id);
     }
     return result(answer, {
       messageId,
       mode,
       leadCaptured: leadCaptured || !!conversation.leadId,
+      ...(wantsPerson && !teamHere && !conversation.leadId ? { askContact: true } : {}),
     });
   }
 
@@ -610,9 +777,23 @@ export class WebChatService {
     ) {
       return refused;
     }
+    // Fuera del horario del equipo: se avisa y se piden los datos, sin dejarlo esperando.
+    if (conversation.mode !== 'human' && !this.teamAvailable(tenant)) {
+      const id = await this.saveMessage(tenant.id, conversation.id, 'system', t.handoffOutside);
+      this.notifyOutsideHours(tenant.id, conversation.id);
+      return {
+        answer: t.handoffOutside,
+        messageId: id,
+        mode: 'ai',
+        leadCaptured: !!conversation.leadId,
+        limited: null,
+        contact,
+        askContact: !conversation.leadId,
+      };
+    }
     let messageId: string | null = null;
     if (conversation.mode !== 'human') {
-      messageId = await this.saveMessage(tenant.id, conversation.id, 'assistant', t.handoff);
+      messageId = await this.saveMessage(tenant.id, conversation.id, 'system', t.handoff);
       await this.startHandoff(tenant.id, conversation.id);
     }
     return {
@@ -663,10 +844,12 @@ export class WebChatService {
   async rate(slug: string, input: PublicWebChatFeedbackInput): Promise<{ saved: boolean }> {
     const tenant = await this.liveTenant(slug);
     const updated = await this.admin.webChatMessage.updateMany({
+      // Solo las respuestas de la IA (no los textos fijos ni los de error).
       where: {
         id: input.messageId,
         tenantId: tenant.id,
         role: 'assistant',
+        fallback: false,
         conversation: { visitorId: input.visitorId },
       },
       data: { rating: input.rating },
@@ -695,12 +878,50 @@ export class WebChatService {
     return tenant.webChatInstructions;
   }
 
-  /** Pasa la conversación a una persona: la IA se calla y se avisa al equipo con un resumen. */
+  /**
+   * Pasa la conversación a una persona: la IA se calla en el momento. El
+   * resumen con IA y el aviso al equipo van después, sin hacer esperar al
+   * visitante (la respuesta no depende de una segunda llamada al modelo).
+   */
   private async startHandoff(tenantId: string, conversationId: string): Promise<void> {
     await this.admin.webChatConversation.update({
       where: { id: conversationId },
       data: { mode: 'human', handoffRequestedAt: new Date(), staffUnread: { increment: 1 } },
     });
+    void this.summarizeHandoff(tenantId, conversationId).catch((err: unknown) =>
+      this.logger.warn(
+        `[web-chat] resumen del paso a una persona: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+  }
+
+  /** Pidió una persona fuera del horario del equipo: aviso con resumen, sin cambiar de modo. */
+  private notifyOutsideHours(tenantId: string, conversationId: string): void {
+    void this.summarizeHandoff(tenantId, conversationId).catch(() => undefined);
+  }
+
+  /** El equipo atiende ahora (sin horario puesto, siempre). */
+  private teamAvailable(tenant: { webChatTeamHours: unknown; timezone: string }): boolean {
+    const hours = OpeningHoursSchema.safeParse(tenant.webChatTeamHours);
+    if (!hours.success || !tenant.webChatTeamHours) return true;
+    return isWithinHours(hours.data, tenant.timezone);
+  }
+
+  /**
+   * Nadie del equipo atiende ya la conversación pasada a una persona: lleva
+   * 15 minutos sin decir nada (desde que la pidió o desde su última
+   * respuesta), es fuera de su horario o se apagó el paso a una persona.
+   */
+  private teamAway(
+    tenant: { webChatHandoffEnabled: boolean; webChatTeamHours: unknown; timezone: string },
+    c: { handoffRequestedAt: Date | null; staffRepliedAt: Date | null },
+  ): boolean {
+    if (!tenant.webChatHandoffEnabled || !this.teamAvailable(tenant)) return true;
+    const last = Math.max(c.handoffRequestedAt?.getTime() ?? 0, c.staffRepliedAt?.getTime() ?? 0);
+    return Date.now() - last > HANDOFF_WAIT_MS;
+  }
+
+  private async summarizeHandoff(tenantId: string, conversationId: string): Promise<void> {
     const rows = await this.admin.webChatMessage.findMany({
       where: { conversationId },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -725,8 +946,9 @@ export class WebChatService {
     kind: 'handoff' | 'message',
     text: string | null,
   ): Promise<void> {
+    // Solo a quien puede leer las conversaciones (el mismo permiso que la bandeja).
     await this.notifications
-      .create(tenantId, {
+      .createForPermission(tenantId, 'communications:read', {
         type: kind === 'handoff' ? 'web_chat.handoff' : 'web_chat.message',
         title:
           kind === 'handoff'
@@ -750,6 +972,8 @@ export class WebChatService {
     raw: string;
     lang: Lang;
     meta: RequestMeta;
+    /** Origen de la visita del que reserva (el que trajo el widget). */
+    utm: { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null };
   }): Promise<{ ok: boolean; message: string }> {
     const t = TEXTS[args.lang];
     const fail = (reason: string) => ({ ok: false, message: t.bookingFail(reason) });
@@ -773,8 +997,10 @@ export class WebChatService {
         phone: str('telefono'),
         documentNumber: str('documento'),
       },
-      utmSource: 'web_chat',
-      utmMedium: 'asistente',
+      // El origen real de la visita (no «web_chat»): el canal va aparte (`channel`).
+      ...(args.utm.utmSource ? { utmSource: args.utm.utmSource } : {}),
+      ...(args.utm.utmMedium ? { utmMedium: args.utm.utmMedium } : {}),
+      ...(args.utm.utmCampaign ? { utmCampaign: args.utm.utmCampaign } : {}),
     });
     if (!parsed.success) return fail(t.reasons.invalid);
     if (parsed.data.startDate < todayIn(args.tenant.timezone)) return fail(t.reasons.past);
@@ -794,17 +1020,30 @@ export class WebChatService {
       signingToken: string | null;
       signingLinkSentTo: string | null;
     };
+    // La promoción que anuncia la web (y de la que habla el asistente) se aplica;
+    // si no vale para esta reserva (meses, tamaño…), se reserva sin ella y se dice.
+    const promoCode = args.landing.activePromotion?.code ?? null;
+    let promoNotApplied = false;
     try {
-      booked = await this.booking.createBooking(args.tenant.slug, parsed.data, args.meta);
+      try {
+        booked = await this.booking.createBooking(
+          args.tenant.slug,
+          promoCode ? { ...parsed.data, couponCode: promoCode } : parsed.data,
+          args.meta,
+          { channel: 'web_chat' },
+        );
+      } catch (err) {
+        if (!promoCode || bookingFailureKind(err) !== 'coupon') throw err;
+        promoNotApplied = true;
+        booked = await this.booking.createBooking(args.tenant.slug, parsed.data, args.meta, {
+          channel: 'web_chat',
+        });
+      }
     } catch (err) {
       await this.abuse.giveBack('booking', args.tenant.id, args.meta.ipAddress);
-      const code = (err as { response?: { code?: string } } | null)?.response?.code ?? 'error';
-      this.logger.warn(`[web-chat] reserva fallida (${code})`);
-      return fail(
-        code === 'no_availability' || code === 'unit_not_available'
-          ? t.reasons.soldOut
-          : t.reasons.error,
-      );
+      const kind = bookingFailureKind(err);
+      this.logger.warn(`[web-chat] reserva fallida (${kind})`);
+      return fail(kind === 'coupon' ? t.reasons.error : t.reasons[kind]);
     }
     const contract = await this.admin.contract.findUnique({
       where: { id: booked.contractId },
@@ -824,21 +1063,20 @@ export class WebChatService {
         ...(lead ? { leadId: lead.id } : {}),
       },
     });
-    await this.notifications
-      .create(args.tenant.id, {
-        type: 'web_chat.booking',
-        title: `Reserva desde el chat de la web: ${target.unitTypeName} en ${target.facilityName}`,
-        body: 'Un visitante ha reservado desde el chat; falta que firme y pague.',
-        link: `/contracts/${booked.contractId}`,
-        contractId: booked.contractId,
-      })
-      .catch(() => undefined);
+    // La reserva online ya avisa al equipo (`booking.created`): sin un segundo aviso.
     const url = booked.signingToken
       ? `${this.publicBase(args.landing.customDomain)}/sign/${booked.signingToken}`
       : null;
+    const message = t.booked(
+      target.unitTypeName,
+      target.facilityName,
+      url,
+      booked.signingLinkSentTo,
+    );
     return {
       ok: true,
-      message: t.booked(target.unitTypeName, target.facilityName, url, booked.signingLinkSentTo),
+      message:
+        promoNotApplied && promoCode ? `${message}\n${t.promoNotApplied(promoCode)}` : message,
     };
   }
 
@@ -861,6 +1099,8 @@ export class WebChatService {
     if (!target || !str('nombre') || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return t.waitlistFail;
     }
+    // La lista de espera es para tamaños agotados: si hay libres, se reserva.
+    if (target.available > 0) return t.waitlistNotNeeded(target.unitTypeName);
     try {
       const res = await this.waitlist.joinFromPublic(tenant.slug, {
         facilityId: target.facilityId,
@@ -878,7 +1118,7 @@ export class WebChatService {
   private async saveMessage(
     tenantId: string,
     conversationId: string,
-    role: 'visitor' | 'assistant' | 'staff',
+    role: WebChatRole,
     content: string,
     opts: { fallback?: boolean; senderUserId?: string } = {},
   ): Promise<string> {
@@ -925,6 +1165,10 @@ export class WebChatService {
     const phone = phoneRaw && phoneRaw.replace(/\D/g, '').length >= 9 ? phoneRaw : null;
     if (!validEmail && !phone) return false;
     try {
+      const origin = await this.admin.webChatConversation.findUnique({
+        where: { id: conversationId },
+        select: { utmSource: true, utmMedium: true, utmCampaign: true },
+      });
       const lead = await this.leads.createFromWebChat({
         tenantId,
         name: text(data.nombre ?? data.name, 120),
@@ -932,6 +1176,7 @@ export class WebChatService {
         phone,
         message: text(data.mensaje ?? data.message, 1000) ?? input.message,
         meta,
+        utm: origin ?? null,
       });
       await this.admin.webChatConversation.update({
         where: { id: conversationId },
@@ -1083,6 +1328,7 @@ export class WebChatService {
           webChatBookingsEnabled: true,
           webChatHandoffEnabled: true,
           webChatSharedInstructions: true,
+          webChatTeamHours: true,
         },
       }),
       tenantHasFeature(this.admin, tenantId, 'ai_assistant'),
@@ -1104,6 +1350,11 @@ export class WebChatService {
       used: usage.webUsed,
       limit: usage.webLimit,
       resetsOn: usage.resetsOn,
+      ownKey: usage.mode === 'own',
+      teamHours: (() => {
+        const hours = OpeningHoursSchema.safeParse(tenant?.webChatTeamHours);
+        return tenant?.webChatTeamHours && hours.success ? hours.data : null;
+      })(),
     };
   }
 
@@ -1128,9 +1379,19 @@ export class WebChatService {
         ...(input.sharedInstructions !== undefined
           ? { webChatSharedInstructions: input.sharedInstructions }
           : {}),
+        ...(input.teamHours !== undefined
+          ? { webChatTeamHours: input.teamHours ?? Prisma.DbNull }
+          : {}),
       },
     });
-    const { instructions, ...flags } = input;
+    // Sin paso a una persona, las conversaciones que esperaban vuelven al asistente.
+    if (input.handoffEnabled === false) {
+      await this.admin.webChatConversation.updateMany({
+        where: { tenantId, mode: 'human' },
+        data: { mode: 'ai' },
+      });
+    }
+    const { instructions, teamHours, ...flags } = input;
     await this.audit.write({
       tenantId,
       userId: actor.userId,
@@ -1141,6 +1402,7 @@ export class WebChatService {
       changes: {
         ...flags,
         ...(instructions !== undefined ? { instructions: !!instructions } : {}),
+        ...(teamHours !== undefined ? { teamHours: !!teamHours } : {}),
       },
       ipAddress: actor.meta.ipAddress ?? null,
       userAgent: actor.meta.userAgent ?? null,
@@ -1160,56 +1422,92 @@ export class WebChatService {
         where: { lastMessageAt: { gte: since }, ...(filter.mode ? { mode: filter.mode } : {}) },
         orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
         ...pageArgs(page),
-        select: {
-          id: true,
-          createdAt: true,
-          lastMessageAt: true,
-          messageCount: true,
-          locale: true,
-          pagePath: true,
-          leadId: true,
-          mode: true,
-          handoffRequestedAt: true,
-          handoffSummary: true,
-          staffRepliedAt: true,
-          staffUnread: true,
-          contractId: true,
-          bookedInChat: true,
-          lead: { select: { firstName: true, lastName: true, email: true } },
-          messages: {
-            where: { role: 'visitor' },
-            orderBy: { createdAt: 'asc' },
-            take: 1,
-            select: { content: true },
-          },
-          _count: { select: { messages: { where: { fallback: true } } } },
-        },
+        select: CONVERSATION_SELECT,
       });
-      const items = rows.map((c) => ({
-        id: c.id,
-        createdAt: c.createdAt.toISOString(),
-        lastMessageAt: c.lastMessageAt.toISOString(),
-        messageCount: c.messageCount,
-        locale: c.locale,
-        pagePath: c.pagePath,
-        leadId: c.leadId,
-        leadName: c.lead
-          ? [c.lead.firstName, c.lead.lastName].filter(Boolean).join(' ') || c.lead.email
-          : null,
-        preview: c.messages[0]?.content.slice(0, 160) ?? '',
-        fallbackCount: c._count.messages,
-        mode: (c.mode === 'human' ? 'human' : 'ai') as WebChatMode,
-        waitingSince: this.waitingSince(c),
-        handoffSummary: c.handoffSummary,
-        staffUnread: c.staffUnread,
-        contractId: c.contractId,
-        bookedInChat: c.bookedInChat,
-      }));
+      const items = rows.map((c) => this.conversationDto(c));
       return toPage(items, page);
     }, tenantId);
   }
 
-  /** Mensajes de una conversación (al abrirla, el equipo la da por leída). */
+  /** Una conversación (la que abre un aviso aunque no esté en la lista cargada). */
+  async conversation(tenantId: string, conversationId: string): Promise<WebChatConversationDto> {
+    const row = await this.prisma.withTenant(
+      (tx) =>
+        tx.webChatConversation.findFirst({
+          where: { id: conversationId },
+          select: CONVERSATION_SELECT,
+        }),
+      tenantId,
+    );
+    if (!row) {
+      throw new NotFoundException({ code: 'conversation_not_found', message: 'No encontrada' });
+    }
+    return this.conversationDto(row);
+  }
+
+  /** Borra una conversación (p. ej. a petición del visitante, RGPD). */
+  async deleteConversation(
+    tenantId: string,
+    conversationId: string,
+    actor: { userId: string; meta: RequestMeta },
+  ): Promise<void> {
+    const deleted = await this.prisma.withTenant(
+      (tx) => tx.webChatConversation.deleteMany({ where: { id: conversationId } }),
+      tenantId,
+    );
+    if (deleted.count === 0) {
+      throw new NotFoundException({ code: 'conversation_not_found', message: 'No encontrada' });
+    }
+    await this.audit.write({
+      tenantId,
+      userId: actor.userId,
+      action: 'web_chat.conversation_deleted',
+      entityType: 'WebChatConversation',
+      entityId: conversationId,
+      changes: {},
+      ipAddress: actor.meta.ipAddress ?? null,
+      userAgent: actor.meta.userAgent ?? null,
+    });
+  }
+
+  private conversationDto(c: ConversationRow): WebChatConversationDto {
+    return {
+      id: c.id,
+      createdAt: c.createdAt.toISOString(),
+      lastMessageAt: c.lastMessageAt.toISOString(),
+      messageCount: c.messageCount,
+      locale: c.locale,
+      pagePath: c.pagePath,
+      leadId: c.leadId,
+      leadName: c.lead
+        ? [c.lead.firstName, c.lead.lastName].filter(Boolean).join(' ') || c.lead.email
+        : null,
+      preview: redactTaxIds(c.messages[0]?.content.slice(0, 160) ?? ''),
+      fallbackCount: c._count.messages,
+      mode: (c.mode === 'human' ? 'human' : 'ai') as WebChatMode,
+      waitingSince: this.waitingSince(c),
+      handoffSummary: c.handoffSummary,
+      staffUnread: c.staffUnread,
+      contractId: c.contractId,
+      bookedInChat: c.bookedInChat,
+    };
+  }
+
+  /** Quien puede responder abre la conversación: sus mensajes quedan leídos. */
+  async markRead(tenantId: string, conversationId: string): Promise<void> {
+    const updated = await this.prisma.withTenant(
+      (tx) =>
+        tx.webChatConversation.updateMany({
+          where: { id: conversationId },
+          data: { staffUnread: 0 },
+        }),
+      tenantId,
+    );
+    if (updated.count === 0) {
+      throw new NotFoundException({ code: 'conversation_not_found', message: 'No encontrada' });
+    }
+  }
+
   async messages(tenantId: string, conversationId: string): Promise<WebChatMessageDto[]> {
     return this.prisma.withTenant(async (tx) => {
       const exists = await tx.webChatConversation.findFirst({
@@ -1219,15 +1517,13 @@ export class WebChatService {
       if (!exists) {
         throw new NotFoundException({ code: 'conversation_not_found', message: 'No encontrada' });
       }
-      if (exists.staffUnread > 0) {
-        await tx.webChatConversation.update({
-          where: { id: conversationId },
-          data: { staffUnread: 0 },
-        });
-      }
-      const rows = await tx.webChatMessage.findMany({
+      // Leer no la da por leída (la pantalla se refresca sola y la abre también
+      // quien no puede responder): eso lo hace `markRead` al abrirla.
+      // Los últimos 300 mensajes: una conversación larga no carga entera.
+      const recent = await tx.webChatMessage.findMany({
         where: { conversationId },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 300,
         select: {
           id: true,
           role: true,
@@ -1239,9 +1535,10 @@ export class WebChatService {
           senderUser: { select: { fullName: true } },
         },
       });
+      const rows = recent.reverse();
       return rows.map((m) => ({
         id: m.id,
-        role: m.role === 'assistant' ? 'assistant' : m.role === 'staff' ? 'staff' : 'visitor',
+        role: roleOf(m.role),
         content: m.content,
         fallback: m.fallback,
         unanswered: m.unanswered,
@@ -1346,6 +1643,7 @@ export class WebChatService {
       return {
         waiting: rows.filter((r) => this.waitingSince(r)).length,
         unread: rows.reduce((n, r) => n + r.staffUnread, 0),
+        conversations: rows.filter((r) => this.waitingSince(r) || r.staffUnread > 0).length,
       };
     }, tenantId);
   }
@@ -1388,8 +1686,12 @@ export class WebChatService {
           orderBy: { createdAt: 'desc' },
           take: 2000,
         }),
+        // Reservas que siguen en pie: las caducadas o canceladas no cuentan.
         tx.webChatConversation.findMany({
-          where: { ...active, contractId: { not: null } },
+          where: {
+            ...active,
+            contract: { is: { status: { not: 'cancelled' }, deletedAt: null } },
+          },
           select: { bookedInChat: true, contract: { select: { signedAt: true } } },
         }),
         tx.webChatConversation.count({ where: { handoffRequestedAt: { gte: since } } }),
@@ -1406,7 +1708,8 @@ export class WebChatService {
         const groups = new Map<string, { question: string; count: number }>();
         for (const q of rows) {
           const key = normalizeWebChatQuestion(q.content);
-          if (key.length < 6) continue;
+          // Saludos y cortesías («gracias», «vale gracias»…) no son preguntas.
+          if (key.length < 6 || COURTESY_RE.test(key)) continue;
           const g = groups.get(key) ?? { question: q.content.slice(0, 200), count: 0 };
           g.count += 1;
           groups.set(key, g);

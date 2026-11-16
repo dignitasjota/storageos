@@ -33,8 +33,9 @@ describe('Google Analytics 4 de la web (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'ga4-web');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
-    // Dentro de Web Premium.
-    await http().get('/marketing/ga4').set(auth).expect(403);
+    // Dentro de Web Premium (ver la conexión y desconectar, sin él también).
+    await http().get('/marketing/ga4/report').set(auth).expect(403);
+    await http().put('/marketing/ga4').set(auth).send({ propertyId: '123456789' }).expect(403);
     await setTenantFeatureOverride(owner.slug, 'web_premium', true);
 
     const initial = (await http().get('/marketing/ga4').set(auth).expect(200))

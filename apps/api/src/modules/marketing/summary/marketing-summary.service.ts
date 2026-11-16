@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   MARKETING_SUMMARY_MONTH_RE,
+  WEB_ANALYTICS_START,
   hasMarketingActivity,
   leadSourceLabel,
   marketingSummaryTips,
@@ -11,6 +12,7 @@ import {
   previousMonth,
   trafficSourceName,
   type MarketingMonthFigures,
+  type MarketingPreviousCoverage,
   type MarketingSummaryConnections,
   type MarketingSummaryDto,
   type MarketingSummarySourceDto,
@@ -25,6 +27,7 @@ import { tenantFeatures } from '../../../common/tenant-features';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../../queues/queue-names';
+import { FULL_MARKETING_VIEWER, type MarketingViewer } from '../marketing-viewer';
 import { WebAnalyticsService } from '../web-analytics.service';
 
 import type { Env } from '../../../config/env.schema';
@@ -32,6 +35,16 @@ import type { Env } from '../../../config/env.schema';
 const int = (n: number) => n.toLocaleString('es-ES');
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const day = (d: string) => new Date(`${d}T00:00:00.000Z`);
+const shiftDay = (d: string, n: number) => {
+  const x = day(d);
+  x.setUTCDate(x.getUTCDate() + n);
+  return x.toISOString().slice(0, 10);
+};
+/** El origen de un visitante lo escribe cualquiera: en el correo, recortado. */
+const shortName = (name: string) => (name.length > 40 ? `${name.slice(0, 39)}…` : name);
+/** Días que se descargan al conectar Google Analytics y las redes. */
+const GA4_INITIAL_DAYS = 120;
+const SOCIAL_INITIAL_DAYS = 30;
 const TIP_COLOR: Record<MarketingTipDto['kind'], string> = {
   warning: '#b45309',
   good: '#047857',
@@ -55,8 +68,15 @@ export class MarketingSummaryService {
     @InjectQueue(QUEUE_EMAIL) private readonly emailQueue: Queue,
   ) {}
 
-  /** Resumen de un mes (`YYYY-MM`); por defecto, el mes pasado. */
-  async build(tenantId: string, monthInput?: string): Promise<MarketingSummaryDto> {
+  /**
+   * Resumen de un mes (`YYYY-MM`); por defecto, el mes pasado. El mes en curso
+   * se compara con los mismos días del anterior (no con el mes entero).
+   */
+  async build(
+    tenantId: string,
+    monthInput?: string,
+    viewer: MarketingViewer = FULL_MARKETING_VIEWER,
+  ): Promise<MarketingSummaryDto> {
     if (monthInput && !MARKETING_SUMMARY_MONTH_RE.test(monthInput)) {
       throw new BadRequestException({ code: 'invalid_month', message: 'Mes no válido (AAAA-MM)' });
     }
@@ -64,22 +84,32 @@ export class MarketingSummaryService {
       (tx) =>
         tx.tenant.findUnique({
           where: { id: tenantId },
-          select: { timezone: true, marketingReportEnabled: true },
+          select: { timezone: true, marketingReportEnabled: true, createdAt: true },
         }),
       tenantId,
     );
     const tz = tenant?.timezone || 'Europe/Madrid';
-    const month = monthInput ?? previousMonth(todayInTimezone(tz).toISOString().slice(0, 7));
+    const today = todayInTimezone(tz).toISOString().slice(0, 10);
+    const month = monthInput ?? previousMonth(today.slice(0, 7));
     const prevMonth = previousMonth(month);
+    const bounds = monthBounds(month);
+    const prevBounds = monthBounds(prevMonth);
+    // Mes en curso: hasta hoy, y el anterior hasta el mismo día.
+    const partial = today >= bounds.from && today <= bounds.to;
+    const curTo = partial ? today : bounds.to;
+    const elapsed = Math.round((day(curTo).getTime() - day(bounds.from).getTime()) / 86_400_000);
+    const prevTo = partial
+      ? [shiftDay(prevBounds.from, elapsed), prevBounds.to].sort()[0]!
+      : prevBounds.to;
 
-    const [current, previous, connections] = await Promise.all([
-      this.monthFigures(tenantId, month, tz),
-      this.monthFigures(tenantId, prevMonth, tz),
+    const [current, previous, connections, coverage] = await Promise.all([
+      this.monthFigures(tenantId, { from: bounds.from, to: curTo }, tz, viewer),
+      this.monthFigures(tenantId, { from: prevBounds.from, to: prevTo }, tz, viewer),
       this.connections(tenantId),
+      this.coverage(tenantId, prevBounds.from, tz, tenant?.createdAt ?? null),
     ]);
-    const sources: MarketingSummarySourceDto[] = current.web.sources
+    const allSources: MarketingSummarySourceDto[] = current.web.sources
       .filter((s) => s.visitors + s.contacts + s.bookings + s.cost > 0)
-      .slice(0, 8)
       .map((s) => ({
         source: s.source,
         paidTraffic: s.paidTraffic,
@@ -91,23 +121,62 @@ export class MarketingSummaryService {
         cost: s.cost,
         costPerBooking: s.costPerBooking,
       }));
-    const { from, to } = monthBounds(month);
+    const money = { revenue: viewer.revenue, cost: viewer.cost };
     return {
       month,
       label: monthLabel(month),
-      from,
-      to,
+      from: bounds.from,
+      to: curTo,
       current: current.figures,
       previous: previous.figures,
-      sources,
+      previousComplete: coverage,
+      partial,
+      money,
+      sources: allSources.slice(0, 8),
       connections,
+      // Los consejos miran todos los orígenes (un canal de pago con pocas visitas también).
       tips: marketingSummaryTips({
         current: current.figures,
         previous: previous.figures,
-        sources,
+        sources: allSources,
         connections,
+        previousComplete: coverage,
+        money,
       }),
       reportEnabled: tenant?.marketingReportEnabled ?? true,
+    };
+  }
+
+  /**
+   * ¿Hay datos de todo el mes anterior? La medición propia existe desde
+   * `WEB_ANALYTICS_START` (y el negocio desde su alta); Google Analytics y las
+   * redes, desde lo que se descargó al conectarlos.
+   */
+  private async coverage(
+    tenantId: string,
+    prevFrom: string,
+    tz: string,
+    createdAt: Date | null,
+  ): Promise<MarketingPreviousCoverage> {
+    const [ga4, social] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.tenantGa4.findUnique({ where: { tenantId }, select: { connectedAt: true } }),
+          tx.tenantSocialAccount.findUnique({ where: { tenantId }, select: { connectedAt: true } }),
+        ]),
+      tenantId,
+    );
+    const prevStart = zonedDayStart(prevFrom, tz).getTime();
+    const measuredFrom = Math.max(
+      createdAt?.getTime() ?? 0,
+      zonedDayStart(WEB_ANALYTICS_START, tz).getTime(),
+    );
+    const coveredFrom = (connectedAt: Date | null | undefined, days: number) =>
+      connectedAt ? connectedAt.getTime() - days * 86_400_000 : Number.POSITIVE_INFINITY;
+    return {
+      web: prevStart >= measuredFrom,
+      ga4: prevStart >= coveredFrom(ga4?.connectedAt, GA4_INITIAL_DAYS),
+      social: prevStart >= coveredFrom(social?.connectedAt, SOCIAL_INITIAL_DAYS),
     };
   }
 
@@ -120,12 +189,35 @@ export class MarketingSummaryService {
   }
 
   /** Envía el resumen del mes pasado a los propietarios. */
-  async send(tenantId: string): Promise<{ recipients: number; month: string }> {
+  async send(
+    tenantId: string,
+    meta?: { userId: string; ipAddress?: string | null; userAgent?: string | null },
+  ): Promise<{ recipients: number; month: string }> {
     const summary = await this.build(tenantId);
-    return { recipients: await this.deliver(tenantId, summary), month: summary.month };
+    const recipients = await this.deliver(tenantId, summary);
+    if (meta) {
+      await this.admin.auditLog
+        .create({
+          data: {
+            tenantId,
+            userId: meta.userId,
+            action: 'marketing.summary_sent',
+            entityType: 'Tenant',
+            entityId: tenantId,
+            changes: { month: summary.month, recipients },
+            ipAddress: meta.ipAddress ?? null,
+            userAgent: meta.userAgent ?? null,
+          },
+        })
+        .catch(() => undefined);
+    }
+    return { recipients, month: summary.month };
   }
 
-  /** Cron mensual: tenants activos con el correo activado y sin el mes enviado. */
+  /**
+   * Cron (días 4 a 10): tenants activos con el correo activado y sin el mes
+   * enviado. Lo que falla o no tiene a quién enviarlo se intenta al día siguiente.
+   */
   async sendDueAll(): Promise<{ tenants: number; sent: number }> {
     const tenants = await this.admin.tenant.findMany({
       where: {
@@ -144,17 +236,31 @@ export class MarketingSummaryService {
           .slice(0, 7),
       );
       if (t.marketingReportLastMonth === month) continue;
+      // Reserva el mes: si dos procesos lo intentan a la vez, solo uno lo envía.
+      const claimed = await this.admin.tenant.updateMany({
+        where: { id: t.id, marketingReportLastMonth: t.marketingReportLastMonth },
+        data: { marketingReportLastMonth: month },
+      });
+      if (claimed.count === 0) continue;
       due += 1;
+      let done = false;
       try {
         const summary = await this.build(t.id, month);
         // Un mes sin nada que contar no se envía (pero no se vuelve a mirar).
-        if (hasMarketingActivity(summary.current)) {
-          if ((await this.deliver(t.id, summary)) > 0) sent += 1;
-        } else {
-          await this.markSent(t.id, month);
+        if (!hasMarketingActivity(summary.current)) done = true;
+        else if ((await this.deliver(t.id, summary)) > 0) {
+          sent += 1;
+          done = true;
         }
       } catch (err) {
         this.logger.warn(`[marketing-summary] tenant ${t.id}: ${(err as Error).message}`);
+      }
+      // Falló o no había a quién enviarlo: se devuelve y se intenta otro día (hasta el 10).
+      if (!done) {
+        await this.admin.tenant.updateMany({
+          where: { id: t.id, marketingReportLastMonth: month },
+          data: { marketingReportLastMonth: t.marketingReportLastMonth },
+        });
       }
     }
     return { tenants: due, sent };
@@ -166,15 +272,15 @@ export class MarketingSummaryService {
       select: { email: true },
     });
     const to = [...new Set(owners.map((o) => o.email.toLowerCase()))];
-    if (to.length > 0) {
-      const { html, text, subject } = this.render(summary);
-      await this.emailQueue.addBulk(
-        to.map((email) => ({
-          name: JOB_EMAIL_SEND,
-          data: { to: email, kind: 'monthly_report', subject, html, text },
-        })),
-      );
-    }
+    // Sin nadie a quien enviarlo no se da por enviado: se intentará otro día.
+    if (to.length === 0) return 0;
+    const { html, text, subject } = this.render(summary);
+    await this.emailQueue.addBulk(
+      to.map((email) => ({
+        name: JOB_EMAIL_SEND,
+        data: { to: email, kind: 'monthly_report', subject, html, text },
+      })),
+    );
     await this.markSent(tenantId, summary.month);
     return to.length;
   }
@@ -188,22 +294,42 @@ export class MarketingSummaryService {
 
   private async monthFigures(
     tenantId: string,
-    month: string,
+    range: { from: string; to: string },
     tz: string,
+    viewer: MarketingViewer,
   ): Promise<{ figures: MarketingMonthFigures; web: WebAnalyticsDto }> {
-    const { from, to } = monthBounds(month);
+    const { from, to } = range;
     const since = zonedDayStart(from, tz);
     const until = zonedNextDayStart(to, tz);
     const days = Math.round((day(to).getTime() - day(from).getTime()) / 86_400_000) + 1;
+    const scope = viewer.facilityScope;
+    // Con alcance por local: lo de sus locales y lo que no es de ningún local.
+    const inScope = scope ? { OR: [{ facilityId: null }, { facilityId: { in: scope } }] } : {};
     const [web, extra] = await Promise.all([
-      this.web.reportRange(tenantId, { since, until, fromDay: from, toDay: to }, days),
+      this.web.reportRange(tenantId, { since, until, fromDay: from, toDay: to }, days, viewer),
       this.prisma.withTenant(async (tx) => {
         const [allContacts, spend, ads, ga4, gsc, social] = await Promise.all([
-          tx.lead.count({ where: { deletedAt: null, createdAt: { gte: since, lt: until } } }),
-          tx.expense.aggregate({
-            where: { category: 'marketing', expenseDate: { gte: day(from), lte: day(to) } },
-            _sum: { amount: true },
+          tx.lead.count({
+            where: {
+              deletedAt: null,
+              createdAt: { gte: since, lt: until },
+              ...(scope
+                ? {
+                    OR: [{ preferredFacilityId: null }, { preferredFacilityId: { in: scope } }],
+                  }
+                : {}),
+            },
           }),
+          viewer.cost
+            ? tx.expense.aggregate({
+                where: {
+                  category: 'marketing',
+                  expenseDate: { gte: day(from), lte: day(to) },
+                  ...inScope,
+                },
+                _sum: { amount: true },
+              })
+            : Promise.resolve({ _sum: { amount: null } }),
           tx.adMetricDaily.aggregate({
             where: { date: { gte: day(from), lte: day(to) } },
             _sum: { clicks: true },
@@ -213,7 +339,7 @@ export class MarketingSummaryService {
           tx.tenantSocialAccount.findUnique({ where: { tenantId }, select: { id: true } }),
         ]);
         const [ga4Sessions, searchClicks, socialRows] = await Promise.all([
-          ga4?.status === 'connected'
+          ga4?.status === 'connected' || ga4?.status === 'error'
             ? tx.ga4SourceRow
                 .aggregate({
                   where: { date: { gte: day(from), lte: day(to) } },
@@ -270,6 +396,8 @@ export class MarketingSummaryService {
         bookings: t.bookings,
         signed: t.signed,
         paid: t.paid,
+        pendingSignature: t.pendingSignature,
+        signedUnpaid: t.signedUnpaid,
         revenue: t.revenue,
         ...extra,
       },
@@ -315,23 +443,39 @@ export class MarketingSummaryService {
   private render(s: MarketingSummaryDto): { subject: string; html: string; text: string } {
     const c = s.current;
     const p = s.previous;
+    const pc = s.previousComplete;
+    // Sin datos de todo el mes anterior, «—» en vez de un 0 que engaña.
+    const web = (n: number) => (pc.web ? int(n) : '—');
     const rows: [string, string, string][] = [
-      ['Visitantes de la web', int(c.visitors), int(p.visitors)],
-      ['Llamadas, WhatsApp y otros clics', int(c.contactClicks), int(p.contactClicks)],
+      ['Visitantes de la web', int(c.visitors), web(p.visitors)],
+      ['Clics en llamar, WhatsApp y otros', int(c.contactClicks), web(p.contactClicks)],
       ['Contactos nuevos', int(c.allContacts), int(p.allContacts)],
       ['Reservas online', int(c.bookings), int(p.bookings)],
       ['Firmadas', int(c.signed), int(p.signed)],
-      ['Cobrado en el primer pago', eur(c.revenue), eur(p.revenue)],
+      ['Cobrado en el primer pago (sin IVA)', eur(c.revenue), eur(p.revenue)],
       ['Gasto en marketing', eur(c.spend), eur(p.spend)],
+      ['Clics en tus anuncios', int(c.adClicks), int(p.adClicks)],
     ];
     if (c.ga4Sessions != null) {
-      rows.push(['Sesiones (Google Analytics)', int(c.ga4Sessions), int(p.ga4Sessions ?? 0)]);
+      rows.push([
+        'Sesiones (Google Analytics)',
+        int(c.ga4Sessions),
+        pc.ga4 && p.ga4Sessions != null ? int(p.ga4Sessions) : '—',
+      ]);
     }
     if (c.searchClicks != null) {
-      rows.push(['Clics desde Google', int(c.searchClicks), int(p.searchClicks ?? 0)]);
+      rows.push([
+        'Clics desde Google',
+        int(c.searchClicks),
+        p.searchClicks != null ? int(p.searchClicks) : '—',
+      ]);
     }
     if (c.socialReach != null) {
-      rows.push(['Alcance en Instagram y Facebook', int(c.socialReach), int(p.socialReach ?? 0)]);
+      rows.push([
+        'Alcance en Instagram y Facebook (suma de cada día)',
+        int(c.socialReach),
+        pc.social && p.socialReach != null ? int(p.socialReach) : '—',
+      ]);
     }
     if (c.socialFollowers != null) {
       rows.push([
@@ -368,7 +512,7 @@ export class MarketingSummaryService {
           ? `<h3 style="margin:24px 0 8px">Por origen</h3>${table(
               ['Origen', 'Visitantes', 'Contactos', 'Reservas', 'Gasto'],
               s.sources.map((x) => [
-                trafficSourceName(x.source, x.paidTraffic, leadSourceLabel),
+                shortName(trafficSourceName(x.source, x.paidTraffic, leadSourceLabel)),
                 int(x.visitors),
                 int(x.contacts),
                 int(x.bookings),

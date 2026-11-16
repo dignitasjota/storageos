@@ -451,7 +451,10 @@ export class LandingService {
         ),
       ),
       whatsappNumber: await this.whatsappNumber(tenant.id),
-      webChatEnabled: await this.webChatEnabled(tenant.id, tenant.webChatEnabled),
+      // Con el negocio suspendido el chat no responde: sin botón.
+      webChatEnabled:
+        tenant.status !== 'suspended' &&
+        (await this.webChatEnabled(tenant.id, tenant.webChatEnabled)),
       testimonials,
       faqs,
       faqEnabled: !hasWebPremium || sections.faq,

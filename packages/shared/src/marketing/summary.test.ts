@@ -18,6 +18,8 @@ const figures = (over: Partial<MarketingMonthFigures> = {}): MarketingMonthFigur
   bookings: 0,
   signed: 0,
   paid: 0,
+  pendingSignature: 0,
+  signedUnpaid: 0,
   revenue: 0,
   spend: 0,
   adClicks: 0,
@@ -85,7 +87,15 @@ describe('marketingSummaryTips', () => {
 
   it('reservas sin firmar o sin pagar y visitas que no convierten', () => {
     const tips = marketingSummaryTips({
-      current: figures({ visitors: 80, bookings: 2, signed: 1, paid: 0 }),
+      current: figures({
+        visitors: 80,
+        bookings: 3,
+        signed: 1,
+        paid: 0,
+        // Una de las dos sin firmar ya caducó: solo cuenta la que sigue en pie.
+        pendingSignature: 1,
+        signedUnpaid: 1,
+      }),
       previous: figures(),
       sources: [],
       connections: connected,
@@ -132,7 +142,13 @@ describe('marketingSummaryTips', () => {
 
   it('nunca da más de cinco consejos', () => {
     const tips = marketingSummaryTips({
-      current: figures({ visitors: 100, bookings: 3, signed: 1 }),
+      current: figures({
+        visitors: 100,
+        bookings: 3,
+        signed: 1,
+        pendingSignature: 2,
+        signedUnpaid: 1,
+      }),
       previous: figures({ visitors: 300 }),
       sources: [source({ source: 'facebook', cost: 50 })],
       connections: { ...connected, ga4: false, searchConsole: false, channelsWithLinks: 0 },
@@ -151,7 +167,7 @@ describe('marketingSummaryTips', () => {
       ['warning', '/marketing/channels'],
       ['good', '/marketing/social'],
     ]);
-    expect(tips[0]!.text).toContain('llegaron a 2400 personas');
+    expect(tips[0]!.text).toContain('sumaron 2400 de alcance');
 
     // Con visitas desde Instagram no avisa.
     const fine = marketingSummaryTips({
@@ -169,5 +185,46 @@ describe('marketingSummaryTips', () => {
       connections: { ...connected, social: false },
     });
     expect(notConnected.map((t) => t.href)).toEqual(['/marketing/social']);
+  });
+
+  it('el canal más rentable necesita dos reservas, y los de Meta cuentan como redes', () => {
+    const one = marketingSummaryTips({
+      current: figures({ visitors: 10, bookings: 1 }),
+      previous: figures(),
+      sources: [
+        source({ source: 'google', paidTraffic: true, cost: 30, bookings: 1, costPerBooking: 30 }),
+      ],
+      connections: connected,
+    });
+    expect(one.some((t) => t.text.includes('más rentable'))).toBe(false);
+
+    // `ig` (Meta Ads) e `instagram_feed` son visitas desde las redes.
+    const ig = marketingSummaryTips({
+      current: figures({ socialReach: 2400 }),
+      previous: figures(),
+      sources: [source({ source: 'instagram_feed', visitors: 3 })],
+      connections: connected,
+    });
+    expect(ig).toEqual([]);
+  });
+
+  it('sin datos de todo el mes anterior no hay tendencias, y sin permiso no se habla del gasto', () => {
+    const partial = marketingSummaryTips({
+      current: figures({ visitors: 30, webContacts: 1, socialReach: 2400 }),
+      previous: figures({ visitors: 60, socialReach: 1000 }),
+      sources: [source({ source: 'instagram', visitors: 3 })],
+      connections: connected,
+      previousComplete: { web: false, ga4: false, social: false },
+    });
+    expect(partial).toEqual([]);
+
+    const noMoney = marketingSummaryTips({
+      current: figures({ visitors: 10, webContacts: 1 }),
+      previous: figures(),
+      sources: [source({ source: 'meta', paidTraffic: true, cost: 120, bookings: 0 })],
+      connections: connected,
+      money: { revenue: false, cost: false },
+    });
+    expect(noMoney).toEqual([]);
   });
 });

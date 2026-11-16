@@ -81,12 +81,45 @@ const KNOWN_REFERRERS: { domains: string[]; source: string; medium: string }[] =
 /** Google en cualquier país (google.es, google.com, google.co.uk…). */
 const isGoogle = (host: string) => /(^|\.)google\.[a-z.]+$/.test(host);
 
+/** Correo web: el visitante pulsó un enlace de un email. */
+const WEBMAIL: { domains: string[]; source: string }[] = [
+  { domains: ['mail.google.com'], source: 'gmail' },
+  {
+    domains: ['outlook.live.com', 'outlook.office.com', 'outlook.office365.com'],
+    source: 'outlook',
+  },
+  { domains: ['mail.yahoo.com'], source: 'yahoo_mail' },
+];
+
+/** Apps de Android que abren el enlace (`android-app://<paquete>`). */
+const ANDROID_APPS: Record<string, TrafficSource> = {
+  'com.google.android.gm': { source: 'gmail', medium: 'email' },
+  'com.google.android.googlequicksearchbox': { source: 'google', medium: 'organic' },
+  'com.google.android.youtube': { source: 'youtube', medium: 'social' },
+  'com.facebook.katana': { source: 'facebook', medium: 'social' },
+  'com.facebook.lite': { source: 'facebook', medium: 'social' },
+  'com.facebook.orca': { source: 'messenger', medium: 'social' },
+  'com.instagram.android': { source: 'instagram', medium: 'social' },
+  'com.whatsapp': { source: 'whatsapp', medium: 'social' },
+  'org.telegram.messenger': { source: 'telegram', medium: 'social' },
+  'com.twitter.android': { source: 'x', medium: 'social' },
+  'com.linkedin.android': { source: 'linkedin', medium: 'social' },
+  'com.zhiliaoapp.musically': { source: 'tiktok', medium: 'social' },
+  'com.pinterest': { source: 'pinterest', medium: 'social' },
+  'com.microsoft.office.outlook': { source: 'outlook', medium: 'email' },
+};
+
 /** Origen a partir de la web de la que viene el visitante; null si es la propia o no hay. */
 export function sourceFromReferrer(referrer: string, ownHosts: string[]): TrafficSource | null {
   const host = hostOf(referrer);
   if (!host) return null;
   const own = ownHosts.map(bareHost);
   if (own.some((h) => host === h)) return null;
+  if (/^android-app:\/\//i.test(referrer.trim())) {
+    return ANDROID_APPS[host] ?? { source: host.slice(0, MAX), medium: 'referral' };
+  }
+  const mail = WEBMAIL.find((w) => w.domains.some((d) => matches(host, d)));
+  if (mail) return { source: mail.source, medium: 'email' };
   if (isGoogle(host)) return { source: 'google', medium: 'organic' };
   const known = KNOWN_REFERRERS.find((r) => r.domains.some((d) => matches(host, d)));
   if (known) return { source: known.source, medium: known.medium };

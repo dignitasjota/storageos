@@ -46,10 +46,16 @@ export function publicBusinessContextLines(args: {
         .map((key) => COMPETITOR_FEATURE_LABELS[key as CompetitorFeature])
         .filter(Boolean)
         .join(', ');
+      // Un local por abrir no se presenta como abierto: se dice cuándo abre.
+      const opening = f.preOpening
+        ? ` · AÚN NO HA ABIERTO (${
+            f.openingDate ? `abre el ${f.openingDate}` : 'fecha de apertura por confirmar'
+          }; se puede reservar antes de la apertura y la cuota empieza a contar al abrir)`
+        : '';
       lines.push(
-        `- ${code(`L${fi + 1}`)}${f.name}${f.address ? `, ${f.address}` : ''}${f.city ? ` (${f.city})` : ''}${
+        `- ${code(`L${fi + 1}`)}${f.name}${f.address ? `, ${f.address}` : ''}${f.city ? ` (${f.city})` : ''}${opening}${
           f.contactPhone ? ` · tel. ${f.contactPhone}` : ''
-        }${hours ? ` · horario de atención: ${hours}` : ''}${
+        }${hours && !f.preOpening ? ` · horario de atención: ${hours}` : ''}${
           special ? ` · días especiales: ${special}` : ''
         }${features ? ` · características: ${features}` : ''}${
           f.directions ? ` · cómo llegar: ${f.directions}` : ''
@@ -97,16 +103,17 @@ export function publicBusinessContextLines(args: {
  * Códigos de los tamaños en el contexto del asistente: `L<n>-T<m>` (local n,
  * tipo m, en el orden de la web). Así el modelo no maneja ids.
  */
-export function bookingCodes(
-  landing: PublicLandingDto,
-): Map<
-  string,
-  { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
-> {
-  const out = new Map<
-    string,
-    { facilityId: string; facilityName: string; unitTypeId: string; unitTypeName: string }
-  >();
+export interface BookingCodeTarget {
+  facilityId: string;
+  facilityName: string;
+  unitTypeId: string;
+  unitTypeName: string;
+  /** Trasteros libres de ese tamaño en ese local. */
+  available: number;
+}
+
+export function bookingCodes(landing: PublicLandingDto): Map<string, BookingCodeTarget> {
+  const out = new Map<string, BookingCodeTarget>();
   landing.facilities.forEach((f, fi) => {
     f.unitTypes.forEach((t, ti) => {
       out.set(`L${fi + 1}-T${ti + 1}`, {
@@ -114,6 +121,7 @@ export function bookingCodes(
         facilityName: f.name,
         unitTypeId: t.id,
         unitTypeName: t.name,
+        available: t.available,
       });
     });
   });

@@ -244,8 +244,9 @@ export class ExpensesService {
     }
     if (refs.category !== undefined) await assertCategory(tx, refs.category);
     if (refs.marketingChannelId && refs.category === 'marketing') {
+      // Un canal borrado ya no recibe gastos nuevos (los que tenía se quedan).
       const channel = await tx.marketingChannel.findFirst({
-        where: { id: refs.marketingChannelId },
+        where: { id: refs.marketingChannelId, deletedAt: null },
         select: { id: true },
       });
       if (!channel) {
@@ -436,7 +437,11 @@ export class ExpensesService {
       await this.assertRefs(tx, {
         facilityId: input.facilityId !== undefined ? facilityId : null,
         ...(input.category !== undefined ? { category } : {}),
-        marketingChannelId: input.marketingChannelId !== undefined ? channelId : null,
+        // Solo si cambia: editar un gasto de un canal ya borrado sigue valiendo.
+        marketingChannelId:
+          input.marketingChannelId !== undefined && channelId !== existing.marketingChannelId
+            ? channelId
+            : null,
         supplierId: input.supplierId ?? null,
       });
 

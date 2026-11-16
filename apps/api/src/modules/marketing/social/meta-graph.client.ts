@@ -8,6 +8,12 @@ import {
 
 const GRAPH = 'https://graph.facebook.com/v23.0';
 const TIMEOUT_MS = 15_000;
+/** Páginas de resultados que se siguen como mucho (listas de páginas y publicaciones). */
+const MAX_PAGES = 10;
+/** Errores de Meta por exceso de llamadas: se avisan, no se tragan. */
+export const META_RATE_LIMIT_CODES = new Set([4, 17, 32, 613, 80001, 80002, 80005, 80006, 80008]);
+/** Errores de token o permisos: se avisan, no se tragan. */
+const META_AUTH_CODES = new Set([190, 10, 200]);
 
 /** Error de la API de Meta con su mensaje (p. ej. token caducado). */
 export class MetaGraphError extends Error {
@@ -17,6 +23,12 @@ export class MetaGraphError extends Error {
   ) {
     super(message);
   }
+}
+
+/** Publicaciones descargadas y las redes cuya lista llegó entera (las que se pueden limpiar). */
+export interface MetaPosts {
+  posts: SocialPostInput[];
+  complete: ('instagram' | 'facebook')[];
 }
 
 /** Página a la que da acceso el token, con su propio token y su Instagram. */
@@ -64,30 +76,49 @@ export class MetaGraphClient {
     return process.env.SOCIAL_MODE === 'stub' || process.env.NODE_ENV === 'test';
   }
 
-  /** Páginas a las que da acceso el token (de usuario, de sistema o de página). */
+  /**
+   * Páginas a las que da acceso el token (de usuario, de sistema o de página).
+   * Un token de usuario sin páginas da una lista vacía.
+   */
   async pages(token: string): Promise<MetaPage[]> {
     if (this.stub) return stubPages(token);
     const ig = 'instagram_business_account{id,username}';
+    type AccountsPage = {
+      data?: {
+        id: string;
+        name: string;
+        access_token?: string;
+        instagram_business_account?: { id: string; username?: string };
+      }[];
+      paging?: { next?: string; cursors?: { after?: string } };
+    };
+    let accounts: AccountsPage['data'] | null = null;
     try {
-      const res = await this.get<{
-        data?: {
-          id: string;
-          name: string;
-          access_token?: string;
-          instagram_business_account?: { id: string; username?: string };
-        }[];
-      }>('/me/accounts', { fields: `id,name,access_token,${ig}`, limit: '100' }, token);
-      const pages = (res.data ?? []).map((p) => ({
+      accounts = [];
+      let after: string | undefined;
+      for (let i = 0; i < MAX_PAGES; i++) {
+        const res = await this.get<AccountsPage>(
+          '/me/accounts',
+          { fields: `id,name,access_token,${ig}`, limit: '100', ...(after ? { after } : {}) },
+          token,
+        );
+        accounts.push(...(res.data ?? []));
+        after = res.paging?.next ? res.paging.cursors?.after : undefined;
+        if (!after) break;
+      }
+    } catch (err) {
+      // Un token de página no tiene «cuentas»: se prueba como página.
+      if (!(err instanceof MetaGraphError) || META_AUTH_CODES.has(err.code ?? -1)) throw err;
+      accounts = null;
+    }
+    if (accounts) {
+      return accounts.map((p) => ({
         id: p.id,
         name: p.name,
         accessToken: p.access_token ?? token,
         instagramUserId: p.instagram_business_account?.id ?? null,
         instagramUsername: p.instagram_business_account?.username ?? null,
       }));
-      if (pages.length > 0) return pages;
-    } catch (err) {
-      // Un token de página no tiene «cuentas»: se prueba como página.
-      if (!(err instanceof MetaGraphError)) throw err;
     }
     const me = await this.get<{
       id: string;
@@ -212,22 +243,25 @@ export class MetaGraphClient {
     return [...days.values()];
   }
 
-  /** Publicaciones desde `since` con sus cifras. */
-  async posts(page: MetaPage, since: string): Promise<SocialPostInput[]> {
+  /**
+   * Publicaciones desde `since` con sus cifras, siguiendo las páginas de
+   * resultados. `complete` dice de qué redes llegó la lista entera.
+   */
+  async posts(page: MetaPage, since: string): Promise<MetaPosts> {
     if (this.stub) return stubPosts(page, since);
     const out: SocialPostInput[] = [];
-    const fb = await this.optional<{
-      data?: {
-        id: string;
-        message?: string;
-        created_time: string;
-        permalink_url?: string;
-        full_picture?: string;
-        shares?: { count: number };
-        reactions?: { summary?: { total_count: number } };
-        comments?: { summary?: { total_count: number } };
-      }[];
-    }>(
+    const complete: MetaPosts['complete'] = [];
+    type FbPost = {
+      id: string;
+      message?: string;
+      created_time: string;
+      permalink_url?: string;
+      full_picture?: string;
+      shares?: { count: number };
+      reactions?: { summary?: { total_count: number } };
+      comments?: { summary?: { total_count: number } };
+    };
+    const fb = await this.listAll<FbPost>(
       `/${page.id}/posts`,
       {
         fields:
@@ -236,8 +270,11 @@ export class MetaGraphClient {
         limit: '50',
       },
       page.accessToken,
+      (p) => p.created_time.slice(0, 10) < since,
     );
-    for (const p of fb?.data ?? []) {
+    if (fb) complete.push('facebook');
+    for (const p of fb ?? []) {
+      if (p.created_time.slice(0, 10) < since) continue;
       out.push({
         network: 'facebook',
         externalId: p.id,
@@ -254,20 +291,19 @@ export class MetaGraphClient {
         views: null,
       });
     }
-    if (!page.instagramUserId) return out;
-    const ig = await this.optional<{
-      data?: {
-        id: string;
-        caption?: string;
-        media_type?: string;
-        permalink?: string;
-        thumbnail_url?: string;
-        media_url?: string;
-        timestamp: string;
-        like_count?: number;
-        comments_count?: number;
-      }[];
-    }>(
+    if (!page.instagramUserId) return { posts: out, complete };
+    type IgMedia = {
+      id: string;
+      caption?: string;
+      media_type?: string;
+      permalink?: string;
+      thumbnail_url?: string;
+      media_url?: string;
+      timestamp: string;
+      like_count?: number;
+      comments_count?: number;
+    };
+    const ig = await this.listAll<IgMedia>(
       `/${page.instagramUserId}/media`,
       {
         fields:
@@ -275,12 +311,26 @@ export class MetaGraphClient {
         limit: '50',
       },
       page.accessToken,
+      (m) => m.timestamp.slice(0, 10) < since,
     );
-    for (const m of ig?.data ?? []) {
+    if (ig) complete.push('instagram');
+    const POST_METRICS = ['reach', 'saved', 'shares', 'views'];
+    for (const m of ig ?? []) {
       if (m.timestamp.slice(0, 10) < since) continue;
-      const metrics = await this.insights(`/${m.id}/insights`, page.accessToken, {
-        metric: 'reach,saved,shares,views',
+      let metrics = await this.insights(`/${m.id}/insights`, page.accessToken, {
+        metric: POST_METRICS.join(','),
       });
+      if (metrics.length === 0) {
+        // Una métrica que no vale para ese tipo de publicación tumba la petición
+        // entera: se piden una a una y las demás se conservan.
+        metrics = (
+          await Promise.all(
+            POST_METRICS.map((metric) =>
+              this.insights(`/${m.id}/insights`, page.accessToken, { metric }),
+            ),
+          )
+        ).flat();
+      }
       const value = (name: string) => num(metrics.find((x) => x.name === name)?.values?.[0]?.value);
       out.push({
         network: 'instagram',
@@ -298,6 +348,34 @@ export class MetaGraphClient {
         views: value('views'),
       });
     }
+    return { posts: out, complete };
+  }
+
+  /**
+   * Lista paginada hasta que `stop` diga que ya se ha llegado a lo antiguo (o
+   * no haya más). null si Meta no la da (sin permiso, por ejemplo); un token
+   * caducado o un límite de llamadas se avisan.
+   */
+  private async listAll<T>(
+    path: string,
+    params: Record<string, string>,
+    token: string,
+    stop: (item: T) => boolean,
+  ): Promise<T[] | null> {
+    const out: T[] = [];
+    let after: string | undefined;
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const res = await this.optional<{
+        data?: T[];
+        paging?: { next?: string; cursors?: { after?: string } };
+      }>(path, { ...params, ...(after ? { after } : {}) }, token);
+      if (!res) return i === 0 ? null : out;
+      const items = res.data ?? [];
+      out.push(...items);
+      if (items.some(stop)) break;
+      after = res.paging?.next ? res.paging.cursors?.after : undefined;
+      if (!after) break;
+    }
     return out;
   }
 
@@ -312,8 +390,10 @@ export class MetaGraphClient {
       return res.data ?? [];
     } catch (err) {
       if (!(err instanceof MetaGraphError)) throw err;
-      // Token caducado o sin permiso: que lo vea quien sincroniza.
-      if (err.code === 190 || err.code === 10 || err.code === 200) throw err;
+      // Token caducado, sin permiso o límite de llamadas: que lo vea quien sincroniza.
+      if (META_AUTH_CODES.has(err.code ?? -1) || META_RATE_LIMIT_CODES.has(err.code ?? -1)) {
+        throw err;
+      }
       this.logger.debug(`[social] ${path} ${params.metric}: ${err.message}`);
       return [];
     }
@@ -327,33 +407,59 @@ export class MetaGraphClient {
     try {
       return await this.get<T>(path, params, token);
     } catch (err) {
-      if (err instanceof MetaGraphError && err.code !== 190) return null;
+      if (
+        err instanceof MetaGraphError &&
+        err.code !== 190 &&
+        !META_RATE_LIMIT_CODES.has(err.code ?? -1)
+      ) {
+        return null;
+      }
       throw err;
     }
   }
 
+  /**
+   * Petición a la Graph API. Un corte de red o un error del servidor de Meta
+   * (5xx) se reintenta dos veces: en una descarga de decenas de llamadas, uno
+   * solo no debe tumbarla entera.
+   */
   private async get<T>(path: string, params: Record<string, string>, token: string): Promise<T> {
     // El token va en la cabecera: en la dirección acabaría en registros y en Sentry.
     const qs = new URLSearchParams(params);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    try {
-      const res = await fetch(`${GRAPH}${path}?${qs.toString()}`, {
-        headers: { authorization: `Bearer ${token}` },
-        signal: ctrl.signal,
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: { message?: string; code?: number };
-      };
-      if (!res.ok || body.error) {
-        throw new MetaGraphError(
-          body.error?.message ?? `Meta respondió ${res.status}`,
-          body.error?.code,
-        );
+    for (let attempt = 0; ; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+      try {
+        const res = await fetch(`${GRAPH}${path}?${qs.toString()}`, {
+          headers: { authorization: `Bearer ${token}` },
+          signal: ctrl.signal,
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: { message?: string; code?: number; is_transient?: boolean };
+        };
+        if (!res.ok || body.error) {
+          const transient = res.status >= 500 || body.error?.is_transient === true;
+          if (transient && attempt < 2) {
+            await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+            continue;
+          }
+          throw new MetaGraphError(
+            body.error?.message ?? `Meta respondió ${res.status}`,
+            body.error?.code,
+          );
+        }
+        return body as T;
+      } catch (err) {
+        if (err instanceof MetaGraphError) throw err;
+        // Corte de red o tiempo agotado.
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      } finally {
+        clearTimeout(timer);
       }
-      return body as T;
-    } finally {
-      clearTimeout(timer);
     }
   }
 }
@@ -417,7 +523,7 @@ function stubDaily(page: MetaPage, start: string, end: string): SocialDailyInput
   return out;
 }
 
-function stubPosts(page: MetaPage, since: string): SocialPostInput[] {
+function stubPosts(page: MetaPage, since: string): MetaPosts {
   const out: SocialPostInput[] = [];
   for (let i = 0; i < 4; i++) {
     // Hace 3, 23, 43 y 63 días (dentro de los 90 que se piden).
@@ -459,5 +565,5 @@ function stubPosts(page: MetaPage, since: string): SocialPostInput[] {
       views: null,
     });
   }
-  return out;
+  return { posts: out, complete: page.instagramUserId ? ['facebook', 'instagram'] : ['facebook'] };
 }

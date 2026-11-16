@@ -182,7 +182,9 @@ export class BookingService {
       logoUrl: tenant.portalLogoUrl,
       googleAnalyticsId: tenant.googleAnalyticsId,
       webChatEnabled:
-        tenant.webChatEnabled && (await tenantHasFeature(this.admin, tenant.id, 'ai_assistant')),
+        tenant.status !== 'suspended' &&
+        tenant.webChatEnabled &&
+        (await tenantHasFeature(this.admin, tenant.id, 'ai_assistant')),
       customDomain:
         tenant.customDomain && tenant.customDomainVerifiedAt ? tenant.customDomain : null,
       referralEnabled: tenant.referralEnabled,
@@ -384,6 +386,8 @@ export class BookingService {
     slug: string,
     input: PublicBookingInput,
     meta: RequestMeta,
+    /** Por dónde llega: el formulario de la web (por defecto), el chat o WhatsApp. */
+    opts: { channel?: 'web_chat' | 'whatsapp' } = {},
   ): Promise<BookingResultDto> {
     // Honeypot anti-bot: si viene relleno, rechazamos sin crear nada.
     if (input.website && input.website.trim() !== '') {
@@ -639,6 +643,7 @@ export class BookingService {
                 ...((existingLead.metadata as Record<string, unknown> | null) ?? {}),
                 selfBooked: true,
                 bookingUtm,
+                bookingChannel: opts.channel ?? 'web',
               },
             },
           });
@@ -655,7 +660,8 @@ export class BookingService {
           await tx.lead.create({
             data: {
               tenantId,
-              source: 'widget',
+              // Reserva desde el chat o desde WhatsApp: su canal, no el de la web.
+              source: opts.channel ?? 'widget',
               email: input.customer.email.trim().toLowerCase(),
               firstName: input.customer.firstName.trim(),
               lastName: input.customer.lastName.trim(),
@@ -668,7 +674,12 @@ export class BookingService {
               utmSource: input.utmSource ?? null,
               utmMedium: input.utmMedium ?? null,
               utmCampaign: input.utmCampaign ?? null,
-              metadata: { origin: 'booking', selfBooked: true, bookingUtm },
+              metadata: {
+                origin: 'booking',
+                selfBooked: true,
+                bookingUtm,
+                bookingChannel: opts.channel ?? 'web',
+              },
             },
           });
         }
@@ -691,8 +702,13 @@ export class BookingService {
     if (input.visitorId) {
       await this.admin.webChatConversation
         .updateMany({
-          where: { tenantId, visitorId: input.visitorId, contractId: null },
-          data: { contractId: contract.id },
+          // También si la reserva anterior del chat caducó o se canceló.
+          where: {
+            tenantId,
+            visitorId: input.visitorId,
+            OR: [{ contractId: null }, { contract: { is: { status: 'cancelled' } } }],
+          },
+          data: { contractId: contract.id, bookedInChat: false },
         })
         .catch(() => undefined);
     }

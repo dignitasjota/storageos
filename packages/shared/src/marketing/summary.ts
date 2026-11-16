@@ -27,6 +27,10 @@ export interface MarketingMonthFigures {
   bookings: number;
   signed: number;
   paid: number;
+  /** Reservas del mes que siguen en pie sin firmar (las caducadas o canceladas no). */
+  pendingSignature: number;
+  /** Firmadas que siguen en pie con el primer pago pendiente. */
+  signedUnpaid: number;
   /** Cobrado en el primer pago de esas reservas. */
   revenue: number;
   /** Gastos de la categoría Marketing del mes. */
@@ -39,8 +43,19 @@ export interface MarketingMonthFigures {
   searchClicks: number | null;
   /** Seguidores de Instagram + Facebook al final del mes; null sin conectar. */
   socialFollowers: number | null;
-  /** Alcance de Instagram + Facebook en el mes; null sin conectar. */
+  /** Alcance de Instagram + Facebook en el mes (suma de cada día); null sin conectar. */
   socialReach: number | null;
+}
+
+/**
+ * Hay datos de todo el mes anterior para comparar (la medición, Google
+ * Analytics o las redes ya estaban): si no, no se compara ni se dan consejos
+ * de tendencia.
+ */
+export interface MarketingPreviousCoverage {
+  web: boolean;
+  ga4: boolean;
+  social: boolean;
 }
 
 export interface MarketingSummarySourceDto {
@@ -87,6 +102,12 @@ export interface MarketingSummaryDto {
   to: string;
   current: MarketingMonthFigures;
   previous: MarketingMonthFigures;
+  /** El mes anterior tiene datos completos de cada fuente. */
+  previousComplete: MarketingPreviousCoverage;
+  /** El mes está en curso: el anterior se cuenta hasta el mismo día. */
+  partial: boolean;
+  /** Qué importes puede ver quien consulta (sin permiso salen a 0). */
+  money: { revenue: boolean; cost: boolean };
   sources: MarketingSummarySourceDto[];
   connections: MarketingSummaryConnections;
   tips: MarketingTipDto[];
@@ -152,6 +173,11 @@ const TREND_BASE_MIN = 20;
 const MAX_TIPS = 5;
 /** Alcance en redes a partir del cual se habla de él. */
 const SOCIAL_REACH_MIN = 500;
+/** Reservas mínimas para llamar a un canal «el más rentable». */
+const BEST_CHANNEL_MIN_BOOKINGS = 2;
+
+/** Orígenes de Instagram o Facebook (también los de Meta Ads: `ig`, `fb`, `instagram_feed`…). */
+const SOCIAL_SOURCE_RE = /^(instagram|facebook|ig|fb|meta|messenger)([_\-.].*)?$/;
 
 /**
  * Qué hacer este mes: primero lo que pide actuar, luego lo que funciona y al
@@ -160,17 +186,26 @@ const SOCIAL_REACH_MIN = 500;
 export function marketingSummaryTips(input: {
   current: MarketingMonthFigures;
   previous: MarketingMonthFigures;
+  /** Todos los orígenes (no solo los que se enseñan). */
   sources: MarketingSummarySourceDto[];
   connections: MarketingSummaryConnections;
+  /** Sin datos de todo el mes anterior no hay consejos de tendencia. */
+  previousComplete?: MarketingPreviousCoverage;
+  /** Sin permiso para ver el gasto, no hay consejos que lo digan. */
+  money?: { revenue: boolean; cost: boolean };
 }): MarketingTipDto[] {
   const { current: c, previous: p, sources, connections: conn } = input;
+  const coverage = input.previousComplete ?? { web: true, ga4: true, social: true };
+  const seeCost = input.money?.cost ?? true;
   const warnings: MarketingTipDto[] = [];
   const good: MarketingTipDto[] = [];
   const info: MarketingTipDto[] = [];
 
-  const wasted = sources
-    .filter((s) => s.cost >= WASTED_SPEND_MIN && s.bookings === 0)
-    .sort((a, b) => b.cost - a.cost)[0];
+  const wasted = seeCost
+    ? sources
+        .filter((s) => s.cost >= WASTED_SPEND_MIN && s.bookings === 0)
+        .sort((a, b) => b.cost - a.cost)[0]
+    : undefined;
   if (wasted) {
     warnings.push({
       kind: 'warning',
@@ -179,7 +214,8 @@ export function marketingSummaryTips(input: {
     });
   }
 
-  const unsigned = c.bookings - c.signed;
+  // Solo las que siguen en pie: una reserva caducada ya no se puede firmar.
+  const unsigned = c.pendingSignature;
   if (unsigned > 0) {
     warnings.push({
       kind: 'warning',
@@ -187,7 +223,7 @@ export function marketingSummaryTips(input: {
       href: '/contracts',
     });
   }
-  const unpaid = c.signed - c.paid;
+  const unpaid = c.signedUnpaid;
   if (unpaid > 0) {
     warnings.push({
       kind: 'warning',
@@ -204,7 +240,7 @@ export function marketingSummaryTips(input: {
     });
   }
 
-  if (p.visitors >= TREND_BASE_MIN) {
+  if (coverage.web && p.visitors >= TREND_BASE_MIN) {
     const change = Math.round(((c.visitors - p.visitors) / p.visitors) * 100);
     if (change <= -20) {
       warnings.push({
@@ -223,16 +259,16 @@ export function marketingSummaryTips(input: {
 
   // Redes: llegan a gente, pero ¿entra alguien en la web desde ahí?
   const socialVisitors = sources
-    .filter((s) => s.source === 'instagram' || s.source === 'facebook')
+    .filter((s) => SOCIAL_SOURCE_RE.test(s.source))
     .reduce((n, s) => n + s.visitors, 0);
   if ((c.socialReach ?? 0) >= SOCIAL_REACH_MIN && socialVisitors === 0) {
     warnings.push({
       kind: 'warning',
-      text: `Tus publicaciones llegaron a ${c.socialReach!.toLocaleString('es-ES')} personas en Instagram y Facebook, pero nadie entró en tu web desde ahí. Pon el enlace de tu web en la biografía y en las publicaciones (con un enlace de canal sabrás cuál funciona).`,
+      text: `Tus publicaciones sumaron ${c.socialReach!.toLocaleString('es-ES')} de alcance en Instagram y Facebook, pero nadie entró en tu web desde ahí. Pon el enlace de tu web en la biografía y en las publicaciones (con un enlace de canal sabrás cuál funciona).`,
       href: '/marketing/channels',
     });
   }
-  if (c.socialReach != null && (p.socialReach ?? 0) >= SOCIAL_REACH_MIN) {
+  if (coverage.social && c.socialReach != null && (p.socialReach ?? 0) >= SOCIAL_REACH_MIN) {
     const change = Math.round(((c.socialReach - p.socialReach!) / p.socialReach!) * 100);
     if (change >= 30) {
       good.push({
@@ -243,9 +279,14 @@ export function marketingSummaryTips(input: {
     }
   }
 
-  const paidSources = sources
-    .filter((s) => s.bookings > 0 && s.cost > 0 && s.costPerBooking != null)
-    .sort((a, b) => a.costPerBooking! - b.costPerBooking!);
+  // «El más rentable» con al menos dos reservas: con una sola es suerte.
+  const paidSources = seeCost
+    ? sources
+        .filter(
+          (s) => s.bookings >= BEST_CHANNEL_MIN_BOOKINGS && s.cost > 0 && s.costPerBooking != null,
+        )
+        .sort((a, b) => a.costPerBooking! - b.costPerBooking!)
+    : [];
   const best = paidSources[0];
   if (best) {
     good.push({
@@ -255,7 +296,7 @@ export function marketingSummaryTips(input: {
     });
   } else {
     const top = sources
-      .filter((s) => s.bookings > 0 && s.source !== 'web')
+      .filter((s) => s.bookings > 0 && s.source !== 'web' && (!seeCost || s.cost === 0))
       .sort((a, b) => b.bookings - a.bookings)[0];
     if (top) {
       good.push({

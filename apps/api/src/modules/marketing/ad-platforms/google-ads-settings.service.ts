@@ -111,14 +111,21 @@ export class GoogleAdsSettingsService {
     return this.get(tenantId);
   }
 
-  /** Credenciales descifradas, o null si la integración no está activa/completa. */
-  async getCredentials(tenantId: string): Promise<GoogleAdsCredentials | null> {
+  /**
+   * Credenciales descifradas, o null si están incompletas o (con
+   * `requireEnabled`) la integración no está activa.
+   */
+  async getCredentials(
+    tenantId: string,
+    requireEnabled = true,
+  ): Promise<GoogleAdsCredentials | null> {
     const row = await this.prisma.withTenant(
       (tx) => tx.googleAdsSettings.findUnique({ where: { tenantId } }),
       tenantId,
     );
     if (
-      !row?.enabled ||
+      !row ||
+      (requireEnabled && !row.enabled) ||
       !row.clientId ||
       !row.clientSecretEncrypted ||
       !row.developerTokenEncrypted ||
@@ -137,10 +144,11 @@ export class GoogleAdsSettingsService {
     };
   }
 
+  /** Prueba las credenciales guardadas, también antes de activar la integración. */
   async test(tenantId: string): Promise<AdPlatformTestResultDto> {
-    const creds = await this.getCredentials(tenantId);
+    const creds = await this.getCredentials(tenantId, false);
     if (!creds) {
-      return { ok: false, message: 'Faltan credenciales o la integración no está activa' };
+      return { ok: false, message: 'Faltan credenciales: guárdalas antes de probar' };
     }
     try {
       await new GoogleAdsClient(creds).testConnection();
@@ -148,6 +156,15 @@ export class GoogleAdsSettingsService {
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : 'Error de conexión' };
     }
+  }
+
+  /** Borra las credenciales (la integración queda desactivada). */
+  async remove(tenantId: string): Promise<GoogleAdsSettingsDto> {
+    await this.prisma.withTenant(
+      (tx) => tx.googleAdsSettings.deleteMany({ where: { tenantId } }),
+      tenantId,
+    );
+    return this.get(tenantId);
   }
 
   async recordSyncResult(tenantId: string, error: string | null): Promise<void> {

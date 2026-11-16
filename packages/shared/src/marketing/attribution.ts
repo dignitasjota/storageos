@@ -28,6 +28,11 @@ export interface AttributableChannel {
   externalCampaignId: string | null;
   externalUrl?: string | null;
   createdAt: Date | string;
+  /**
+   * Canal borrado: solo recoge lo que llega con su campaña (los enlaces y QR
+   * suyos que siguen impresos); su origen ya es de los canales vivos.
+   */
+  deletedAt?: Date | string | null;
 }
 
 /** Medios de pago (estándar de Google Analytics y los habituales de Meta). */
@@ -171,10 +176,16 @@ export function defaultChannelSource(args: {
 
 const time = (d: Date | string) => (typeof d === 'string' ? Date.parse(d) : d.getTime());
 
-/** Orden estable entre canales que empatan: los activos y, entre ellos, el más antiguo. */
+/** Orden estable entre canales que empatan: los vivos y activos y, entre ellos, el más antiguo. */
 function byPriority<T extends AttributableChannel>(a: T, b: T): number {
+  const live = (c: T) => (c.deletedAt ? 1 : 0);
   const active = (c: T) => (c.status === 'active' ? 0 : 1);
-  return active(a) - active(b) || time(a.createdAt) - time(b.createdAt) || a.id.localeCompare(b.id);
+  return (
+    live(a) - live(b) ||
+    active(a) - active(b) ||
+    time(a.createdAt) - time(b.createdAt) ||
+    a.id.localeCompare(b.id)
+  );
 }
 
 /** Nivel de coincidencia de un canal con una visita (0 = no coincide). */
@@ -187,6 +198,7 @@ function matchLevel(channel: AttributableChannel, touch: TrafficTouch): number {
   ) {
     return 3;
   }
+  if (channel.deletedAt) return 0;
   const key = trafficKey(touch);
   if (isAdChannel(channel)) {
     return key.paid && channelSources(channel).includes(key.source) ? 2 : 0;
@@ -223,7 +235,7 @@ export function channelSourceConflicts(
   channels: readonly AttributableChannel[],
 ): Map<string, string> {
   const out = new Map<string, string>();
-  const sorted = [...channels].sort(byPriority);
+  const sorted = [...channels].filter((c) => !c.deletedAt).sort(byPriority);
   for (const c of sorted) {
     const mine = new Set(channelSources(c));
     const other = sorted.find(
@@ -261,6 +273,11 @@ const SOURCE_NAMES: Record<string, string> = {
   linkedin: 'LinkedIn',
   x: 'X (Twitter)',
   whatsapp: 'WhatsApp',
+  gmail: 'Gmail',
+  outlook: 'Outlook',
+  yahoo_mail: 'Yahoo Mail',
+  telegram: 'Telegram',
+  pinterest: 'Pinterest',
   idealista: 'Idealista',
   fotocasa: 'Fotocasa',
   habitaclia: 'Habitaclia',

@@ -20,6 +20,7 @@ import {
   YAxis,
 } from 'recharts';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSocialReport } from '@/lib/marketing/hooks';
 
@@ -48,9 +49,10 @@ function delta(now: number, before: number): { text: string; className: string }
 }
 
 /** Cifras de una red. Las que Meta no da en esa red (0 en todo el periodo) no salen. */
-function NetworkCard({ n }: { n: SocialNetworkReportDto }) {
+function NetworkCard({ n, compare }: { n: SocialNetworkReportDto; compare: boolean }) {
   const metrics: { key: keyof SocialTotals; label: string }[] = [
-    { key: 'reach', label: 'Alcance' },
+    // La suma del alcance de cada día: una persona que vuelve otro día cuenta otra vez.
+    { key: 'reach', label: 'Alcance (suma de cada día)' },
     { key: 'views', label: 'Visualizaciones' },
     { key: 'engagements', label: 'Interacciones' },
     { key: 'profileViews', label: 'Visitas al perfil' },
@@ -100,7 +102,8 @@ function NetworkCard({ n }: { n: SocialNetworkReportDto }) {
         ) : (
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {shown.map((m) => {
-              const d = delta(n.totals[m.key], n.previous[m.key]);
+              // Sin datos de todo el periodo anterior (recién conectado) no se compara.
+              const d = compare ? delta(n.totals[m.key], n.previous[m.key]) : null;
               return (
                 <div key={m.key}>
                   <dt className="text-xs text-muted-foreground">{m.label}</dt>
@@ -177,7 +180,6 @@ function ReachChart({ networks }: { networks: SocialNetworkReportDto[] }) {
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 4 }}
-              connectNulls
             />
           ))}
         </LineChart>
@@ -198,7 +200,7 @@ function Report({ report }: { report: SocialReportDto }) {
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         {report.networks.map((n) => (
-          <NetworkCard key={n.network} n={n} />
+          <NetworkCard key={n.network} n={n} compare={report.previousComplete} />
         ))}
       </div>
 
@@ -206,7 +208,8 @@ function Report({ report }: { report: SocialReportDto }) {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Alcance por día</CardTitle>
           <CardDescription>
-            Personas distintas que vieron tus publicaciones o tu perfil.
+            Personas distintas que vieron tus publicaciones o tu perfil cada día. Un día sin dato de
+            Meta queda en blanco.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -221,7 +224,7 @@ function Report({ report }: { report: SocialReportDto }) {
             Quien entró en tu web desde Instagram o Facebook y lo que hizo después.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
@@ -248,7 +251,10 @@ function Report({ report }: { report: SocialReportDto }) {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Tus mejores publicaciones</CardTitle>
-          <CardDescription>Por alcance (o interacción, si Meta no da el alcance).</CardDescription>
+          <CardDescription>
+            Las de cada red por separado: en Instagram por alcance y en Facebook por interacción
+            (Meta no da su alcance).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {report.topPosts.length === 0 ? (
@@ -321,11 +327,12 @@ export function SocialReportSection() {
         <p className="text-sm text-muted-foreground">
           {report.data ? `Del ${dayLabel(report.data.from)} al ${dayLabel(report.data.to)}` : ''}
         </p>
-        <div className="flex gap-1 rounded-md border p-1">
+        <div className="flex gap-1 rounded-md border p-1" role="group" aria-label="Periodo">
           {SOCIAL_REPORT_DAYS.map((d) => (
             <button
               key={d}
               type="button"
+              aria-pressed={days === d}
               onClick={() => setDays(d)}
               className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
                 days === d
@@ -338,8 +345,12 @@ export function SocialReportSection() {
           ))}
         </div>
       </div>
-      {report.isLoading || !report.data ? (
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      {report.isError ? (
+        <SectionError onRetry={() => void report.refetch()} />
+      ) : report.isLoading || !report.data ? (
+        <div role="status" aria-label="Cargando">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
       ) : (
         <Report report={report.data} />
       )}

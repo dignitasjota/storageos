@@ -6,7 +6,9 @@ import {
   WEB_CHAT_PROACTIVE_SECONDS,
   type PublicWebChatHistoryDto,
   type PublicWebChatResultDto,
+  type PublicWebChatUpdatesDto,
   type WebChatMode,
+  type WebChatRole,
 } from '@storageos/shared';
 import {
   Bot,
@@ -27,45 +29,80 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { legalHref } from './i18n/messages';
 
 import { EmailTypoHint } from '@/components/email-typo-hint';
-import { visitorId } from '@/lib/attribution';
+import { currentTrafficSource, visitorId } from '@/lib/attribution';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const PROACTIVE_KEY = 'storageos.webchat.proactive';
+/** Último momento en que el visitante vio la conversación (por negocio). */
+const seenKey = (slug: string) => `storageos.webchat.seen.${slug}`;
 const POLL_MS = 10_000;
+/** Con la burbuja cerrada (o en modo asistente) se mira si ha respondido el equipo. */
+const UPDATES_MS = 30_000;
 
 interface Line {
   id?: string | null;
-  role: 'visitor' | 'assistant' | 'staff';
+  role: WebChatRole;
   content: string;
   rating?: 1 | -1 | null;
 }
 
+/** Signos que cierran la frase y no forman parte del enlace («…aquí: https://x/book/demo.»). */
+const TRAILING_RE = /[.,;:!?»"'”’)\]]+$/;
+
+/** Separa un enlace de la puntuación que lo sigue. */
+export function splitUrl(raw: string): { url: string; rest: string } {
+  const m = raw.match(TRAILING_RE);
+  if (!m) return { url: raw, rest: '' };
+  let tail = m[0];
+  // Un paréntesis que se abrió dentro del enlace es suyo.
+  if (tail.startsWith(')') && raw.includes('(')) tail = tail.slice(1);
+  return { url: raw.slice(0, raw.length - tail.length), rest: tail };
+}
+
 /** Enlaces dentro del texto del asistente (el de reserva, sobre todo). */
 function Linkified({ text }: { text: string }) {
-  const parts = text.split(/(https?:\/\/[^\s)]+)/g);
+  const parts = text.split(/(https?:\/\/[^\s<>]+)/g);
   return (
     <>
-      {parts.map((p, i) =>
-        /^https?:\/\//.test(p) ? (
-          <a
-            key={i}
-            href={p}
-            target={
-              typeof window !== 'undefined' && p.startsWith(window.location.origin)
-                ? undefined
-                : '_blank'
-            }
-            rel="noopener noreferrer"
-            className="break-all font-medium underline"
-          >
-            {p}
-          </a>
-        ) : (
-          <span key={i}>{p}</span>
-        ),
-      )}
+      {parts.map((p, i) => {
+        if (!/^https?:\/\//.test(p)) return <span key={i}>{p}</span>;
+        const { url, rest } = splitUrl(p);
+        return (
+          <span key={i}>
+            <a
+              href={url}
+              target={
+                typeof window !== 'undefined' && url.startsWith(window.location.origin)
+                  ? undefined
+                  : '_blank'
+              }
+              rel="noopener noreferrer"
+              className="break-all font-medium underline"
+            >
+              {url}
+            </a>
+            {rest}
+          </span>
+        );
+      })}
     </>
   );
+}
+
+function readSeen(slug: string): string | undefined {
+  try {
+    return window.localStorage.getItem(seenKey(slug)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSeen(slug: string, at: string): void {
+  try {
+    window.localStorage.setItem(seenKey(slug), at);
+  } catch {
+    /* sin almacenamiento */
+  }
 }
 
 /** Lee los eventos SSE de `chat/stream` (`text` con cada trozo y `done` al final). */
@@ -141,7 +178,17 @@ export function WebChatWidget({
   const [leadCaptured, setLeadCaptured] = useState(false);
   const [nudge, setNudge] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [askContact, setAskContact] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  /** Mensajes del equipo que aún no ha visto (con la burbuja cerrada). */
+  const [unseen, setUnseen] = useState(0);
+  /** Tiene conversación reciente: con ella se mira de vez en cuando si respondió el equipo. */
+  const [active, setActive] = useState(false);
+  const [announce, setAnnounce] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const color = brandColor || '#2563EB';
   const base = `${API_URL}/public/landing/${encodeURIComponent(slug)}`;
 
@@ -152,7 +199,12 @@ export function WebChatWidget({
       body: JSON.stringify({ visitorId: visitorId(), locale }),
     }).catch(() => null);
     const data = r?.ok ? ((await r.json()) as PublicWebChatHistoryDto) : null;
-    if (!data) return;
+    if (!data) {
+      setLoadError(true);
+      return;
+    }
+    setLoadError(false);
+    setActive(data.messages.length > 0);
     setLines(data.messages.map((m) => ({ ...m })));
     setContact(data.contact);
     setMode(data.mode);
@@ -164,12 +216,62 @@ export function WebChatWidget({
     setBlocked(data.limited === 'visitor');
   }, [base, locale]);
 
-  // La conversación anterior del visitante (si la hay), al abrir.
+  // Al abrir: la conversación (la anterior, o lo que haya respondido el equipo mientras estaba cerrado).
   useEffect(() => {
-    if (!open || loaded || !enabled) return;
-    setLoaded(true);
-    void loadHistory();
-  }, [open, loaded, enabled, loadHistory]);
+    if (!open || !enabled) return;
+    if (!loaded || unseen > 0) {
+      setLoaded(true);
+      void loadHistory();
+    }
+    setUnseen(0);
+    writeSeen(slug, new Date().toISOString());
+    // El foco va al campo de escribir (con ratón o teclado) o al propio diálogo (móvil).
+    const fine = window.matchMedia?.('(pointer: fine)').matches;
+    window.setTimeout(() => (fine ? inputRef.current : dialogRef.current)?.focus(), 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir
+  }, [open, enabled]);
+
+  // Mientras está abierto, lo que ve ya está visto.
+  useEffect(() => {
+    if (open && lines.length > 0) writeSeen(slug, new Date().toISOString());
+  }, [open, lines, slug]);
+
+  // ¿Ha respondido alguien del equipo? Con la burbuja cerrada (contador) o abierta en
+  // modo asistente (el equipo puede haber tomado la conversación). Solo con la
+  // pestaña visible y una conversación reciente.
+  useEffect(() => {
+    if (!enabled) return;
+    if (open && mode === 'human') return; // ya se consulta cada pocos segundos
+    let stopped = false;
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const after = readSeen(slug);
+      // Quien nunca ha abierto el chat no tiene nada que consultar.
+      if (!after && !open) return;
+      const r = await fetch(`${base}/chat/updates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visitorId: visitorId(), ...(after ? { after } : {}) }),
+      }).catch(() => null);
+      const data = r?.ok ? ((await r.json()) as PublicWebChatUpdatesDto) : null;
+      if (!data || stopped) return;
+      setActive(data.active);
+      if (!data.active) return;
+      if (open) {
+        if (data.staffMessages > 0 || data.mode !== mode) void loadHistory();
+      } else {
+        setUnseen(data.staffMessages);
+      }
+    };
+    void check();
+    const id = window.setInterval(() => {
+      if (active || open) void check();
+    }, UPDATES_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [enabled, open, mode, active, base, slug, loadHistory]);
 
   // La atiende una persona: se consulta cada pocos segundos lo que responde el equipo.
   useEffect(() => {
@@ -224,6 +326,8 @@ export function WebChatWidget({
           message,
           locale,
           pagePath: window.location.pathname,
+          // De dónde vino la visita: la reserva o el contacto que salga del chat lo heredan.
+          ...attribution(),
         }),
       });
       if (res.status === 429) throw new Error('rate');
@@ -252,6 +356,9 @@ export function WebChatWidget({
       setContact(data.contact);
       setMode(data.mode);
       setLeadCaptured(data.leadCaptured);
+      setActive(true);
+      if (data.answer) setAnnounce(data.answer);
+      if (data.askContact) setAskContact(true);
       if (data.mode === 'human' && !waitingSince) setWaitingSince(new Date().toISOString());
       if (data.limited) setBlocked(true);
     } catch (err) {
@@ -268,6 +375,15 @@ export function WebChatWidget({
     }
   }
 
+  function attribution(): Record<string, string> {
+    const origin = currentTrafficSource(slug);
+    return {
+      ...(origin?.source ? { utmSource: origin.source } : {}),
+      ...(origin?.medium ? { utmMedium: origin.medium } : {}),
+      ...(origin?.campaign ? { utmCampaign: origin.campaign } : {}),
+    };
+  }
+
   async function askPerson() {
     if (sending) return;
     setSending(true);
@@ -276,19 +392,31 @@ export function WebChatWidget({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ visitorId: visitorId(), locale }),
-      });
-      const data = res.ok ? ((await res.json()) as PublicWebChatResultDto) : null;
-      if (data) {
-        if (data.answer) {
-          setLines((l) => [...l, { id: data.messageId, role: 'assistant', content: data.answer }]);
-        }
-        setMode(data.mode);
+      }).catch(() => null);
+      const data = res?.ok ? ((await res.json()) as PublicWebChatResultDto) : null;
+      if (!data) {
+        setLines((l) => [...l, { id: null, role: 'system', content: t('handoffError') }]);
+        return;
+      }
+      if (data.answer) {
+        setLines((l) => [...l, { id: data.messageId, role: 'system', content: data.answer }]);
+        setAnnounce(data.answer);
+      }
+      setMode(data.mode);
+      if (data.askContact) setAskContact(true);
+      if (data.mode === 'human') {
         setWaitingSince(new Date().toISOString());
         setNow(Date.now());
       }
     } finally {
       setSending(false);
     }
+  }
+
+  function close() {
+    setOpen(false);
+    writeSeen(slug, new Date().toISOString());
+    window.setTimeout(() => openButtonRef.current?.focus(), 0);
   }
 
   async function rate(index: number, value: 1 | -1) {
@@ -328,38 +456,73 @@ export function WebChatWidget({
   return (
     <>
       {!open && nudge && (
-        <button
-          type="button"
-          onClick={() => {
-            setNudge(false);
-            setOpen(true);
-          }}
-          className={`fixed right-20 z-50 max-w-[16rem] rounded-2xl rounded-br-sm border border-black/10 bg-white px-3 py-2 text-left text-sm text-neutral-900 shadow-lg ${position}`}
+        <div
+          className={`fixed right-20 z-50 flex max-w-[17rem] items-start gap-1 rounded-2xl rounded-br-sm border border-black/10 bg-white py-1 pl-3 pr-1 text-sm text-neutral-900 shadow-lg ${position}`}
         >
-          {t('proactive')}
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              setNudge(false);
+              setOpen(true);
+            }}
+            className="py-1 text-left"
+          >
+            {t('proactive')}
+          </button>
+          <button
+            type="button"
+            onClick={() => setNudge(false)}
+            aria-label={t('closeNudge')}
+            title={t('closeNudge')}
+            className="flex size-9 shrink-0 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-100"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
       )}
       {!open && (
         <button
+          ref={openButtonRef}
           type="button"
           onClick={() => {
             setNudge(false);
             setOpen(true);
           }}
-          aria-label={t('open')}
+          aria-label={
+            unseen > 0 ? `${t('open')} · ${t('newMessages', { count: unseen })}` : t('open')
+          }
           title={t('open')}
           style={{ backgroundColor: color }}
           className={`fixed right-4 z-50 flex size-14 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-105 focus:outline-none focus-visible:ring-4 focus-visible:ring-black/20 ${position}`}
         >
           <MessageCircle className="size-7" />
+          {unseen > 0 && (
+            <span
+              aria-hidden
+              className="absolute -right-1 -top-1 flex min-w-6 items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-bold leading-6 text-white ring-2 ring-white"
+            >
+              {unseen > 9 ? '9+' : unseen}
+            </span>
+          )}
         </button>
       )}
       {open && (
         <div
+          ref={dialogRef}
           role="dialog"
           aria-label={t('title', { name: tenantName })}
-          className="fixed inset-x-2 bottom-2 z-50 flex max-h-[80vh] flex-col overflow-hidden rounded-2xl border border-black/10 bg-white text-neutral-900 shadow-2xl sm:inset-x-auto sm:bottom-6 sm:right-6 sm:h-[560px] sm:w-[380px]"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              close();
+            }
+          }}
+          className="fixed inset-x-2 bottom-2 z-50 flex max-h-[80dvh] flex-col overflow-hidden rounded-2xl border border-black/10 bg-white text-neutral-900 shadow-2xl outline-none sm:inset-x-auto sm:bottom-6 sm:right-6 sm:h-[560px] sm:w-[380px]"
         >
+          <div className="sr-only" aria-live="polite" aria-atomic="true">
+            {announce}
+          </div>
           <div
             className="flex items-center gap-3 px-4 py-3 text-white"
             style={{ backgroundColor: color }}
@@ -379,9 +542,9 @@ export function WebChatWidget({
             </div>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={close}
               aria-label={t('close')}
-              className="rounded-full p-1 hover:bg-white/20"
+              className="flex size-9 items-center justify-center rounded-full hover:bg-white/20"
             >
               <X className="size-5" />
             </button>
@@ -391,6 +554,18 @@ export function WebChatWidget({
             <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-sm shadow-sm">
               {t('welcome', { name: tenantName })}
             </div>
+            {loadError && (
+              <p role="status" className="text-center text-xs text-neutral-500">
+                {t('loadError')}{' '}
+                <button
+                  type="button"
+                  onClick={() => void loadHistory()}
+                  className="font-medium underline"
+                >
+                  {t('retry')}
+                </button>
+              </p>
+            )}
             {lines.length === 0 && suggestions.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {suggestions.map((q) => (
@@ -417,10 +592,12 @@ export function WebChatWidget({
                 <div
                   className={
                     l.role === 'visitor'
-                      ? 'ml-auto max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white'
+                      ? 'ml-auto max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-tr-sm px-3 py-2 text-sm text-white'
                       : l.role === 'staff'
-                        ? 'max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm'
-                        : 'max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-sm shadow-sm'
+                        ? 'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm'
+                        : l.role === 'system'
+                          ? 'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm border border-neutral-200 bg-neutral-100 px-3 py-2 text-sm text-neutral-700'
+                          : 'max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm bg-white px-3 py-2 text-sm shadow-sm'
                   }
                   style={l.role === 'visitor' ? { backgroundColor: color } : undefined}
                 >
@@ -458,7 +635,7 @@ export function WebChatWidget({
             {mode === 'human' && waitingSince && !waitedTooLong && (
               <p className="text-center text-xs text-neutral-500">{t('waiting')}</p>
             )}
-            {waitedTooLong && !leadCaptured && (
+            {(waitedTooLong || askContact) && !leadCaptured && (
               <ContactForm
                 base={base}
                 color={color}
@@ -473,10 +650,10 @@ export function WebChatWidget({
                 }}
               />
             )}
-            {waitedTooLong && leadCaptured && (
+            {(waitedTooLong || askContact) && leadCaptured && (
               <p className="text-center text-xs text-neutral-500">{t('contactThanks')}</p>
             )}
-            {(blocked || waitedTooLong) &&
+            {(blocked || waitedTooLong || askContact) &&
               contact &&
               (contact.phone || contact.whatsapp || contact.email) && (
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -533,6 +710,7 @@ export function WebChatWidget({
             )}
             <div className="flex items-end gap-2">
               <textarea
+                ref={inputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value.slice(0, WEB_CHAT_MESSAGE_MAX))}
                 onKeyDown={(e) => {

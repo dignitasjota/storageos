@@ -174,7 +174,7 @@ ${holderLines(h)}
     }${
       ctx.webChat
         ? `
-- **Chat de la web:** lo que escribes en el chat, para responderte. Te responde un asistente automático con inteligencia artificial que solo usa la información pública de esta web. La conversación se guarda en tu navegador con un identificador aleatorio y se borra pasados 90 días sin mensajes. Si nos dejas tu nombre, email o teléfono para que te contactemos, los guardamos como consulta junto con la dirección IP y el navegador desde los que escribiste.`
+- **Chat de la web:** lo que escribes en el chat, para responderte. Te responde un asistente automático con inteligencia artificial que solo usa la información pública de esta web; tus mensajes se envían a su proveedor para generar la respuesta. Si lo pides, te atiende una persona de nuestro equipo, que puede leer la conversación. La conversación se guarda en nuestros sistemas (tu navegador solo guarda un identificador aleatorio para recuperarla y te enseña lo de las últimas 24 horas) y los mensajes se borran a los 90 días. Para reservar desde el chat te pediremos nombre, apellidos, email, teléfono y documento de identidad. Si nos dejas tu nombre, email o teléfono para que te contactemos, los guardamos como consulta junto con la dirección IP y el navegador desde los que escribiste; la IP y el navegador se borran a los 90 días.`
         : ''
     }
 
@@ -183,6 +183,7 @@ ${holderLines(h)}
 - La ejecución del contrato o de las medidas precontractuales que nos pidas (reserva y alquiler).
 - El cumplimiento de obligaciones legales (facturación y contabilidad).
 - Tu consentimiento, para las comunicaciones comerciales y la analítica de la web. Puedes retirarlo en cualquier momento.
+- Nuestro interés legítimo en saber cómo se usa la web, para la medición propia y anónima de las visitas (sin datos personales). Puedes oponerte con «No medir mis visitas» en la política de cookies.
 - El interés público en la seguridad de las personas, los bienes y las instalaciones, para la videovigilancia (artículo 22 de la Ley Orgánica 3/2018, de protección de datos).
 
 ## Cuánto tiempo los guardamos
@@ -212,7 +213,8 @@ Las cookies son pequeños archivos que la web guarda en tu navegador para funcio
 
 ## Cookies que usamos
 
-- **Necesarias:** permiten que la web funcione (por ejemplo, recordar tu sesión en el área de clientes o tu elección sobre las cookies). No necesitan tu consentimiento.${
+- **Necesarias:** permiten que la web funcione (por ejemplo, recordar tu sesión en el área de clientes o tu elección sobre las cookies). No necesitan tu consentimiento.
+- **Medición propia de visitas:** un identificador aleatorio que se guarda en tu navegador (almacenamiento local, no es de terceros) durante un máximo de 13 meses, y de dónde llegaste a la web (por ejemplo, un anuncio o una red social) durante 30 días. Sirve para contar las visitas y saber qué campañas funcionan, sin datos personales y sin compartirlo con nadie. Deja de usarse si eliges «Solo necesarias» en el aviso de cookies o pulsas «No medir mis visitas» al final de esta página.${
     ctx.analytics
       ? `
 - **Analítica (Google Analytics):** nos dicen cuántas personas visitan la web y qué páginas ven, de forma agregada. Solo se activan si las aceptas en el aviso de cookies. Proveedor: Google Ireland Ltd.`
@@ -222,7 +224,7 @@ Las cookies son pequeños archivos que la web guarda en tu navegador para funcio
 ${
   ctx.analytics
     ? 'Puedes cambiar tu elección en cualquier momento con el enlace «Configurar cookies» del pie de la web.'
-    : 'Esta web no usa cookies de analítica ni de publicidad.'
+    : 'Esta web no usa cookies de analítica de terceros ni de publicidad.'
 }
 
 ## Cómo desactivarlas
