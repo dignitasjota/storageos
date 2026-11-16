@@ -249,12 +249,15 @@ export class PlatformAdminController {
   }
 
   @Get('notifications')
-  listNotifications(): Promise<SuperAdminNotificationDto[]> {
-    return this.service.listNotifications();
+  listNotifications(
+    @CurrentSuperAdmin('sub') viewerId: string,
+  ): Promise<SuperAdminNotificationDto[]> {
+    return this.service.listNotifications(viewerId);
   }
 
   @Get('notifications/page')
   pageNotifications(
+    @CurrentSuperAdmin('sub') viewerId: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
     @Query('unread') unread?: string,
@@ -263,6 +266,7 @@ export class PlatformAdminController {
       throw new BadRequestException({ code: 'invalid_cursor', message: 'Cursor no válido' });
     }
     return this.service.pageNotifications({
+      viewerId,
       ...(cursor ? { cursor } : {}),
       ...(limit ? { limit: Number(limit) || 30 } : {}),
       unread: unread === 'true',
@@ -271,19 +275,22 @@ export class PlatformAdminController {
 
   @Post('notifications/:id/read')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async markRead(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
-    await this.service.markRead(id);
+  async markRead(
+    @CurrentSuperAdmin('sub') viewerId: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    await this.service.markRead(id, viewerId);
   }
 
   @Get('notifications/unread-count')
-  unreadCount(): Promise<{ count: number }> {
-    return this.service.unreadCount();
+  unreadCount(@CurrentSuperAdmin('sub') viewerId: string): Promise<{ count: number }> {
+    return this.service.unreadCount(viewerId);
   }
 
   @Post('notifications/read-all')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async markAllRead(): Promise<void> {
-    await this.service.markAllRead();
+  async markAllRead(@CurrentSuperAdmin('sub') viewerId: string): Promise<void> {
+    await this.service.markAllRead(viewerId);
   }
 
   /** Datos fiscales de Facturación SaaS para rellenar los huecos de los textos. */

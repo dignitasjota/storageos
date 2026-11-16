@@ -99,6 +99,22 @@ export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   'today.attention': 'Algo urgente nuevo en «Hoy»',
   'platform_lead.unattended': 'Un lead nuevo lleva horas sin atender',
   'platform_lead.signed_up': 'Un lead se ha registrado',
+  'sales.addon_claim': 'Un cliente de un comercial contrata un extra (aprobar comisión)',
+  'sales.concept_request': 'Un comercial pide una comisión por un concepto',
+  // Avisos personales de cada comercial (solo le llegan a él).
+  'sales.signup': 'Alta nueva con tu código',
+  'sales.sale': 'Tu cliente ha pagado: venta cerrada',
+  'sales.trial_ending': 'A un cliente tuyo le quedan pocos días de prueba',
+  'sales.past_due': 'Un cliente tuyo tiene un pago pendiente',
+  'sales.offer_opened': 'Han abierto tu propuesta',
+  'sales.offer_accepted': 'Han aceptado tu propuesta',
+  'sales.feature_interest': 'Un cliente tuyo se interesa por una función',
+  'sales.limit_near': 'Un cliente tuyo se acerca al límite de su plan',
+  'sales.claim_decided': 'Decisión sobre la comisión de un extra',
+  'sales.approval_decided': 'Decisión sobre tu solicitud',
+  'sales.lead_released': 'Un prospecto tuyo queda libre por inactividad',
+  'sales.assigned': 'Te asignan una cuenta',
+  'sales.settlement': 'Liquidación de comisiones',
 };
 
 export function isSuperAdminPushType(type: string): boolean {

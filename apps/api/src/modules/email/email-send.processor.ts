@@ -20,6 +20,9 @@ export interface EmailSendJobData {
   /** Cabeceras extra (p. ej. `List-Unsubscribe` de un anuncio comercial). */
   headers?: Record<string, string>;
   announcementId?: string;
+  /** Remitente con el nombre del comercial y respuestas a su email. */
+  fromName?: string;
+  replyTo?: { email: string; name?: string };
 }
 
 /**
@@ -40,7 +43,8 @@ export class EmailSendProcessor extends WorkerHost {
       this.logger.warn(`Job desconocido en ${QUEUE_EMAIL}: ${job.name}`);
       return;
     }
-    const { to, category, kind, subject, html, text, headers, announcementId } = job.data;
+    const { to, category, kind, subject, html, text, headers, announcementId, fromName, replyTo } =
+      job.data;
     await this.email.sendRendered({
       to,
       ...(category ? { category } : {}),
@@ -50,6 +54,8 @@ export class EmailSendProcessor extends WorkerHost {
       text,
       ...(headers ? { headers } : {}),
       ...(announcementId ? { announcementId } : {}),
+      ...(fromName ? { fromName } : {}),
+      ...(replyTo ? { replyTo } : {}),
     });
   }
 }

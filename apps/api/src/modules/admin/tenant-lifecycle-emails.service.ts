@@ -48,6 +48,13 @@ interface Counts {
   invoices: number;
 }
 
+/** Remitente de un correo de la prueba: el comercial que lleva la cuenta. */
+export interface EmailSenderOverride {
+  fromName: string;
+  replyTo: { email: string; name?: string };
+  signature?: string;
+}
+
 interface EmailTemplate {
   subject: string;
   html: string;
@@ -372,6 +379,8 @@ export class TenantLifecycleEmailsService {
       message: string | null;
       /** Enlace a Suscripción con el plan, el ciclo y el cupón ya elegidos. */
       acceptUrl?: string | null;
+      /** La envía un comercial: sale a su nombre y las respuestas le llegan a él. */
+      sender?: EmailSenderOverride;
     },
   ): Promise<number> {
     const recipients = await this.recipientsFor(tenantId);
@@ -396,12 +405,17 @@ export class TenantLifecycleEmailsService {
       '',
       'Si tienes dudas, responde a este correo.',
       '',
-      'El equipo de TrasterOS',
+      args.sender?.signature ?? 'El equipo de TrasterOS',
     ].join('\n');
-    const sent = await this.dispatch(tenantId, `quote_offer:${Date.now()}`, {
-      subject: `Tu propuesta de TrasterOS: ${money(q.total)} ${period}`,
-      ...renderEmail(body),
-    });
+    const sent = await this.dispatch(
+      tenantId,
+      `quote_offer:${Date.now()}`,
+      {
+        subject: `Tu propuesta de TrasterOS: ${money(q.total)} ${period}`,
+        ...renderEmail(body),
+      },
+      args.sender ? { sender: args.sender } : {},
+    );
     return sent ? recipients.length : 0;
   }
 
@@ -712,10 +726,12 @@ export class TenantLifecycleEmailsService {
     tenantId: string,
     type: string,
     tmpl: EmailTemplate,
-    opts: { verifiedOnly?: boolean } = {},
+    opts: { verifiedOnly?: boolean; sender?: EmailSenderOverride } = {},
   ): Promise<boolean> {
     const recipients = await this.recipientsFor(tenantId, opts.verifiedOnly);
     if (recipients.length === 0) return false;
+    // Los correos de la prueba de un cliente de un comercial salen a su nombre.
+    const sender = opts.sender ?? (await this.repSender(tenantId, type));
 
     // Registramos la fila ANTES de encolar: si otra réplica ya la creó, el
     // UNIQUE (tenant, type) lanza P2002 y no duplicamos el envío.
@@ -735,10 +751,36 @@ export class TenantLifecycleEmailsService {
           subject: tmpl.subject,
           html: tmpl.html,
           text: tmpl.text,
+          ...(sender ? { fromName: sender.fromName, replyTo: sender.replyTo } : {}),
         },
       })),
     );
     return true;
+  }
+
+  /**
+   * Remitente del comercial de la cuenta para los correos de la prueba y de
+   * puesta en marcha (no para cobros ni impagos), si la dirección lo quiere.
+   */
+  private async repSender(tenantId: string, type: string): Promise<EmailSenderOverride | null> {
+    if (!/^(welcome|trial_|trial-|nudge|activation|addon_offer|quote_offer)/.test(type))
+      return null;
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        salesRep: { select: { fullName: true, email: true, role: true, isActive: true } },
+      },
+    });
+    const rep = tenant?.salesRep;
+    if (!rep?.isActive || rep.role !== 'sales') return null;
+    const settings = await this.admin.platformSalesSettings.findFirst({
+      select: { lifecycleFromRep: true },
+    });
+    if (settings && !settings.lifecycleFromRep) return null;
+    return {
+      fromName: `${rep.fullName} · TrasterOS`,
+      replyTo: { email: rep.email, name: rep.fullName },
+    };
   }
 
   /**

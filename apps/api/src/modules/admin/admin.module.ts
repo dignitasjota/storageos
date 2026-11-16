@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 
 import { AccessModule } from '../access/access.module';
 import { AccountingModule } from '../accounting/accounting.module';
+import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { BillingSaasModule } from '../billing-saas/billing-saas.module';
@@ -92,6 +93,20 @@ import { PlatformNpsAdminController, PlatformNpsPublicController } from './platf
 import { PlatformNpsService } from './platform-nps.service';
 import { PlatformSecurityController } from './platform-security.controller';
 import { PlatformSecurityService } from './platform-security.service';
+import { SalesAccountsService } from './sales/sales-accounts.service';
+import { SalesAlertsService } from './sales/sales-alerts.service';
+import { SalesAssignmentService } from './sales/sales-assignment.service';
+import { SalesCommissionsService } from './sales/sales-commissions.service';
+import { SalesContentService } from './sales/sales-content.service';
+import { SalesDemoService } from './sales/sales-demo.service';
+import { SalesNotifyService } from './sales/sales-notify.service';
+import { QuoteOfferOpenController, SalesPublicController } from './sales/sales-public.controller';
+import { SalesSellingService } from './sales/sales-selling.service';
+import { SalesTeamController } from './sales/sales-team.controller';
+import { SalesTeamService } from './sales/sales-team.service';
+import { SalesController } from './sales/sales.controller';
+import { SalesCron } from './sales/sales.cron';
+import { TenantSalesRepController } from './sales/tenant-sales-rep.controller';
 import { SecurityAlertsController } from './security-alerts.controller';
 import { SecurityAlertsCron } from './security-alerts.cron';
 import { SecurityAlertsService } from './security-alerts.service';
@@ -155,8 +170,14 @@ import { WeeklyDigestService } from './weekly-digest.service';
     StripeConnectModule,
     BillingModule,
     UsersModule,
+    AiModule,
   ],
   controllers: [
+    SalesController,
+    SalesTeamController,
+    SalesPublicController,
+    QuoteOfferOpenController,
+    TenantSalesRepController,
     PlatformLeadsController,
     AdminTenantToolsController,
     AdminBusinessController,
@@ -202,6 +223,16 @@ import { WeeklyDigestService } from './weekly-digest.service';
     TenantDataExportController,
   ],
   providers: [
+    SalesNotifyService,
+    SalesAssignmentService,
+    SalesCommissionsService,
+    SalesAccountsService,
+    SalesSellingService,
+    SalesTeamService,
+    SalesContentService,
+    SalesDemoService,
+    SalesAlertsService,
+    SalesCron,
     PlatformLeadsService,
     PlatformLeadsWatchService,
     PlatformAlertLogService,

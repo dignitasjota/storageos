@@ -170,6 +170,7 @@ export class PlatformContactService {
         utmSource: input.utmSource?.trim() || null,
         utmMedium: input.utmMedium?.trim() || null,
         utmCampaign: input.utmCampaign?.trim() || null,
+        salesCode: input.salesCode?.trim() || null,
       } satisfies PlatformLeadInboundEvent)
       .catch((err: unknown) =>
         this.logger.warn(`[contacto] el mensaje ${message.id} no entró en Leads: ${String(err)}`),

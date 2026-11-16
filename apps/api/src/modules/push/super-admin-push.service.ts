@@ -15,6 +15,7 @@ interface PendingRow {
   title: string;
   body: string | null;
   link: string | null;
+  recipient_id: string | null;
 }
 
 /**
@@ -73,37 +74,26 @@ export class SuperAdminPushService {
          SET pushed_at = now()
        WHERE pushed_at IS NULL
          AND created_at > now() - make_interval(mins => ${MAX_AGE_MINUTES}::int)
-      RETURNING type, title, body, link`;
+      RETURNING type, title, body, link, recipient_id`;
     const relevant = rows.filter((r) => isSuperAdminPushType(r.type));
     if (relevant.length === 0) return { notifications: 0, sent: 0 };
 
     const subs = await this.admin.superAdminPushSubscription.findMany({
       where: { superAdmin: { isActive: true } },
+      include: { superAdmin: { select: { role: true } } },
     });
     if (subs.length === 0) return { notifications: relevant.length, sent: 0 };
-
-    const payloads: PushPayload[] =
-      relevant.length >= GROUP_FROM
-        ? [
-            {
-              title: `${relevant.length} avisos nuevos en TrasterOS`,
-              body: relevant
-                .slice(0, 3)
-                .map((r) => r.title)
-                .join(' · '),
-              url: '/admin/notifications',
-            },
-          ]
-        : relevant.map((r) => ({
-            title: r.title,
-            ...(r.body ? { body: r.body } : {}),
-            url: r.link ?? '/admin/notifications',
-          }));
 
     let sent = 0;
     const gone = new Set<string>();
     for (const sub of subs) {
-      for (const payload of payloads) {
+      // Los avisos personales solo a su destinatario; los del equipo, a quien
+      // no es comercial (un comercial solo recibe los suyos).
+      const isSales = sub.superAdmin.role === 'sales';
+      const mine = relevant.filter((r) =>
+        r.recipient_id ? r.recipient_id === sub.superAdminId : !isSales,
+      );
+      for (const payload of this.payloads(mine, isSales)) {
         if (gone.has(sub.id)) break;
         const result = await this.push.sendOne(sub, payload);
         if (result === 'sent') sent += 1;
@@ -115,5 +105,28 @@ export class SuperAdminPushService {
     }
     if (sent > 0) this.logger.log(`[super-admin-push] ${sent} avisos enviados`);
     return { notifications: relevant.length, sent };
+  }
+
+  /** Con muchos avisos a la vez, uno solo con el recuento. */
+  private payloads(rows: PendingRow[], sales: boolean): PushPayload[] {
+    if (rows.length === 0) return [];
+    const feed = sales ? '/admin/sales/notifications' : '/admin/notifications';
+    if (rows.length >= GROUP_FROM) {
+      return [
+        {
+          title: `${rows.length} avisos nuevos en TrasterOS`,
+          body: rows
+            .slice(0, 3)
+            .map((r) => r.title)
+            .join(' · '),
+          url: feed,
+        },
+      ];
+    }
+    return rows.map((r) => ({
+      title: r.title,
+      ...(r.body ? { body: r.body } : {}),
+      url: r.link ?? feed,
+    }));
   }
 }

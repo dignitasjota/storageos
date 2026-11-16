@@ -160,6 +160,8 @@ export class AuthService {
         utmSource: input.utmSource ?? null,
         utmMedium: input.utmMedium ?? null,
         utmCampaign: input.utmCampaign ?? null,
+        salesCode: input.salesCode ?? null,
+        salesCodeFrom: input.salesCodeFrom ?? null,
       } satisfies PlatformTenantRegisteredEvent)
       .catch((err: unknown) =>
         this.logger.warn(`[register] lead del tenant ${tenant.slug}: ${String(err)}`),

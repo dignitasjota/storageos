@@ -9,7 +9,8 @@ import { ProfitabilityInputSchema } from './profitability';
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
 
-export const SuperAdminRoleEnum = z.enum(['superadmin', 'support']);
+/** `sales` = comercial: solo sus pantallas y su cartera. */
+export const SuperAdminRoleEnum = z.enum(['superadmin', 'support', 'sales']);
 export type SuperAdminRoleValue = z.infer<typeof SuperAdminRoleEnum>;
 
 export const SupportTicketStatusEnum = z.enum([
@@ -450,6 +451,8 @@ export const CreatePlatformCouponSchema = z
     oncePerTenant: z.boolean().default(false),
     /** Se puede usar a partir de (ISO). */
     validFrom: z.string().datetime().nullable().optional(),
+    /** Lo pueden usar los comerciales en sus propuestas. */
+    salesAllowed: z.boolean().default(false),
   })
   .refine((v) => v.discountType !== 'percentage' || v.discountValue <= 100, {
     message: 'Un descuento porcentual no puede superar el 100 %',
@@ -468,6 +471,7 @@ export const UpdatePlatformCouponSchema = z
     durationMonths: z.number().int().min(1).max(120).nullable(),
     oncePerTenant: z.boolean(),
     validFrom: z.string().datetime().nullable(),
+    salesAllowed: z.boolean(),
   })
   .partial()
   .refine(
@@ -910,6 +914,8 @@ export const SubmitPlatformContactSchema = z
     utmSource: z.string().trim().max(120).optional(),
     utmMedium: z.string().trim().max(120).optional(),
     utmCampaign: z.string().trim().max(120).optional(),
+    /** Código del comercial (de su enlace o escrito a mano). */
+    salesCode: z.string().trim().max(40).optional(),
   })
   .superRefine((v, ctx) => {
     if (v.kind === 'contact' && (v.message?.trim().length ?? 0) < 10) {

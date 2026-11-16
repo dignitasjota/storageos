@@ -54,6 +54,6 @@ import type { Env } from '../../config/env.schema';
         new DelegatingAiProvider(settings, config.get('NODE_ENV', { infer: true }) === 'test'),
     },
   ],
-  exports: [AiService, PlatformAiSettingsService, AiQuotaService],
+  exports: [AiService, PlatformAiSettingsService, AiQuotaService, AI_PROVIDER],
 })
 export class AiModule {}

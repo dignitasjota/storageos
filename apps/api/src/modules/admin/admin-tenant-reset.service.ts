@@ -225,6 +225,8 @@ export class AdminTenantResetService {
     input: TenantResetInput;
     ipAddress?: string | null;
     userAgent?: string | null;
+    /** Sin aviso ni resumen por correo (el reinicio de la cuenta de demostración). */
+    quiet?: boolean;
   }): Promise<TenantResetResultDto> {
     const { tenantId, input } = args;
     const tenant = await this.findTenant(tenantId);
@@ -326,6 +328,7 @@ export class AdminTenantResetService {
     this.logger.warn(
       `Datos de prueba borrados del tenant ${tenant.slug}: ${JSON.stringify(result.counts)}`,
     );
+    if (args.quiet) return result;
     await this.notifyDone(tenant, input.reason, result).catch((err: unknown) =>
       this.logger.warn(
         `[tenant-reset] resumen no enviado: ${err instanceof Error ? err.message : String(err)}`,

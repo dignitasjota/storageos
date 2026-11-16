@@ -550,6 +550,7 @@ export class SuperAdminService {
       twoFactorEnabled: record.twoFactorEnabled,
       lastLoginAt: record.lastLoginAt ? record.lastLoginAt.toISOString() : null,
       createdAt: record.createdAt.toISOString(),
+      ...(record.role === 'sales' ? { salesCode: record.salesCode ?? null } : {}),
     };
   }
 }

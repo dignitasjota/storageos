@@ -17,3 +17,14 @@ export const ALLOW_WITHOUT_TWO_FACTOR_KEY = 'allowWithoutTwoFactor';
 /** Rutas que siguen abiertas pasado el plazo de la 2FA obligatoria: las de la propia cuenta. */
 export const AllowWithoutTwoFactor = (): ClassDecorator & MethodDecorator =>
   SetMetadata(ALLOW_WITHOUT_TWO_FACTOR_KEY, true);
+
+export const SALES_ACCESS_KEY = 'salesAccess';
+
+/**
+ * Rutas a las que llega el rol `sales` (comercial). El resto del panel le está
+ * cerrado por defecto: `AdminGuard` le responde 403 `sales_not_allowed` en todo
+ * lo que no lleve esta marca, así ninguna pantalla nueva queda expuesta por
+ * descuido.
+ */
+export const SalesAccess = (): ClassDecorator & MethodDecorator =>
+  SetMetadata(SALES_ACCESS_KEY, true);

@@ -38,6 +38,7 @@ function toDto(r: PlatformCoupon): PlatformCouponDto {
     oncePerTenant: r.oncePerTenant,
     validFrom: r.validFrom ? r.validFrom.toISOString() : null,
     stripeReady: !!r.stripeCouponId,
+    salesAllowed: r.salesAllowed,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
@@ -83,6 +84,7 @@ export class PlatformCouponsService {
         planIds: input.planIds ?? [],
         durationMonths: input.durationMonths ?? null,
         oncePerTenant: input.oncePerTenant ?? false,
+        salesAllowed: input.salesAllowed ?? false,
         validFrom: input.validFrom ? new Date(input.validFrom) : null,
       },
     });
@@ -114,6 +116,7 @@ export class PlatformCouponsService {
         ...(input.planIds !== undefined ? { planIds: input.planIds } : {}),
         ...(input.durationMonths !== undefined ? { durationMonths: input.durationMonths } : {}),
         ...(input.oncePerTenant !== undefined ? { oncePerTenant: input.oncePerTenant } : {}),
+        ...(input.salesAllowed !== undefined ? { salesAllowed: input.salesAllowed } : {}),
         ...(input.validFrom !== undefined
           ? { validFrom: input.validFrom ? new Date(input.validFrom) : null }
           : {}),

@@ -97,11 +97,13 @@ export class AdminApprovalsService {
   async list(filter: {
     status?: ApprovalStatus;
     tenantId?: string;
+    requestedById?: string;
   }): Promise<AdminApprovalRequestDto[]> {
     const rows = await this.admin.adminApprovalRequest.findMany({
       where: {
         ...(filter.status ? { status: filter.status } : {}),
         ...(filter.tenantId ? { tenantId: filter.tenantId } : {}),
+        ...(filter.requestedById ? { requestedById: filter.requestedById } : {}),
       },
       include: INCLUDE,
       orderBy: { createdAt: filter.status === 'pending' ? 'asc' : 'desc' },
@@ -142,7 +144,40 @@ export class AdminApprovalsService {
       });
     }
     await this.decisionAudit(row.tenantId, id, 'approved', meta);
-    return this.get(id);
+    const dto = await this.get(id);
+    await this.notifyRequester(row.requestedById, dto);
+    return dto;
+  }
+
+  /** Un comercial que pidió la acción se entera de la decisión. */
+  private async notifyRequester(
+    requestedById: string | null,
+    dto: AdminApprovalRequestDto,
+  ): Promise<void> {
+    if (!requestedById) return;
+    const requester = await this.admin.superAdmin.findUnique({
+      where: { id: requestedById },
+      select: { role: true },
+    });
+    if (requester?.role !== 'sales') return;
+    const what = APPROVAL_ACTION_LABELS[dto.action];
+    const verdict =
+      dto.status === 'approved'
+        ? 'aprobada'
+        : dto.status === 'failed'
+          ? 'aprobada, pero falló'
+          : 'rechazada';
+    await this.admin.superAdminNotification
+      .create({
+        data: {
+          type: 'sales.approval_decided',
+          title: `${what} para ${dto.tenantName}: ${verdict}`,
+          body: dto.decisionNote ?? dto.error ?? null,
+          link: '/admin/sales/approvals',
+          recipientId: requestedById,
+        },
+      })
+      .catch(() => undefined);
   }
 
   async reject(id: string, note: string | undefined, meta: Meta): Promise<AdminApprovalRequestDto> {
@@ -158,6 +193,11 @@ export class AdminApprovalsService {
     if (claimed.count === 0) await this.notPending(id);
     const dto = await this.get(id);
     await this.decisionAudit(dto.tenantId, id, 'rejected', meta);
+    const row = await this.admin.adminApprovalRequest.findUnique({
+      where: { id },
+      select: { requestedById: true },
+    });
+    await this.notifyRequester(row?.requestedById ?? null, dto);
     return dto;
   }
 

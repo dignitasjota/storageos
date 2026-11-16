@@ -51,6 +51,10 @@ export const RegisterSchema = z.object({
   utmSource: z.string().trim().max(120).optional(),
   utmMedium: z.string().trim().max(120).optional(),
   utmCampaign: z.string().trim().max(120).optional(),
+  /** Código de comercial: del enlace o el QR del comercial, o escrito a mano. */
+  salesCode: z.string().trim().max(40).optional(),
+  /** `link` si lo puso el enlace del comercial; `typed` si lo escribió el cliente. */
+  salesCodeFrom: z.enum(['link', 'typed']).optional(),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 

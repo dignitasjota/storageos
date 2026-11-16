@@ -5,9 +5,11 @@ import {
   parseAddonPriceTiers,
   platformLeadName,
   resolvePlanFeatures,
+  SALES_CODE_PARAM,
   type TenantFeature,
 } from '@storageos/shared';
 
+import { offerKey, signOffer, verifyOffer } from '../../common/sales/offer-token';
 import { PlatformCouponsService } from '../billing-saas/platform-coupons.service';
 import { platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -33,9 +35,25 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const OFFER_INCLUDE = {
   tenant: { select: { name: true } },
   plan: { select: { name: true } },
-  lead: { select: { email: true, companyName: true, contactName: true } },
+  lead: {
+    select: {
+      email: true,
+      companyName: true,
+      contactName: true,
+      salesRep: { select: { salesCode: true, isActive: true } },
+    },
+  },
 } satisfies Prisma.PlatformQuoteOfferInclude;
 const DAY = 86_400_000;
+/** Lo que vale una propuesta desde que se envía. */
+export const QUOTE_OFFER_VALID_DAYS = 15;
+
+/** Remitente de la propuesta: el comercial que la envía. */
+export interface QuoteOfferSender {
+  fromName: string;
+  replyTo: { email: string; name?: string };
+  signature?: string;
+}
 
 /**
  * Simulador de cuota: plan + extras + ciclo (mensual o anual) + cupón, con el
@@ -215,6 +233,48 @@ export class AdminQuoteService {
     return this.offerDto(updated, null);
   }
 
+  /** Enlace del correo: anota que la ha abierto y lleva a aceptarla. */
+  trackedUrl(offerId: string): string {
+    const key = offerKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true }));
+    return `${this.config.get('API_BASE_URL', { infer: true })}/v1/public/offers/${offerId}/open?sig=${signOffer(key, offerId)}`;
+  }
+
+  /**
+   * Abre una propuesta desde su correo: anota la primera vez y devuelve a dónde
+   * llevarle. Con la firma mal o una propuesta que ya no existe, a la web.
+   */
+  async openOffer(offerId: string, sig: string | undefined): Promise<string> {
+    const web = this.config.get('WEB_BASE_URL', { infer: true });
+    const key = offerKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true }));
+    if (!/^[0-9a-f-]{36}$/i.test(offerId) || !verifyOffer(key, offerId, sig)) return web;
+    const row = await this.admin.platformQuoteOffer.findUnique({
+      where: { id: offerId },
+      include: OFFER_INCLUDE,
+    });
+    if (!row) return web;
+    if (!row.openedAt) {
+      const { count } = await this.admin.platformQuoteOffer.updateMany({
+        where: { id: offerId, openedAt: null },
+        data: { openedAt: new Date() },
+      });
+      if (count > 0 && row.superAdminId) {
+        const name = row.tenant?.name ?? (row.lead ? platformLeadName(row.lead) : 'Un cliente');
+        await this.admin.superAdminNotification
+          .create({
+            data: {
+              type: 'sales.offer_opened',
+              title: `${name} ha abierto tu propuesta`,
+              body: 'Buen momento para llamarle.',
+              link: row.leadId ? `/admin/sales/accounts/${row.leadId}` : null,
+              recipientId: row.superAdminId,
+            },
+          })
+          .catch(() => undefined);
+      }
+    }
+    return row.tenantId || !row.lead ? this.acceptUrl(row) : this.registerUrl(row.lead);
+  }
+
   private acceptUrl(r: {
     id: string;
     planId: string;
@@ -226,16 +286,23 @@ export class AdminQuoteService {
     return `${this.config.get('WEB_BASE_URL', { infer: true })}/settings/saas-billing?${params.toString()}`;
   }
 
-  /** Registro con los datos del lead puestos (la propuesta le espera en Suscripción). */
+  /**
+   * Registro con los datos del lead puestos (la propuesta le espera en
+   * Suscripción). Si es de un comercial, lleva su código: la cuenta será suya.
+   */
   private registerUrl(lead: {
     email: string | null;
     companyName: string | null;
     contactName: string | null;
+    salesRep?: { salesCode: string | null; isActive: boolean } | null;
   }): string {
     const params = new URLSearchParams();
     if (lead.email) params.set('email', lead.email);
     if (lead.companyName) params.set('company', lead.companyName);
     if (lead.contactName) params.set('name', lead.contactName);
+    if (lead.salesRep?.isActive && lead.salesRep.salesCode) {
+      params.set(SALES_CODE_PARAM, lead.salesRep.salesCode);
+    }
     const qs = params.toString();
     return `${this.config.get('WEB_BASE_URL', { infer: true })}/register${qs ? `?${qs}` : ''}`;
   }
@@ -248,7 +315,7 @@ export class AdminQuoteService {
     lead: { id: string; email: string; companyName: string | null; contactName: string | null },
     input: SendAdminQuoteInput,
     superAdminId: string,
-  ): Promise<{ quote: AdminQuoteDto; registerUrl: string; offerId: string }> {
+  ): Promise<{ quote: AdminQuoteDto; registerUrl: string; trackedUrl: string; offerId: string }> {
     const quote = await this.quote(input, null);
     if (quote.couponError) {
       throw new BadRequestException({ code: 'coupon_invalid', message: quote.couponError });
@@ -262,7 +329,12 @@ export class AdminQuoteService {
         addons: input.addons as unknown as Prisma.InputJsonValue,
         couponCode: quote.couponCode,
         total: quote.total,
+        expiresAt: new Date(Date.now() + QUOTE_OFFER_VALID_DAYS * DAY),
       },
+    });
+    const withRep = await this.admin.platformLead.findUnique({
+      where: { id: lead.id },
+      select: { salesRep: { select: { salesCode: true, isActive: true } } },
     });
     await this.audit.record({
       superAdminId,
@@ -271,7 +343,12 @@ export class AdminQuoteService {
       targetId: lead.id,
       changes: { planId: input.planId, cycle: input.cycle, total: quote.total },
     });
-    return { quote, registerUrl: this.registerUrl(lead), offerId: offer.id };
+    return {
+      quote,
+      registerUrl: this.registerUrl({ ...lead, salesRep: withRep?.salesRep ?? null }),
+      trackedUrl: this.trackedUrl(offer.id),
+      offerId: offer.id,
+    };
   }
 
   private offerDto(
@@ -287,8 +364,15 @@ export class AdminQuoteService {
       status: string;
       resolvedAt: Date | null;
       createdAt: Date;
+      openedAt: Date | null;
+      expiresAt: Date | null;
       tenant: { name: string } | null;
-      lead: { email: string | null; companyName: string | null; contactName: string | null } | null;
+      lead: {
+        email: string | null;
+        companyName: string | null;
+        contactName: string | null;
+        salesRep: { salesCode: string | null; isActive: boolean } | null;
+      } | null;
       plan: { name: string };
     },
     superAdminName: string | null,
@@ -308,15 +392,41 @@ export class AdminQuoteService {
       status: r.status as QuoteOfferStatus,
       resolvedAt: r.resolvedAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
+      openedAt: r.openedAt?.toISOString() ?? null,
+      expiresAt: r.expiresAt?.toISOString() ?? null,
+      expired: r.status === 'sent' && !!r.expiresAt && r.expiresAt.getTime() < Date.now(),
       superAdminName,
       acceptUrl: r.tenantId || !r.lead ? this.acceptUrl(r) : this.registerUrl(r.lead),
     };
+  }
+
+  /** Propuestas de un filtro (las de un comercial, por ejemplo). */
+  async listOffersWhere(
+    where: Prisma.PlatformQuoteOfferWhereInput,
+    take = 200,
+  ): Promise<PlatformQuoteOfferDto[]> {
+    const rows = await this.admin.platformQuoteOffer.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: OFFER_INCLUDE,
+    });
+    const adminIds = [...new Set(rows.map((r) => r.superAdminId).filter((x): x is string => !!x))];
+    const admins = adminIds.length
+      ? await this.admin.superAdmin.findMany({
+          where: { id: { in: adminIds } },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const names = new Map(admins.map((a) => [a.id, a.fullName]));
+    return rows.map((r) => this.offerDto(r, names.get(r.superAdminId ?? '') ?? null));
   }
 
   async send(
     tenantId: string,
     input: SendAdminQuoteInput,
     meta: { superAdminId: string; ipAddress?: string | null; userAgent?: string | null },
+    sender?: QuoteOfferSender,
   ): Promise<{ recipients: number; quote: AdminQuoteDto; offerId: string }> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -338,13 +448,15 @@ export class AdminQuoteService {
         addons: input.addons as unknown as Prisma.InputJsonValue,
         couponCode: quote.couponCode,
         total: quote.total,
+        expiresAt: new Date(Date.now() + QUOTE_OFFER_VALID_DAYS * DAY),
       },
     });
     const recipients = await this.lifecycle.sendQuoteOffer(tenantId, {
       tenantName: tenant.name,
       quote,
       message: input.message ?? null,
-      acceptUrl: this.acceptUrl(offer),
+      acceptUrl: this.trackedUrl(offer.id),
+      ...(sender ? { sender } : {}),
     });
     const summary = `${quote.lines.map((l) => l.label).join(' + ')} → ${quote.total.toFixed(2).replace('.', ',')} € ${
       quote.cycle === 'yearly' ? 'al año' : 'al mes'

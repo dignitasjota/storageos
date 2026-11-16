@@ -2,14 +2,28 @@ import { SuperAdminPushService } from '../super-admin-push.service';
 
 import type { PushService } from '../push.service';
 
-type Row = { type: string; title: string; body: string | null; link: string | null };
+type Row = {
+  type: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  recipient_id: string | null;
+};
 
-function makeService(rows: Row[], opts: { enabled?: boolean; subs?: number } = {}) {
-  const subs = Array.from({ length: opts.subs ?? 1 }, (_, i) => ({
+function makeService(
+  rows: Row[],
+  opts: { enabled?: boolean; subs?: number; roles?: { id: string; role: string }[] } = {},
+) {
+  const owners =
+    opts.roles ??
+    Array.from({ length: opts.subs ?? 1 }, (_, i) => ({ id: `admin${i}`, role: 'superadmin' }));
+  const subs = owners.map((o, i) => ({
     id: `s${i}`,
+    superAdminId: o.id,
     endpoint: `https://push.example.com/${i}`,
     p256dh: 'p',
     auth: 'a',
+    superAdmin: { role: o.role },
   }));
   const queryRaw = jest.fn().mockResolvedValue(rows);
   const findMany = jest.fn().mockResolvedValue(subs);
@@ -32,11 +46,17 @@ function makeService(rows: Row[], opts: { enabled?: boolean; subs?: number } = {
   };
 }
 
-const row = (type: string, title: string, link: string | null = null): Row => ({
+const row = (
+  type: string,
+  title: string,
+  link: string | null = null,
+  recipientId: string | null = null,
+): Row => ({
   type,
   title,
   body: null,
   link,
+  recipient_id: recipientId,
 });
 
 describe('SuperAdminPushService.sendPending', () => {
@@ -82,6 +102,31 @@ describe('SuperAdminPushService.sendPending', () => {
     sendOne.mockResolvedValueOnce('gone').mockResolvedValueOnce('sent');
     expect(await service.sendPending()).toEqual({ notifications: 1, sent: 1 });
     expect(deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['s0'] } } });
+  });
+
+  it('los avisos personales solo a su destinatario y los del equipo nunca a un comercial', async () => {
+    const { service, sendOne } = makeService(
+      [
+        row('sales.signup', 'Alta con tu código', '/admin/sales/accounts/1', 'rep1'),
+        row('support_ticket', 'Ticket nuevo'),
+      ],
+      {
+        roles: [
+          { id: 'boss', role: 'superadmin' },
+          { id: 'rep1', role: 'sales' },
+          { id: 'rep2', role: 'sales' },
+        ],
+      },
+    );
+    expect(await service.sendPending()).toEqual({ notifications: 2, sent: 2 });
+    const sent = sendOne.mock.calls.map((c) => [
+      (c[0] as { superAdminId: string }).superAdminId,
+      (c[1] as { title: string }).title,
+    ]);
+    expect(sent).toEqual([
+      ['boss', 'Ticket nuevo'],
+      ['rep1', 'Alta con tu código'],
+    ]);
   });
 
   it('sin avisos que envíen no busca dispositivos', async () => {
