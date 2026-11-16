@@ -77,6 +77,61 @@ export class MetaGraphClient {
   }
 
   /**
+   * Cambia el código de la vuelta del inicio de sesión por un token de usuario
+   * de larga duración (unos 60 días; los de página que salen de él no caducan).
+   */
+  async exchangeOauthCode(args: {
+    appId: string;
+    appSecret: string;
+    code: string;
+    redirectUri: string;
+  }): Promise<string> {
+    if (this.stub) {
+      if (args.code.startsWith('invalid')) throw new MetaGraphError('Código no válido', 100);
+      return `${args.code.startsWith('multi') ? 'multi' : 'oauth'}-token-${args.code}-0123456789`;
+    }
+    const short = await this.oauthToken({
+      client_id: args.appId,
+      client_secret: args.appSecret,
+      redirect_uri: args.redirectUri,
+      code: args.code,
+    });
+    return this.oauthToken({
+      grant_type: 'fb_exchange_token',
+      client_id: args.appId,
+      client_secret: args.appSecret,
+      fb_exchange_token: short,
+    });
+  }
+
+  private async oauthToken(params: Record<string, string>): Promise<string> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    try {
+      // POST: el secreto de la app y el código no van en la dirección.
+      const res = await fetch(`${GRAPH}/oauth/access_token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(params),
+        signal: ctrl.signal,
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        access_token?: string;
+        error?: { message?: string; code?: number };
+      };
+      if (!res.ok || body.error || !body.access_token) {
+        throw new MetaGraphError(
+          body.error?.message ?? `Meta respondió ${res.status}`,
+          body.error?.code,
+        );
+      }
+      return body.access_token;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Páginas a las que da acceso el token (de usuario, de sistema o de página).
    * Un token de usuario sin páginas da una lista vacía.
    */
@@ -275,6 +330,16 @@ export class MetaGraphClient {
     if (fb) complete.push('facebook');
     for (const p of fb ?? []) {
       if (p.created_time.slice(0, 10) < since) continue;
+      // Alcance y clics al enlace de la publicación (si Meta los da).
+      const metrics = await this.insights(`/${p.id}/insights`, page.accessToken, {
+        metric: 'post_impressions_unique,post_clicks_by_type',
+      });
+      const reach = num(
+        metrics.find((x) => x.name === 'post_impressions_unique')?.values?.[0]?.value,
+      );
+      const clicks = metrics.find((x) => x.name === 'post_clicks_by_type')?.values?.[0]?.value as
+        | Record<string, number>
+        | undefined;
       out.push({
         network: 'facebook',
         externalId: p.id,
@@ -287,8 +352,9 @@ export class MetaGraphClient {
         comments: num(p.comments?.summary?.total_count),
         shares: num(p.shares?.count ?? 0),
         saves: null,
-        reach: null,
+        reach,
         views: null,
+        linkClicks: clicks && typeof clicks === 'object' ? num(clicks['link clicks'] ?? 0) : null,
       });
     }
     if (!page.instagramUserId) return { posts: out, complete };
@@ -561,8 +627,9 @@ function stubPosts(page: MetaPage, since: string): MetaPosts {
       comments: i,
       shares: i,
       saves: null,
-      reach: null,
+      reach: 150 + i * 40,
       views: null,
+      linkClicks: 2 + i,
     });
   }
   return { posts: out, complete: page.instagramUserId ? ['facebook', 'instagram'] : ['facebook'] };

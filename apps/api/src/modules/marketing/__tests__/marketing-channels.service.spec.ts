@@ -11,6 +11,8 @@ interface TxMock {
   expense: { groupBy: jest.Mock; aggregate: jest.Mock };
   lead: { findMany: jest.Mock };
   contract: { findMany: jest.Mock };
+  couponRedemption: { findMany: jest.Mock };
+  $queryRaw: jest.Mock;
 }
 
 function buildTx(): TxMock {
@@ -23,6 +25,9 @@ function buildTx(): TxMock {
     },
     lead: { findMany: jest.fn().mockResolvedValue([]) },
     contract: { findMany: jest.fn().mockResolvedValue([]) },
+    couponRedemption: { findMany: jest.fn().mockResolvedValue([]) },
+    // Visitas ya sumadas y cobros: vacío salvo que la prueba diga otra cosa.
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -48,6 +53,7 @@ function channel(overrides: Record<string, unknown> = {}) {
     createdAt: new Date('2026-01-01T00:00:00Z'),
     deletedAt: null,
     promotionId: null,
+    couponId: null,
     ...overrides,
   };
 }
@@ -57,6 +63,8 @@ const lead = (over: Record<string, unknown>) => ({
   utmSource: null,
   utmMedium: null,
   utmCampaign: null,
+  marketingChannelId: null,
+  metadata: {},
   ...over,
 });
 
@@ -113,6 +121,8 @@ describe('MarketingChannelsService.getPerformance', () => {
         lead({ source: 'google_verano' }),
         lead({ source: 'facebook', utmSource: 'facebook' }),
       ])
+      // Reservas online del periodo.
+      .mockResolvedValueOnce([])
       // Contactos de los contratos firmados en el periodo.
       .mockResolvedValueOnce([
         lead({ convertedContractId: 'ct-1', source: 'widget', utmSource: 'google_verano' }),
@@ -169,6 +179,7 @@ describe('MarketingChannelsService.getPerformance', () => {
     tx.contract.findMany.mockResolvedValue([contract({ status: 'ended' })]);
     tx.lead.findMany
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([lead({ convertedContractId: 'ct-1', source: 'google_verano' })]);
     const res = await buildService(tx).getPerformance(TENANT, {});
     expect(res.rows[0]).toMatchObject({
@@ -186,7 +197,7 @@ describe('MarketingChannelsService.getPerformance', () => {
       channel({ id: 'flyer', type: 'physical', utmSourceMatch: 'flyer', promotionId: 'promo-1' }),
     ]);
     tx.contract.findMany.mockResolvedValue([contract({ id: 'ct-9', promotionId: 'promo-1' })]);
-    tx.lead.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    tx.lead.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     const res = await buildService(tx).getPerformance(TENANT, {});
     expect(res.rows[0]).toMatchObject({ channelId: 'flyer', wonCount: 1, liveCount: 1 });
   });
@@ -210,6 +221,7 @@ describe('MarketingChannelsService.getPerformance', () => {
     tx.contract.findMany.mockResolvedValue([contract({})]);
     tx.lead.findMany
       .mockResolvedValueOnce([lead({ source: 'google_verano' })])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([lead({ convertedContractId: 'ct-1', source: 'google_verano' })]);
     const viewer: MarketingViewer = { revenue: false, cost: false, facilityScope: null };
     const res = await buildService(tx).getPerformance(TENANT, {}, viewer);
@@ -249,5 +261,68 @@ describe('MarketingChannelsService.getPerformance', () => {
     ]);
     const res = await buildService(tx).getPerformance(TENANT, {});
     expect(res.rows.map((r) => r.channelId)).toEqual(['high-cost', 'low-cost']);
+  });
+
+  it('el canal guardado en el contacto manda sobre su origen, y el último contacto va a la reserva', async () => {
+    const tx = buildTx();
+    tx.marketingChannel.findMany.mockResolvedValue([
+      channel({ id: 'flyer', type: 'physical', utmSourceMatch: 'flyer' }),
+      channel({ id: 'portal', type: 'real_estate_portal', utmSourceMatch: 'idealista' }),
+    ]);
+    tx.contract.findMany.mockResolvedValue([contract({ id: 'ct-1' })]);
+    const won = lead({
+      convertedContractId: 'ct-1',
+      // Llegó por el flyer (guardado) aunque su origen se renombrara después…
+      source: 'otro',
+      marketingChannelId: 'flyer',
+      // …y reservó desde Idealista.
+      metadata: { bookingUtm: { source: 'idealista', medium: null, campaign: null } },
+    });
+    tx.lead.findMany
+      .mockResolvedValueOnce([lead({ source: 'otro', marketingChannelId: 'flyer' })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([won]);
+    const first = await buildService(tx).getPerformance(TENANT, {});
+    expect(Object.fromEntries(first.rows.map((r) => [r.channelId, r.wonCount]))).toEqual({
+      flyer: 1,
+      portal: 0,
+    });
+    expect(first.rows.find((r) => r.channelId === 'flyer')!.leadsCount).toBe(1);
+
+    tx.lead.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([won]);
+    const last = await buildService(tx).getPerformance(TENANT, { model: 'last' });
+    expect(Object.fromEntries(last.rows.map((r) => [r.channelId, r.wonCount]))).toEqual({
+      flyer: 0,
+      portal: 1,
+    });
+    expect(last.model).toBe('last');
+  });
+
+  it('el cupón del canal le da sus contratos, y el cobrado da el retorno', async () => {
+    const tx = buildTx();
+    tx.marketingChannel.findMany.mockResolvedValue([
+      channel({ id: 'flyer', type: 'physical', utmSourceMatch: 'flyer', couponId: 'cup-1' }),
+    ]);
+    tx.expense.groupBy.mockResolvedValue([{ marketingChannelId: 'flyer', _sum: { amount: 100 } }]);
+    tx.contract.findMany.mockResolvedValue([contract({ id: 'ct-5' })]);
+    tx.couponRedemption.findMany.mockResolvedValue([{ contractId: 'ct-5', couponId: 'cup-1' }]);
+    tx.lead.findMany.mockResolvedValue([]);
+    tx.$queryRaw
+      // Visitas por origen.
+      .mockResolvedValueOnce([{ source: 'flyer', medium: 'offline', campaign: '', n: 12 }])
+      // Cobrado por contrato.
+      .mockResolvedValueOnce([{ contract_id: 'ct-5', net: 250 }]);
+    const res = await buildService(tx).getPerformance(TENANT, {});
+    expect(res.rows[0]).toMatchObject({
+      channelId: 'flyer',
+      visitors: 12,
+      wonCount: 1,
+      paidCount: 1,
+      collected: 250,
+      roas: 2.5,
+    });
   });
 });

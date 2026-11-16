@@ -106,6 +106,12 @@ export interface MarketingSummaryDto {
   previousComplete: MarketingPreviousCoverage;
   /** El mes está en curso: el anterior se cuenta hasta el mismo día. */
   partial: boolean;
+  /** El mismo mes del año pasado (hasta el mismo día si el mes está en curso). */
+  lastYear: MarketingMonthFigures;
+  /** Hay datos de la web de todo ese mes (si no, no se compara). */
+  lastYearComplete: boolean;
+  /** Local elegido (las visitas son de toda la web). */
+  facilityId: string | null;
   /** Qué importes puede ver quien consulta (sin permiso salen a 0). */
   money: { revenue: boolean; cost: boolean };
   sources: MarketingSummarySourceDto[];

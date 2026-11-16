@@ -4,7 +4,8 @@ import { contactKindFromHref } from '@storageos/shared';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 
-import { recordVisit, trackWebEvent } from '@/lib/attribution';
+import { captureClickIds, recordVisit, trackWebEvent } from '@/lib/attribution';
+import { TENANT_CONSENT_EVENT } from '@/lib/tenant-consent';
 
 /**
  * Anota de dónde viene el visitante al entrar en la web del tenant, cada
@@ -16,8 +17,16 @@ export function AttributionRecorder({ slug }: { slug: string }) {
 
   useEffect(() => {
     recordVisit(slug);
+    captureClickIds(slug);
     trackWebEvent(slug, 'page_view');
   }, [slug, pathname]);
+
+  // Si acepta las cookies estando aún en la página del anuncio, se guarda el clic.
+  useEffect(() => {
+    const onConsent = () => captureClickIds(slug);
+    window.addEventListener(TENANT_CONSENT_EVENT, onConsent);
+    return () => window.removeEventListener(TENANT_CONSENT_EVENT, onConsent);
+  }, [slug]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {

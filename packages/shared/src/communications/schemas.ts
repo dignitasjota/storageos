@@ -139,6 +139,28 @@ export const utmFields = {
   utmCampaign: z.string().trim().max(120).optional(),
 };
 
+const clickId = z
+  .string()
+  .trim()
+  .max(255)
+  .regex(/^[A-Za-z0-9_.~-]+$/)
+  .optional();
+
+/**
+ * Identificadores del clic en un anuncio (Google: `gclid`, `gbraid`, `wbraid`;
+ * Meta: `fbclid`), solo si el visitante aceptó todas las cookies. Sirven para
+ * contarle a la plataforma qué clics acabaron en contrato.
+ */
+export const AdClickIdsSchema = z.object({
+  gclid: clickId,
+  gbraid: clickId,
+  wbraid: clickId,
+  fbclid: clickId,
+  /** Cuándo se hizo el clic (ms desde 1970). */
+  at: z.number().int().positive().optional(),
+});
+export type AdClickIds = z.infer<typeof AdClickIdsSchema>;
+
 export const CreateLeadSchema = z.object({
   /** Origen libre (sugerencias en `LEAD_SOURCE_SUGGESTIONS`); se normaliza a clave. */
   source: z

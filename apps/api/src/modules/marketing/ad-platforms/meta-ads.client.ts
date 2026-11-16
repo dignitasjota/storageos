@@ -6,6 +6,8 @@
  *
  * Docs: https://developers.facebook.com/docs/marketing-api/insights
  */
+import { createHash } from 'node:crypto';
+
 import { round2, type AdDailyStats } from './ad-stats';
 
 /**
@@ -40,6 +42,18 @@ export interface MetaAdsCredentials {
 }
 
 const withActPrefix = (id: string) => (id.startsWith('act_') ? id : `act_${id}`);
+const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
+
+/**
+ * Teléfono como lo pide Meta para casarlo: solo cifras y con el prefijo del
+ * país (un móvil o fijo español de 9 cifras lleva el 34 delante).
+ */
+export function metaPhone(phone: string): string | null {
+  let digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (/^[6789]\d{8}$/.test(digits)) digits = `34${digits}`;
+  return digits.length >= 10 ? digits : null;
+}
 
 export class MetaAdsClient {
   constructor(private readonly creds: MetaAdsCredentials) {}
@@ -64,6 +78,64 @@ export class MetaAdsClient {
       throw new Error(`Meta Ads: ${message ?? `HTTP ${res.status}`}`);
     }
     return json as T;
+  }
+
+  /**
+   * Manda al píxel un contrato firmado de quien llegó por un anuncio (API de
+   * conversiones): el email y el teléfono van cifrados con SHA-256 y el
+   * `fbc` sale del clic. `eventId` evita que Meta lo cuente dos veces.
+   */
+  async sendConversion(args: {
+    pixelId: string;
+    eventId: string;
+    eventTime: Date;
+    value: number;
+    currency: string;
+    email?: string | null;
+    phone?: string | null;
+    fbclid?: string | null;
+    clickAt?: number | null;
+  }): Promise<void> {
+    const userData: Record<string, unknown> = {};
+    if (args.email) userData.em = [sha256(args.email.trim().toLowerCase())];
+    const phone = args.phone ? metaPhone(args.phone) : null;
+    if (phone) userData.ph = [sha256(phone)];
+    if (args.fbclid) {
+      userData.fbc = `fb.1.${args.clickAt ?? args.eventTime.getTime()}.${args.fbclid}`;
+    }
+    let res: Response;
+    try {
+      res = await fetch(`${GRAPH_BASE}/${encodeURIComponent(args.pixelId)}/events`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${this.creds.accessToken}`,
+          'content-type': 'application/json',
+        },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        body: JSON.stringify({
+          data: [
+            {
+              event_name: 'Purchase',
+              event_time: Math.floor(args.eventTime.getTime() / 1000),
+              event_id: args.eventId,
+              // Lo manda el sistema al firmarse, no el navegador del cliente.
+              action_source: 'system_generated',
+              user_data: userData,
+              custom_data: { value: args.value, currency: args.currency },
+            },
+          ],
+        }),
+      });
+    } catch (err) {
+      throw new Error(
+        `Meta Ads: error de red (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+    const json: unknown = await res.json().catch(() => ({}));
+    if (!res.ok || (json && typeof json === 'object' && 'error' in json)) {
+      const message = (json as { error?: { message?: string } })?.error?.message;
+      throw new Error(`Meta Ads: ${message ?? `HTTP ${res.status}`}`);
+    }
   }
 
   /** Verifica el token con una llamada ligera a la cuenta publicitaria. Lanza si es inválido. */

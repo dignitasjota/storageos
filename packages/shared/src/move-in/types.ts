@@ -175,6 +175,8 @@ export interface BookingAvailabilityDto {
   logoUrl: string | null;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
+  /** Devuelve los contratos a Google Ads o a Meta (aviso de cookies para guardar el clic). */
+  adConversions?: boolean;
   /** El chat con IA de la web está activo (se ofrece ayuda en la reserva). */
   webChatEnabled: boolean;
   /** Dominio propio verificado (enlace a la privacidad del chat), o null. */

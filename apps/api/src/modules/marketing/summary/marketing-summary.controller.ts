@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put, Query, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { UpdateMarketingReportSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -24,8 +35,17 @@ export class MarketingSummaryController {
   get(
     @CurrentUser() user: AuthenticatedUser,
     @Query('month') month?: string,
+    @Query('facilityId') facilityId?: string,
   ): Promise<MarketingSummaryDto> {
-    return this.summary.build(user.tenantId, month || undefined, marketingViewer(user));
+    if (facilityId && !/^[0-9a-f-]{36}$/i.test(facilityId)) {
+      throw new BadRequestException({ code: 'invalid_facility_id', message: 'Local no válido' });
+    }
+    return this.summary.build(
+      user.tenantId,
+      month || undefined,
+      marketingViewer(user),
+      facilityId || null,
+    );
   }
 
   @RequirePermission('marketing:manage')

@@ -33,6 +33,11 @@ export interface GoogleAdsCredentials {
 
 const digitsOnly = (s: string) => s.replace(/[^0-9]/g, '');
 
+/** Fecha y hora como la pide Google Ads (`aaaa-mm-dd hh:mm:ss+00:00`, en UTC). */
+export function googleDateTime(d: Date): string {
+  return `${d.toISOString().slice(0, 19).replace('T', ' ')}+00:00`;
+}
+
 export class GoogleAdsClient {
   constructor(private readonly creds: GoogleAdsCredentials) {}
 
@@ -97,6 +102,74 @@ export class GoogleAdsClient {
     return ((json as { results?: Array<Record<string, unknown>> }).results ?? []) as Array<
       Record<string, unknown>
     >;
+  }
+
+  /**
+   * Suma un contrato firmado a una acción de conversión de la cuenta, a partir
+   * del clic en el anuncio (`gclid`, o `gbraid`/`wbraid` en iPhone). El
+   * `orderId` evita que Google la cuente dos veces. Lanza si la rechaza.
+   */
+  async uploadClickConversion(args: {
+    conversionActionId: string;
+    gclid?: string | undefined;
+    gbraid?: string | undefined;
+    wbraid?: string | undefined;
+    conversionDateTime: Date;
+    value: number;
+    currency: string;
+    orderId: string;
+  }): Promise<void> {
+    const accessToken = await this.getAccessToken();
+    const customerId = digitsOnly(this.creds.customerId);
+    const click = args.gclid
+      ? { gclid: args.gclid }
+      : args.gbraid
+        ? { gbraid: args.gbraid }
+        : { wbraid: args.wbraid };
+    let res: Response;
+    try {
+      res = await fetch(
+        `${ADS_BASE}/${API_VERSION}/customers/${customerId}:uploadClickConversions`,
+        {
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${accessToken}`,
+            'developer-token': this.creds.developerToken,
+            'content-type': 'application/json',
+            ...(this.creds.loginCustomerId
+              ? { 'login-customer-id': digitsOnly(this.creds.loginCustomerId) }
+              : {}),
+          },
+          body: JSON.stringify({
+            conversions: [
+              {
+                conversionAction: `customers/${customerId}/conversionActions/${digitsOnly(args.conversionActionId)}`,
+                ...click,
+                conversionDateTime: googleDateTime(args.conversionDateTime),
+                conversionValue: args.value,
+                currencyCode: args.currency,
+                orderId: args.orderId,
+                // Solo se guardan los clics de quien aceptó todas las cookies.
+                consent: { adUserData: 'GRANTED' },
+              },
+            ],
+            partialFailure: true,
+          }),
+        },
+      );
+    } catch (err) {
+      throw new Error(
+        `Google Ads: error de red (${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+    const json: unknown = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = (json as { error?: { message?: string } })?.error?.message;
+      throw new Error(`Google Ads: ${message ?? `HTTP ${res.status}`}`);
+    }
+    const partial = (json as { partialFailureError?: { message?: string } }).partialFailureError;
+    if (partial?.message) throw new Error(`Google Ads: ${partial.message}`);
   }
 
   /** Verifica las credenciales con una consulta mínima. Lanza si son inválidas. */

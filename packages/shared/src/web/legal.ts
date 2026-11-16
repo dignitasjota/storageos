@@ -76,6 +76,8 @@ export interface TenantLegalContext {
   websiteUrl: string;
   /** Tiene Google Analytics configurado. */
   analytics: boolean;
+  /** Devuelve los contratos a Google Ads o a Meta (clic del anuncio con consentimiento). */
+  adConversions?: boolean;
   /** Tiene el botón o el asistente de WhatsApp Business. */
   whatsapp: boolean;
   /** Tiene el chat con IA en la web. */
@@ -219,10 +221,15 @@ Las cookies son pequeños archivos que la web guarda en tu navegador para funcio
       ? `
 - **Analítica (Google Analytics):** nos dicen cuántas personas visitan la web y qué páginas ven, de forma agregada. Solo se activan si las aceptas en el aviso de cookies. Proveedor: Google Ireland Ltd.`
       : ''
+  }${
+    ctx.adConversions
+      ? `
+- **Conversiones de anuncios:** si llegas por un anuncio de Google o de Meta (Facebook, Instagram) y aceptas todas las cookies, guardamos en tu navegador el identificador del clic durante 90 días. Si después contratas un trastero, se lo comunicamos a esa plataforma (junto con tu email y teléfono cifrados, en el caso de Meta) para saber qué anuncios funcionan. Proveedores: Google Ireland Ltd. y Meta Platforms Ireland Ltd.`
+      : ''
   }
 
 ${
-  ctx.analytics
+  ctx.analytics || ctx.adConversions
     ? 'Puedes cambiar tu elección en cualquier momento con el enlace «Configurar cookies» del pie de la web.'
     : 'Esta web no usa cookies de analítica de terceros ni de publicidad.'
 }

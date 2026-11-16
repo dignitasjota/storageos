@@ -44,6 +44,10 @@ export const CreateMarketingChannelSchema = z.object({
   promotionId: z.string().uuid().nullish(),
   /** Landing de promoción a la que lleva el enlace corto / QR (si no, la reserva). */
   promoLandingId: z.string().uuid().nullish(),
+  /** Cupón del canal: los contratos con él cuentan para el canal (como la promoción). */
+  couponId: z.string().uuid().nullish(),
+  /** Presupuesto del mes: al pasarlo, se avisa. null o vacío: sin presupuesto. */
+  monthlyBudget: z.number().min(0).max(1_000_000).finite().nullable().optional(),
   type: MarketingChannelTypeEnum.default('other'),
   name: z.string().trim().min(1).max(160),
   status: MarketingChannelStatusEnum.default('active'),
@@ -89,6 +93,8 @@ export interface MarketingChannelDto {
   facilityName: string | null;
   promotionId: string | null;
   promotionCode: string | null;
+  couponId: string | null;
+  couponCode: string | null;
   promoLandingId: string | null;
   promoLandingName: string | null;
   /**
@@ -96,12 +102,20 @@ export interface MarketingChannelDto {
    * (para pegar en un anuncio o en la bio de Instagram), o null sin landing.
    */
   landingUrl: string | null;
+  /**
+   * Dirección de la web con el origen y la campaña del canal, para pegar en un
+   * anuncio, un portal o la biografía de Instagram.
+   */
+  trackingUrl: string;
   type: MarketingChannelType;
   name: string;
   status: MarketingChannelStatus;
   externalUrl: string | null;
   /** null sin coste estimado o sin permiso para ver los gastos. */
   monthlyCost: number | null;
+  /** Presupuesto del mes y lo gastado (null sin permiso para ver los gastos). */
+  monthlyBudget: number | null;
+  spentThisMonth: number | null;
   renewsOn: string | null;
   renewalMonths: number | null;
   utmSourceMatch: string | null;
@@ -162,6 +176,35 @@ export interface MarketingPerformanceRowDto {
   liveCount: number;
   /** Meses de cuota para recuperar el coste por cliente (con la cuota media de los que siguen). */
   paybackMonths: number | null;
+  /** Visitantes de la web con el origen del canal en el periodo. */
+  visitors: number;
+  /** Reservas online del periodo que siguen en pie. */
+  bookings: number;
+  /** Clientes que ya han pagado algo. */
+  paidCount: number;
+  /** Cobrado de esos clientes hasta hoy, sin IVA y menos devoluciones (0 sin permiso). */
+  collected: number;
+  /** Cobrado ÷ coste; null sin coste o sin permisos. */
+  roas: number | null;
+}
+
+/**
+ * A qué canal va una reserva: al del primer contacto (con el que llegó la
+ * persona) o al del último (la visita en la que reservó).
+ */
+export const MarketingAttributionModelEnum = z.enum(['first', 'last']);
+export type MarketingAttributionModel = z.infer<typeof MarketingAttributionModelEnum>;
+
+/** Origen con visitas o contactos que no recoge ningún canal. */
+export interface MarketingUnassignedSourceDto {
+  source: string;
+  paidTraffic: boolean;
+  visitors: number;
+  contacts: number;
+  bookings: number;
+  /** Lo que se propone al crear el canal. */
+  suggestedType: MarketingChannelType;
+  suggestedName: string;
 }
 
 export interface MarketingPerformanceDto {
@@ -172,6 +215,9 @@ export interface MarketingPerformanceDto {
   /** Gasto de marketing del periodo sin canal vinculado (0 sin permiso). */
   unassignedCost: number;
   money: MarketingMoneyAccess;
+  model: MarketingAttributionModel;
+  /** Local del filtro (null = todos). */
+  facilityId: string | null;
 }
 
 /** Lo que da la plataforma de anuncios + lo que pasa después en TrasterOS. */
@@ -227,6 +273,13 @@ export function adPerformanceRatios(f: AdPerformanceFigures): AdPerformanceRatio
     costPerBooking: f.cost > 0 ? ratio(f.cost, f.bookings, 2) : null,
   };
 }
+
+/** Anotación a mano en la gráfica de visitas. */
+export const CreateMarketingAnnotationSchema = z.object({
+  day: dateOnly,
+  text: z.string().trim().min(1).max(120),
+});
+export type CreateMarketingAnnotationInput = z.infer<typeof CreateMarketingAnnotationSchema>;
 
 /** Generar y consultar el enlace corto de un canal (`/g/<code>` → redirige con UTM). */
 export interface MarketingShortLinkResolveDto {

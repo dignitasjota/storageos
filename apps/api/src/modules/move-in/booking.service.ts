@@ -10,6 +10,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { isValidSpanishTaxId, normalizeTaxId, rentTax } from '@storageos/shared';
 
 import { todayInTimezone } from '../../common/format';
+import { adConversionsEnabled } from '../../common/marketing/ad-conversions-enabled';
+import {
+  channelIdForTouch,
+  clickIdsData,
+  withLeadChannel,
+} from '../../common/marketing/lead-channel';
 import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { bookingReady, tenantReadiness } from '../../common/tenant-readiness';
@@ -91,36 +97,42 @@ export class BookingService {
           orderBy: { updatedAt: 'desc' },
         });
         if (existing) {
+          const clickIds = existing.clickIds ? undefined : clickIdsData(input.clickIds);
           const data = {
             ...(input.facilityId ? { preferredFacilityId: input.facilityId } : {}),
             ...(input.unitTypeId ? { preferredUnitTypeId: input.unitTypeId } : {}),
             ...(input.firstName?.trim() && !existing.firstName
               ? { firstName: input.firstName.trim() }
               : {}),
+            ...(clickIds ? { clickIds } : {}),
           };
           if (Object.keys(data).length > 0) {
             await tx.lead.update({ where: { id: existing.id }, data });
           }
           return;
         }
-        await tx.lead.create({
-          data: {
-            tenantId,
-            source: 'widget',
-            email: input.email.trim().toLowerCase(),
-            firstName: input.firstName?.trim() || null,
-            preferredFacilityId: input.facilityId ?? null,
-            preferredUnitTypeId: input.unitTypeId ?? null,
-            utmSource: input.utmSource ?? null,
-            utmMedium: input.utmMedium ?? null,
-            utmCampaign: input.utmCampaign ?? null,
-            metadata: {
-              origin: 'booking',
-              userAgent: meta.userAgent ?? null,
-              ipAddress: meta.ipAddress ?? null,
+        await withLeadChannel(
+          tx,
+          tx.lead.create({
+            data: {
+              tenantId,
+              source: 'widget',
+              email: input.email.trim().toLowerCase(),
+              firstName: input.firstName?.trim() || null,
+              preferredFacilityId: input.facilityId ?? null,
+              preferredUnitTypeId: input.unitTypeId ?? null,
+              utmSource: input.utmSource ?? null,
+              utmMedium: input.utmMedium ?? null,
+              utmCampaign: input.utmCampaign ?? null,
+              ...(clickIdsData(input.clickIds) ? { clickIds: clickIdsData(input.clickIds)! } : {}),
+              metadata: {
+                origin: 'booking',
+                userAgent: meta.userAgent ?? null,
+                ipAddress: meta.ipAddress ?? null,
+              },
             },
-          },
-        });
+          }),
+        );
       }, tenantId);
       return { captured: true };
     } catch (err) {
@@ -181,6 +193,7 @@ export class BookingService {
       brandColor: tenant.portalBrandColor,
       logoUrl: tenant.portalLogoUrl,
       googleAnalyticsId: tenant.googleAnalyticsId,
+      adConversions: await adConversionsEnabled(this.admin, tenant.id),
       webChatEnabled:
         tenant.status !== 'suspended' &&
         tenant.webChatEnabled &&
@@ -624,6 +637,16 @@ export class BookingService {
             !existingLead.utmSource &&
             !existingLead.utmCampaign &&
             input.utmSource !== 'presupuesto';
+          const touched = firstTouch && !!(input.utmSource || input.utmMedium || input.utmCampaign);
+          // Primer origen conocido del contacto: también su canal (si aún no tenía).
+          const channelId =
+            touched && !existingLead.marketingChannelId
+              ? await channelIdForTouch(tx, {
+                  source: input.utmSource ?? null,
+                  medium: input.utmMedium ?? null,
+                  campaign: input.utmCampaign ?? null,
+                })
+              : null;
           await tx.lead.update({
             where: { id: existingLead.id },
             data: {
@@ -632,12 +655,16 @@ export class BookingService {
               convertedCustomerId: customerId,
               convertedContractId: contract.id,
               bookedAt: now,
-              ...(firstTouch && (input.utmSource || input.utmMedium || input.utmCampaign)
+              ...(touched
                 ? {
                     utmSource: input.utmSource ?? null,
                     utmMedium: input.utmMedium ?? null,
                     utmCampaign: input.utmCampaign ?? null,
                   }
+                : {}),
+              ...(channelId ? { marketingChannelId: channelId } : {}),
+              ...(!existingLead.clickIds && clickIdsData(input.clickIds)
+                ? { clickIds: clickIdsData(input.clickIds)! }
                 : {}),
               metadata: {
                 ...((existingLead.metadata as Record<string, unknown> | null) ?? {}),
@@ -657,31 +684,37 @@ export class BookingService {
             await tx.leadQuote.update({ where: { id: lastQuote.id }, data: { bookedAt: now } });
           }
         } else {
-          await tx.lead.create({
-            data: {
-              tenantId,
-              // Reserva desde el chat o desde WhatsApp: su canal, no el de la web.
-              source: opts.channel ?? 'widget',
-              email: input.customer.email.trim().toLowerCase(),
-              firstName: input.customer.firstName.trim(),
-              lastName: input.customer.lastName.trim(),
-              phone: input.customer.phone?.trim() || null,
-              status: 'qualified',
-              qualifiedAt: now,
-              bookedAt: now,
-              convertedCustomerId: customerId,
-              convertedContractId: contract.id,
-              utmSource: input.utmSource ?? null,
-              utmMedium: input.utmMedium ?? null,
-              utmCampaign: input.utmCampaign ?? null,
-              metadata: {
-                origin: 'booking',
-                selfBooked: true,
-                bookingUtm,
-                bookingChannel: opts.channel ?? 'web',
+          await withLeadChannel(
+            tx,
+            tx.lead.create({
+              data: {
+                tenantId,
+                // Reserva desde el chat o desde WhatsApp: su canal, no el de la web.
+                source: opts.channel ?? 'widget',
+                email: input.customer.email.trim().toLowerCase(),
+                firstName: input.customer.firstName.trim(),
+                lastName: input.customer.lastName.trim(),
+                phone: input.customer.phone?.trim() || null,
+                status: 'qualified',
+                qualifiedAt: now,
+                bookedAt: now,
+                convertedCustomerId: customerId,
+                convertedContractId: contract.id,
+                utmSource: input.utmSource ?? null,
+                utmMedium: input.utmMedium ?? null,
+                utmCampaign: input.utmCampaign ?? null,
+                ...(clickIdsData(input.clickIds)
+                  ? { clickIds: clickIdsData(input.clickIds)! }
+                  : {}),
+                metadata: {
+                  origin: 'booking',
+                  selfBooked: true,
+                  bookingUtm,
+                  bookingChannel: opts.channel ?? 'web',
+                },
               },
-            },
-          });
+            }),
+          );
         }
       }, tenantId);
     } catch (err) {

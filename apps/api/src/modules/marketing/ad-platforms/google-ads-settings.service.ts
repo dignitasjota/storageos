@@ -3,6 +3,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaService } from '../../database/prisma.service';
 
+import { adConversionStats, retryFailedConversions } from './ad-conversion-stats';
 import { GoogleAdsClient } from './google-ads.client';
 
 import type { GoogleAdsCredentials } from './google-ads.client';
@@ -20,8 +21,12 @@ export class GoogleAdsSettingsService {
   ) {}
 
   async get(tenantId: string): Promise<GoogleAdsSettingsDto> {
-    const row = await this.prisma.withTenant(
-      (tx) => tx.googleAdsSettings.findUnique({ where: { tenantId } }),
+    const [row, conversions] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.googleAdsSettings.findUnique({ where: { tenantId } }),
+          adConversionStats(tx, 'google_ads'),
+        ]),
       tenantId,
     );
     return {
@@ -35,8 +40,10 @@ export class GoogleAdsSettingsService {
       ),
       customerId: row?.customerId ?? null,
       loginCustomerId: row?.loginCustomerId ?? null,
+      conversionActionId: row?.conversionActionId ?? null,
       lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
       lastError: row?.lastError ?? null,
+      conversions,
     };
   }
 
@@ -63,6 +70,10 @@ export class GoogleAdsSettingsService {
       input.loginCustomerId !== undefined
         ? input.loginCustomerId || null
         : (existing?.loginCustomerId ?? null);
+    const conversionActionId =
+      input.conversionActionId !== undefined
+        ? input.conversionActionId || null
+        : (existing?.conversionActionId ?? null);
 
     if (
       input.enabled &&
@@ -80,34 +91,36 @@ export class GoogleAdsSettingsService {
       });
     }
 
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.googleAdsSettings.upsert({
-          where: { tenantId },
-          create: {
-            tenantId,
-            clientId,
-            clientSecretEncrypted,
-            developerTokenEncrypted,
-            refreshTokenEncrypted,
-            customerId,
-            loginCustomerId,
-            enabled: input.enabled,
-          },
-          update: {
-            clientId,
-            clientSecretEncrypted,
-            developerTokenEncrypted,
-            refreshTokenEncrypted,
-            customerId,
-            loginCustomerId,
-            enabled: input.enabled,
-            // Al reconfigurar limpiamos el último error.
-            ...(input.clientId || input.refreshToken ? { lastError: null } : {}),
-          },
-        }),
-      tenantId,
-    );
+    await this.prisma.withTenant(async (tx) => {
+      await tx.googleAdsSettings.upsert({
+        where: { tenantId },
+        create: {
+          tenantId,
+          clientId,
+          clientSecretEncrypted,
+          developerTokenEncrypted,
+          refreshTokenEncrypted,
+          customerId,
+          loginCustomerId,
+          conversionActionId,
+          enabled: input.enabled,
+        },
+        update: {
+          clientId,
+          clientSecretEncrypted,
+          developerTokenEncrypted,
+          refreshTokenEncrypted,
+          customerId,
+          loginCustomerId,
+          conversionActionId,
+          enabled: input.enabled,
+          // Al reconfigurar limpiamos el último error.
+          ...(input.clientId || input.refreshToken ? { lastError: null } : {}),
+        },
+      });
+      // Otra configuración: los envíos que fallaron se vuelven a intentar.
+      await retryFailedConversions(tx, 'google_ads');
+    }, tenantId);
     return this.get(tenantId);
   }
 
@@ -142,6 +155,23 @@ export class GoogleAdsSettingsService {
       customerId: row.customerId,
       loginCustomerId: row.loginCustomerId,
     };
+  }
+
+  /** Credenciales y acción de conversión, si está activa y completa. */
+  async getConversionTarget(
+    tenantId: string,
+  ): Promise<{ credentials: GoogleAdsCredentials; conversionActionId: string } | null> {
+    const row = await this.prisma.withTenant(
+      (tx) =>
+        tx.googleAdsSettings.findUnique({
+          where: { tenantId },
+          select: { conversionActionId: true },
+        }),
+      tenantId,
+    );
+    if (!row?.conversionActionId) return null;
+    const credentials = await this.getCredentials(tenantId);
+    return credentials ? { credentials, conversionActionId: row.conversionActionId } : null;
   }
 
   /** Prueba las credenciales guardadas, también antes de activar la integración. */

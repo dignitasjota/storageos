@@ -211,6 +211,12 @@ const envSchemaBase = z.object({
   REVALIDATE_SECRET: z.string().default(''),
   /** URL pública del API (para callbacks server-a-servidor, p. ej. notificación Redsys). */
   API_BASE_URL: z.string().url().default('http://localhost:3001'),
+  /**
+   * App de Meta de la plataforma para «Conectar con Facebook» en Marketing →
+   * Redes sociales (sin pegar el token a mano). Vacías = solo se puede pegar el token.
+   */
+  META_APP_ID: z.string().trim().default(''),
+  META_APP_SECRET: z.string().trim().default(''),
 
   // --- Super admin (Fase 8) ---
   // SIN default (a proposito, como JWT_ACCESS_SECRET/MASTER_ENCRYPTION_KEY):

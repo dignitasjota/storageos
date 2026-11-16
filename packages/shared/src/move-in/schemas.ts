@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { calendarDate } from '../common/calendar-date';
-import { utmFields } from '../communications/schemas';
+import { AdClickIdsSchema, utmFields } from '../communications/schemas';
 import { FirstPaymentMonthsSchema } from '../coupons';
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato YYYY-MM-DD');
@@ -84,6 +84,7 @@ export const PublicBookingSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/)
     .optional(),
   ...utmFields,
+  clickIds: AdClickIdsSchema.optional(),
 });
 export type PublicBookingInput = z.infer<typeof PublicBookingSchema>;
 
@@ -100,6 +101,7 @@ export const CaptureBookingLeadSchema = z.object({
   /** Honeypot anti-bot: debe venir vacío. */
   website: z.string().optional(),
   ...utmFields,
+  clickIds: AdClickIdsSchema.optional(),
 });
 export type CaptureBookingLeadInput = z.infer<typeof CaptureBookingLeadSchema>;
 

@@ -1,8 +1,13 @@
+import { randomBytes } from 'node:crypto';
+
+import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   SOCIAL_NETWORKS,
   SOCIAL_REPORT_DAYS,
   shiftDate,
+  socialPostInsights,
   summarizeSocial,
   type ConnectSocialInput,
   type SocialNetwork,
@@ -11,11 +16,20 @@ import {
   type SocialPageOptionDto,
   type SocialSettingsDto,
 } from '@storageos/shared';
+import { Queue } from 'bullmq';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
+import { noteConnectionResult } from '../../../common/marketing/connection-alert';
+import {
+  buildOauthState,
+  oauthStateKey,
+  parseOauthState,
+} from '../../../common/marketing/oauth-state';
 import { tenantHasFeature } from '../../../common/tenant-features';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { PrismaService } from '../../database/prisma.service';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { QUEUE_BILLING } from '../../queues/queue-names';
 import { WebAnalyticsService } from '../web-analytics.service';
 
 import {
@@ -24,6 +38,20 @@ import {
   MetaGraphError,
   type MetaPage,
 } from './meta-graph.client';
+
+import type { Env } from '../../../config/env.schema';
+
+/** Permisos que se piden a Meta: leer las páginas, Instagram y sus estadísticas. */
+const OAUTH_SCOPES = [
+  'pages_show_list',
+  'pages_read_engagement',
+  'read_insights',
+  'instagram_basic',
+  'instagram_manage_insights',
+  'business_management',
+].join(',');
+/** El token de la vuelta se guarda 15 minutos (para elegir la página). */
+const OAUTH_TTL_SECONDS = 15 * 60;
 
 /** Días que se descargan al conectar (Instagram da algunas métricas día a día). */
 const INITIAL_DAYS = 30;
@@ -66,7 +94,100 @@ export class SocialService {
     private readonly crypto: CryptoService,
     private readonly client: MetaGraphClient,
     private readonly web: WebAnalyticsService,
+    private readonly notifications: NotificationsService,
+    private readonly config: ConfigService<Env, true>,
+    @InjectQueue(QUEUE_BILLING) private readonly queue: Queue,
   ) {}
+
+  private get oauthApp(): { appId: string; appSecret: string } | null {
+    const appId = this.config.get('META_APP_ID', { infer: true });
+    const appSecret = this.config.get('META_APP_SECRET', { infer: true });
+    return appId && appSecret ? { appId, appSecret } : null;
+  }
+
+  private get oauthRedirectUri(): string {
+    const base = this.config.get('API_BASE_URL', { infer: true }).replace(/\/$/, '');
+    return `${base}/v1/marketing/social/oauth/callback`;
+  }
+
+  private get stateKey(): Buffer {
+    return oauthStateKey(this.config.get('MASTER_ENCRYPTION_KEY', { infer: true }));
+  }
+
+  /** Dirección de Meta para «Conectar con Facebook». */
+  oauthStart(tenantId: string, userId: string): { url: string } {
+    const app = this.oauthApp;
+    if (!app) {
+      throw new BadRequestException({
+        code: 'social_oauth_unavailable',
+        message: 'La conexión con un botón no está disponible: pega el token de Meta.',
+      });
+    }
+    const params = new URLSearchParams({
+      client_id: app.appId,
+      redirect_uri: this.oauthRedirectUri,
+      state: buildOauthState(this.stateKey, tenantId, userId),
+      scope: OAUTH_SCOPES,
+      response_type: 'code',
+    });
+    return { url: `https://www.facebook.com/v23.0/dialog/oauth?${params.toString()}` };
+  }
+
+  /**
+   * Vuelta de Meta: comprueba el `state`, cambia el código por un token y lo
+   * guarda 15 minutos (cifrado) para que el panel elija la página. Devuelve a
+   * dónde llevar al usuario.
+   */
+  async oauthCallback(args: {
+    code?: string | undefined;
+    state?: string | undefined;
+    error?: string | undefined;
+  }): Promise<string> {
+    const web = this.config.get('WEB_BASE_URL', { infer: true }).replace(/\/$/, '');
+    const back = (q: string) => `${web}/marketing/social?${q}`;
+    const parsed = args.state ? parseOauthState(this.stateKey, args.state) : null;
+    if (!parsed) return back('oauth_error=state');
+    if (args.error || !args.code) return back('oauth_error=cancelled');
+    const app = this.oauthApp;
+    if (!app && !this.client.stub) return back('oauth_error=unavailable');
+    try {
+      const token = await this.client.exchangeOauthCode({
+        appId: app?.appId ?? '',
+        appSecret: app?.appSecret ?? '',
+        code: args.code,
+        redirectUri: this.oauthRedirectUri,
+      });
+      const key = randomBytes(24).toString('base64url');
+      const client = await this.queue.client;
+      await client.set(
+        `social:oauth:${key}`,
+        JSON.stringify({
+          tenantId: parsed.tenantId,
+          token: this.crypto.encryptString(token, parsed.tenantId),
+        }),
+        'EX',
+        OAUTH_TTL_SECONDS,
+      );
+      return back(`oauth=${key}`);
+    } catch (err) {
+      this.logger.warn(`[social] vuelta de Meta: ${(err as Error).message}`);
+      return back('oauth_error=exchange');
+    }
+  }
+
+  /** Token guardado de la vuelta de Meta (solo del mismo negocio). */
+  private async oauthToken(tenantId: string, key: string): Promise<string> {
+    const client = await this.queue.client;
+    const raw = await client.get(`social:oauth:${key}`);
+    const saved = raw ? (JSON.parse(raw) as { tenantId: string; token: string }) : null;
+    if (!saved || saved.tenantId !== tenantId) {
+      throw new BadRequestException({
+        code: 'social_oauth_expired',
+        message: 'La conexión con Facebook ha caducado: vuelve a pulsar «Conectar con Facebook».',
+      });
+    }
+    return this.crypto.decryptString(saved.token, tenantId);
+  }
 
   async settings(tenantId: string): Promise<SocialSettingsDto> {
     const row = await this.prisma.withTenant(
@@ -82,6 +203,7 @@ export class SocialService {
       lastError: row?.lastError ?? null,
       connectedAt: row?.connectedAt?.toISOString() ?? null,
       lastSyncedAt: row?.lastSyncedAt?.toISOString() ?? null,
+      oauthAvailable: !!this.oauthApp,
     };
   }
 
@@ -91,9 +213,12 @@ export class SocialService {
    * llamadas a Meta: la petición no espera a que acaben).
    */
   async connect(tenantId: string, input: ConnectSocialInput): Promise<SocialSettingsDto> {
+    const accessToken = input.oauthKey
+      ? await this.oauthToken(tenantId, input.oauthKey)
+      : input.accessToken!;
     let pages: MetaPage[];
     try {
-      pages = await this.client.pages(input.accessToken);
+      pages = await this.client.pages(accessToken);
     } catch (err) {
       if (!(err instanceof MetaGraphError)) throw err;
       throw new BadRequestException({ code: 'social_token_invalid', message: readableError(err) });
@@ -146,6 +271,10 @@ export class SocialService {
         update: data,
       });
     }, tenantId);
+    if (input.oauthKey) {
+      const client = await this.queue.client;
+      await client.del(`social:oauth:${input.oauthKey}`).catch(() => undefined);
+    }
     void this.sync(tenantId, INITIAL_DAYS).catch((err: unknown) =>
       this.logger.warn(
         `[social] primera descarga de ${tenantId}: ${err instanceof Error ? err.message : String(err)}`,
@@ -288,7 +417,7 @@ export class SocialService {
         (tx) =>
           tx.tenantSocialAccount.findUnique({
             where: { tenantId },
-            select: { connectedAt: true },
+            select: { connectedAt: true, tenant: { select: { timezone: true } } },
           }),
         tenantId,
       ),
@@ -336,9 +465,55 @@ export class SocialService {
         saves: p.saves,
         reach: p.reach,
         views: p.views,
+        linkClicks: p.linkClicks,
       })),
       { from, to, previousFrom },
     );
+    // Día y hora de cada publicación en la zona del negocio.
+    const tz = account?.tenant.timezone || 'Europe/Madrid';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    });
+    const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const postInsights = socialPostInsights(
+      posts
+        .filter((p) => {
+          const d = p.publishedAt.toISOString().slice(0, 10);
+          return d >= from && d <= to;
+        })
+        .map((p) => {
+          const bits = parts.formatToParts(p.publishedAt);
+          const weekday = WEEKDAYS.indexOf(bits.find((b) => b.type === 'weekday')?.value ?? '');
+          const hour = Number(bits.find((b) => b.type === 'hour')?.value ?? 0);
+          return {
+            network: p.network as SocialNetwork,
+            externalId: p.externalId,
+            publishedAt: p.publishedAt.toISOString(),
+            caption: p.caption,
+            mediaType: p.mediaType,
+            permalink: p.permalink,
+            thumbnailUrl: p.thumbnailUrl,
+            likes: p.likes,
+            comments: p.comments,
+            shares: p.shares,
+            saves: p.saves,
+            reach: p.reach,
+            views: p.views,
+            linkClicks: p.linkClicks,
+            weekday: Math.max(0, weekday),
+            hour,
+          };
+        }),
+    );
+    // Último día con algún dato (Meta tarda uno o dos días en darlos).
+    const withData = rows
+      .filter((r) => r.reach != null || r.views != null || r.followers != null)
+      .map((r) => r.date.toISOString().slice(0, 10))
+      .sort();
+    const dataUntil = withData.length > 0 ? withData[withData.length - 1]! : null;
     // Primer día descargado: el mes de la primera descarga (y lo que se guarda).
     const coverageFrom = account?.connectedAt
       ? [
@@ -350,6 +525,8 @@ export class SocialService {
       days,
       ...summary,
       previousComplete: !!coverageFrom && coverageFrom <= previousFrom,
+      postInsights,
+      dataUntil,
       web: SOCIAL_NETWORKS.map((network) => {
         const s = web.sources.find((x) => x.source === network);
         return {
@@ -372,7 +549,17 @@ export class SocialService {
     let synced = 0;
     for (const { tenantId } of rows) {
       if (!(await tenantHasFeature(this.admin, tenantId, 'web_premium'))) continue;
-      if ((await this.sync(tenantId)).ok) synced += 1;
+      const { ok } = await this.sync(tenantId);
+      if (ok) synced += 1;
+      const error = ok
+        ? null
+        : ((
+            await this.admin.tenantSocialAccount.findUnique({
+              where: { tenantId },
+              select: { lastError: true },
+            })
+          )?.lastError ?? null);
+      await noteConnectionResult(this.admin, this.notifications, tenantId, 'social', ok, error);
     }
     return { tenants: rows.length, synced };
   }

@@ -34,7 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { currentTrafficSource, visitorId } from '@/lib/attribution';
+import { currentClickIds, currentTrafficSource, trackWebEvent, visitorId } from '@/lib/attribution';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 
 /**
@@ -221,6 +221,17 @@ export function BookPageBody({
   const [showErrors, setShowErrors] = useState(false);
   const [leadCaptured, setLeadCaptured] = useState(false);
 
+  // Reserva empezada: local y tamaño elegidos (una vez por combinación), para
+  // el embudo de la reserva y el interés por local y tamaño.
+  const startedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!facilityId || !unitTypeId) return;
+    const k = `${facilityId}|${unitTypeId}`;
+    if (startedRef.current.has(k)) return;
+    startedRef.current.add(k);
+    trackWebEvent(slug, 'booking_start', undefined, { facilityId, unitTypeId });
+  }, [slug, facilityId, unitTypeId]);
+
   // Email-first: en cuanto el visitante deja un email válido, guardamos un lead
   // (best-effort, sin bloquear) para no perderlo si abandona antes de completar.
   async function captureLead() {
@@ -237,6 +248,7 @@ export function BookPageBody({
           ...(unitTypeId ? { unitTypeId } : {}),
           website,
           ...utm,
+          ...(currentClickIds(slug) ? { clickIds: currentClickIds(slug) } : {}),
         },
       });
       trackEvent('book_lead_captured');
@@ -267,6 +279,7 @@ export function BookPageBody({
           // Enlaza la reserva con la conversación del chat de la web (si chateó).
           visitorId: visitorId(),
           ...utm,
+          ...(currentClickIds(slug) ? { clickIds: currentClickIds(slug) } : {}),
         },
       });
       trackEvent('book_submitted');

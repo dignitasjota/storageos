@@ -1,15 +1,20 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 import {
+  computeStorageM2,
   isBotUserAgent,
   isWithinHours,
   normalizeWebChatQuestion,
   OpeningHoursSchema,
   PublicBookingSchema,
+  STORAGE_PRESETS,
   type PageDto,
   type PublicLandingDto,
+  type PublicWebChatBookingInput,
   type PublicWebChatContactInput,
+  type WebChatTryInput,
+  type WebChatTryResultDto,
   type PublicWebChatFeedbackInput,
   type PublicWebChatHandoffInput,
   type PublicWebChatHistoryDto,
@@ -29,7 +34,7 @@ import {
 } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
-import { currentMonth, zonedDayStart } from '../../common/format';
+import { currentMonth, formatEur, zonedDayStart } from '../../common/format';
 import { pageArgs, toPage, type PageRequest } from '../../common/pagination';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { bookingReady, tenantReadiness } from '../../common/tenant-readiness';
@@ -38,6 +43,7 @@ import { AiService } from '../ai/ai.service';
 import { PlatformAiSettingsService } from '../ai/platform-ai-settings.service';
 import { WEB_CHAT_PROMPT_MARKER } from '../ai/stub-ai-provider';
 import { AuditService } from '../auth/audit.service';
+import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { LandingService } from '../landing/landing.service';
@@ -94,6 +100,8 @@ const CONVERSATION_SELECT = {
   staffUnread: true,
   contractId: true,
   bookedInChat: true,
+  assignedToUserId: true,
+  assignedTo: { select: { fullName: true } },
   lead: { select: { firstName: true, lastName: true, email: true } },
   messages: {
     where: { role: 'visitor' },
@@ -129,6 +137,10 @@ const TEXTS = {
       'Ahora mismo el equipo no está (fuera de su horario de atención). Déjanos tu email o teléfono y te contactamos en cuanto vuelva; mientras, sigo ayudándote yo.',
     aiBack: 'El equipo no ha podido responderte todavía; mientras tanto, te ayudo yo.',
     signLinkStored: '(enlace enviado a tu email)',
+    alreadyBooked:
+      'Ya tienes una reserva hecha desde aquí. Revisa tu email para firmarla y pagarla, o escríbenos si quieres cambiarla.',
+    formBooking: (size: string, place: string, date: string) =>
+      `Formulario de reserva: trastero ${size} en ${place}, desde el ${date}.`,
     bookingFail: (reason: string) =>
       `No he podido completar la reserva (${reason}). Puedes hacerla aquí mismo en la web o te ayudamos por teléfono.`,
     booked: (size: string, place: string, url: string | null, sentTo: string | null) =>
@@ -155,6 +167,38 @@ const TEXTS = {
     },
     promoNotApplied: (code: string) =>
       `La promoción ${code} no se ha podido aplicar a esta reserva; si crees que te corresponde, díselo al equipo.`,
+    priceSummary: (total: string, monthly: string, deposit: string | null, promo: string | null) =>
+      `Primer pago: ${total}${deposit ? ` (incluye ${deposit} de fianza, que se devuelve al terminar)` : ''}.${promo ? ` Con la promoción ${promo}.` : ''} Después, ${monthly} al mes, IVA incluido.`,
+    visitRequested: (place: string, when: string) =>
+      `Le he pasado al equipo que quieres ver ${place} el ${when}. Te escribirán o llamarán para confirmarte la hora.`,
+    visitFail: 'No he podido apuntar la visita. Escríbenos o llámanos y te la organizamos.',
+    quoteSent: (email: string) =>
+      `Te he enviado el presupuesto a ${email}, con el enlace para reservarlo cuando quieras.`,
+    quoteFail: 'No he podido enviarte el presupuesto. Puedes ver los precios y reservar en la web.',
+    quoteSubject: (business: string) => `Tu presupuesto de trastero en ${business}`,
+    quoteBody: (a: {
+      name: string | null;
+      size: string;
+      place: string;
+      total: string;
+      monthly: string;
+      deposit: string | null;
+      promo: string | null;
+      url: string;
+      business: string;
+    }) =>
+      [
+        `Hola${a.name ? ` ${a.name}` : ''}:`,
+        '',
+        `Este es el presupuesto del trastero ${a.size} en ${a.place}:`,
+        `- Primer pago: ${a.total}${a.deposit ? ` (incluye ${a.deposit} de fianza, que se devuelve al terminar)` : ''}.`,
+        `- Después: ${a.monthly} al mes, IVA incluido.`,
+        ...(a.promo ? [`- Con la promoción ${a.promo}.`] : []),
+        '',
+        `Puedes reservarlo aquí: ${a.url}`,
+        '',
+        `Un saludo,\n${a.business}`,
+      ].join('\n'),
   },
   en: {
     visitorLimit:
@@ -174,6 +218,10 @@ const TEXTS = {
       "The team isn't available right now (outside their working hours). Leave us your email or phone and we'll contact you when they're back; in the meantime, I can keep helping you.",
     aiBack: "The team hasn't been able to reply yet; in the meantime, I'll help you.",
     signLinkStored: '(link sent to your email)',
+    alreadyBooked:
+      'You already have a booking made here. Check your email to sign and pay, or write to us if you want to change it.',
+    formBooking: (size: string, place: string, date: string) =>
+      `Booking form: ${size} unit at ${place}, from ${date}.`,
     bookingFail: (reason: string) =>
       `I couldn't complete the booking (${reason}). You can book right here on the website or we can help you by phone.`,
     booked: (size: string, place: string, url: string | null, sentTo: string | null) =>
@@ -199,6 +247,38 @@ const TEXTS = {
     },
     promoNotApplied: (code: string) =>
       `The ${code} promotion could not be applied to this booking; if you think it should, tell the team.`,
+    priceSummary: (total: string, monthly: string, deposit: string | null, promo: string | null) =>
+      `First payment: ${total}${deposit ? ` (including a ${deposit} deposit, refunded at the end)` : ''}.${promo ? ` With the ${promo} promotion.` : ''} Then ${monthly} a month, VAT included.`,
+    visitRequested: (place: string, when: string) =>
+      `I've told the team you'd like to see ${place} on ${when}. They will write or call to confirm the time.`,
+    visitFail: "I couldn't book the visit. Please write or call us and we'll arrange it.",
+    quoteSent: (email: string) =>
+      `I've sent the quote to ${email}, with the link to book it whenever you like.`,
+    quoteFail: "I couldn't send you the quote. You can see the prices and book on the website.",
+    quoteSubject: (business: string) => `Your storage unit quote from ${business}`,
+    quoteBody: (a: {
+      name: string | null;
+      size: string;
+      place: string;
+      total: string;
+      monthly: string;
+      deposit: string | null;
+      promo: string | null;
+      url: string;
+      business: string;
+    }) =>
+      [
+        `Hello${a.name ? ` ${a.name}` : ''},`,
+        '',
+        `Here is the quote for the ${a.size} unit at ${a.place}:`,
+        `- First payment: ${a.total}${a.deposit ? ` (including a ${a.deposit} deposit, refunded at the end)` : ''}.`,
+        `- Then: ${a.monthly} a month, VAT included.`,
+        ...(a.promo ? [`- With the ${a.promo} promotion.`] : []),
+        '',
+        `You can book it here: ${a.url}`,
+        '',
+        `Kind regards,\n${a.business}`,
+      ].join('\n'),
   },
 } as const;
 
@@ -250,6 +330,7 @@ export class WebChatService {
   private readonly landingCache = new TtlCache<PublicLandingDto | null>();
   /** Si el negocio acepta reservas online (datos fiscales y forma de cobro). */
   private readonly bookingReadyCache = new TtlCache<boolean>();
+  private readonly conditionsCache = new TtlCache<string[]>();
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -265,6 +346,7 @@ export class WebChatService {
     private readonly audit: AuditService,
     private readonly config: ConfigService<Env, true>,
     private readonly abuse: WebChatAbuseService,
+    private readonly communications: CommunicationsService,
   ) {}
 
   // ─── Público ───────────────────────────────────────────────────────────────
@@ -623,6 +705,9 @@ export class WebChatService {
           bookingReady(await tenantReadiness(this.admin, tenant.id)),
         )),
       handoffEnabled: tenant.webChatHandoffEnabled,
+      conditions: await this.conditionsCache.get(tenant.id, () =>
+        this.businessConditions(tenant.id, landing),
+      ),
     });
     const messages = this.toTurns(history.reverse(), input.message);
 
@@ -683,6 +768,34 @@ export class WebChatService {
       if (parsed.waitlist && tenant.webChatBookingsEnabled && landing) {
         extras.push(await this.joinWaitlist(tenant, landing, parsed.waitlist, lang));
       }
+      // Quiere ver el local: contacto + visita en el calendario del equipo.
+      if (parsed.visit && landing) {
+        const visit = await this.requestVisit({
+          tenant,
+          conversationId: conversation.id,
+          landing,
+          raw: parsed.visit,
+          lang,
+          input,
+          meta,
+        });
+        extras.push(visit.message);
+        if (visit.ok) leadCaptured = true;
+      }
+      // Quiere el presupuesto por email.
+      if (parsed.quote && landing) {
+        const quote = await this.sendQuote({
+          tenant,
+          conversationId: conversation.id,
+          landing,
+          raw: parsed.quote,
+          lang,
+          input,
+          meta,
+        });
+        extras.push(quote.message);
+        if (quote.ok) leadCaptured = true;
+      }
       // Datos de contacto.
       if (parsed.contact && !conversation.leadId && !leadCaptured) {
         leadCaptured = await this.saveLead(tenant.id, conversation.id, parsed.contact, input, meta);
@@ -730,6 +843,203 @@ export class WebChatService {
       leadCaptured: leadCaptured || !!conversation.leadId,
       ...(wantsPerson && !teamHere && !conversation.leadId ? { askContact: true } : {}),
     });
+  }
+
+  /**
+   * Reserva con el formulario del chat: los mismos pasos que la que prepara el
+   * asistente (promoción, resumen del precio, enlace de firma), sin pasar por la IA.
+   */
+  async bookFromForm(
+    slug: string,
+    input: PublicWebChatBookingInput,
+    meta: RequestMeta,
+  ): Promise<PublicWebChatResultDto> {
+    const tenant = await this.liveTenant(slug);
+    const lang: Lang = input.locale;
+    const t = TEXTS[lang];
+    const landing = await this.landingOf(tenant.slug);
+    const contact = this.contactOf(tenant, landing);
+    const result = (
+      answer: string,
+      extra: Partial<PublicWebChatResultDto> = {},
+    ): PublicWebChatResultDto => ({
+      answer,
+      messageId: null,
+      mode: 'ai',
+      leadCaptured: false,
+      limited: null,
+      contact,
+      ...extra,
+    });
+    if (input.hp || isBotUserAgent(meta.userAgent)) {
+      return result(t.tenantLimit, { limited: 'tenant' });
+    }
+    if (!landing || !tenant.webChatBookingsEnabled) {
+      return result(t.bookingFail(t.reasons.unavailable));
+    }
+    const known = await this.admin.webChatConversation.findUnique({
+      where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
+      select: { id: true },
+    });
+    if (
+      !known &&
+      !(await this.abuse.allow(
+        'conversation',
+        tenant.id,
+        meta.ipAddress,
+        WEB_CHAT_CONVERSATIONS_PER_IP,
+      ))
+    ) {
+      return result(t.visitorLimit, { limited: 'visitor' });
+    }
+    const conversation = await this.admin.webChatConversation.upsert({
+      where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
+      create: {
+        tenantId: tenant.id,
+        visitorId: input.visitorId,
+        locale: input.locale,
+        utmSource: input.utmSource ?? null,
+        utmMedium: input.utmMedium ?? null,
+        utmCampaign: input.utmCampaign ?? null,
+      },
+      update: { locale: input.locale },
+      select: {
+        id: true,
+        leadId: true,
+        contractId: true,
+        utmSource: true,
+        utmMedium: true,
+        utmCampaign: true,
+      },
+    });
+    if (await this.bookingAlive(conversation.contractId)) return result(t.alreadyBooked);
+    const code = [...bookingCodes(landing).entries()].find(
+      ([, v]) => v.facilityId === input.facilityId && v.unitTypeId === input.unitTypeId,
+    );
+    if (!code) return result(t.bookingFail(t.reasons.size));
+    await this.saveMessage(
+      tenant.id,
+      conversation.id,
+      'visitor',
+      t.formBooking(code[1].unitTypeName, code[1].facilityName, input.startDate),
+    );
+    const booked = await this.createBooking({
+      tenant,
+      conversationId: conversation.id,
+      landing,
+      raw: JSON.stringify({
+        tipo: code[0],
+        fecha: input.startDate,
+        nombre: input.customer.firstName,
+        apellidos: input.customer.lastName,
+        email: input.customer.email,
+        telefono: input.customer.phone,
+        documento: input.customer.documentNumber,
+      }),
+      lang,
+      meta,
+      utm: conversation,
+      clickIds: input.clickIds,
+    });
+    const messageId = await this.saveMessage(
+      tenant.id,
+      conversation.id,
+      'assistant',
+      redactSigningLinks(booked.message, t.signLinkStored),
+    );
+    return result(booked.message, {
+      messageId,
+      leadCaptured: booked.ok || !!conversation.leadId,
+    });
+  }
+
+  /**
+   * Otra conversación: la anterior se queda en el panel con otro identificador
+   * (que nunca puede volver a llegar del navegador), así el siguiente mensaje
+   * abre una nueva.
+   */
+  async newConversation(slug: string, visitorId: string): Promise<{ ok: boolean }> {
+    const tenant = await this.liveTenant(slug);
+    const current = await this.admin.webChatConversation.findUnique({
+      where: { tenantId_visitorId: { tenantId: tenant.id, visitorId } },
+      select: { id: true },
+    });
+    if (!current) return { ok: true };
+    await this.admin.webChatConversation.update({
+      where: { id: current.id },
+      data: { visitorId: `${visitorId.slice(0, 48)}~${Date.now().toString(36)}` },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Probar el asistente desde el panel: el mismo prompt que con un visitante,
+   * sin guardar nada ni ejecutar las marcas (se cuentan en `actions`). Gasta
+   * una respuesta del mes como cualquier otra.
+   */
+  async tryAssistant(tenantId: string, input: WebChatTryInput): Promise<WebChatTryResultDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        status: true,
+        deletedAt: true,
+        timezone: true,
+        webChatEnabled: true,
+        webChatInstructions: true,
+        webChatSharedInstructions: true,
+        webChatBookingsEnabled: true,
+        webChatHandoffEnabled: true,
+        webChatTeamHours: true,
+        contactPhone: true,
+        contactEmail: true,
+      },
+    });
+    if (!tenant)
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    const landing = await this.landingOf(tenant.slug);
+    const faqs = await this.admin.faqEntry.findMany({
+      where: { tenantId, isPublished: true },
+      select: { question: true, answer: true },
+      orderBy: { position: 'asc' },
+      take: 30,
+    });
+    const system = this.buildSystemPrompt({
+      tenantName: tenant.name,
+      timezone: tenant.timezone,
+      landing,
+      faqs,
+      instructions: await this.instructionsOf(tenant),
+      bookingUrl: this.bookingUrl(tenant.slug, landing?.customDomain ?? null),
+      contact: this.contactOf(tenant, landing),
+      canSaveContact: true,
+      bookingsEnabled: tenant.webChatBookingsEnabled && !!landing,
+      handoffEnabled: tenant.webChatHandoffEnabled,
+      conditions: await this.conditionsCache.get(tenant.id, () =>
+        this.businessConditions(tenant.id, landing),
+      ),
+    });
+    const messages = this.toTurns(
+      input.history.map((h) => ({ role: h.role, content: h.content })),
+      input.message,
+    );
+    const completion = await this.ai.webChatComplete({ tenantId, system, messages });
+    if ('limited' in completion) {
+      return { answer: TEXTS.es.tenantLimit, actions: ['Sin respuestas este mes'] };
+    }
+    const parsed = parseAssistantReply(completion.text);
+    const actions = [
+      parsed.booking ? 'Prepararía una reserva' : null,
+      parsed.waitlist ? 'Apuntaría a la lista de espera' : null,
+      parsed.contact ? 'Guardaría el contacto' : null,
+      parsed.visit ? 'Pediría una visita al local' : null,
+      parsed.quote ? 'Enviaría un presupuesto por email' : null,
+      parsed.handoff ? 'Pasaría la conversación a una persona' : null,
+      parsed.unanswered ? 'No tenía la información (saldría en «sin respuesta»)' : null,
+    ].filter((a): a is string => !!a);
+    return { answer: parsed.text || TEXTS.es.error, actions };
   }
 
   /** El visitante pide hablar con una persona (botón del widget). */
@@ -814,11 +1124,29 @@ export class WebChatService {
   ): Promise<{ saved: boolean }> {
     const tenant = await this.liveTenant(slug);
     if (input.hp || isBotUserAgent(meta.userAgent)) return { saved: false };
-    const conversation = await this.admin.webChatConversation.findUnique({
+    let conversation = await this.admin.webChatConversation.findUnique({
       where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
       select: { id: true, leadId: true },
     });
-    if (!conversation) return { saved: false };
+    // El formulario «Déjanos tus datos» del chat vale aunque aún no haya escrito.
+    if (!conversation) {
+      if (
+        !(await this.abuse.allow(
+          'conversation',
+          tenant.id,
+          meta.ipAddress,
+          WEB_CHAT_CONVERSATIONS_PER_IP,
+        ))
+      ) {
+        return { saved: false };
+      }
+      conversation = await this.admin.webChatConversation.upsert({
+        where: { tenantId_visitorId: { tenantId: tenant.id, visitorId: input.visitorId } },
+        create: { tenantId: tenant.id, visitorId: input.visitorId, locale: 'es' },
+        update: {},
+        select: { id: true, leadId: true },
+      });
+    }
     if (conversation.leadId) return { saved: true };
     const last = await this.admin.webChatMessage.findFirst({
       where: { conversationId: conversation.id, role: 'visitor' },
@@ -974,6 +1302,8 @@ export class WebChatService {
     meta: RequestMeta;
     /** Origen de la visita del que reserva (el que trajo el widget). */
     utm: { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null };
+    /** Clic en un anuncio (si aceptó todas las cookies). */
+    clickIds?: PublicWebChatBookingInput['clickIds'];
   }): Promise<{ ok: boolean; message: string }> {
     const t = TEXTS[args.lang];
     const fail = (reason: string) => ({ ok: false, message: t.bookingFail(reason) });
@@ -1001,6 +1331,7 @@ export class WebChatService {
       ...(args.utm.utmSource ? { utmSource: args.utm.utmSource } : {}),
       ...(args.utm.utmMedium ? { utmMedium: args.utm.utmMedium } : {}),
       ...(args.utm.utmCampaign ? { utmCampaign: args.utm.utmCampaign } : {}),
+      ...(args.clickIds ? { clickIds: args.clickIds } : {}),
     });
     if (!parsed.success) return fail(t.reasons.invalid);
     if (parsed.data.startDate < todayIn(args.tenant.timezone)) return fail(t.reasons.past);
@@ -1073,11 +1404,213 @@ export class WebChatService {
       url,
       booked.signingLinkSentTo,
     );
-    return {
-      ok: true,
-      message:
-        promoNotApplied && promoCode ? `${message}\n${t.promoNotApplied(promoCode)}` : message,
-    };
+    // Lo que va a pagar, para que no haya sorpresas al abrir el enlace.
+    const applied = promoCode && !promoNotApplied ? promoCode : null;
+    const price = await this.booking
+      .quoteBooking(args.tenant.slug, {
+        facilityId: target.facilityId,
+        unitTypeId: target.unitTypeId,
+        months: 1,
+        startDate: parsed.data.startDate,
+        ...(applied ? { couponCode: applied } : {}),
+      })
+      .then((q) => {
+        const money = (n: number) => formatEur(n, args.lang === 'en' ? 'en' : 'es');
+        const monthly = q.monthlyPrice * (1 + q.vatRate / 100);
+        return t.priceSummary(
+          money(q.totalToPay),
+          money(Math.round(monthly * 100) / 100),
+          q.deposit > 0 ? money(q.deposit) : null,
+          q.discountAmount > 0 || q.freeMonths > 0 ? applied : null,
+        );
+      })
+      .catch(() => null);
+    const lines = [
+      message,
+      price,
+      promoNotApplied && promoCode ? t.promoNotApplied(promoCode) : null,
+    ];
+    return { ok: true, message: lines.filter(Boolean).join('\n') };
+  }
+
+  /**
+   * Visita al local pedida en el chat: guarda el contacto, apunta la visita en
+   * el calendario del equipo (por confirmar) y le avisa.
+   */
+  private async requestVisit(args: {
+    tenant: LiveTenant;
+    conversationId: string;
+    landing: PublicLandingDto;
+    raw: string;
+    lang: Lang;
+    input: { message: string };
+    meta: RequestMeta;
+  }): Promise<{ ok: boolean; message: string }> {
+    const t = TEXTS[args.lang];
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(args.raw) as Record<string, unknown>;
+    } catch {
+      return { ok: false, message: t.visitFail };
+    }
+    const str = (k: string) => (typeof data[k] === 'string' ? (data[k] as string).trim() : '');
+    const idx = Number(/^L(\d+)$/i.exec(str('local'))?.[1] ?? '1') - 1;
+    const facility = args.landing.facilities[idx] ?? args.landing.facilities[0];
+    const day = str('fecha');
+    const time = /^\d{1,2}:\d{2}$/.test(str('hora')) ? str('hora') : '10:00';
+    if (!facility || !/^\d{4}-\d{2}-\d{2}$/.test(day) || day < todayIn(args.tenant.timezone)) {
+      return { ok: false, message: t.visitFail };
+    }
+    const conv = await this.admin.webChatConversation.findUnique({
+      where: { id: args.conversationId },
+      select: { leadId: true },
+    });
+    if (!conv?.leadId) {
+      const saved = await this.saveLead(
+        args.tenant.id,
+        args.conversationId,
+        JSON.stringify({
+          nombre: str('nombre'),
+          email: str('email'),
+          telefono: str('telefono'),
+          mensaje: `Quiere visitar ${facility.name} el ${day} a las ${time}.`,
+        }),
+        args.input,
+        args.meta,
+      );
+      if (!saved) return { ok: false, message: t.contactInvalid };
+    }
+    const lead = await this.admin.webChatConversation.findUnique({
+      where: { id: args.conversationId },
+      select: { leadId: true },
+    });
+    if (!lead?.leadId) return { ok: false, message: t.visitFail };
+    const [h, m] = time.split(':').map(Number) as [number, number];
+    const scheduledAt = new Date(
+      zonedDayStart(day, args.tenant.timezone).getTime() + (h * 60 + m) * 60_000,
+    );
+    await this.admin.leadVisit.create({
+      data: {
+        tenantId: args.tenant.id,
+        leadId: lead.leadId,
+        facilityId: facility.id,
+        scheduledAt,
+        notes: 'Pedida desde el chat de la web: confirma la hora con el cliente.',
+      },
+    });
+    void this.notifications
+      .createForPermission(args.tenant.id, 'leads:read', {
+        type: 'web_chat.visit',
+        title: `Un visitante quiere ver ${facility.name}`,
+        body: `El ${day} a las ${time}. Confírmale la hora.`,
+        link: `/leads?lead=${lead.leadId}`,
+        facilityId: facility.id,
+      })
+      .catch(() => undefined);
+    return { ok: true, message: t.visitRequested(facility.name, `${day} a las ${time}`) };
+  }
+
+  /**
+   * Presupuesto por email pedido en el chat: el primer pago, la cuota y el
+   * enlace a la reserva con el local y el tamaño elegidos. Guarda el contacto.
+   */
+  private async sendQuote(args: {
+    tenant: LiveTenant;
+    conversationId: string;
+    landing: PublicLandingDto;
+    raw: string;
+    lang: Lang;
+    input: { message: string };
+    meta: RequestMeta;
+  }): Promise<{ ok: boolean; message: string }> {
+    const t = TEXTS[args.lang];
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(args.raw) as Record<string, unknown>;
+    } catch {
+      return { ok: false, message: t.quoteFail };
+    }
+    const str = (k: string) => (typeof data[k] === 'string' ? (data[k] as string).trim() : '');
+    const target = bookingCodes(args.landing).get(str('tipo').toUpperCase());
+    const email = str('email').toLowerCase();
+    if (!target || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return { ok: false, message: t.quoteFail };
+    }
+    // Una petición así manda un correo: como mucho unas pocas por IP y día.
+    if (!(await this.abuse.allow('quote', args.tenant.id, args.meta.ipAddress, 3))) {
+      return { ok: false, message: t.quoteFail };
+    }
+    const promo = args.landing.activePromotion?.code ?? null;
+    const quote = await this.booking
+      .quoteBooking(args.tenant.slug, {
+        facilityId: target.facilityId,
+        unitTypeId: target.unitTypeId,
+        months: 1,
+        ...(promo ? { couponCode: promo } : {}),
+      })
+      .catch(() =>
+        this.booking
+          .quoteBooking(args.tenant.slug, {
+            facilityId: target.facilityId,
+            unitTypeId: target.unitTypeId,
+            months: 1,
+          })
+          .catch(() => null),
+      );
+    if (!quote) return { ok: false, message: t.quoteFail };
+    const conv = await this.admin.webChatConversation.findUnique({
+      where: { id: args.conversationId },
+      select: { leadId: true },
+    });
+    if (!conv?.leadId) {
+      await this.saveLead(
+        args.tenant.id,
+        args.conversationId,
+        JSON.stringify({
+          nombre: str('nombre'),
+          email,
+          mensaje: `Pidió el presupuesto del trastero ${target.unitTypeName} en ${target.facilityName}.`,
+        }),
+        args.input,
+        args.meta,
+      );
+    }
+    const lead = await this.admin.webChatConversation.findUnique({
+      where: { id: args.conversationId },
+      select: { leadId: true },
+    });
+    const money = (n: number) => formatEur(n, args.lang === 'en' ? 'en' : 'es');
+    const facility = args.landing.facilities.find((f) => f.id === target.facilityId);
+    const custom = args.landing.customDomain;
+    const url = custom
+      ? `https://${custom}/reservar${facility?.publicSlug ? `/${facility.publicSlug}` : ''}?unitTypeId=${target.unitTypeId}${quote.coupon?.valid ? `&coupon=${quote.coupon.code}` : ''}`
+      : `${this.publicBase(null)}/book/${args.tenant.slug}?facilityId=${target.facilityId}&unitTypeId=${target.unitTypeId}${quote.coupon?.valid ? `&coupon=${quote.coupon.code}` : ''}`;
+    try {
+      await this.communications.enqueue({
+        tenantId: args.tenant.id,
+        channel: 'email',
+        recipient: email,
+        subject: t.quoteSubject(args.tenant.name),
+        bodyText: t.quoteBody({
+          name: str('nombre') || null,
+          size: target.unitTypeName,
+          place: target.facilityName,
+          total: money(quote.totalToPay),
+          monthly: money(Math.round(quote.monthlyPrice * (1 + quote.vatRate / 100) * 100) / 100),
+          deposit: quote.deposit > 0 ? money(quote.deposit) : null,
+          promo: quote.coupon?.valid ? quote.coupon.code : null,
+          url,
+          business: args.tenant.name,
+        }),
+        ...(lead?.leadId ? { leadId: lead.leadId } : {}),
+        source: 'web_chat.quote',
+      });
+    } catch (err) {
+      await this.abuse.giveBack('quote', args.tenant.id, args.meta.ipAddress);
+      this.logger.warn(`[web-chat] presupuesto no enviado: ${(err as Error).message}`);
+      return { ok: false, message: t.quoteFail };
+    }
+    return { ok: true, message: t.quoteSent(email) };
   }
 
   private async joinWaitlist(
@@ -1250,6 +1783,8 @@ export class WebChatService {
     canSaveContact: boolean;
     bookingsEnabled: boolean;
     handoffEnabled: boolean;
+    /** Fianza, formas de pago, preaviso, protección y horario de acceso. */
+    conditions?: string[];
   }): AiSystemPrompt {
     const now = new Intl.DateTimeFormat('es-ES', {
       timeZone: args.timezone,
@@ -1291,13 +1826,34 @@ export class WebChatService {
         '  con solo los datos que te haya dado (nunca los inventes).',
       );
     }
+    const hasFacilities = !!args.landing && args.landing.facilities.length > 0;
     lines.push(
       ...publicBusinessContextLines({
         landing: args.landing,
         faqs: [],
-        codes: args.bookingsEnabled,
+        // Los códigos sirven para reservar, pedir visita o presupuesto.
+        codes: hasFacilities,
       }),
     );
+    if (hasFacilities) {
+      lines.push(
+        '- Los códigos entre corchetes ([L1], [L1-T2]) son solo para las marcas: no se los enseñes al visitante.',
+        '',
+        '## Qué tamaño necesita (orientativo, con un poco de margen)',
+        `- Un estudio (sofá, cama individual, armario, mesa, electrodomésticos y unas 10 cajas): unos ${computeStorageM2(STORAGE_PRESETS[0]!.items)} m².`,
+        `- Un piso de 1 habitación: unos ${computeStorageM2(STORAGE_PRESETS[1]!.items)} m².`,
+        `- Un piso de 2 o 3 habitaciones: unos ${computeStorageM2(STORAGE_PRESETS[2]!.items)} m².`,
+        '- Solo cajas: cada 10 cajas medianas ocupan algo menos de 1 m² apiladas.',
+        'Con lo que te cuente, recomienda el tamaño más pequeño que le quepa de los que hay libres.',
+        '',
+        '## Visitas y presupuestos',
+        'Si quiere ver el local antes de alquilar, pide su nombre, un teléfono o email, el día y la hora. Resume los datos y, cuando los confirme, añade:',
+        '[[VISITA {"local":"L1","fecha":"AAAA-MM-DD","hora":"HH:MM","nombre":"…","email":"…","telefono":"…"}]]',
+        'Si quiere el precio por email, pide el tamaño y su email y añade:',
+        '[[PRESUPUESTO {"tipo":"L1-T2","nombre":"…","email":"…"}]]',
+        'No digas que la visita está confirmada: el equipo le confirmará la hora.',
+      );
+    }
     if (args.bookingsEnabled && args.landing && args.landing.facilities.length > 0) {
       lines.push(
         '',
@@ -1311,9 +1867,111 @@ export class WebChatService {
         '[[ESPERA {"tipo":"L1-T2","nombre":"…","email":"…","telefono":"…"}]]',
       );
     }
+    if (args.conditions && args.conditions.length > 0) {
+      lines.push('', '## Condiciones', ...args.conditions);
+    }
     lines.push(...publicBusinessContextLines({ landing: null, faqs: args.faqs }));
     if (args.instructions) lines.push('', '## Indicaciones del negocio', args.instructions);
     return { stable: lines.join('\n'), dynamic: `Hoy es ${now}.` };
+  }
+
+  /**
+   * Condiciones públicas que el visitante suele preguntar y no están en la web:
+   * fianza de cada tamaño, formas de pago, preaviso para dejar el trastero,
+   * protección de contenido y horario de acceso a cada local.
+   */
+  private async businessConditions(
+    tenantId: string,
+    landing: PublicLandingDto | null,
+  ): Promise<string[]> {
+    if (!landing) return [];
+    const [tenant, types, plans, redsys, stripe, facilities] = await Promise.all([
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          offlineTransferEnabled: true,
+          offlineCashEnabled: true,
+          offlineSepaEnabled: true,
+          moveOutEndOfMonth: true,
+          depositReturnDays: true,
+        },
+      }),
+      this.admin.unitType.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, name: true, defaultDepositAmount: true },
+      }),
+      this.admin.insurancePlan.findMany({
+        where: { tenantId, isActive: true },
+        select: { name: true, monthlyPrice: true, coverageAmount: true, taxRate: true },
+        orderBy: { monthlyPrice: 'asc' },
+        take: 5,
+      }),
+      this.admin.redsysSettings.findUnique({
+        where: { tenantId },
+        select: { enabled: true, bizumEnabled: true },
+      }),
+      this.admin.tenantStripeAccount.findUnique({
+        where: { tenantId },
+        select: { chargesEnabled: true },
+      }),
+      this.admin.facility.findMany({
+        where: { tenantId, deletedAt: null, isActive: true },
+        select: {
+          name: true,
+          accessCurfewEnabled: true,
+          accessCurfewStart: true,
+          accessCurfewEnd: true,
+        },
+      }),
+    ]);
+    const eur = (n: number) => `${n.toFixed(2).replace('.', ',')} €`;
+    const shown = new Set(landing.facilities.flatMap((f) => f.unitTypes.map((t) => t.id)));
+    const deposits = types
+      .filter((t) => shown.has(t.id))
+      .map((t) => ({ name: t.name, amount: Number(t.defaultDepositAmount) }));
+    const lines: string[] = [];
+    if (deposits.length > 0) {
+      const withDeposit = deposits.filter((d) => d.amount > 0);
+      lines.push(
+        withDeposit.length === 0
+          ? '- Fianza: no se pide fianza.'
+          : `- Fianza (se paga con el primer pago y se devuelve al terminar, en ${tenant?.depositReturnDays ?? 15} días como mucho): ${withDeposit
+              .map((d) => `${d.name}: ${eur(d.amount)}`)
+              .join('; ')}${withDeposit.length < deposits.length ? '; el resto, sin fianza' : ''}.`,
+      );
+    }
+    const pay = [
+      redsys?.enabled || stripe?.chargesEnabled ? 'tarjeta' : null,
+      redsys?.enabled && redsys.bizumEnabled ? 'Bizum' : null,
+      tenant?.offlineTransferEnabled ? 'transferencia' : null,
+      tenant?.offlineCashEnabled ? 'en el local' : null,
+      tenant?.offlineSepaEnabled ? 'domiciliación bancaria' : null,
+    ].filter(Boolean);
+    if (pay.length > 0) lines.push(`- Formas de pago: ${pay.join(', ')}.`);
+    lines.push(
+      `- Para dejar el trastero hay que avisar con 15 días de antelación${
+        tenant?.moveOutEndOfMonth === false ? '' : '; la baja es a final de mes'
+      }.`,
+    );
+    if (plans.length > 0) {
+      lines.push(
+        `- Protección del contenido (opcional): ${plans
+          .map((p) => {
+            const price = Number(p.monthlyPrice) * (1 + Number(p.taxRate) / 100);
+            const cover = Number(p.coverageAmount);
+            return `${p.name}, ${eur(price)}/mes${cover > 0 ? ` (cubre hasta ${eur(cover)})` : ''}`;
+          })
+          .join('; ')}.`,
+      );
+    }
+    for (const f of facilities) {
+      if (f.accessCurfewEnabled && f.accessCurfewStart && f.accessCurfewEnd) {
+        lines.push(
+          `- Acceso a ${f.name}: de ${f.accessCurfewEnd} a ${f.accessCurfewStart} (de ${f.accessCurfewStart} a ${f.accessCurfewEnd} no se puede entrar).`,
+        );
+      }
+    }
+    return lines;
   }
 
   // ─── Panel del tenant ──────────────────────────────────────────────────────
@@ -1490,6 +2148,8 @@ export class WebChatService {
       staffUnread: c.staffUnread,
       contractId: c.contractId,
       bookedInChat: c.bookedInChat,
+      assignedToUserId: c.assignedToUserId,
+      assignedToName: c.assignedTo?.fullName ?? null,
     };
   }
 
@@ -1577,16 +2237,56 @@ export class WebChatService {
   async setMode(
     tenantId: string,
     conversationId: string,
-    mode: WebChatMode,
+    input: { mode?: WebChatMode | undefined; assignedToUserId?: string | null | undefined },
+    byUserId?: string,
   ): Promise<{ mode: WebChatMode }> {
+    // El responsable tiene que ser del equipo y estar activo.
+    if (input.assignedToUserId) {
+      const user = await this.prisma.withTenant(
+        (tx) =>
+          tx.user.findFirst({
+            where: { id: input.assignedToUserId!, isActive: true },
+            select: { id: true },
+          }),
+        tenantId,
+      );
+      if (!user) {
+        throw new BadRequestException({
+          code: 'user_not_found',
+          message: 'Esa persona no está en el equipo',
+        });
+      }
+    }
+    const data: Prisma.WebChatConversationUpdateManyMutationInput & {
+      assignedToUserId?: string | null;
+    } = {
+      ...(input.mode === 'ai' ? { mode: 'ai', staffUnread: 0 } : {}),
+      ...(input.mode === 'human' ? { mode: 'human' } : {}),
+      ...(input.assignedToUserId !== undefined ? { assignedToUserId: input.assignedToUserId } : {}),
+    };
     const updated = await this.admin.webChatConversation.updateMany({
       where: { id: conversationId, tenantId },
-      data: mode === 'ai' ? { mode: 'ai', staffUnread: 0 } : { mode: 'human' },
+      data,
     });
     if (updated.count === 0) {
       throw new NotFoundException({ code: 'conversation_not_found', message: 'No encontrada' });
     }
-    return { mode };
+    // A quien le asignan la conversación (si no es quien la asigna), aviso.
+    if (input.assignedToUserId && input.assignedToUserId !== byUserId) {
+      void this.notifications
+        .create(tenantId, {
+          type: 'web_chat.assigned',
+          title: 'Te han asignado una conversación del chat de la web',
+          link: `/marketing/web-chat?c=${conversationId}`,
+          userId: input.assignedToUserId,
+        })
+        .catch(() => undefined);
+    }
+    const row = await this.admin.webChatConversation.findUnique({
+      where: { id: conversationId },
+      select: { mode: true },
+    });
+    return { mode: row?.mode === 'human' ? 'human' : 'ai' };
   }
 
   /** Borrador de respuesta para el equipo con la información pública del negocio. */
@@ -1648,7 +2348,7 @@ export class WebChatService {
     }, tenantId);
   }
 
-  async stats(tenantId: string, days: number): Promise<WebChatStatsDto> {
+  async stats(tenantId: string, days: number, revenueVisible = true): Promise<WebChatStatsDto> {
     const since = new Date(Date.now() - days * 86_400_000);
     return this.prisma.withTenant(async (tx) => {
       const active = { lastMessageAt: { gte: since } };
@@ -1692,7 +2392,11 @@ export class WebChatService {
             ...active,
             contract: { is: { status: { not: 'cancelled' }, deletedAt: null } },
           },
-          select: { bookedInChat: true, contract: { select: { signedAt: true } } },
+          select: {
+            bookedInChat: true,
+            contractId: true,
+            contract: { select: { signedAt: true } },
+          },
         }),
         tx.webChatConversation.count({ where: { handoffRequestedAt: { gte: since } } }),
         tx.webChatMessage.count({ where: { rating: 1, createdAt: { gte: since } } }),
@@ -1719,6 +2423,59 @@ export class WebChatService {
           .sort((a, b) => b.count - a.count)
           .slice(0, 10);
       };
+      // Primer pago de las reservas: pagadas y lo cobrado (sin IVA ni devoluciones).
+      const contractIds = booked.flatMap((b) => (b.contractId ? [b.contractId] : []));
+      const firstPayments = contractIds.length
+        ? await tx.$queryRaw<{ contract_id: string; status: string; net: number }[]>`
+            WITH first AS (
+              SELECT DISTINCT ON (contract_id) id, contract_id, status, subtotal, total
+                FROM invoices
+               WHERE tenant_id = ${tenantId}::uuid
+                 AND contract_id = ANY(${contractIds}::uuid[])
+                 AND kind = 'invoice' AND deleted_at IS NULL
+                 AND status::text NOT IN ('draft', 'cancelled', 'rectified')
+               ORDER BY contract_id, created_at
+            )
+            SELECT f.contract_id, f.status::text AS status,
+                   COALESCE(SUM((p.amount - p.refunded_amount)
+                     * CASE WHEN f.total > 0 THEN f.subtotal / f.total ELSE 1 END), 0)::float AS net
+              FROM first f
+              LEFT JOIN payments p ON p.invoice_id = f.id
+                AND p.status::text IN ('succeeded', 'partially_refunded', 'refunded')
+                AND p.method_type::text NOT IN ('credit_note', 'withholding')
+             GROUP BY f.contract_id, f.status`
+        : [];
+      const [visitsRequested, downRows] = await Promise.all([
+        tx.leadVisit.count({
+          where: { createdAt: { gte: since }, notes: { startsWith: 'Pedida desde el chat' } },
+        }),
+        tx.webChatMessage.findMany({
+          where: { rating: -1, role: 'assistant', createdAt: { gte: since } },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: { conversationId: true, content: true, createdAt: true },
+        }),
+      ]);
+      const badlyRated = await Promise.all(
+        downRows.map(async (m) => {
+          const q = await tx.webChatMessage.findFirst({
+            where: {
+              conversationId: m.conversationId,
+              role: 'visitor',
+              createdAt: { lte: m.createdAt },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { content: true },
+          });
+          return {
+            conversationId: m.conversationId,
+            question: redactTaxIds((q?.content ?? '').slice(0, 300)),
+            answer: m.content.slice(0, 500),
+            at: m.createdAt.toISOString(),
+          };
+        }),
+      );
+      const revenue = firstPayments.reduce((n, r) => n + Number(r.net), 0);
       return {
         days,
         conversations,
@@ -1726,6 +2483,10 @@ export class WebChatService {
         assistantReplies,
         fallbackReplies,
         leads: leadRows.length,
+        paidBookings: firstPayments.filter((r) => r.status === 'paid').length,
+        revenue: revenueVisible ? Math.round(revenue * 100) / 100 : 0,
+        visitsRequested,
+        badlyRated,
         bookingsInChat: booked.filter((b) => b.bookedInChat).length,
         bookedAfterChat: booked.filter((b) => !b.bookedInChat).length,
         signedBookings: booked.filter((b) => b.contract?.signedAt).length,

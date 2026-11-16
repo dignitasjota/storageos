@@ -22,6 +22,7 @@ import {
   waMeNumber,
 } from '@storageos/shared';
 
+import { adConversionsEnabled } from '../../common/marketing/ad-conversions-enabled';
 import {
   promoPreviewKey,
   verifyPromoPreviewToken,
@@ -268,6 +269,7 @@ export class LandingService {
       utmSource: lower(input.utmSource) ?? 'web',
       utmMedium: lower(input.utmMedium) ?? 'landing',
       utmCampaign: promoCampaign(promo.slug),
+      clickIds: input.clickIds,
       meta,
     });
     return { ok: true };
@@ -429,6 +431,7 @@ export class LandingService {
       googleReviewUrl: tenant.googleReviewUrl,
       googleSiteVerification: tenant.googleSiteVerification,
       googleAnalyticsId: tenant.googleAnalyticsId,
+      adConversions: await adConversionsEnabled(this.admin, tenant.id),
       webTemplate,
       webHeaderBranded: tenant.webHeaderBranded,
       webHeadline: hasWebPremium ? tenant.webHeadline : null,
@@ -724,6 +727,7 @@ export class LandingService {
         utmSource: input.utmSource,
         utmMedium: input.utmMedium,
         utmCampaign: input.utmCampaign,
+        clickIds: input.clickIds,
       },
       meta,
     });
@@ -845,6 +849,7 @@ export class LandingService {
       webHeaderBranded: full.webHeaderBranded,
       hasBlog: full.hasBlog,
       googleAnalyticsId: full.googleAnalyticsId,
+      adConversions: full.adConversions ?? false,
       whatsappNumber: full.whatsappNumber,
       webChatEnabled: full.webChatEnabled,
       facility,

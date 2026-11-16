@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { AdClickIdsSchema } from '../communications/schemas';
+
 /**
  * Contenido de una landing de promoción: los textos de cada bloque, qué
  * bloques se ven y en qué orden. Solo texto: los colores, las esquinas y los
@@ -252,5 +254,6 @@ export const PromoLeadSchema = z.object({
   utmSource: z.string().trim().max(120).optional(),
   utmMedium: z.string().trim().max(120).optional(),
   utmCampaign: z.string().trim().max(160).optional(),
+  clickIds: AdClickIdsSchema.optional(),
 });
 export type PromoLeadInput = z.infer<typeof PromoLeadSchema>;

@@ -72,6 +72,11 @@ export interface PublicLandingDto {
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
   /**
+   * Devuelve los contratos a Google Ads o a Meta: la web pide permiso para
+   * guardar el clic en el anuncio (aviso de cookies aunque no haya Analytics).
+   */
+  adConversions?: boolean;
+  /**
    * Web Premium: plantilla de diseño (`default`/`modern`/`industrial`) + textos
    * personalizados. Sin la feature `web_premium`, el backend fuerza `default` y
    * `headline`/`about` a null y las secciones vacías.
@@ -164,6 +169,7 @@ export interface PublicFacilityLandingDto {
   hasBlog: boolean;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
   googleAnalyticsId: string | null;
+  adConversions?: boolean;
   /** Igual que en `PublicLandingDto`. */
   whatsappNumber: string | null;
   webChatEnabled: boolean;

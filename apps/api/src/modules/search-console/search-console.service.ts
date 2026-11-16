@@ -16,9 +16,11 @@ import {
 } from '@storageos/shared';
 
 import { googleUnavailable, isGoogleTransient } from '../../common/google/google-service-account';
+import { noteConnectionResult } from '../../common/marketing/connection-alert';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import { SearchConsoleClient } from './search-console.client';
 
@@ -46,6 +48,7 @@ export class SearchConsoleService {
     private readonly admin: PrismaAdminService,
     private readonly client: SearchConsoleClient,
     private readonly config: ConfigService<Env, true>,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -255,7 +258,24 @@ export class SearchConsoleService {
     let synced = 0;
     for (const { tenantId } of rows) {
       if (!(await tenantHasFeature(this.admin, tenantId, 'local_seo'))) continue;
-      if ((await this.sync(tenantId)).ok) synced += 1;
+      const { ok } = await this.sync(tenantId);
+      if (ok) synced += 1;
+      const error = ok
+        ? null
+        : ((
+            await this.admin.tenantSearchConsole.findUnique({
+              where: { tenantId },
+              select: { lastError: true },
+            })
+          )?.lastError ?? null);
+      await noteConnectionResult(
+        this.admin,
+        this.notifications,
+        tenantId,
+        'search_console',
+        ok,
+        error,
+      );
     }
     return { tenants: rows.length, synced };
   }

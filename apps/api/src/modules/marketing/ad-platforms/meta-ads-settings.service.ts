@@ -3,6 +3,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaService } from '../../database/prisma.service';
 
+import { adConversionStats, retryFailedConversions } from './ad-conversion-stats';
 import { MetaAdsClient } from './meta-ads.client';
 
 import type { MetaAdsCredentials } from './meta-ads.client';
@@ -20,16 +21,22 @@ export class MetaAdsSettingsService {
   ) {}
 
   async get(tenantId: string): Promise<MetaAdsSettingsDto> {
-    const row = await this.prisma.withTenant(
-      (tx) => tx.metaAdsSettings.findUnique({ where: { tenantId } }),
+    const [row, conversions] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.metaAdsSettings.findUnique({ where: { tenantId } }),
+          adConversionStats(tx, 'meta'),
+        ]),
       tenantId,
     );
     return {
       enabled: row?.enabled ?? false,
       hasAccessToken: !!row?.accessTokenEncrypted,
       adAccountId: row?.adAccountId ?? null,
+      pixelId: row?.pixelId ?? null,
       lastSyncAt: row?.lastSyncAt?.toISOString() ?? null,
       lastError: row?.lastError ?? null,
+      conversions,
     };
   }
 
@@ -42,6 +49,8 @@ export class MetaAdsSettingsService {
       ? this.crypto.encryptString(input.accessToken, tenantId)
       : (existing?.accessTokenEncrypted ?? null);
     const adAccountId = input.adAccountId ?? existing?.adAccountId ?? null;
+    const pixelId =
+      input.pixelId !== undefined ? input.pixelId || null : (existing?.pixelId ?? null);
 
     if (input.enabled && !(accessTokenEncrypted && adAccountId)) {
       throw new BadRequestException({
@@ -50,20 +59,21 @@ export class MetaAdsSettingsService {
       });
     }
 
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.metaAdsSettings.upsert({
-          where: { tenantId },
-          create: { tenantId, accessTokenEncrypted, adAccountId, enabled: input.enabled },
-          update: {
-            accessTokenEncrypted,
-            adAccountId,
-            enabled: input.enabled,
-            ...(input.accessToken ? { lastError: null } : {}),
-          },
-        }),
-      tenantId,
-    );
+    await this.prisma.withTenant(async (tx) => {
+      await tx.metaAdsSettings.upsert({
+        where: { tenantId },
+        create: { tenantId, accessTokenEncrypted, adAccountId, pixelId, enabled: input.enabled },
+        update: {
+          accessTokenEncrypted,
+          adAccountId,
+          pixelId,
+          enabled: input.enabled,
+          ...(input.accessToken ? { lastError: null } : {}),
+        },
+      });
+      // Otra configuración: los envíos que fallaron se vuelven a intentar.
+      await retryFailedConversions(tx, 'meta');
+    }, tenantId);
     return this.get(tenantId);
   }
 
@@ -86,6 +96,19 @@ export class MetaAdsSettingsService {
       accessToken: this.crypto.decryptString(row.accessTokenEncrypted, tenantId),
       adAccountId: row.adAccountId,
     };
+  }
+
+  /** Token y píxel, si la integración está activa y completa. */
+  async getConversionTarget(
+    tenantId: string,
+  ): Promise<{ credentials: MetaAdsCredentials; pixelId: string } | null> {
+    const row = await this.prisma.withTenant(
+      (tx) => tx.metaAdsSettings.findUnique({ where: { tenantId }, select: { pixelId: true } }),
+      tenantId,
+    );
+    if (!row?.pixelId) return null;
+    const credentials = await this.getCredentials(tenantId);
+    return credentials ? { credentials, pixelId: row.pixelId } : null;
   }
 
   /** Prueba las credenciales guardadas, también antes de activar la integración. */

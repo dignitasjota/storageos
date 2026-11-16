@@ -23,6 +23,7 @@ import { assertFacilityAllowed, type FacilityScope } from '../../common/facility
 import { anonymizeLeadsTx } from '../../common/lead-anonymize';
 import { leadReplyAddress } from '../../common/lead-reply-address';
 import { leadScopeWhere } from '../../common/lead-scope';
+import { clickIdsData, withLeadChannel } from '../../common/marketing/lead-channel';
 import { applyMarketingOptOutByEmail } from '../../common/marketing/opt-out';
 import { pageArgs, type PageRequest } from '../../common/pagination';
 import { isReservationOverlap } from '../../common/reservation-overlap';
@@ -39,6 +40,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { BookingExpiredPayload, DomainEventPayload } from '../automations/domain-events';
 import type { Lead, LeadStatus } from '@storageos/database';
 import type {
+  AdClickIds,
   ConvertLeadInput,
   CreateLeadInput,
   LeadDto,
@@ -340,7 +342,7 @@ export class LeadsService {
     await this.assertRefs(args.tenantId, args.input, args.scope);
     const data = this.buildCreateData(args.tenantId, args.input);
     const created = await this.prisma.withTenant(
-      (tx) => tx.lead.create({ data, include: LEAD_INCLUDE }),
+      (tx) => withLeadChannel(tx, tx.lead.create({ data, include: LEAD_INCLUDE })),
       args.tenantId,
     );
     if (created.assignedToUserId && created.assignedToUserId !== args.userId) {
@@ -402,34 +404,37 @@ export class LeadsService {
     );
     const created = await this.prisma.withTenant(
       (tx) =>
-        tx.lead.create({
-          data: {
-            tenantId: args.tenantId,
-            source: 'widget',
-            firstName: args.input.firstName,
-            lastName: args.input.lastName || null,
-            email: args.input.email,
-            phone: args.input.phone,
-            message: args.input.message || null,
-            preferredFacilityId: facility?.id ?? null,
-            preferredUnitTypeId: unitType?.id ?? null,
-            preferredStartDate: args.input.preferredStartDate
-              ? new Date(args.input.preferredStartDate)
-              : null,
-            estimatedDurationMonths: args.input.estimatedDurationMonths ?? null,
-            utmSource: args.input.utmSource ?? null,
-            utmMedium: args.input.utmMedium ?? null,
-            utmCampaign: args.input.utmCampaign ?? null,
-            marketingConsentAt: args.input.acceptsMarketing ? new Date() : null,
-            metadata: {
-              acceptsMarketing: args.input.acceptsMarketing,
-              acceptsTerms: args.input.acceptsTerms,
-              userAgent: args.meta.userAgent ?? null,
-              ipAddress: args.meta.ipAddress ?? null,
-            } satisfies Prisma.InputJsonValue,
-          },
-          include: LEAD_INCLUDE,
-        }),
+        withLeadChannel(
+          tx,
+          tx.lead.create({
+            data: {
+              tenantId: args.tenantId,
+              source: 'widget',
+              firstName: args.input.firstName,
+              lastName: args.input.lastName || null,
+              email: args.input.email,
+              phone: args.input.phone,
+              message: args.input.message || null,
+              preferredFacilityId: facility?.id ?? null,
+              preferredUnitTypeId: unitType?.id ?? null,
+              preferredStartDate: args.input.preferredStartDate
+                ? new Date(args.input.preferredStartDate)
+                : null,
+              estimatedDurationMonths: args.input.estimatedDurationMonths ?? null,
+              utmSource: args.input.utmSource ?? null,
+              utmMedium: args.input.utmMedium ?? null,
+              utmCampaign: args.input.utmCampaign ?? null,
+              marketingConsentAt: args.input.acceptsMarketing ? new Date() : null,
+              metadata: {
+                acceptsMarketing: args.input.acceptsMarketing,
+                acceptsTerms: args.input.acceptsTerms,
+                userAgent: args.meta.userAgent ?? null,
+                ipAddress: args.meta.ipAddress ?? null,
+              } satisfies Prisma.InputJsonValue,
+            },
+            include: LEAD_INCLUDE,
+          }),
+        ),
       args.tenantId,
     );
     await this.audit.write({
@@ -461,6 +466,7 @@ export class LeadsService {
       utmSource?: string | undefined;
       utmMedium?: string | undefined;
       utmCampaign?: string | undefined;
+      clickIds?: AdClickIds | undefined;
     };
     meta: RequestMeta;
   }): Promise<LeadDto> {
@@ -474,27 +480,33 @@ export class LeadsService {
     if (repeated) return repeated;
     const created = await this.prisma.withTenant(
       (tx) =>
-        tx.lead.create({
-          data: {
-            tenantId: args.tenantId,
-            source: 'web',
-            utmSource: args.input.utmSource || null,
-            utmMedium: args.input.utmMedium || null,
-            utmCampaign: args.input.utmCampaign || null,
-            firstName: args.input.firstName,
-            lastName: args.input.lastName || null,
-            email: args.input.email,
-            phone: args.input.phone || null,
-            message: args.input.message || null,
-            marketingConsentAt: args.input.acceptsMarketing ? new Date() : null,
-            metadata: {
-              origin: 'web_contact',
-              userAgent: args.meta.userAgent ?? null,
-              ipAddress: args.meta.ipAddress ?? null,
-            } satisfies Prisma.InputJsonValue,
-          },
-          include: LEAD_INCLUDE,
-        }),
+        withLeadChannel(
+          tx,
+          tx.lead.create({
+            data: {
+              tenantId: args.tenantId,
+              source: 'web',
+              utmSource: args.input.utmSource || null,
+              utmMedium: args.input.utmMedium || null,
+              utmCampaign: args.input.utmCampaign || null,
+              ...(clickIdsData(args.input.clickIds)
+                ? { clickIds: clickIdsData(args.input.clickIds)! }
+                : {}),
+              firstName: args.input.firstName,
+              lastName: args.input.lastName || null,
+              email: args.input.email,
+              phone: args.input.phone || null,
+              message: args.input.message || null,
+              marketingConsentAt: args.input.acceptsMarketing ? new Date() : null,
+              metadata: {
+                origin: 'web_contact',
+                userAgent: args.meta.userAgent ?? null,
+                ipAddress: args.meta.ipAddress ?? null,
+              } satisfies Prisma.InputJsonValue,
+            },
+            include: LEAD_INCLUDE,
+          }),
+        ),
       args.tenantId,
     );
     await this.audit.write({
@@ -530,18 +542,21 @@ export class LeadsService {
     const [firstName, ...rest] = (args.name ?? '').trim().split(/\s+/).filter(Boolean);
     const created = await this.prisma.withTenant(
       (tx) =>
-        tx.lead.create({
-          data: {
-            tenantId: args.tenantId,
-            source: 'whatsapp',
-            firstName: firstName ?? null,
-            lastName: rest.length > 0 ? rest.join(' ') : null,
-            phone: args.phone,
-            message: args.message.slice(0, 2000),
-            metadata: { origin: 'whatsapp' } satisfies Prisma.InputJsonValue,
-          },
-          include: LEAD_INCLUDE,
-        }),
+        withLeadChannel(
+          tx,
+          tx.lead.create({
+            data: {
+              tenantId: args.tenantId,
+              source: 'whatsapp',
+              firstName: firstName ?? null,
+              lastName: rest.length > 0 ? rest.join(' ') : null,
+              phone: args.phone,
+              message: args.message.slice(0, 2000),
+              metadata: { origin: 'whatsapp' } satisfies Prisma.InputJsonValue,
+            },
+            include: LEAD_INCLUDE,
+          }),
+        ),
       args.tenantId,
     );
     await this.audit.write({
@@ -576,6 +591,7 @@ export class LeadsService {
     utmSource: string | null;
     utmMedium: string | null;
     utmCampaign: string;
+    clickIds?: AdClickIds | undefined;
     meta: RequestMeta;
   }): Promise<{ id: string }> {
     const message = `Solicitud desde la landing «${args.landingName}».`;
@@ -590,29 +606,33 @@ export class LeadsService {
     const [firstName, ...rest] = args.name.trim().split(/\s+/).filter(Boolean);
     const created = await this.prisma.withTenant(
       (tx) =>
-        tx.lead.create({
-          data: {
-            tenantId: args.tenantId,
-            source: 'landing',
-            utmSource: args.utmSource,
-            utmMedium: args.utmMedium,
-            utmCampaign: args.utmCampaign,
-            firstName: firstName ?? null,
-            lastName: rest.length > 0 ? rest.join(' ') : null,
-            email: args.email,
-            phone: args.phone,
-            message,
-            preferredUnitTypeId: args.unitTypeId,
-            preferredFacilityId: args.facilityId,
-            marketingConsentAt: args.acceptsMarketing ? new Date() : null,
-            metadata: {
-              origin: 'promo_landing',
-              userAgent: args.meta.userAgent ?? null,
-              ipAddress: args.meta.ipAddress ?? null,
-            } satisfies Prisma.InputJsonValue,
-          },
-          include: LEAD_INCLUDE,
-        }),
+        withLeadChannel(
+          tx,
+          tx.lead.create({
+            data: {
+              tenantId: args.tenantId,
+              source: 'landing',
+              utmSource: args.utmSource,
+              utmMedium: args.utmMedium,
+              utmCampaign: args.utmCampaign,
+              ...(clickIdsData(args.clickIds) ? { clickIds: clickIdsData(args.clickIds)! } : {}),
+              firstName: firstName ?? null,
+              lastName: rest.length > 0 ? rest.join(' ') : null,
+              email: args.email,
+              phone: args.phone,
+              message,
+              preferredUnitTypeId: args.unitTypeId,
+              preferredFacilityId: args.facilityId,
+              marketingConsentAt: args.acceptsMarketing ? new Date() : null,
+              metadata: {
+                origin: 'promo_landing',
+                userAgent: args.meta.userAgent ?? null,
+                ipAddress: args.meta.ipAddress ?? null,
+              } satisfies Prisma.InputJsonValue,
+            },
+            include: LEAD_INCLUDE,
+          }),
+        ),
       args.tenantId,
     );
     await this.audit.write({
@@ -648,27 +668,30 @@ export class LeadsService {
     const [firstName, ...rest] = (args.name ?? '').trim().split(/\s+/).filter(Boolean);
     const created = await this.prisma.withTenant(
       (tx) =>
-        tx.lead.create({
-          data: {
-            tenantId: args.tenantId,
-            // El canal es el chat (`source`); el origen, el de su visita.
-            source: 'web_chat',
-            utmSource: args.utm?.utmSource ?? null,
-            utmMedium: args.utm?.utmMedium ?? null,
-            utmCampaign: args.utm?.utmCampaign ?? null,
-            firstName: firstName ?? null,
-            lastName: rest.length > 0 ? rest.join(' ') : null,
-            email: args.email,
-            phone: args.phone,
-            message: args.message.slice(0, 2000),
-            metadata: {
-              origin: 'web_chat',
-              userAgent: args.meta.userAgent ?? null,
-              ipAddress: args.meta.ipAddress ?? null,
-            } satisfies Prisma.InputJsonValue,
-          },
-          include: LEAD_INCLUDE,
-        }),
+        withLeadChannel(
+          tx,
+          tx.lead.create({
+            data: {
+              tenantId: args.tenantId,
+              // El canal es el chat (`source`); el origen, el de su visita.
+              source: 'web_chat',
+              utmSource: args.utm?.utmSource ?? null,
+              utmMedium: args.utm?.utmMedium ?? null,
+              utmCampaign: args.utm?.utmCampaign ?? null,
+              firstName: firstName ?? null,
+              lastName: rest.length > 0 ? rest.join(' ') : null,
+              email: args.email,
+              phone: args.phone,
+              message: args.message.slice(0, 2000),
+              metadata: {
+                origin: 'web_chat',
+                userAgent: args.meta.userAgent ?? null,
+                ipAddress: args.meta.ipAddress ?? null,
+              } satisfies Prisma.InputJsonValue,
+            },
+            include: LEAD_INCLUDE,
+          }),
+        ),
       args.tenantId,
     );
     await this.audit.write({

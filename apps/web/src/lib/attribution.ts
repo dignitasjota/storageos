@@ -1,11 +1,12 @@
 import {
   ATTRIBUTION_DAYS,
   detectTrafficSource,
+  type AdClickIds,
   type TrafficSource,
   type WebEventKind,
 } from '@storageos/shared';
 
-import { measurementAllowed } from './tenant-consent';
+import { measurementAllowed, readTenantConsent } from './tenant-consent';
 
 /**
  * Origen de la visita a la web de un tenant, guardado en el navegador
@@ -89,6 +90,53 @@ export function recordVisit(slug: string): void {
   }
 }
 
+const clickKey = (slug: string) => `storageos.adclick.${slug}`;
+const CLICK_PARAMS = ['gclid', 'gbraid', 'wbraid', 'fbclid'] as const;
+
+/**
+ * Guarda el identificador del clic en un anuncio que trae la dirección
+ * (`gclid`, `fbclid`…), solo si el visitante aceptó todas las cookies: sirve
+ * para contarle a Google o a Meta que ese clic acabó en contrato.
+ */
+export function captureClickIds(slug: string): void {
+  if (typeof window === 'undefined' || readTenantConsent(slug) !== 'all') return;
+  if (!measurementAllowed(slug)) return;
+  const params = new URLSearchParams(window.location.search);
+  const found: AdClickIds = {};
+  for (const k of CLICK_PARAMS) {
+    const v = params.get(k);
+    if (v && /^[A-Za-z0-9_.~-]{1,255}$/.test(v)) found[k] = v;
+  }
+  if (!found.gclid && !found.gbraid && !found.wbraid && !found.fbclid) return;
+  try {
+    window.localStorage.setItem(clickKey(slug), JSON.stringify({ ...found, at: Date.now() }));
+  } catch {
+    // Sin almacenamiento: no se guarda.
+  }
+}
+
+/** El clic guardado (90 días como mucho), solo con todas las cookies aceptadas. */
+export function currentClickIds(slug: string): AdClickIds | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    if (readTenantConsent(slug) !== 'all' || !measurementAllowed(slug)) {
+      window.localStorage.removeItem(clickKey(slug));
+      return undefined;
+    }
+    captureClickIds(slug);
+    const raw = window.localStorage.getItem(clickKey(slug));
+    if (!raw) return undefined;
+    const ids = JSON.parse(raw) as AdClickIds;
+    if (!ids.at || Date.now() - ids.at > 90 * 86_400_000) {
+      window.localStorage.removeItem(clickKey(slug));
+      return undefined;
+    }
+    return ids;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Origen a usar al enviar una reserva o un contacto (null si no se sabe). */
 export function currentTrafficSource(slug: string): TrafficSource | null {
   if (typeof window === 'undefined') return null;
@@ -158,8 +206,16 @@ export function visitorId(): string {
   }
 }
 
-/** Anota una página vista o un clic de contacto (best-effort: nunca rompe la página). */
-export function trackWebEvent(slug: string, kind: WebEventKind, path = window.location.pathname) {
+/**
+ * Anota una página vista, un clic de contacto o una reserva empezada (con el
+ * local y el tamaño elegidos). Best-effort: nunca rompe la página.
+ */
+export function trackWebEvent(
+  slug: string,
+  kind: WebEventKind,
+  path = window.location.pathname,
+  extra: { facilityId?: string; unitTypeId?: string } = {},
+) {
   if (typeof window === 'undefined' || navigator.webdriver) return;
   // «Solo necesarias» o «No medir mis visitas»: nada.
   if (!measurementAllowed(slug)) return;
@@ -176,6 +232,8 @@ export function trackWebEvent(slug: string, kind: WebEventKind, path = window.lo
       ...(origin?.source ? { source: origin.source } : {}),
       ...(origin?.medium ? { medium: origin.medium } : {}),
       ...(origin?.campaign ? { campaign: origin.campaign } : {}),
+      ...(extra.facilityId ? { facilityId: extra.facilityId } : {}),
+      ...(extra.unitTypeId ? { unitTypeId: extra.unitTypeId } : {}),
     }),
     keepalive: true,
   }).catch(() => undefined);

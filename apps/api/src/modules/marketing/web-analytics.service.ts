@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 import {
   NON_CASH_PAYMENT_METHODS,
@@ -14,10 +14,13 @@ import {
   isValidWebPath,
   normalizeWebPath,
   trafficKey,
+  type CreateMarketingAnnotationInput,
+  type MarketingAnnotationDto,
   type WebAnalyticsDto,
   type WebAnalyticsFunnelDto,
   type WebAnalyticsPageDto,
   type WebAnalyticsSourceDto,
+  type WebDemandDto,
   type WebEventInput,
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
@@ -57,18 +60,21 @@ const emptyFunnel = (): WebAnalyticsFunnelDto => ({
   revenue: 0,
 });
 
-const CLICK_FIELD = {
-  call_click: 'calls',
-  whatsapp_click: 'whatsapp',
-  email_click: 'emails',
-  directions_click: 'directions',
-} as const;
-
 /** `YYYY-MM-DD` desplazado `n` días. */
 function shiftDay(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+/** Día (`YYYY-MM-DD`) de un momento en la zona del negocio. */
+function localDayOf(d: Date, tz: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
 }
 
 /** Días de `from` a `to` (incluidos). */
@@ -102,7 +108,7 @@ export class WebAnalyticsService {
     if (isBotUserAgent(userAgent)) return;
     const tenant = await this.admin.tenant.findUnique({
       where: { slug },
-      select: { id: true, deletedAt: true, status: true },
+      select: { id: true, deletedAt: true, status: true, timezone: true },
     });
     // Un negocio suspendido o dado de baja no mide.
     if (
@@ -117,30 +123,169 @@ export class WebAnalyticsService {
     // Solo rutas que pueden ser de la web: lo demás es basura o un intento de colarla.
     if (!isValidWebPath(path)) return;
     if (!(await this.allow(tenant.id, ip))) return;
-    const window = input.kind === 'page_view' ? PAGE_VIEW_WINDOW_MS : CLICK_WINDOW_MS;
-    const recent = await this.admin.webEvent.findFirst({
+    const now = new Date();
+    const tz = tenant.timezone || 'Europe/Madrid';
+    const day = localDayOf(now, tz);
+    const dayStart = zonedDayStart(day, tz);
+    const isStart = input.kind === 'booking_start';
+    // La reserva empezada solo cuenta con un local de este negocio.
+    const facilityId = isStart ? await this.ownFacility(tenant.id, input.facilityId) : null;
+    const unitTypeId =
+      isStart && facilityId ? await this.ownUnitType(tenant.id, input.unitTypeId) : null;
+    if (isStart && !facilityId) return;
+
+    const window = input.kind === 'page_view' || isStart ? PAGE_VIEW_WINDOW_MS : CLICK_WINDOW_MS;
+    const windowStart = new Date(now.getTime() - window);
+    // La última vez de hoy (o de la ventana, si empieza ayer): repetida → no cuenta,
+    // y si no la hay hoy es un visitante nuevo de esa página.
+    const last = await this.admin.webEvent.findFirst({
       where: {
         tenantId: tenant.id,
         visitorId: input.visitorId,
         kind: input.kind,
-        path,
-        createdAt: { gte: new Date(Date.now() - window) },
+        ...(isStart ? { facilityId, unitTypeId } : { path }),
+        createdAt: { gte: windowStart < dayStart ? windowStart : dayStart },
       },
-      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
     });
-    if (recent) return;
+    if (last && last.createdAt >= windowStart) return;
+    const firstToday = !last || last.createdAt < dayStart;
+
+    const source = lower(input.source);
+    const medium = lower(input.medium);
+    const campaign = lower(input.campaign);
+    const device = deviceFromUserAgent(userAgent);
     await this.admin.webEvent.create({
       data: {
         tenantId: tenant.id,
         visitorId: input.visitorId,
         kind: input.kind,
         path,
-        source: lower(input.source),
-        medium: lower(input.medium),
-        campaign: lower(input.campaign),
-        device: deviceFromUserAgent(userAgent),
+        source,
+        medium,
+        campaign,
+        device,
+        facilityId,
+        unitTypeId,
       },
     });
+    await this.addToTotals(tenant.id, day, {
+      visitorId: input.visitorId,
+      kind: input.kind,
+      path,
+      source: source ?? '',
+      medium: medium ?? '',
+      campaign: campaign ?? '',
+      device,
+      firstToday,
+    });
+  }
+
+  /**
+   * Suma el evento a las visitas del día (por visitante y origen) y a las de
+   * la página. Si falla, el evento ya está guardado: no se pierde.
+   */
+  private async addToTotals(
+    tenantId: string,
+    day: string,
+    e: {
+      visitorId: string;
+      kind: WebEventInput['kind'];
+      path: string;
+      source: string;
+      medium: string;
+      campaign: string;
+      device: string | null;
+      firstToday: boolean;
+    },
+  ): Promise<void> {
+    const n = (kind: WebEventInput['kind']) => (e.kind === kind ? 1 : 0);
+    try {
+      await this.admin.$executeRaw`
+        INSERT INTO web_visits (tenant_id, day, visitor_id, source, medium, campaign, device,
+                                entry_path, page_views, calls, whatsapp, emails, directions,
+                                booking_starts)
+        VALUES (${tenantId}::uuid, ${day}::date, ${e.visitorId}, ${e.source}, ${e.medium},
+                ${e.campaign}, ${e.device}, ${e.path}, ${n('page_view')}, ${n('call_click')},
+                ${n('whatsapp_click')}, ${n('email_click')}, ${n('directions_click')},
+                ${n('booking_start')})
+        ON CONFLICT (tenant_id, day, visitor_id, source, medium, campaign) DO UPDATE SET
+          page_views = web_visits.page_views + EXCLUDED.page_views,
+          calls = web_visits.calls + EXCLUDED.calls,
+          whatsapp = web_visits.whatsapp + EXCLUDED.whatsapp,
+          emails = web_visits.emails + EXCLUDED.emails,
+          directions = web_visits.directions + EXCLUDED.directions,
+          booking_starts = web_visits.booking_starts + EXCLUDED.booking_starts,
+          device = COALESCE(web_visits.device, EXCLUDED.device),
+          -- La página de entrada es la primera vista; un clic antes de verla no cuenta.
+          entry_path = CASE WHEN web_visits.page_views = 0 AND EXCLUDED.page_views > 0
+                            THEN EXCLUDED.entry_path ELSE web_visits.entry_path END`;
+      if (e.kind === 'booking_start') return;
+      const view = e.kind === 'page_view' ? 1 : 0;
+      await this.admin.$executeRaw`
+        INSERT INTO web_page_daily (tenant_id, day, path, views, visitors, clicks)
+        VALUES (${tenantId}::uuid, ${day}::date, ${e.path}, ${view},
+                ${view && e.firstToday ? 1 : 0}, ${1 - view})
+        ON CONFLICT (tenant_id, day, path) DO UPDATE SET
+          views = web_page_daily.views + EXCLUDED.views,
+          visitors = web_page_daily.visitors + EXCLUDED.visitors,
+          clicks = web_page_daily.clicks + EXCLUDED.clicks`;
+    } catch (err) {
+      this.logger.warn(
+        `[web-analytics] no se pudo sumar la visita: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async addAnnotation(
+    tenantId: string,
+    userId: string,
+    input: CreateMarketingAnnotationInput,
+  ): Promise<MarketingAnnotationDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const row = await tx.marketingAnnotation.create({
+        data: {
+          tenantId,
+          day: new Date(`${input.day}T00:00:00.000Z`),
+          text: input.text,
+          createdByUserId: userId,
+        },
+      });
+      return {
+        id: row.id,
+        day: row.day.toISOString().slice(0, 10),
+        text: row.text,
+        kind: 'manual',
+      };
+    }, tenantId);
+  }
+
+  async removeAnnotation(tenantId: string, id: string): Promise<void> {
+    await this.prisma.withTenant(async (tx) => {
+      const deleted = await tx.marketingAnnotation.deleteMany({ where: { id } });
+      if (deleted.count === 0) {
+        throw new NotFoundException({ code: 'annotation_not_found', message: 'La nota no existe' });
+      }
+    }, tenantId);
+  }
+
+  private async ownFacility(tenantId: string, id: string | undefined): Promise<string | null> {
+    if (!id) return null;
+    const found = await this.admin.facility.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      select: { id: true },
+    });
+    return found?.id ?? null;
+  }
+
+  private async ownUnitType(tenantId: string, id: string | undefined): Promise<string | null> {
+    if (!id) return null;
+    const found = await this.admin.unitType.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    return found?.id ?? null;
   }
 
   /**
@@ -216,49 +361,152 @@ export class WebAnalyticsService {
           select: { timezone: true, createdAt: true },
         });
         const tz = tenant?.timezone || 'Europe/Madrid';
-        const inRange = Prisma.sql`tenant_id = ${tenantId}::uuid AND created_at >= ${since} AND created_at < ${until}`;
-        const counts = await tx.$queryRaw<
-          { source: string | null; medium: string | null; kind: string; n: number }[]
-        >`SELECT source, medium, kind, COUNT(*)::int AS n
-            FROM web_events WHERE ${inRange}
-           GROUP BY 1, 2, 3`;
-        const sourceVisitors = await tx.$queryRaw<
-          { source: string | null; medium: string | null; n: number }[]
-        >`SELECT source, medium, COUNT(DISTINCT visitor_id)::int AS n
-            FROM web_events WHERE ${inRange} AND kind = 'page_view'
+        const localDay = (d: Date) => localDayOf(d, tz);
+        const fromDay = range.fromDay ?? localDay(since);
+        const toDay = range.toDay ?? localDay(new Date(until.getTime() - 1));
+        const spanDays = dayRange(fromDay, toDay).length;
+        const prevFrom = shiftDay(fromDay, -spanDays);
+        const prevTo = shiftDay(fromDay, -1);
+        const visits = Prisma.sql`tenant_id = ${tenantId}::uuid
+          AND day >= ${fromDay}::date AND day <= ${toDay}::date`;
+        const rawRange = Prisma.sql`tenant_id = ${tenantId}::uuid
+          AND created_at >= ${since} AND created_at < ${until}`;
+
+        // Visitas ya sumadas: un registro por visitante, día y origen.
+        const bySourceRows = await tx.$queryRaw<
+          {
+            source: string;
+            medium: string;
+            page_views: number;
+            calls: number;
+            whatsapp: number;
+            emails: number;
+            directions: number;
+            visitors: number;
+          }[]
+        >`SELECT source, medium,
+                 SUM(page_views)::int AS page_views, SUM(calls)::int AS calls,
+                 SUM(whatsapp)::int AS whatsapp, SUM(emails)::int AS emails,
+                 SUM(directions)::int AS directions,
+                 COUNT(DISTINCT visitor_id) FILTER (WHERE page_views > 0)::int AS visitors
+            FROM web_visits WHERE ${visits}
            GROUP BY 1, 2`;
-        const [visitorsRow] = await tx.$queryRaw<{ n: number }[]>`
-          SELECT COUNT(DISTINCT visitor_id)::int AS n
-            FROM web_events WHERE ${inRange} AND kind = 'page_view'`;
+        const [visitorRow] = await tx.$queryRaw<
+          { visitors: number; returning: number; started: number }[]
+        >`SELECT COUNT(DISTINCT v.visitor_id) FILTER (WHERE v.page_views > 0)::int AS visitors,
+                 COUNT(DISTINCT v.visitor_id) FILTER (
+                   WHERE v.page_views > 0 AND EXISTS (
+                     SELECT 1 FROM web_visits p
+                      WHERE p.tenant_id = v.tenant_id AND p.visitor_id = v.visitor_id
+                        AND p.day < ${fromDay}::date))::int AS returning,
+                 COUNT(DISTINCT v.visitor_id) FILTER (WHERE v.booking_starts > 0)::int AS started
+            FROM web_visits v WHERE ${visits}`;
         const dailyRows = await tx.$queryRaw<{ day: string; views: number; visitors: number }[]>`
-          SELECT to_char(created_at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day,
-                 COUNT(*)::int AS views,
-                 COUNT(DISTINCT visitor_id)::int AS visitors
-            FROM web_events WHERE ${inRange} AND kind = 'page_view'
+          SELECT to_char(day, 'YYYY-MM-DD') AS day, SUM(page_views)::int AS views,
+                 COUNT(DISTINCT visitor_id) FILTER (WHERE page_views > 0)::int AS visitors
+            FROM web_visits WHERE ${visits}
            GROUP BY 1`;
+        // La página por la que más se entra desde cada origen.
+        const entryRows = await tx.$queryRaw<{ source: string; medium: string; path: string }[]>`
+          SELECT DISTINCT ON (source, medium) source, medium, entry_path AS path
+            FROM (SELECT source, medium, entry_path, COUNT(*) AS n
+                    FROM web_visits WHERE ${visits} AND page_views > 0
+                   GROUP BY 1, 2, 3) x
+           ORDER BY source, medium, n DESC, entry_path`;
         const pageRows = await tx.$queryRaw<
           { path: string; views: number; visitors: number; clicks: number }[]
-        >`SELECT path,
-                 COUNT(*) FILTER (WHERE kind = 'page_view')::int AS views,
-                 COUNT(DISTINCT visitor_id) FILTER (WHERE kind = 'page_view')::int AS visitors,
-                 COUNT(*) FILTER (WHERE kind <> 'page_view')::int AS clicks
-            FROM web_events WHERE ${inRange}
+        >`SELECT path, SUM(views)::int AS views, SUM(visitors)::int AS visitors,
+                 SUM(clicks)::int AS clicks
+            FROM web_page_daily WHERE ${visits}
            GROUP BY path
-           ORDER BY views DESC
+           ORDER BY views DESC, path
            LIMIT 15`;
-        // El dispositivo con el que entró cada visitante (su primera página).
+        // El dispositivo con el que entró cada visitante (su primera visita).
         const deviceRows = await tx.$queryRaw<{ device: string; n: number }[]>`
           SELECT d.device, COUNT(*)::int AS n
             FROM (SELECT DISTINCT ON (visitor_id) visitor_id, device
-                    FROM web_events
-                   WHERE ${inRange} AND kind = 'page_view' AND device IS NOT NULL
-                   ORDER BY visitor_id, created_at) d
+                    FROM web_visits
+                   WHERE ${visits} AND page_views > 0 AND device IS NOT NULL
+                   ORDER BY visitor_id, day, created_at) d
            GROUP BY d.device`;
         const [prevRow] = await tx.$queryRaw<{ n: number }[]>`
+          SELECT COUNT(DISTINCT visitor_id) FILTER (WHERE page_views > 0)::int AS n
+            FROM web_visits
+           WHERE tenant_id = ${tenantId}::uuid
+             AND day >= ${prevFrom}::date AND day <= ${prevTo}::date`;
+        // De los eventos solo lo poco que no está sumado: la página de la reserva,
+        // las horas de los clics de contacto y las reservas empezadas por local.
+        const [bookingPageRow] = await tx.$queryRaw<{ n: number }[]>`
           SELECT COUNT(DISTINCT visitor_id)::int AS n
             FROM web_events
-           WHERE tenant_id = ${tenantId}::uuid AND kind = 'page_view'
-             AND created_at >= ${prevSince} AND created_at < ${since}`;
+           WHERE ${rawRange} AND kind = 'page_view'
+             AND (path = '/reservar' OR path LIKE '/reservar/%')`;
+        const hourRows = await tx.$queryRaw<
+          { weekday: number; hour: number; calls: number; whatsapp: number }[]
+        >`SELECT EXTRACT(DOW FROM created_at AT TIME ZONE ${tz})::int AS weekday,
+                 EXTRACT(HOUR FROM created_at AT TIME ZONE ${tz})::int AS hour,
+                 COUNT(*) FILTER (WHERE kind = 'call_click')::int AS calls,
+                 COUNT(*) FILTER (WHERE kind = 'whatsapp_click')::int AS whatsapp
+            FROM web_events
+           WHERE ${rawRange} AND kind IN ('call_click', 'whatsapp_click')
+           GROUP BY 1, 2`;
+        const startRows = await tx.$queryRaw<
+          { facility_id: string; unit_type_id: string | null; n: number }[]
+        >`SELECT facility_id, unit_type_id, COUNT(*)::int AS n
+            FROM web_events
+           WHERE ${rawRange} AND kind = 'booking_start' AND facility_id IS NOT NULL
+           GROUP BY 1, 2`;
+        const facilities = await tx.facility.findMany({
+          where: { deletedAt: null },
+          select: { id: true, name: true, publicSlug: true },
+        });
+        const slugPaths = facilities.flatMap((f) =>
+          f.publicSlug ? [`/${f.publicSlug}`, `/reservar/${f.publicSlug}`] : [],
+        );
+        const facilityPageRows = slugPaths.length
+          ? await tx.$queryRaw<{ path: string; views: number }[]>`
+              SELECT path, SUM(views)::int AS views
+                FROM web_page_daily
+               WHERE ${visits} AND path = ANY(${slugPaths}::text[])
+               GROUP BY 1`
+          : [];
+        const unitTypes = startRows.some((r) => r.unit_type_id)
+          ? await tx.unitType.findMany({
+              where: {
+                id: { in: startRows.flatMap((r) => (r.unit_type_id ? [r.unit_type_id] : [])) },
+              },
+              select: { id: true, name: true },
+            })
+          : [];
+
+        // Anotaciones: las escritas a mano y lo que pasó (canales, promociones,
+        // campañas y publicaciones).
+        const fromDate = new Date(`${fromDay}T00:00:00.000Z`);
+        const toDate = new Date(`${toDay}T00:00:00.000Z`);
+        const [notes, newChannels, promos, campaigns, posts] = await Promise.all([
+          tx.marketingAnnotation.findMany({
+            where: { day: { gte: fromDate, lte: toDate } },
+            orderBy: { day: 'asc' },
+            select: { id: true, day: true, text: true },
+          }),
+          tx.marketingChannel.findMany({
+            where: { createdAt: { gte: since, lt: until }, deletedAt: null },
+            select: { name: true, createdAt: true },
+          }),
+          tx.promotion.findMany({
+            where: { validFrom: { gte: since, lt: until } },
+            select: { name: true, validFrom: true },
+          }),
+          tx.campaign.findMany({
+            where: { sentAt: { gte: since, lt: until } },
+            select: { name: true, sentAt: true },
+          }),
+          tx.socialPost.findMany({
+            where: { publishedAt: { gte: since, lt: until } },
+            select: { network: true, publishedAt: true },
+          }),
+        ]);
+
         // Contactos que llegaron por la web: con origen o creados desde la web.
         const leads = await tx.lead.findMany({
           where: {
@@ -303,12 +551,10 @@ export class WebAnalyticsService {
             createdAt: true,
           },
         });
-        const fromDay = range.fromDay ?? since.toISOString().slice(0, 10);
-        const toDay = range.toDay ?? new Date(until.getTime() - 1).toISOString().slice(0, 10);
         const expenses = await tx.expense.findMany({
           where: {
             marketingChannelId: { not: null },
-            expenseDate: { gte: new Date(fromDay), lte: new Date(toDay) },
+            expenseDate: { gte: fromDate, lte: toDate },
           },
           select: { marketingChannelId: true, amount: true },
         });
@@ -317,13 +563,22 @@ export class WebAnalyticsService {
           tz,
           fromDay,
           toDay,
-          counts,
-          sourceVisitors,
-          visitors: visitorsRow?.n ?? 0,
+          bySourceRows,
+          visitors: visitorRow?.visitors ?? 0,
+          returning: visitorRow?.returning ?? 0,
+          started: visitorRow?.started ?? 0,
           dailyRows,
+          entryRows,
           pageRows,
           deviceRows,
           prevVisitors: prevRow?.n ?? 0,
+          bookingPage: bookingPageRow?.n ?? 0,
+          hourRows,
+          startRows,
+          facilities,
+          facilityPageRows,
+          unitTypes,
+          annotations: { notes, newChannels, promos, campaigns, posts },
           leads,
           channels,
           expenses,
@@ -354,6 +609,7 @@ export class WebAnalyticsService {
           ...emptyFunnel(),
           cost: 0,
           costPerBooking: null,
+          entryPath: null,
         };
         bySource.set(key, r);
       }
@@ -361,19 +617,26 @@ export class WebAnalyticsService {
     };
 
     const totals = { ...emptyFunnel(), cost: 0, pendingSignature: 0, signedUnpaid: 0 };
-    for (const c of data.counts) {
-      const src = sourceRow(c);
-      if (c.kind === 'page_view') {
-        src.pageViews += c.n;
-        totals.pageViews += c.n;
-      } else if (c.kind in CLICK_FIELD) {
-        const field = CLICK_FIELD[c.kind as keyof typeof CLICK_FIELD];
-        src[field] += c.n;
-        totals[field] += c.n;
+    for (const c of data.bySourceRows) {
+      const src = sourceRow({ source: c.source || null, medium: c.medium || null });
+      src.pageViews += c.page_views;
+      totals.pageViews += c.page_views;
+      for (const [field, n] of [
+        ['calls', c.calls],
+        ['whatsapp', c.whatsapp],
+        ['emails', c.emails],
+        ['directions', c.directions],
+      ] as const) {
+        src[field] += n;
+        totals[field] += n;
       }
+      // Visitantes por origen (un mismo visitante con dos orígenes cuenta en los dos).
+      src.visitors += c.visitors;
     }
-    // Visitantes por origen (un mismo visitante con dos orígenes cuenta en los dos).
-    for (const v of data.sourceVisitors) sourceRow(v).visitors += v.n;
+    for (const e of data.entryRows) {
+      const src = sourceRow({ source: e.source || null, medium: e.medium || null });
+      src.entryPath ??= e.path;
+    }
     totals.visitors = data.visitors;
 
     const daily = new Map<string, { visitors: number; pageViews: number; contacts: number }>();
@@ -483,10 +746,101 @@ export class WebAnalyticsService {
     }));
     const deviceCount = new Map(data.deviceRows.map((d) => [d.device, d.n]));
 
+    // Interés por local y tamaño (solo los locales que ve quien consulta).
+    const viewsByPath = new Map(data.facilityPageRows.map((r) => [r.path, r.views]));
+    const typeName = new Map(data.unitTypes.map((t) => [t.id, t.name]));
+    const demand: WebDemandDto[] = data.facilities
+      .filter((f) => inViewerScope(viewer, f.id))
+      .map((f) => {
+        const starts = data.startRows.filter((r) => r.facility_id === f.id);
+        const sizes = new Map<string, number>();
+        for (const r of starts) {
+          if (r.unit_type_id) sizes.set(r.unit_type_id, (sizes.get(r.unit_type_id) ?? 0) + r.n);
+        }
+        return {
+          facilityId: f.id,
+          facilityName: f.name,
+          pageViews: f.publicSlug
+            ? (viewsByPath.get(`/${f.publicSlug}`) ?? 0) +
+              (viewsByPath.get(`/reservar/${f.publicSlug}`) ?? 0)
+            : 0,
+          bookingStarts: starts.reduce((n, r) => n + r.n, 0),
+          sizes: [...sizes.entries()]
+            .map(([unitTypeId, n]) => ({
+              unitTypeId,
+              name: typeName.get(unitTypeId) ?? 'Tamaño',
+              bookingStarts: n,
+            }))
+            .sort((a, b) => b.bookingStarts - a.bookingStarts),
+        };
+      })
+      .filter((d) => d.pageViews + d.bookingStarts > 0)
+      .sort((a, b) => b.bookingStarts - a.bookingStarts || b.pageViews - a.pageViews);
+
+    // Anotaciones en la gráfica: las escritas y lo que pasó esos días.
+    const a = data.annotations;
+    const dayOf = (d: Date) => localDayOf(d, data.tz);
+    const postsBy = new Map<string, number>();
+    for (const p of a.posts) {
+      const key = `${dayOf(p.publishedAt)}|${p.network}`;
+      postsBy.set(key, (postsBy.get(key) ?? 0) + 1);
+    }
+    const annotations: MarketingAnnotationDto[] = [
+      ...a.notes.map((n) => ({
+        id: n.id,
+        day: n.day.toISOString().slice(0, 10),
+        text: n.text,
+        kind: 'manual' as const,
+      })),
+      ...a.newChannels.map((c) => ({
+        id: null,
+        day: dayOf(c.createdAt),
+        text: `Canal nuevo: «${c.name}»`,
+        kind: 'channel' as const,
+      })),
+      ...a.promos.map((p) => ({
+        id: null,
+        day: dayOf(p.validFrom!),
+        text: `Empieza la promoción «${p.name}»`,
+        kind: 'promotion' as const,
+      })),
+      ...a.campaigns.map((c) => ({
+        id: null,
+        day: dayOf(c.sentAt!),
+        text: `Campaña enviada: «${c.name}»`,
+        kind: 'campaign' as const,
+      })),
+      ...[...postsBy.entries()].map(([key, n]) => {
+        const [day, network] = key.split('|') as [string, string];
+        const where = network === 'instagram' ? 'Instagram' : 'Facebook';
+        return {
+          id: null,
+          day,
+          text: n === 1 ? `Publicación en ${where}` : `${n} publicaciones en ${where}`,
+          kind: 'post' as const,
+        };
+      }),
+    ]
+      .sort((x, y) => x.day.localeCompare(y.day))
+      .slice(0, 60);
+
     return {
       days,
       from: data.fromDay,
       to: data.toDay,
+      newVisitors: Math.max(0, data.visitors - data.returning),
+      returningVisitors: data.returning,
+      bookingFunnel: {
+        visitors: totals.visitors,
+        bookingPage: data.bookingPage,
+        started: data.started,
+        bookings: totals.bookings,
+        signed: totals.signed,
+        paid: totals.paid,
+      },
+      contactHours: data.hourRows,
+      demand,
+      annotations,
       totals: { ...totals, revenue: round2(totals.revenue), cost: round2(totals.cost) },
       previous: { visitors: data.prevVisitors, contacts: prevContacts, bookings: prevBookings },
       previousComplete: prevSince.getTime() >= measuredFrom,
