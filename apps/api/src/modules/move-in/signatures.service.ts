@@ -28,7 +28,11 @@ import { BOOKING_HOLD_HOURS } from '../../common/online-booking';
 import { paymentDeadlineMax } from '../../common/payment-deadline';
 import { isPendingPreOpening, preOpeningDto } from '../../common/pre-opening';
 import { NO_PAYMENT_IN_FLIGHT, PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
-import { DOMAIN_EVENTS, type BookingExpiredPayload } from '../automations/domain-events';
+import {
+  DOMAIN_EVENTS,
+  type BookingExpiredPayload,
+  type FirstPaymentPendingPayload,
+} from '../automations/domain-events';
 import { FirstInvoiceService } from '../billing/first-invoice.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -265,13 +269,9 @@ export class SignaturesService {
     // (el proxy de dominio propio deja pasar /sign), no bajo la plataforma.
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, customDomain: true, customDomainVerifiedAt: true },
+      select: { name: true },
     });
-    const base =
-      tenant?.customDomain && tenant.customDomainVerifiedAt
-        ? `https://${tenant.customDomain}`
-        : this.config.get('WEB_BASE_URL', { infer: true });
-    const signingUrl = `${base}/sign/${token}`;
+    const signingUrl = `${await this.signBaseUrl(tenantId)}/sign/${token}`;
 
     let emailed = false;
     const email = contract.customer.email;
@@ -812,6 +812,27 @@ export class SignaturesService {
       await this.maybeIssueFirstInvoice(contract.tenantId, contract.id, contract.customerId, {
         issueOnPayment: true,
       });
+      // El enlace de la firma sirve para pagar hasta el plazo (el del panel
+      // caduca a los 7 días de pedir la firma, que puede ser antes).
+      const fresh = await this.admin.contract.findUnique({
+        where: { id: contract.id },
+        select: { firstPaymentDeadline: true, signingTokenExpiresAt: true },
+      });
+      if (
+        fresh?.firstPaymentDeadline &&
+        (!fresh.signingTokenExpiresAt || fresh.signingTokenExpiresAt < fresh.firstPaymentDeadline)
+      ) {
+        await this.admin.contract.update({
+          where: { id: contract.id },
+          data: { signingTokenExpiresAt: fresh.firstPaymentDeadline },
+        });
+      }
+      // Correo con el contrato firmado, lo que hay que pagar y el botón para pagar.
+      this.events.emit(DOMAIN_EVENTS.first_payment_pending, {
+        tenantId: contract.tenantId,
+        contractId: contract.id,
+        payUrl: `${await this.signBaseUrl(contract.tenantId)}/sign/${token}`,
+      } satisfies FirstPaymentPendingPayload);
     }
 
     return {
@@ -900,6 +921,17 @@ export class SignaturesService {
       });
     }
     return contract;
+  }
+
+  /** Web donde se firma: con dominio propio verificado, la del tenant (el proxy deja pasar /sign). */
+  private async signBaseUrl(tenantId: string): Promise<string> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { customDomain: true, customDomainVerifiedAt: true },
+    });
+    return tenant?.customDomain && tenant.customDomainVerifiedAt
+      ? `https://${tenant.customDomain}`
+      : this.config.get('WEB_BASE_URL', { infer: true });
   }
 
   private async mintPortalToken(tenantId: string, customerId: string): Promise<string> {

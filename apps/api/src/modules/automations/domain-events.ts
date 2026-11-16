@@ -46,6 +46,8 @@ export const DOMAIN_EVENTS = {
   reservation_expiring: 'domain.reservation_expiring',
   /** Una reserva online se canceló por no pagarse a tiempo (correo al inquilino). */
   booking_expired: 'domain.booking_expired',
+  /** Firmado por enlace y con el primer pago por hacer (correo con lo que hay que pagar). */
+  first_payment_pending: 'domain.first_payment_pending',
   /** Se le ha guardado un trastero a alguien de la cola (WhatsApp si el negocio lo tiene). */
   waitlist_notified: 'domain.waitlist_notified',
   /** El equipo resolvió una petición de trastero del inquilino (correo y push). */
@@ -222,6 +224,13 @@ export interface CustomerMessagePayload {
 export interface ReservationExpiringPayload {
   tenantId: string;
   reservationId: string;
+}
+
+export interface FirstPaymentPendingPayload {
+  tenantId: string;
+  contractId: string;
+  /** Enlace de la firma: enseña «Completar el pago» hasta el plazo. */
+  payUrl: string;
 }
 
 export interface BookingExpiredPayload {

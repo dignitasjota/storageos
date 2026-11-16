@@ -160,6 +160,22 @@ export type CustomerEmailData =
       endDate: Date;
     }
   | {
+      /** Firmado por enlace: el contrato entra en vigor con este pago. */
+      kind: 'first_payment_pending';
+      contractNumber: string;
+      unitCode: string;
+      facilityName: string;
+      startDate: Date;
+      preOpening?: { openingDate: Date | null } | null;
+      /** Lo que se paga ahora, con IVA (la fianza aparte, sin IVA). */
+      lines: { description: string; amount: number }[];
+      deposit: number;
+      total: number;
+      deadline: Date;
+      /** Enlace de la firma, que enseña «Completar el pago». */
+      payUrl: string;
+    }
+  | {
       kind: 'reservation_held' | 'reservation_expiring';
       unitCode: string;
       facilityName: string;
@@ -406,6 +422,50 @@ function content(data: CustomerEmailData, l: Locale, base?: CustomerEmailBase): 
             ],
         cta: en ? 'View my contract' : 'Ver mi contrato',
       };
+    case 'first_payment_pending': {
+      const at = new Intl.DateTimeFormat(l === 'en' ? 'en-GB' : 'es-ES', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'Europe/Madrid',
+      }).format(data.deadline);
+      const start = data.preOpening
+        ? en
+          ? `Your rental starts the day the facility opens${data.preOpening.openingDate ? ` (expected on ${day(data.preOpening.openingDate, l)})` : ' (date to be confirmed; we will let you know)'}.`
+          : `Tu alquiler empieza el día de apertura del local${data.preOpening.openingDate ? ` (prevista para el ${day(data.preOpening.openingDate, l)})` : ' (fecha por confirmar; te avisaremos)'}.`
+        : en
+          ? `Start date: ${day(data.startDate, l)}.`
+          : `Fecha de inicio: ${day(data.startDate, l)}.`;
+      const items = [
+        ...data.lines.map((x) => `• ${x.description}: ${eur(x.amount, l)}`),
+        ...(data.deposit > 0
+          ? [en ? `• Deposit: ${eur(data.deposit, l)}` : `• Fianza: ${eur(data.deposit, l)}`]
+          : []),
+      ];
+      return {
+        subject: en
+          ? `Your contract ${data.contractNumber} is signed: complete your first payment`
+          : `Tu contrato ${data.contractNumber} está firmado: falta el primer pago`,
+        paragraphs: en
+          ? [
+              `Your contract ${data.contractNumber} for storage unit ${data.unitCode} at ${data.facilityName} has been signed. ${start}`,
+              `To activate it and get your access, pay ${eur(data.total, l)} before ${day(data.deadline, l)} at ${at}. Otherwise the contract is void and the unit is released.`,
+              'What you pay now:',
+              ...items,
+              `Total: ${eur(data.total, l)} (VAT included).`,
+              'The invoice is issued when you pay and you will receive it with the receipt. You can download the signed contract from your customer area.',
+            ]
+          : [
+              `Tu contrato ${data.contractNumber} del trastero ${data.unitCode} en ${data.facilityName} ha quedado firmado. ${start}`,
+              `Para que entre en vigor y tengas tu acceso, paga ${eur(data.total, l)} antes del ${day(data.deadline, l)} a las ${at}. Si no, el contrato queda sin efecto y el trastero se libera.`,
+              'Lo que pagas ahora:',
+              ...items,
+              `Total: ${eur(data.total, l)} (IVA incluido).`,
+              'La factura se emite cuando pagas y te llega con el justificante. Tienes el contrato firmado en tu área de clientes.',
+            ],
+        cta: en ? 'Pay now' : 'Pagar ahora',
+        ctaUrl: data.payUrl,
+      };
+    }
     case 'contract_ending_soon':
       return {
         subject: en

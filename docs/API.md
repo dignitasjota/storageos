@@ -3179,3 +3179,10 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - **Valoraciones**: `GET /reviews/stats?months=&facilityId=` y `GET /reviews/insights?months=&facilityId=` (`reviews:read`) → `ReviewInsightsDto {trend[], byFacility[]}`. `ReviewDto` gana `exit`, `exitReason` y `remindedAt`. `GET /public/reviews/:token` → `exit`; `POST /public/reviews/:token` admite `exitReason` (solo se guarda en la encuesta de salida) y devuelve `referral {code, shareUrl, reward, friendReward}` a quien puntúa con 9 o 10. `PATCH /settings/tenant/reviews` admite `reviewsReminderEnabled` y `reviewsYearlyEnabled`.
 - **Analítica**: `GET /analytics/exit-reasons?months=&facilityId=` → `ExitReasonsDto {sent, answered, nps, reasons[]}`.
 - **Tareas automáticas**: `GET`/`PUT /tasks/auto-rules` gana `lowReview {enabled, days}`.
+
+### Primer pago pendiente (2026-11-16)
+
+- Correo nuevo al inquilino `first_payment_pending` (`customer_email.first_payment_pending` en Comunicaciones; `GET`/`PATCH /settings/tenant/customer-emails` admite `first_payment_pending`): al firmar por enlace con el primer pago por hacer, con el desglose, el total, el plazo y el enlace de la firma para pagar. Sustituye al de `contract_signed` en ese caso.
+- Evento interno `domain.first_payment_pending {tenantId, contractId, payUrl}` (no es disparador de automatizaciones). `domain.contract_signed` lleva `scope.awaitingFirstPayment` cuando se firma por enlace.
+- `GET /customers/:id/account` → `firstPayment {invoiceId, amount, deadline} | null`: factura sin emitir y fianza que van juntas, con el plazo para pagarlas.
+- Tras firmar por enlace, el enlace de la firma vale hasta el plazo para pagar.

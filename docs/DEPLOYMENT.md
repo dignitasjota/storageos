@@ -2544,3 +2544,13 @@ Sin variables nuevas. Lo que se puede hacer ahora:
 El recordatorio y la valoración anual salen en el repaso diario de valoraciones (worker, 08:00). El descuento de una promoción con duración lo quita el repaso diario de descuentos caducados (worker).
 
 De paso: la factura mensual ya no aplica un descuento con fecha de fin (retención o promoción con duración) a un periodo que empieza cuando ha caducado. Antes, si caducaba el día 1, la factura de ese mes salía todavía con el descuento.
+
+## 146. El primer pago pendiente se ve y se avisa (2026-11-16)
+
+Sin migración ni variables nuevas.
+
+- Al firmar por enlace (reserva online, contrato enviado a firmar desde el panel o trastero adicional del área de clientes) el inquilino recibe un correo con lo que tiene que pagar: el desglose, el total, el plazo y el botón «Pagar ahora». Sustituye al de «Contrato firmado». Se puede apagar en Configuración → Correo («Primer pago pendiente»); entonces sale el de «Contrato firmado» de siempre.
+- La factura sigue sin número hasta que se cobra.
+- En el panel, la ficha del inquilino enseña ese primer pago: en «Estado de cuenta» (importe y plazo) y en «Historial de pagos».
+
+**Tras desplegar**: a quien haya firmado antes de este cambio y no haya pagado no le llega el correo nuevo; si sigue en plazo, al ampliarle el plazo desde su contrato le llega un correo con lo que tiene que pagar.

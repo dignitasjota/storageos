@@ -10,7 +10,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useBulkRemindInvoices } from '@/lib/billing/hooks';
 import { useCustomerAccount } from '@/lib/customers/hooks';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatDateTime } from '@/lib/format';
 
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const day = (iso: string) => formatDate(iso);
@@ -40,7 +40,7 @@ export function CustomerAccountCard({
   const canRemind = useHasPermission('communications:send');
   const a = account.data;
   if (!a) return null;
-  if (a.lines.length === 0 && !a.overdue && a.pendingNotDue === 0) return null;
+  if (a.lines.length === 0 && !a.overdue && a.pendingNotDue === 0 && !a.firstPayment) return null;
 
   async function doRemind() {
     if (!a?.overdue) return;
@@ -174,6 +174,21 @@ export function CustomerAccountCard({
           {a.pendingNotDue > 0 && (
             <p className="text-xs text-muted-foreground">
               {eur(a.pendingNotDue)} emitido y aún sin vencer.
+            </p>
+          )}
+          {a.firstPayment && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              Primer pago pendiente:{' '}
+              <Link
+                href={`/invoices/${a.firstPayment.invoiceId}`}
+                className="font-medium underline"
+              >
+                {eur(a.firstPayment.amount)}
+              </Link>
+              {a.firstPayment.deadline
+                ? ` antes del ${formatDateTime(a.firstPayment.deadline)}`
+                : ''}
+              . La factura se emite al pagarlo.
             </p>
           )}
         </div>

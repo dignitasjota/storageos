@@ -16,6 +16,7 @@ import { invoiceDownloadKey, invoiceDownloadUrl } from '../../common/invoice-dow
 import { loadInvoicePaymentHint } from '../../common/invoice-payment-hint';
 import { isPendingOnlineBookingInvoice } from '../../common/online-booking';
 import { tenantBookingUrl, tenantPortalLoginUrl } from '../../common/portal-url';
+import { PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { termMonths } from '../../common/term-months';
 import { claimAlert } from '../admin/alert-state';
@@ -28,6 +29,7 @@ import {
   type ContractRenewedPayload,
   type CustomerMessagePayload,
   type DomainEventPayload,
+  type FirstPaymentPendingPayload,
   type PaymentFailedPayload,
   type ReservationExpiringPayload,
   type SepaRemittanceCreatedPayload,
@@ -276,26 +278,117 @@ export class CustomerEmailsService {
 
   @OnEvent(DOMAIN_EVENTS.contract_signed, { async: true, promisify: true })
   async onContractSigned(p: DomainEventPayload): Promise<void> {
+    // Firmado por enlace con el primer pago por hacer: lo cuenta el correo del
+    // primer pago, que sale cuando ya está preparado lo que hay que pagar.
+    if ((p.scope as { awaitingFirstPayment?: unknown } | undefined)?.awaitingFirstPayment) return;
     await this.safe('contract_signed', p.tenantId, async () => {
       const c = await this.contract(p.tenantId, p.entityId);
       if (!c) return;
-      await this.send(p.tenantId, 'contract_signed', 'contract_signed', c.customerId, {
-        data: {
-          kind: 'contract_signed',
-          contractNumber: c.contractNumber,
-          unitCode: c.unit.code,
-          facilityName: c.unit.facility.name,
-          priceMonthly: Number(c.priceMonthly),
-          startDate: c.startDate,
-          // Reserva antes de la apertura: empieza el día que abre el local.
-          preOpening:
-            c.preOpening && !c.preOpeningStartedAt
-              ? { openingDate: c.preOpeningDateConfirmed ? c.startDate : null }
-              : null,
-          directions: c.unit.facility.directions,
-        },
-        contractId: c.id,
-      });
+      await this.sendContractSigned(p.tenantId, c);
+    });
+  }
+
+  /**
+   * Firmado por enlace: el contrato, lo que hay que pagar con su desglose, el
+   * plazo y el botón para pagar (la factura se emite al cobrarse). Sin nada
+   * que pagar (0 €) o sin el primer pago preparado, sale el de «contrato firmado».
+   */
+  @OnEvent(DOMAIN_EVENTS.first_payment_pending, { async: true, promisify: true })
+  async onFirstPaymentPending(p: FirstPaymentPendingPayload): Promise<void> {
+    await this.safe('first_payment_pending', p.tenantId, async () => {
+      const c = await this.contract(p.tenantId, p.contractId);
+      if (!c) return;
+      const due = c.firstPaymentDeadline ? await this.firstPaymentDue(p.tenantId, c.id) : null;
+      if (due && c.firstPaymentDeadline) {
+        const sent = await this.send(p.tenantId, 'first_payment_pending', null, c.customerId, {
+          data: {
+            kind: 'first_payment_pending',
+            contractNumber: c.contractNumber,
+            unitCode: c.unit.code,
+            facilityName: c.unit.facility.name,
+            startDate: c.startDate,
+            preOpening:
+              c.preOpening && !c.preOpeningStartedAt
+                ? { openingDate: c.preOpeningDateConfirmed ? c.startDate : null }
+                : null,
+            lines: due.lines,
+            deposit: due.deposit,
+            total: due.total,
+            deadline: c.firstPaymentDeadline,
+            payUrl: p.payUrl,
+          },
+          invoiceId: due.invoiceId,
+          contractId: c.id,
+        });
+        if (sent.status !== 'disabled') return;
+      }
+      await this.sendContractSigned(p.tenantId, c);
+    });
+  }
+
+  /** Primer pago por hacer de un contrato: su factura (sin emitir) y la fianza que va con ella. */
+  private async firstPaymentDue(
+    tenantId: string,
+    contractId: string,
+  ): Promise<{
+    invoiceId: string;
+    lines: { description: string; amount: number }[];
+    deposit: number;
+    total: number;
+  } | null> {
+    const invoice = await this.admin.invoice.findFirst({
+      where: { tenantId, contractId, kind: 'invoice', deletedAt: null, ...PAYABLE_INVOICE_WHERE },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        total: true,
+        amountPaid: true,
+        items: { select: { description: true, total: true }, orderBy: { position: 'asc' } },
+      },
+    });
+    if (!invoice) return null;
+    const receipts = await this.admin.invoice.findMany({
+      where: {
+        tenantId,
+        bundledWithInvoiceId: invoice.id,
+        kind: 'deposit_receipt',
+        deletedAt: null,
+        ...PAYABLE_INVOICE_WHERE,
+      },
+      select: { total: true, amountPaid: true },
+    });
+    const cents = (n: unknown) => Math.round(Number(n) * 100);
+    const rent = cents(invoice.total) - cents(invoice.amountPaid);
+    const deposit = receipts.reduce((sum, r) => sum + cents(r.total) - cents(r.amountPaid), 0);
+    if (rent + deposit <= 0) return null;
+    return {
+      invoiceId: invoice.id,
+      lines: invoice.items.map((i) => ({ description: i.description, amount: Number(i.total) })),
+      deposit: deposit / 100,
+      total: (rent + deposit) / 100,
+    };
+  }
+
+  private async sendContractSigned(
+    tenantId: string,
+    c: NonNullable<Awaited<ReturnType<CustomerEmailsService['contract']>>>,
+  ): Promise<void> {
+    await this.send(tenantId, 'contract_signed', 'contract_signed', c.customerId, {
+      data: {
+        kind: 'contract_signed',
+        contractNumber: c.contractNumber,
+        unitCode: c.unit.code,
+        facilityName: c.unit.facility.name,
+        priceMonthly: Number(c.priceMonthly),
+        startDate: c.startDate,
+        // Reserva antes de la apertura: empieza el día que abre el local.
+        preOpening:
+          c.preOpening && !c.preOpeningStartedAt
+            ? { openingDate: c.preOpeningDateConfirmed ? c.startDate : null }
+            : null,
+        directions: c.unit.facility.directions,
+      },
+      contractId: c.id,
     });
   }
 
@@ -1010,6 +1103,7 @@ export class CustomerEmailsService {
         preOpening: true,
         preOpeningDateConfirmed: true,
         preOpeningStartedAt: true,
+        firstPaymentDeadline: true,
         unit: {
           select: { code: true, facility: { select: { name: true, directions: true } } },
         },
