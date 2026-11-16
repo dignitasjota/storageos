@@ -307,6 +307,8 @@ export interface ContractDepositSettledPayload {
   retained: number;
   applied: number;
   reason: string | null;
+  /** Servicio pagado con la fianza (factura con IVA). */
+  service?: { number: string; amount: number; description: string } | null;
 }
 
 /** `payment_dispute_won`: el cobro revertido por la disputa. */

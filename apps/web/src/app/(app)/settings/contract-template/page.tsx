@@ -175,6 +175,8 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
   const update = useUpdateContractTemplate();
   const [days, setDays] = useState(String(data.depositReturnDays));
   const [fee, setFee] = useState(data.returnedPaymentFee ? String(data.returnedPaymentFee) : '');
+  const [registryStorage, setRegistryStorage] = useState(data.depositRegistryStorage);
+  useEffect(() => setRegistryStorage(data.depositRegistryStorage), [data.depositRegistryStorage]);
   useEffect(() => setDays(String(data.depositReturnDays)), [data.depositReturnDays]);
   useEffect(
     () => setFee(data.returnedPaymentFee ? String(data.returnedPaymentFee) : ''),
@@ -190,13 +192,16 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
     feeValue >= 0 &&
     feeValue <= 100;
   const changed =
-    daysValue !== data.depositReturnDays || feeValue !== (data.returnedPaymentFee ?? 0);
+    daysValue !== data.depositReturnDays ||
+    feeValue !== (data.returnedPaymentFee ?? 0) ||
+    registryStorage !== data.depositRegistryStorage;
 
   async function save() {
     try {
       await update.mutateAsync({
         depositReturnDays: daysValue,
         returnedPaymentFee: feeValue || null,
+        depositRegistryStorage: registryStorage,
       });
       toast.success('Guardado. Se aplicará a los contratos que se firmen a partir de ahora.');
     } catch (err) {
@@ -248,6 +253,20 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
             </p>
           </div>
         </div>
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox
+            checked={registryStorage}
+            onCheckedChange={(v) => setRegistryStorage(v === true)}
+          />
+          <span>
+            Depositar también las fianzas de los trasteros en el organismo de tu comunidad autónoma
+            <span className="block text-xs text-muted-foreground">
+              Las de vivienda se depositan siempre. Si tu comunidad lo pide también para trasteros,
+              la ficha del contrato tendrá dónde anotarlo y «Hoy» te avisará de las que faltan.
+              Consúltalo en tu comunidad.
+            </span>
+          </span>
+        </label>
         <div className="flex justify-end">
           <Button onClick={() => void save()} disabled={!valid || !changed || update.isPending}>
             {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}

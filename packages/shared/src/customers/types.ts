@@ -174,6 +174,11 @@ export interface ContractDto {
   /** La fianza se cobró de verdad (`depositStatus` solo dice que el contrato la lleva). */
   depositCollected: boolean;
   depositAppliedAmount: number;
+  /**
+   * Factura con IVA del servicio (limpieza, vaciado…) pagado con la fianza
+   * retenida al liquidarla. El número y el total solo vienen en la ficha.
+   */
+  depositServiceInvoice: { id: string; number: string | null; total: number | null } | null;
   /** Saldo a favor para su próxima factura (una devolución que se quedó). */
   creditBalance: number;
   depositReturnMethod: string | null;

@@ -362,9 +362,23 @@ export const SetIrpfRetentionSchema = z.object({
 });
 export type SetIrpfRetentionInput = z.infer<typeof SetIrpfRetentionSchema>;
 
+/**
+ * Parte de lo retenido que paga un servicio (limpieza, vaciado, retirada de
+ * enseres…): se emite una factura con IVA por ese importe (IVA incluido) y se
+ * paga con la fianza. Lo que es deuda se aplica a sus facturas; los daños
+ * (indemnización) no llevan factura.
+ */
+export const DepositServiceChargeSchema = z.object({
+  description: z.string().trim().min(3).max(200),
+  /** Con IVA incluido. */
+  amount: z.number().positive().max(100_000),
+});
+export type DepositServiceChargeInput = z.infer<typeof DepositServiceChargeSchema>;
+
 export const SettleDepositSchema = z.object({
   returnedAmount: z.number().min(0),
   retentionReason: z.string().trim().max(500).optional(),
+  serviceCharge: DepositServiceChargeSchema.optional(),
   /** Aplica lo retenido a las facturas pendientes del contrato, de la más antigua a la última. */
   applyToInvoices: z.boolean().optional(),
   /** Cómo y cuándo se devolvió (constancia). */

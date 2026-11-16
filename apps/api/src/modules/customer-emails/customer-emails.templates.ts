@@ -137,6 +137,7 @@ export type CustomerEmailData =
       retained: number;
       applied: number;
       reason: string | null;
+      service?: { number: string; amount: number; description: string } | null;
     }
   | {
       kind: 'sepa_prenotification';
@@ -543,6 +544,13 @@ function content(data: CustomerEmailData, l: Locale, base?: CustomerEmailBase): 
                 en
                   ? `Retained: ${eur(data.retained, l)}${data.reason ? ` (${data.reason})` : ''}.`
                   : `Retenido: ${eur(data.retained, l)}${data.reason ? ` (${data.reason})` : ''}.`,
+              ]
+            : []),
+          ...(data.service
+            ? [
+                en
+                  ? `${eur(data.service.amount, l)} of it pays invoice ${data.service.number} (${data.service.description}, VAT included).`
+                  : `De ello, ${eur(data.service.amount, l)} pagan la factura ${data.service.number} (${data.service.description}, IVA incluido).`,
               ]
             : []),
           ...(data.applied > 0

@@ -507,6 +507,8 @@ model Tenant {
   moveOutEndOfMonth Boolean @default(true) @map("move_out_end_of_month")
   /// Días máximos para devolver la fianza desde que se entrega el trastero.
   depositReturnDays Int @default(15) @map("deposit_return_days")
+  /// Depositar también las fianzas de trasteros (las de vivienda, siempre).
+  depositRegistryStorage Boolean @default(false) @map("deposit_registry_storage")
   /// Gastos por recibo devuelto o pago rechazado (sin IVA); null = ninguno.
   returnedPaymentFee Decimal? @map("returned_payment_fee") @db.Decimal(10, 2)
   /// Tareas automáticas por evento de contrato (null = apagadas).
@@ -1855,6 +1857,8 @@ model Contract {
   scheduledUnitProrate   Boolean               @default(false) @map("scheduled_unit_prorate")
   /// Parte de la fianza retenida que se aplicó a facturas pendientes.
   depositAppliedAmount   Decimal               @default(0) @map("deposit_applied_amount") @db.Decimal(10, 2)
+  /// Factura con IVA del servicio (limpieza, vaciado…) pagado con la fianza retenida.
+  depositServiceInvoiceId String?              @map("deposit_service_invoice_id") @db.Uuid
   depositReturnMethod    String?               @map("deposit_return_method")
   depositReturnedOn      DateTime?             @map("deposit_returned_on") @db.Date
   depositReturnReference String?               @map("deposit_return_reference")

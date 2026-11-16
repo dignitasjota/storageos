@@ -959,7 +959,7 @@ Pendiente antes de poner `AEAT_MODE=production` y de firmar la declaración resp
 
 Por decidir con la asesoría:
 
-- **Reservas online caducadas**: hoy su factura se anula con una rectificativa de abono. Confirmar si conviene el registro de anulación (la operación no llegó a hacerse) en vez de la rectificativa.
+- ~~**Reservas online caducadas**~~ — resuelto (2026-11-16): desde #942 la factura se emite al cobrar, así que una reserva caducada no deja factura que anular; la asesoría confirma el criterio.
 - **Colaboración social**: firmar el convenio con la AEAT (n.º 17 de las preguntas frecuentes) para que Urbanbox envíe los registros con su propio certificado y cada negocio lo autorice en la aplicación, en vez de que cada uno suba el suyo.
 - **Apagado por defecto**: las preguntas frecuentes dicen que desde el 29-7-2025 solo se pueden comercializar sistemas adaptados y que no cabe pasar de un modo a otro a voluntad. Revisar si el interruptor vale y si desde las fechas obligatorias debe quedar forzado (sociedades desde el 1-1-2027, el resto desde el 1-7-2027).
 
@@ -1017,7 +1017,12 @@ El despliegue del 12-11 tumbó la web: el servidor (4 GB) compilaba cinco imáge
 
 ### Reserva online: la primera factura se emite al cobrarse ✅ (2026-11-12, #942)
 
-Antes, una reserva abandonada dejaba factura y rectificativa. Ahora el contrato entra en vigor con el primer pago y la factura se emite al cobrarlo (`invoices.issue_on_payment`). Si caduca sin pagar, el borrador se anula sin número. **Pendiente de la asesoría**: conformidad del criterio, fianza retenida por un servicio y depósito de fianzas de trasteros. DEPLOYMENT §125.
+Antes, una reserva abandonada dejaba factura y rectificativa. Ahora el contrato entra en vigor con el primer pago y la factura se emite al cobrarlo (`invoices.issue_on_payment`). Si caduca sin pagar, el borrador se anula sin número. **Asesoría (2026-11-16)**: conforme con facturar cuando la reserva se confirma con el pago (antes, el resumen del primer pago hace de presupuesto); la fianza va sin IVA ni factura, con su justificante; si se usa para un servicio (limpiar, vaciar) se factura con IVA; el depósito de la fianza depende de cada comunidad autónoma. Ver «Fianzas tras la asesoría». DEPLOYMENT §125.
+
+### Fianzas tras la asesoría ✅ (2026-11-16)
+
+- **Servicio pagado con la fianza**: al liquidarla, la parte retenida que paga un servicio (limpieza, vaciado, retirada de enseres) se factura con IVA (21 %, incluido en el importe) y se paga con la fianza. La deuda se aplica a sus facturas y los daños se retienen sin factura (indemnización). **Por confirmar con la asesoría**: que los daños no llevan IVA (art. 78.Tres.1.º de la Ley del IVA).
+- **Depósito de las fianzas de trasteros**: ajuste por negocio en Configuración → Plantilla de contrato, apagado por defecto (las de vivienda se depositan siempre). Cada operador lo activa si su comunidad lo pide. **Pendiente de Jota**: preguntar en la Generalitat Valenciana si un trastero alquilado está obligado. DEPLOYMENT §143.
 
 ### Gastos y Fiscalidad: revisión y mejoras ✅ (2026-11-13, #943–#945)
 

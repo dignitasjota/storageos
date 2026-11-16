@@ -771,13 +771,13 @@ export default function TodayPage() {
                 />
                 {data.depositsToRegister.count > 0 && (
                   <SectionCard
-                    title="Fianzas de vivienda sin depositar"
+                    title="Fianzas sin depositar"
                     icon={PiggyBank}
                     count={data.depositsToRegister.count}
                     items={data.depositsToRegister.items}
                     href="/contracts"
                     itemHref={(it) => `/contracts/${it.id}`}
-                    empty="Todas las fianzas de vivienda están depositadas."
+                    empty="Todas las fianzas están depositadas."
                   />
                 )}
                 <SectionCard

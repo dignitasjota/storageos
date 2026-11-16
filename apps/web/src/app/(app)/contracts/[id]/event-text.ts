@@ -120,6 +120,9 @@ function noteText(p: Record<string, unknown>): { title: string; detail: string |
           `Devuelto ${formatEur(num(p.returned))}`,
           `retenido ${formatEur(num(p.retained))}`,
           str(p.retentionReason),
+          str(p.serviceInvoiceNumber)
+            ? `factura ${str(p.serviceInvoiceNumber)} del servicio (${formatEur(num(p.serviceAmount))} con IVA)`
+            : null,
         ]
           .filter(Boolean)
           .join(' · '),

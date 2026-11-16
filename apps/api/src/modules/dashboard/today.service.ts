@@ -99,7 +99,7 @@ export class TodayService {
       (tx) =>
         tx.tenant.findFirst({
           where: { id: tenantId },
-          select: { timezone: true, leadResponseHours: true },
+          select: { timezone: true, leadResponseHours: true, depositRegistryStorage: true },
         }),
       tenantId,
     );
@@ -349,7 +349,10 @@ export class TodayService {
       depositRegisteredAt: null,
       unit: {
         is: {
-          unitType: { is: { propertyKind: 'housing' } },
+          // Las de trasteros, solo si el negocio también las deposita.
+          ...(tenantRow?.depositRegistryStorage
+            ? {}
+            : { unitType: { is: { propertyKind: 'housing' as const } } }),
           ...(fac ? { facilityId: fac } : {}),
         },
       },
