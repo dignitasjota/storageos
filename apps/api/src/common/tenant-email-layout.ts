@@ -1,3 +1,5 @@
+import { splitLinks } from './marketing/click-token';
+
 /**
  * Carcasa de los correos que un tenant envía a sus inquilinos y contactos:
  * cabecera con su logo (o su nombre) y su color de marca, y pie con su nombre.
@@ -70,6 +72,29 @@ export function textToHtml(text: string): string {
         (u) => `<a href="${u}" style="color:#2563eb">${u}</a>`,
       );
       return `<p style="font-size:15px;line-height:24px;margin:0 0 14px">${linked.replace(/\n/g, '<br>')}</p>`;
+    })
+    .join('\n');
+}
+
+/**
+ * Como `textToHtml`, pero cada enlace muestra su dirección y lleva a
+ * `hrefFor(dirección)` (el enlace con seguimiento de una campaña): el
+ * destinatario ve la dirección que escribió el negocio.
+ */
+export function textToHtmlWithLinks(text: string, hrefFor: (url: string) => string): string {
+  return text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => {
+      const html = splitLinks(block)
+        .map((part) =>
+          part.link
+            ? `<a href="${escapeHtml(hrefFor(part.text))}" style="color:#2563eb">${escapeHtml(part.text)}</a>`
+            : escapeHtml(part.text),
+        )
+        .join('');
+      return `<p style="font-size:15px;line-height:24px;margin:0 0 14px">${html.replace(/\n/g, '<br>')}</p>`;
     })
     .join('\n');
 }

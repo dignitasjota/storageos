@@ -13,7 +13,10 @@ import type {
   CampaignPreviewDto,
   CampaignSegmentInput,
   CreateCampaignInput,
+  UpdateCampaignInput,
+  UpdateCampaignTemplateInput,
   UpdateWinbackSettingsInput,
+  WinbackPreviewDto,
   WinbackRunResultDto,
   WinbackSettingsResponse,
 } from '@storageos/shared';
@@ -41,8 +44,17 @@ export function useUpdateWinbackSettings() {
 }
 
 export function useRunWinback() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: () => apiFetch<WinbackRunResultDto>('/campaigns/winback/run', { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [...campaignsKey, 'winback-stats'] }),
+  });
+}
+
+/** A cuántos ex-clientes escribiría «Enviar ahora» (se pide al pulsarlo). */
+export function useWinbackPreview() {
+  return useMutation({
+    mutationFn: () => apiFetch<WinbackPreviewDto>('/campaigns/winback/preview'),
   });
 }
 
@@ -76,6 +88,32 @@ export function useCreateCampaign() {
   return useMutation({
     mutationFn: (input: CreateCampaignInput) =>
       apiFetch<CampaignDto>('/campaigns', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: campaignsKey }),
+  });
+}
+
+export function useUpdateCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateCampaignInput }) =>
+      apiFetch<CampaignDto>(`/campaigns/${id}`, { method: 'PATCH', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: campaignsKey }),
+  });
+}
+
+export function useDuplicateCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<CampaignDto>(`/campaigns/${id}/duplicate`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: campaignsKey }),
+  });
+}
+
+export function useDeleteCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/campaigns/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: campaignsKey }),
   });
 }
@@ -126,6 +164,15 @@ export function useCreateCampaignTemplate() {
   return useMutation({
     mutationFn: (input: CreateCampaignTemplateInput) =>
       apiFetch<CampaignTemplateDto>('/campaigns/templates', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: templatesKey }),
+  });
+}
+
+export function useUpdateCampaignTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateCampaignTemplateInput }) =>
+      apiFetch<CampaignTemplateDto>(`/campaigns/templates/${id}`, { method: 'PATCH', json: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: templatesKey }),
   });
 }

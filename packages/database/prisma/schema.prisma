@@ -2885,6 +2885,10 @@ model Campaign {
   scheduledFor    DateTime? @map("scheduled_for") @db.Timestamptz(6)
   sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  /// Locales de quien la creó (vacío = toda la empresa).
+  facilityScope   String[]  @default([]) @map("facility_scope") @db.Uuid
+  /// Resultados guardados antes de que la limpieza borre los envíos.
+  resultsSnapshot Json?     @map("results_snapshot")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

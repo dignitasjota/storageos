@@ -40,6 +40,13 @@ describe('Mejoras del Resumen del panel del tenant (e2e)', () => {
   async function setup(prefix: string, unitsCount = 3) {
     const owner = await registerVerifiedUser(app, prefix);
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    // Sin la regla del primer pago a final de mes: con ella, un contrato que
+    // empieza a partir del día 20 emite al firmar una factura que depende de
+    // la fecha en que corra la prueba.
+    await db.tenant.update({
+      where: { slug: owner.slug },
+      data: { firstPaymentNextMonthFromDay: null },
+    });
     const facility = await createFacilityWithUnits(app, owner.accessToken, {
       unitsCount,
       pricePerUnit: 50,

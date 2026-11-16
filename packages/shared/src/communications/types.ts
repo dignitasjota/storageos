@@ -124,6 +124,8 @@ export interface CommunicationDto {
   providerMessageId: string | null;
   provider: string | null;
   source: string | null;
+  /** Nombre de la campaña si el envío es de una. */
+  campaignName?: string | null;
   errorMessage: string | null;
   retryCount: number;
   scheduledFor: string | null;

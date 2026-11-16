@@ -68,3 +68,21 @@ export function fillSecrets(text: string, secrets: Record<string, string>): stri
 export function maskSecrets(text: string): string {
   return text.replace(MARKER_RE, SECRET_MASK);
 }
+
+/**
+ * Enlaces que llevan un código que da acceso (firmar un contrato o un anexo,
+ * una domiciliación, una valoración, descargar una factura, `?token=`…). El
+ * correo los lleva; el historial los guarda con una marca, como los demás
+ * valores sensibles. Mismo patrón que la migración `campaigns_review`.
+ */
+const LINK_TOKEN_RE =
+  /(\/(?:sign\/annex|sign|sepa-mandate|review|waitlist-confirm|public\/invoices)\/|[?&;]token=)([A-Za-z0-9._~-]{16,})/g;
+
+/** Sustituye el código de cada enlace por una marca y lo añade a `secrets`. */
+export function sealLinkTokens(text: string, secrets: Record<string, string>): string {
+  return text.replace(LINK_TOKEN_RE, (_match, prefix: string, token: string) => {
+    const m = marker(1000 + Object.keys(secrets).length);
+    secrets[m] = token;
+    return `${prefix}${m}`;
+  });
+}

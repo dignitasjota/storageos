@@ -1,12 +1,20 @@
 'use client';
 
-import { BarChart3, Eye, Loader2, Save, Trash2 } from 'lucide-react';
+import { CAMPAIGN_SAVED_TEMPLATE_VARIABLES, templateTextProblems } from '@storageos/shared';
+import { BarChart3, Eye, Loader2, Pencil, Save, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -16,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
   useCampaignResults,
@@ -23,6 +32,7 @@ import {
   useCreateCampaignTemplate,
   useDeleteCampaignTemplate,
   usePreviewCampaignEmail,
+  useUpdateCampaignTemplate,
   useWinbackStats,
 } from '@/lib/campaigns/hooks';
 
@@ -45,7 +55,9 @@ export function CampaignResultsButton({ campaignId }: { campaignId: string }) {
           <DialogHeader>
             <DialogTitle>Resultados de la campaña</DialogTitle>
           </DialogHeader>
-          {!r ? (
+          {results.isError ? (
+            <SectionError onRetry={() => void results.refetch()} />
+          ) : !r ? (
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           ) : (
             <div className="space-y-4">
@@ -107,10 +119,12 @@ export function EmailPreviewButton({
   subject,
   bodyText,
   audience,
+  disabled = false,
 }: {
   subject: string;
   bodyText: string;
   audience: 'customers' | 'leads';
+  disabled?: boolean;
 }) {
   const preview = usePreviewCampaignEmail();
   const [open, setOpen] = useState(false);
@@ -133,7 +147,7 @@ export function EmailPreviewButton({
         variant="outline"
         size="sm"
         onClick={() => void show()}
-        disabled={!subject.trim() || !bodyText.trim() || preview.isPending}
+        disabled={disabled || !subject.trim() || !bodyText.trim() || preview.isPending}
       >
         <Eye className="mr-1 h-4 w-4" /> Vista previa
       </Button>
@@ -169,8 +183,10 @@ export function TemplatePicker({
   const templates = useCampaignTemplates();
   const remove = useDeleteCampaignTemplate();
   const [selected, setSelected] = useState('');
+  const [editing, setEditing] = useState(false);
   const list = templates.data ?? [];
   if (list.length === 0) return null;
+  const current = list.find((t) => t.id === selected);
   return (
     <div className="flex items-end gap-2">
       <div className="flex-1 space-y-1">
@@ -195,26 +211,148 @@ export function TemplatePicker({
           </SelectContent>
         </Select>
       </div>
-      {selected && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label="Borrar la plantilla"
-          onClick={async () => {
-            if (!(await ask({ title: '¿Borrar la plantilla?', destructive: true }))) return;
-            remove.mutate(selected, { onSuccess: () => setSelected('') });
-          }}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+      {current && (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Cambiar la plantilla"
+            title="Cambiar la plantilla"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Borrar la plantilla"
+            title="Borrar la plantilla"
+            onClick={async () => {
+              if (!(await ask({ title: '¿Borrar la plantilla?', destructive: true }))) return;
+              remove.mutate(selected, { onSuccess: () => setSelected('') });
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <EditTemplateDialog
+            open={editing}
+            onOpenChange={setEditing}
+            template={current}
+            onSaved={(t) => onPick({ subject: t.subject, bodyText: t.bodyText })}
+          />
+        </>
       )}
     </div>
   );
 }
 
+/** Cambiar el nombre, el asunto o el mensaje de una plantilla guardada. */
+function EditTemplateDialog({
+  open,
+  onOpenChange,
+  template,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  template: { id: string; name: string; subject: string; bodyText: string };
+  onSaved: (t: { subject: string; bodyText: string }) => void;
+}) {
+  const update = useUpdateCampaignTemplate();
+  const [name, setName] = useState(template.name);
+  const [subject, setSubject] = useState(template.subject);
+  const [body, setBody] = useState(template.bodyText);
+  const problems = [
+    ...templateTextProblems(subject, CAMPAIGN_SAVED_TEMPLATE_VARIABLES),
+    ...templateTextProblems(body, CAMPAIGN_SAVED_TEMPLATE_VARIABLES),
+  ];
+
+  async function save() {
+    try {
+      const saved = await update.mutateAsync({
+        id: template.id,
+        input: { name: name.trim(), subject: subject.trim(), bodyText: body.trim() },
+      });
+      toast.success('Plantilla guardada.');
+      onSaved(saved);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar');
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Cambiar la plantilla</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="tpl-name">Nombre</Label>
+            <Input
+              id="tpl-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="text-base sm:text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="tpl-subject">Asunto</Label>
+            <Input
+              id="tpl-subject"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="text-base sm:text-sm"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="tpl-body">Mensaje</Label>
+            <Textarea
+              id="tpl-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={6}
+            />
+          </div>
+          {problems.length > 0 && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">{problems.join(' ')}</p>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => void save()}
+            disabled={
+              update.isPending ||
+              problems.length > 0 ||
+              !name.trim() ||
+              !subject.trim() ||
+              !body.trim()
+            }
+          >
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Guarda el asunto y el mensaje actuales como plantilla. */
-export function SaveTemplateButton({ subject, bodyText }: { subject: string; bodyText: string }) {
+export function SaveTemplateButton({
+  subject,
+  bodyText,
+  disabled = false,
+}: {
+  subject: string;
+  bodyText: string;
+  disabled?: boolean;
+}) {
   const create = useCreateCampaignTemplate();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -241,7 +379,7 @@ export function SaveTemplateButton({ subject, bodyText }: { subject: string; bod
         variant="outline"
         size="sm"
         onClick={() => setOpen(true)}
-        disabled={!subject.trim() || !bodyText.trim()}
+        disabled={disabled || !subject.trim() || !bodyText.trim()}
       >
         <Save className="mr-1 h-4 w-4" /> Guardar como plantilla
       </Button>

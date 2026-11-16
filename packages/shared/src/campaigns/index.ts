@@ -54,6 +54,20 @@ export const CreateCampaignSchema = z.object({
 });
 export type CreateCampaignInput = z.infer<typeof CreateCampaignSchema>;
 
+/** Cambios en un borrador (todo opcional; `scheduledFor: null` quita la programación). */
+export const UpdateCampaignSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    subject: z.string().trim().min(2).max(200).optional(),
+    bodyText: z.string().trim().min(2).max(20_000).optional(),
+    segment: CampaignSegmentSchema.optional(),
+    scheduledFor: z.string().datetime({ offset: true }).nullable().optional(),
+  })
+  .refine((v) => Object.values(v).some((f) => f !== undefined), {
+    message: 'Debes enviar al menos un campo',
+  });
+export type UpdateCampaignInput = z.infer<typeof UpdateCampaignSchema>;
+
 /** Previsualiza el tamaño de la audiencia antes de crear/enviar. */
 export const PreviewCampaignSchema = z.object({
   segment: CampaignSegmentSchema,
@@ -125,6 +139,12 @@ export interface WinbackSettingsResponse {
   secondSubject: string | null;
   secondBodyText: string | null;
   secondCouponCode: string | null;
+}
+
+/** A cuántos ex-clientes escribiría «Enviar ahora». */
+export interface WinbackPreviewDto {
+  firstStep: number;
+  secondStep: number;
 }
 
 export interface WinbackRunResultDto {
@@ -205,4 +225,72 @@ export type CampaignEmailPreviewInput = z.infer<typeof CampaignEmailPreviewSchem
 export interface CampaignEmailPreviewDto {
   subject: string;
   html: string;
+}
+
+// ============================================================================
+// Variables de los textos (asunto y mensaje)
+// ============================================================================
+
+/** Variables que se pueden usar en una campaña, según a quién va. */
+export const CAMPAIGN_TEMPLATE_VARIABLES = {
+  customers: ['customer.firstName', 'customer.lastName', 'customer.displayName', 'tenant.name'],
+  leads: ['lead.firstName', 'lead.displayName', 'tenant.name'],
+} as const;
+
+/** Las del win-back (siempre a ex-clientes); el segundo aviso añade el cupón. */
+export const WINBACK_TEMPLATE_VARIABLES = CAMPAIGN_TEMPLATE_VARIABLES.customers;
+export const WINBACK_SECOND_TEMPLATE_VARIABLES = [
+  ...CAMPAIGN_TEMPLATE_VARIABLES.customers,
+  'coupon.code',
+] as const;
+
+/** Las de una plantilla guardada (vale para inquilinos y contactos). */
+export const CAMPAIGN_SAVED_TEMPLATE_VARIABLES = [
+  ...new Set([...CAMPAIGN_TEMPLATE_VARIABLES.customers, ...CAMPAIGN_TEMPLATE_VARIABLES.leads]),
+];
+
+const VARIABLE_NAME = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
+
+/**
+ * Problemas de un texto con variables `{{…}}`: una sin cerrar, una que no
+ * existe o algo que no es una variable simple. Vacío = está bien.
+ */
+export function templateTextProblems(text: string, allowed: readonly string[]): string[] {
+  const problems: string[] = [];
+  const unknown = new Set<string>();
+  let unsupported = false;
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf('{{', i);
+    if (open === -1) break;
+    const close = text.indexOf('}}', open + 2);
+    const nextOpen = text.indexOf('{{', open + 2);
+    if (close === -1 || (nextOpen !== -1 && nextOpen < close)) {
+      const sample = text.slice(open, open + 25).split('\n')[0];
+      problems.push(`Hay una variable sin cerrar: falta «}}» en «${sample}».`);
+      return problems;
+    }
+    let inner = text.slice(open + 2, close).trim();
+    // {{{x}}}: igual que {{x}} sin escapar.
+    if (inner.startsWith('{')) inner = inner.slice(1).trim();
+    if (inner.endsWith('}')) inner = inner.slice(0, -1).trim();
+    if (!VARIABLE_NAME.test(inner)) unsupported = true;
+    else if (!allowed.includes(inner)) unknown.add(inner);
+    i = close + 2;
+  }
+  if (unknown.size > 0) {
+    problems.push(
+      `${unknown.size === 1 ? 'Esta variable no existe' : 'Estas variables no existen'}: ${[
+        ...unknown,
+      ]
+        .map((v) => `{{${v}}}`)
+        .join(', ')}. Puedes usar ${allowed.map((v) => `{{${v}}}`).join(', ')}.`,
+    );
+  }
+  if (unsupported) {
+    problems.push(
+      `Solo se pueden usar variables simples, como {{${allowed[0] ?? 'tenant.name'}}}.`,
+    );
+  }
+  return problems;
 }

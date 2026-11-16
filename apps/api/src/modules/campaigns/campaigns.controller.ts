@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
 } from '@nestjs/common';
 import {
   type CampaignDto,
@@ -19,7 +20,9 @@ import {
   type CampaignTemplateDto,
   CreateCampaignSchema,
   CreateCampaignTemplateSchema,
+  UpdateCampaignSchema,
   UpdateCampaignTemplateSchema,
+  type WinbackPreviewDto,
   type WinbackStatsDto,
   PreviewCampaignSchema,
   UpdateWinbackSettingsSchema,
@@ -35,10 +38,14 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { CampaignInsightsService } from './campaign-insights.service';
-import { CampaignsService } from './campaigns.service';
+import { type CampaignActor, CampaignsService, assertWholeBusiness } from './campaigns.service';
 import { WinbackService } from './winback.service';
 
+import type { RequestMeta } from '../auth/auth.service';
+import type { Request } from 'express';
+
 class CreateCampaignDto extends createZodDto(CreateCampaignSchema) {}
+class UpdateCampaignDto extends createZodDto(UpdateCampaignSchema) {}
 class PreviewCampaignDto extends createZodDto(PreviewCampaignSchema) {}
 class UpdateWinbackSettingsDto extends createZodDto(UpdateWinbackSettingsSchema) {}
 class CreateCampaignTemplateDto extends createZodDto(CreateCampaignTemplateSchema) {}
@@ -56,7 +63,7 @@ export class CampaignsController {
   @RequirePermission('communications:read')
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<CampaignDto[]> {
-    return this.campaigns.list(user.tenantId);
+    return this.campaigns.list(user.tenantId, user.facilityScope ?? null);
   }
 
   // --- Win-back automático (antes de `:id` para no colisionar) -------------
@@ -67,21 +74,36 @@ export class CampaignsController {
     return this.winback.getSettings(user.tenantId);
   }
 
-  @RequirePermission('communications:send')
+  /** El win-back es de toda la empresa: lo configuran propietario y gestor. */
+  @RequirePermission('automations:manage')
   @Patch('winback-settings')
   updateWinback(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: UpdateWinbackSettingsDto,
+    @Req() req: Request,
   ): Promise<WinbackSettingsResponse> {
-    return this.winback.updateSettings(user.tenantId, body);
+    assertWholeBusiness(user.facilityScope, 'El win-back');
+    return this.winback.updateSettings(user.tenantId, body, actor(user, req));
+  }
+
+  /** A cuántos ex-clientes escribiría «Enviar ahora». */
+  @RequirePermission('automations:manage')
+  @Get('winback/preview')
+  previewWinback(@CurrentUser() user: AuthenticatedUser): Promise<WinbackPreviewDto> {
+    assertWholeBusiness(user.facilityScope, 'El win-back');
+    return this.winback.preview(user.tenantId);
   }
 
   /** Ejecuta el win-back ahora (ignora la ventana de captura del arranque). */
-  @RequirePermission('communications:send')
+  @RequirePermission('automations:manage')
   @Post('winback/run')
   @HttpCode(HttpStatus.OK)
-  runWinback(@CurrentUser() user: AuthenticatedUser): Promise<WinbackRunResultDto> {
-    return this.winback.runForTenant(user.tenantId, true);
+  runWinback(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<WinbackRunResultDto> {
+    assertWholeBusiness(user.facilityScope, 'El win-back');
+    return this.winback.runNow(user.tenantId, actor(user, req));
   }
 
   @RequirePermission('communications:read')
@@ -103,8 +125,9 @@ export class CampaignsController {
   createTemplate(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateCampaignTemplateDto,
+    @Req() req: Request,
   ): Promise<CampaignTemplateDto> {
-    return this.insights.createTemplate(user.tenantId, body);
+    return this.insights.createTemplate(user.tenantId, body, actor(user, req));
   }
 
   @RequirePermission('communications:send')
@@ -113,8 +136,9 @@ export class CampaignsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('templateId', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateCampaignTemplateDto,
+    @Req() req: Request,
   ): Promise<CampaignTemplateDto> {
-    return this.insights.updateTemplate(user.tenantId, id, body);
+    return this.insights.updateTemplate(user.tenantId, id, body, actor(user, req));
   }
 
   @RequirePermission('communications:send')
@@ -123,8 +147,9 @@ export class CampaignsController {
   async removeTemplate(
     @CurrentUser() user: AuthenticatedUser,
     @Param('templateId', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.insights.removeTemplate(user.tenantId, id);
+    await this.insights.removeTemplate(user.tenantId, id, actor(user, req));
   }
 
   /** Cómo llegará el correo (con la marca del tenant y un destinatario de ejemplo). */
@@ -144,7 +169,7 @@ export class CampaignsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CampaignResultsDto> {
-    return this.insights.results(user.tenantId, id);
+    return this.insights.results(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('communications:read')
@@ -153,7 +178,7 @@ export class CampaignsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CampaignDto> {
-    return this.campaigns.detail(user.tenantId, id);
+    return this.campaigns.detail(user.tenantId, id, user.facilityScope ?? null);
   }
 
   /** Previsualiza el tamaño de la audiencia (sin crear ni enviar). */
@@ -164,7 +189,7 @@ export class CampaignsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: PreviewCampaignDto,
   ): Promise<CampaignPreviewDto> {
-    return this.campaigns.preview(user.tenantId, body.segment);
+    return this.campaigns.preview(user.tenantId, body.segment, user.facilityScope ?? null);
   }
 
   @RequirePermission('communications:send')
@@ -172,8 +197,49 @@ export class CampaignsController {
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateCampaignDto,
+    @Req() req: Request,
   ): Promise<CampaignDto> {
-    return this.campaigns.create({ tenantId: user.tenantId, userId: user.sub, input: body });
+    return this.campaigns.create({ tenantId: user.tenantId, actor: actor(user, req), input: body });
+  }
+
+  /** Cambia un borrador. */
+  @RequirePermission('communications:send')
+  @Patch(':id')
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateCampaignDto,
+    @Req() req: Request,
+  ): Promise<CampaignDto> {
+    return this.campaigns.update({
+      tenantId: user.tenantId,
+      id,
+      actor: actor(user, req),
+      input: body,
+    });
+  }
+
+  /** Copia una campaña en un borrador nuevo. */
+  @RequirePermission('communications:send')
+  @Post(':id/duplicate')
+  duplicate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<CampaignDto> {
+    return this.campaigns.duplicate(user.tenantId, id, actor(user, req));
+  }
+
+  /** Borra un borrador o una campaña cancelada. */
+  @RequirePermission('communications:send')
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.campaigns.remove(user.tenantId, id, actor(user, req));
   }
 
   @RequirePermission('communications:send')
@@ -182,8 +248,9 @@ export class CampaignsController {
   sendCampaign(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
   ): Promise<CampaignDto> {
-    return this.campaigns.send(user.tenantId, id);
+    return this.campaigns.send(user.tenantId, id, actor(user, req));
   }
 
   /** Cancela un borrador o una campaña programada que aún no ha salido. */
@@ -193,7 +260,17 @@ export class CampaignsController {
   cancelCampaign(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
   ): Promise<CampaignDto> {
-    return this.campaigns.cancel(user.tenantId, id);
+    return this.campaigns.cancel(user.tenantId, id, actor(user, req));
   }
+}
+
+function actor(user: AuthenticatedUser, req: Request): CampaignActor {
+  const ua = req.header('user-agent');
+  const meta: RequestMeta = {
+    ...(ua ? { userAgent: ua } : {}),
+    ...(req.ip ? { ipAddress: req.ip } : {}),
+  };
+  return { userId: user.sub, scope: user.facilityScope ?? null, meta };
 }

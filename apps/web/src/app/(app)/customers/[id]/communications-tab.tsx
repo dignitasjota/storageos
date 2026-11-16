@@ -1,9 +1,8 @@
 'use client';
 
 import {
-  CUSTOMER_EMAIL_LABELS,
+  communicationSourceLabel,
   type CommunicationDto,
-  type CustomerEmailKind,
   type CustomerInteractionDto,
   type InteractionTypeValue,
 } from '@storageos/shared';
@@ -81,22 +80,8 @@ const COMM_STATUS: Record<
 };
 
 /** Traduce el `source` técnico de una comunicación a algo legible. */
-function sourceLabel(source: string | null): string {
-  if (!source) return 'Sistema';
-  if (source.startsWith('customer_email.')) {
-    const kind = source.slice('customer_email.'.length) as CustomerEmailKind;
-    return CUSTOMER_EMAIL_LABELS[kind]?.label ?? 'Aviso automático';
-  }
-  if (source.startsWith('booking_recovery')) return 'Reserva sin terminar';
-  if (source === 'invoice.sent') return 'Factura enviada por correo';
-  if (source.startsWith('dunning')) return 'Recordatorio de pago';
-  if (source.startsWith('campaign')) return 'Campaña';
-  if (source.startsWith('automation')) return 'Automatización';
-  if (source.startsWith('review')) return 'Solicitud de valoración';
-  if (source.startsWith('rent_increase')) return 'Aviso de subida de precio';
-  if (source.startsWith('auth')) return 'Cuenta / acceso';
-  if (source === 'manual') return 'Manual';
-  return source;
+function sourceLabel(comm: CommunicationDto): string {
+  return communicationSourceLabel(comm.source, comm.campaignName);
 }
 
 function formatDateTime(iso: string): string {
@@ -265,7 +250,7 @@ function CommRow({ comm }: { comm: CommunicationDto }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">
-            {CHANNEL_LABELS[comm.channel] ?? comm.channel} · {sourceLabel(comm.source)}
+            {CHANNEL_LABELS[comm.channel] ?? comm.channel} · {sourceLabel(comm)}
           </span>
           <Badge variant={st.variant} className="text-[10px]">
             {st.label}
