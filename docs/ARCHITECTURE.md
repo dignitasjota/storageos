@@ -520,3 +520,63 @@ Las direcciones «bonitas» (`/reservar/<centro>`, `/precios`, `/contacto`, `/<l
 - **Contrato**: el texto lo arma `composeContractTerms` (cabecera con partes y cifras, condiciones generales o del tenant, condiciones específicas del contrato, reserva anticipada, formulario de desistimiento y consentimiento). Se congela al firmar (`signed_terms_text`) con su huella.
 - **Anexos** (`contract_annexes`): lo firmado no se cambia. El anexo congela su texto al crearlo, toma las partes de la cabecera del contrato firmado y se firma con un enlace propio (`/sign/annex/<token>`), con la misma evidencia que el contrato.
 - **Enlaces**: los de firma son de un uso de verdad. Pedir uno nuevo, desde el panel o desde el área de clientes («Pendiente de firmar»), invalida el anterior, así que el correo viejo deja de valer.
+
+## Cartera: subidas y renovaciones (2026-11-14, #952–#953)
+
+- **Las cuotas cambian antes de facturar**: `contracts.scheduled-changes` (00:05 de Madrid) y `rent-increases.apply` (00:10) aplican los cambios del día y la facturación (02:00 UTC) usa la cuota vigente ese día. Antes iban después y la subida se cobraba un mes tarde.
+- **Subidas siempre un día 1**, con preaviso mínimo configurable (30 días) y aviso si es la segunda del año; fuera las viviendas y los contratos con la baja pedida. «No subir hasta…» por contrato vale también para la actualización anual (`AnniversaryUpdatesService`).
+- **Renovar con oferta**: la oferta de renovación se firma como anexo del contrato (`ContractAnnexesService.sign`) y se aplica sola al firmarse.
+
+## Operaciones diarias (2026-11-14, #954–#955)
+
+- **Módulo aparte `daily-ops`** (gasto de una tarea o incidencia, responder al inquilino, tarea de reparación, vencimiento → tarea): Gastos importa la IA y la IA importa Operaciones, así que meterlo en Operaciones creaba un ciclo de módulos.
+- **Incidencias**: el inquilino ve las suyas y las marcadas «visible para el inquilino» (`incidents.visible_to_customer`), nunca las notas internas.
+- **Calendario con permiso por tipo de evento**; el mantenimiento empieza desde hoy sin generar atrasos.
+
+## Contactos del negocio (2026-11-15, #956–#958)
+
+- **La reserva online gana el contacto al firmar** y lo devuelve a abierto si caduca; el contacto conserva su primer origen. Responder por correo vuelve a su ficha con una dirección propia (`leads.reply_token`).
+- **Tablas con `customer_id` o `lead_id`**: toda tabla nueva con `customer_id` va en `CUSTOMER_REFERENCES` (o `_WITH_UNIQUE`), y la fusión de contactos y `anonymizeLeadsTx` deben mover o borrar cualquier tabla nueva con `lead_id`.
+- **Ampliar el plazo para firmar y pagar** (`PaymentDeadlineService`): como mucho 30 días desde la reserva o la firma; el trastero sigue reservado y el correo de aviso cuenta como recordatorio.
+
+## Campañas y Comunicaciones (2026-11-16, #959–#960)
+
+- **Textos comprobados al guardar** (`assertTemplateTexts`, 400 `invalid_template_text`): una variable mal escrita ya no deja una campaña «Enviada · 0».
+- **Alcance por local**: `communicationScopeWhere` en Comunicaciones; `campaigns.facility_scope` limita la audiencia; el win-back es de toda la empresa.
+- **Historial sin secretos**: los enlaces con acceso se guardan tapados; el correo sale completo.
+- **Programadas**: la audiencia se decide al salir (`dispatchScheduled`, tarea `campaigns.resume`). Los envíos atascados se vuelven a encolar (`communications.requeue-stuck`, worker) y las automáticas salen con `campaigns.automations` (09:30, API), una por destinatario y periodo.
+- **La baja de las comunicaciones comerciales es por email**: vale para todas las fichas con esa dirección.
+
+## Fianzas con servicio (2026-11-16, #961)
+
+- Al liquidar la fianza, la parte que paga un servicio del negocio se factura con IVA (`issueDepositServiceInvoice`) **antes** de reclamar la fianza: si la factura falla, el borrador se anula sin número y la fianza no se toca. Los daños se retienen sin factura hasta que la asesoría confirme el criterio.
+
+## Fidelización (2026-11-16, #962–#963)
+
+- **La recompensa del referido se gana con el primer pago del recomendado** (`ReferralsService.onInvoicePaid`, reserva atómica), no al firmar: una reserva online se firma sin pagar y caduca sola.
+- **La web solo anuncia lo marcado** (`announce_on_web`) y la reserva online acepta ese código.
+- **Descuentos con fecha de fin**: el repaso diario devuelve el precio al caducar, y la factura mensual no aplica un descuento cuya fecha de fin no pasa del inicio del periodo (la facturación corre antes que el repaso).
+
+## Primer pago pendiente (2026-11-16, #964–#965)
+
+- Al firmar por enlace, el correo `first_payment_pending` (desglose, total, plazo y «Pagar ahora») sustituye al de contrato firmado; el enlace de firma vale hasta el plazo.
+- El PDF del primer pago, sin número, se descarga con el mismo enlace sin sesión que las facturas; una vez pagado, ese enlace descarga la factura emitida. Reenviarlo desde el panel genera un enlace nuevo y anula el anterior.
+
+## Marketing del tenant (2026-11-16, #966–#968)
+
+- **Propiedad comprobada**: la cuenta de servicio de Google es la misma para todos, así que una propiedad de Analytics solo se conecta si mide la web del negocio (su ID de medición, Admin API) y solo puede estar en un negocio; Search Console, solo el dominio propio verificado o `/s/<slug>/`.
+- **Secretos fuera**: los enlaces de firma, invitación y contraseña nunca llegan a Google Analytics; el token de Meta va en cabecera y Sentry no guarda tokens.
+- **Un contacto, un canal** (`marketing/attribution.ts`): el contacto guarda el canal con el que llegó y los informes lo usan antes que el origen; Google Ads y Meta solo cuentan el tráfico de sus anuncios.
+- **Dinero y alcance por permisos** (`marketingViewer`): sin permiso de gastos no hay costes; sin facturas y cobros no hay ingresos; quien ve unos locales ve sus canales y contactos.
+- **Visitas ya sumadas** (`web_visits`, `web_page_daily`): los informes no recorren los eventos crudos.
+- **Conversiones a Google Ads y Meta** (`marketing.ad-conversions`, cada 30 minutos, worker): solo con «Aceptar todas» las cookies; una vez por contrato y plataforma.
+
+## Equipo comercial (2026-11-16, #969)
+
+- **Rol denegado por defecto**: `AdminGuard` deja al rol `sales` solo lo que lleva `@SalesAccess()` (403 `sales_not_allowed`) y le exige la verificación en dos pasos desde el primer día. Un endpoint nuevo del panel que deba usar un comercial necesita ese decorador.
+- **Cartera aislada**: todo `/admin/sales/*` se limita a las cuentas del comercial (otra → 404); nunca ve inquilinos ni facturación de sus clientes ni entra en sus cuentas. La dirección tiene `/admin/sales-team/*` (superadmin).
+- **Quién es de quién**: el enlace o QR, el código escrito o la cuenta creada por el comercial; sin código no se asigna a nadie. `sales_assignments` guarda el historial y la comisión de un cobro es del comercial que llevaba la cuenta ese día.
+- **Avisos personales**: `super_admin_notifications.recipient_id`; el push se reparte por destinatario y el feed común del admin solo muestra los avisos sin destinatario.
+- **Comisiones** (`sales.hourly`): cada cobro se reparte entre plan y extras por sus líneas (`commission-split.ts`), sin IVA y menos lo devuelto; solo cuentan los extras de la venta o aprobados por la dirección; las devoluciones posteriores restan.
+- **Propuestas con seguimiento**: el enlace del correo pasa por `/v1/public/offers/:id/open` con firma HMAC, anota la apertura y avisa; caducan a los 15 días.
+- **Correo con el nombre del comercial**: `EmailService` admite `fromName` y `replyTo` para sus propuestas y, si la dirección lo deja activado, los correos automáticos de sus clientes.
