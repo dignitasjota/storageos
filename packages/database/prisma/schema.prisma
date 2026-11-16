@@ -654,6 +654,9 @@ model Tenant {
   reviews                 Review[]
   referrals               Referral[]
   campaigns               Campaign[]
+  campaignSegments        CampaignSegment[]
+  campaignAutomations     CampaignAutomation[]
+  campaignAutomationSends CampaignAutomationSend[]
   rentIncreases           RentIncrease[]
   rentIncreaseItems       RentIncreaseItem[]
   insurancePlans          InsurancePlan[]
@@ -2889,6 +2892,13 @@ model Campaign {
   facilityScope   String[]  @default([]) @map("facility_scope") @db.Uuid
   /// Resultados guardados antes de que la limpieza borre los envíos.
   resultsSnapshot Json?     @map("results_snapshot")
+  /// Versión en inglés (inquilinos con ese idioma).
+  subjectEn       String?   @map("subject_en")
+  bodyTextEn      String?   @map("body_text_en")
+  /// Cupón que se ofrece (`{{coupon.code}}`).
+  couponCode      String?   @map("coupon_code")
+  /// Plantilla aprobada de WhatsApp: {name, language, params}.
+  whatsappTemplate Json?    @map("whatsapp_template")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2899,6 +2909,58 @@ model Campaign {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@map("campaigns")
+}
+
+/// Segmento guardado: a quién va una campaña.
+model CampaignSegment {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  name            String
+  segment         Json
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, name])
+  @@map("campaign_segments")
+}
+
+/// Campaña automática del negocio (aniversario, contactos que no avanzan).
+model CampaignAutomation {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  /// anniversary | cold_leads
+  kind      String
+  enabled   Boolean  @default(false)
+  subject   String?
+  bodyText  String?  @map("body_text")
+  days      Int      @default(30)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind], map: "campaign_automations_tenant_kind_key")
+  @@map("campaign_automations")
+}
+
+/// Envío de una campaña automática: uno por destinatario y periodo.
+model CampaignAutomationSend {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  kind         String
+  /// `c:<customerId>` o `l:<leadId>`.
+  recipientKey String   @map("recipient_key")
+  /// Año del aniversario, u `once`.
+  period       String
+  sentAt       DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind, recipientKey, period], map: "campaign_automation_sends_unique")
+  @@index([tenantId, kind, sentAt], map: "campaign_automation_sends_recent_idx")
+  @@map("campaign_automation_sends")
 }
 
 /// Enlace de una campaña (para contar clics con una redirección propia).

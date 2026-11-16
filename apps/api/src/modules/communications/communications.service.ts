@@ -8,11 +8,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  COMMUNICATION_CHANNEL_LABELS,
+  COMMUNICATION_SOURCE_GROUPS,
+  communicationSourceLabel,
+  type CommunicationSourceGroup,
+} from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { customerScopeWhere } from '../../common/customer-scope';
-import { type FacilityScope } from '../../common/facility-scope';
+import { assertFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { leadScopeWhere } from '../../common/lead-scope';
 import {
   appendUnsubscribeFooter,
@@ -52,12 +58,26 @@ import type {
   CommunicationChannelValue,
   CommunicationDto,
   CommunicationPageDto,
+  CommunicationStatsDto,
   CommunicationStatusValue,
+  ProblemAddressDto,
   SendCommunicationInput,
 } from '@storageos/shared';
 
 /** Tras este tiempo en `processing`, un envío se considera atascado y se puede reclamar. */
 const STUCK_PROCESSING_MS = 15 * 60_000;
+function withoutStatus(f: PageFilters): PageFilters {
+  const { status: _status, ...rest } = f;
+  return rest;
+}
+
+const PROBLEM_LABELS: Record<string, string> = {
+  hard_bounce: 'La dirección no existe',
+  invalid_email: 'Dirección no válida',
+  blocked: 'La bloquea su proveedor de correo',
+  complaint: 'Marcó un correo como spam',
+  bounced: 'Los correos rebotan',
+};
 /** Un envío pendiente sin salir pasado este tiempo se vuelve a encolar. */
 const STUCK_PENDING_MS = 30 * 60_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,6 +103,10 @@ export interface ListFilters {
 export interface PageFilters extends ListFilters {
   /** Destinatario, asunto o nombre del inquilino. */
   search?: string;
+  /** Tipo de envío (campañas, facturas y cobros…). */
+  sourceGroup?: CommunicationSourceGroup;
+  /** Envíos de los inquilinos y contactos de este local. */
+  facilityId?: string;
   from?: Date;
   to?: Date;
   cursor?: string;
@@ -675,10 +699,31 @@ export class CommunicationsService {
    * rango de fechas. El listado simple (`list`, máx. 200) se mantiene para las
    * fichas y los filtros por recurso.
    */
-  async listPage(tenantId: string, f: PageFilters): Promise<CommunicationPageDto> {
-    const take = Math.min(Math.max(f.limit ?? 50, 1), 100);
+  /** Filtros del historial (lista, cifras y CSV). */
+  private pageWhere(f: PageFilters): Prisma.CommunicationWhereInput {
+    if (f.facilityId) assertFacilityAllowed(f.scope, f.facilityId);
     const and: Prisma.CommunicationWhereInput[] = [communicationScopeWhere(f.scope)];
     const where: Prisma.CommunicationWhereInput = { AND: and };
+    if (f.sourceGroup) {
+      and.push({
+        OR: COMMUNICATION_SOURCE_GROUPS[f.sourceGroup].prefixes.map((p) => ({
+          source: { startsWith: p },
+        })),
+      });
+    }
+    if (f.facilityId) {
+      and.push({
+        OR: [
+          {
+            customer: {
+              contracts: { some: { deletedAt: null, unit: { facilityId: f.facilityId } } },
+            },
+          },
+          { contract: { unit: { facilityId: f.facilityId } } },
+          { lead: { preferredFacilityId: f.facilityId } },
+        ],
+      });
+    }
     if (f.channel) where.channel = f.channel;
     if (f.status) where.status = f.status;
     if (f.customerId) where.customerId = f.customerId;
@@ -702,6 +747,12 @@ export class CommunicationsService {
         ],
       });
     }
+    return where;
+  }
+
+  async listPage(tenantId: string, f: PageFilters): Promise<CommunicationPageDto> {
+    const take = Math.min(Math.max(f.limit ?? 50, 1), 100);
+    const where = this.pageWhere(f);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.communication.findMany({
@@ -727,6 +778,220 @@ export class CommunicationsService {
       ),
       nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
     };
+  }
+
+  /** Cifras del historial con los mismos filtros (sin buscar por cursor). */
+  async stats(tenantId: string, f: PageFilters): Promise<CommunicationStatsDto> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.communication.groupBy({
+          by: ['status'],
+          where: this.pageWhere(withoutStatus(f)),
+          _count: { _all: true },
+        }),
+      tenantId,
+    );
+    const count = (s: string) => rows.find((r) => r.status === s)?._count._all ?? 0;
+    return {
+      total: rows.reduce((sum, r) => sum + r._count._all, 0),
+      sent: count('sent'),
+      delivered: count('delivered'),
+      bounced: count('bounced'),
+      failed: count('failed'),
+      skipped: count('skipped'),
+      pending: count('pending') + count('processing'),
+    };
+  }
+
+  /** El historial con estos filtros en CSV (hasta 5.000 envíos). */
+  async exportCsv(tenantId: string, f: PageFilters): Promise<string> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.communication.findMany({
+          where: this.pageWhere(f),
+          include: LIST_INCLUDE,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 5000,
+        }),
+      tenantId,
+    );
+    const campaigns = await this.campaignNames(tenantId, rows);
+    const fmt = (d: Date | null) =>
+      d
+        ? new Intl.DateTimeFormat('es-ES', {
+            timeZone: 'Europe/Madrid',
+            dateStyle: 'short',
+            timeStyle: 'short',
+          }).format(d)
+        : '';
+    const cell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const lines = [
+      [
+        'Fecha',
+        'Canal',
+        'Destinatario',
+        'Inquilino',
+        'Asunto',
+        'Tipo',
+        'Estado',
+        'Enviado',
+        'Motivo',
+      ],
+      ...rows.map((r) => [
+        fmt(r.createdAt),
+        COMMUNICATION_CHANNEL_LABELS[r.channel] ?? r.channel,
+        r.recipient,
+        r.customer ? customerDisplay(r.customer) : '',
+        maskSecrets(r.subject ?? ''),
+        communicationSourceLabel(r.source, campaignOf(r.source, campaigns)),
+        r.status,
+        fmt(r.sentAt),
+        r.errorMessage ?? '',
+      ]),
+    ];
+    return `${String.fromCharCode(0xfeff)}${lines.map((l) => l.map(cell).join(';')).join('\r\n')}`;
+  }
+
+  /** Cancela un envío que aún no ha salido (p. ej. uno programado). */
+  async cancel(
+    tenantId: string,
+    id: string,
+    scope: FacilityScope,
+    userId: string,
+  ): Promise<CommunicationDto> {
+    const row = await this.prisma.withTenant(
+      (tx) => tx.communication.findFirst({ where: { id, ...communicationScopeWhere(scope) } }),
+      tenantId,
+    );
+    if (!row) {
+      throw new NotFoundException({ code: 'communication_not_found', message: 'No encontrado' });
+    }
+    const user = await this.admin.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true },
+    });
+    const { count } = await this.admin.communication.updateMany({
+      where: { id, tenantId, status: 'pending' },
+      data: {
+        status: 'skipped',
+        errorMessage: `Cancelado por ${user?.fullName ?? 'el equipo'}`,
+      },
+    });
+    if (count === 0) {
+      throw new ConflictException({
+        code: 'communication_not_cancellable',
+        message: 'Solo se puede cancelar un envío que aún no ha salido',
+      });
+    }
+    return this.detail(tenantId, id, scope);
+  }
+
+  /**
+   * Cómo le llegó el correo (con la marca del negocio). Los enlaces con código
+   * se ven tapados, como en el historial.
+   */
+  async previewHtml(tenantId: string, id: string, scope?: FacilityScope): Promise<string> {
+    const row = await this.prisma.withTenant(
+      (tx) => tx.communication.findFirst({ where: { id, ...communicationScopeWhere(scope) } }),
+      tenantId,
+    );
+    if (!row) {
+      throw new NotFoundException({ code: 'communication_not_found', message: 'No encontrado' });
+    }
+    const raw = row.bodyHtml ? maskSecrets(row.bodyHtml) : null;
+    if (raw && raw.includes(TENANT_SHELL_MARK)) return raw;
+    return tenantEmailShell(
+      await this.tenantBrand(tenantId),
+      raw ? extractBody(raw) : textToHtml(maskSecrets(row.bodyText)),
+    );
+  }
+
+  /**
+   * Direcciones de inquilinos y contactos a las que no llegan los correos:
+   * rebotan, no existen, las bloquea el proveedor o marcaron spam.
+   */
+  async problemAddresses(tenantId: string, scope: FacilityScope): Promise<ProblemAddressDto[]> {
+    const [customers, leads] = await Promise.all([
+      this.prisma.withTenant(
+        (tx) =>
+          tx.customer.findMany({
+            where: { deletedAt: null, email: { not: null }, ...customerScopeWhere(scope ?? null) },
+            select: {
+              id: true,
+              email: true,
+              customerType: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+            },
+          }),
+        tenantId,
+      ),
+      this.prisma.withTenant(
+        (tx) =>
+          tx.lead.findMany({
+            where: { deletedAt: null, email: { not: null }, ...leadScopeWhere(scope ?? null) },
+            select: { id: true, email: true, firstName: true, lastName: true, companyName: true },
+          }),
+        tenantId,
+      ),
+    ]);
+    const byEmail = new Map<
+      string,
+      { customer?: (typeof customers)[number]; lead?: (typeof leads)[number] }
+    >();
+    for (const c of customers) {
+      const k = c.email!.trim().toLowerCase();
+      byEmail.set(k, { ...byEmail.get(k), customer: c });
+    }
+    for (const l of leads) {
+      const k = l.email!.trim().toLowerCase();
+      byEmail.set(k, { ...byEmail.get(k), lead: l });
+    }
+    if (byEmail.size === 0) return [];
+    const emails = [...byEmail.keys()];
+    const [suppressions, softBounces] = await Promise.all([
+      this.admin.emailSuppression.findMany({
+        where: { email: { in: emails }, OR: [{ tenantId }, { tenantId: null }] },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.admin.communication.findMany({
+        where: {
+          tenantId,
+          channel: 'email',
+          status: 'bounced',
+          createdAt: { gte: new Date(Date.now() - 60 * 86_400_000) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { recipient: true, errorMessage: true, failedAt: true, createdAt: true },
+        take: 2000,
+      }),
+    ]);
+    const out = new Map<string, ProblemAddressDto>();
+    const add = (email: string, reason: string, detail: string | null, since: Date) => {
+      const who = byEmail.get(email);
+      if (!who || out.has(email)) return;
+      out.set(email, {
+        email,
+        reason,
+        label: PROBLEM_LABELS[reason] ?? 'No le llegan los correos',
+        detail,
+        since: since.toISOString(),
+        customerId: who.customer?.id ?? null,
+        customerName: who.customer ? customerDisplay(who.customer) : null,
+        leadId: who.lead?.id ?? null,
+        leadName: who.lead
+          ? [who.lead.firstName, who.lead.lastName].filter(Boolean).join(' ') ||
+            who.lead.companyName ||
+            null
+          : null,
+      });
+    };
+    for (const sup of suppressions) add(sup.email, sup.reason, sup.detail, sup.createdAt);
+    for (const b of softBounces) {
+      add(b.recipient.trim().toLowerCase(), 'bounced', b.errorMessage, b.failedAt ?? b.createdAt);
+    }
+    return [...out.values()].sort((a, b) => b.since.localeCompare(a.since));
   }
 
   async detail(tenantId: string, id: string, scope?: FacilityScope): Promise<CommunicationDto> {

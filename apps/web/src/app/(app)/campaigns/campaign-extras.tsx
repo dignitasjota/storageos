@@ -1,7 +1,12 @@
 'use client';
 
-import { CAMPAIGN_SAVED_TEMPLATE_VARIABLES, templateTextProblems } from '@storageos/shared';
-import { BarChart3, Eye, Loader2, Pencil, Save, Trash2 } from 'lucide-react';
+import {
+  CAMPAIGN_SAVED_TEMPLATE_VARIABLES,
+  templateTextProblems,
+  type CampaignRecipientFilter,
+} from '@storageos/shared';
+import { BarChart3, Eye, Loader2, Pencil, Save, Send, Trash2 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -27,14 +32,17 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
+  useCampaignRecipients,
   useCampaignResults,
   useCampaignTemplates,
   useCreateCampaignTemplate,
   useDeleteCampaignTemplate,
+  useCampaignTestSend,
   usePreviewCampaignEmail,
   useUpdateCampaignTemplate,
   useWinbackStats,
 } from '@/lib/campaigns/hooks';
+import { formatEur } from '@/lib/format';
 
 function pct(v: number | null): string {
   return v === null ? '—' : `${v.toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`;
@@ -43,8 +51,10 @@ function pct(v: number | null): string {
 /** Entregados, rebotes, bajas y clics de una campaña enviada. */
 export function CampaignResultsButton({ campaignId }: { campaignId: string }) {
   const [open, setOpen] = useState(false);
+  const [list, setList] = useState<CampaignRecipientFilter | null>(null);
   const results = useCampaignResults(open ? campaignId : null);
   const r = results.data;
+  const c = r?.conversions;
   return (
     <>
       <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
@@ -64,18 +74,58 @@ export function CampaignResultsButton({ campaignId }: { campaignId: string }) {
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <Figure label="Enviados" value={String(r.sent)} />
                 <Figure label="Entregados" value={String(r.delivered)} />
-                <Figure label="Rebotados" value={String(r.bounced)} warn={r.bounced > 0} />
-                <Figure label="Pulsaron un enlace" value={`${r.clickers} (${pct(r.clickRate)})`} />
-                <Figure label="Se dieron de baja" value={String(r.unsubscribed)} />
+                <Figure
+                  label="Rebotados"
+                  value={String(r.bounced)}
+                  warn={r.bounced > 0}
+                  onClick={r.bounced > 0 ? () => setList('bounced') : undefined}
+                />
+                <Figure
+                  label="Pulsaron un enlace"
+                  value={`${r.clickers} (${pct(r.clickRate)})`}
+                  onClick={r.clickers > 0 ? () => setList('clicked') : undefined}
+                />
+                <Figure
+                  label="Se dieron de baja"
+                  value={String(r.unsubscribed)}
+                  onClick={r.unsubscribed > 0 ? () => setList('unsubscribed') : undefined}
+                />
                 <Figure
                   label="No enviados"
                   value={String(r.failed + r.skipped)}
                   warn={r.failed > 0}
+                  onClick={r.failed + r.skipped > 0 ? () => setList('failed') : undefined}
                 />
               </div>
+              {c && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">
+                    Lo que trajo (en los {c.windowDays} días siguientes)
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <Figure
+                      label="Contratos firmados"
+                      value={String(c.contracts)}
+                      onClick={
+                        c.contracts + c.leadsWon > 0 ? () => setList('converted') : undefined
+                      }
+                    />
+                    <Figure label="Cuotas al mes" value={formatEur(c.monthlyRevenue)} />
+                    <Figure label="Contactos ganados" value={String(c.leadsWon)} />
+                    <Figure label="Usaron el cupón" value={String(c.couponUses)} />
+                  </div>
+                </div>
+              )}
+              {list && (
+                <RecipientList
+                  campaignId={campaignId}
+                  filter={list}
+                  onClose={() => setList(null)}
+                />
+              )}
               <p className="text-xs text-muted-foreground">
                 «Entregados» solo cuenta los que el proveedor de correo ha confirmado. Los clics se
-                cuentan una vez por persona y enlace.
+                cuentan una vez por persona y enlace. Pulsa una cifra para ver quiénes son.
               </p>
               {r.links.length > 0 && (
                 <div className="space-y-1">
@@ -103,13 +153,94 @@ export function CampaignResultsButton({ campaignId }: { campaignId: string }) {
   );
 }
 
-function Figure({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
-  return (
-    <div className="rounded-lg border p-2">
+function Figure({
+  label,
+  value,
+  warn,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  warn?: boolean;
+  onClick?: (() => void) | undefined;
+}) {
+  const content = (
+    <>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={`text-lg font-semibold ${warn ? 'text-amber-600 dark:text-amber-400' : ''}`}>
         {value}
       </p>
+    </>
+  );
+  if (!onClick) return <div className="rounded-lg border p-2">{content}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border p-2 text-left transition-colors hover:bg-muted/60"
+    >
+      {content}
+    </button>
+  );
+}
+
+const RECIPIENT_LIST_TITLES: Record<CampaignRecipientFilter, string> = {
+  clicked: 'Pulsaron un enlace',
+  bounced: 'Rebotaron',
+  unsubscribed: 'Se dieron de baja',
+  converted: 'Firmaron o pasaron a ganados',
+  failed: 'No se enviaron',
+};
+
+/** Quiénes están detrás de una cifra de los resultados. */
+function RecipientList({
+  campaignId,
+  filter,
+  onClose,
+}: {
+  campaignId: string;
+  filter: CampaignRecipientFilter;
+  onClose: () => void;
+}) {
+  const list = useCampaignRecipients(campaignId, filter);
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium">{RECIPIENT_LIST_TITLES[filter]}</p>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Cerrar
+        </Button>
+      </div>
+      {list.isError ? (
+        <SectionError onRetry={() => void list.refetch()} />
+      ) : !list.data ? (
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      ) : list.data.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nadie.</p>
+      ) : (
+        <ul className="max-h-60 space-y-1.5 overflow-y-auto text-sm">
+          {list.data.map((p) => {
+            const href = p.customerId
+              ? `/customers/${p.customerId}`
+              : p.leadId
+                ? `/leads?lead=${p.leadId}`
+                : null;
+            return (
+              <li key={`${p.recipient}-${p.customerId ?? p.leadId ?? ''}`} className="min-w-0">
+                {href ? (
+                  <Link href={href} className="font-medium hover:underline">
+                    {p.name ?? p.recipient}
+                  </Link>
+                ) : (
+                  <span className="font-medium">{p.name ?? p.recipient}</span>
+                )}
+                {p.name && <span className="text-muted-foreground"> · {p.recipient}</span>}
+                {p.detail && <p className="text-xs text-muted-foreground">{p.detail}</p>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -119,11 +250,13 @@ export function EmailPreviewButton({
   subject,
   bodyText,
   audience,
+  couponCode,
   disabled = false,
 }: {
   subject: string;
   bodyText: string;
   audience: 'customers' | 'leads';
+  couponCode?: string;
   disabled?: boolean;
 }) {
   const preview = usePreviewCampaignEmail();
@@ -131,7 +264,12 @@ export function EmailPreviewButton({
 
   async function show() {
     try {
-      await preview.mutateAsync({ subject, bodyText, audience });
+      await preview.mutateAsync({
+        subject,
+        bodyText,
+        audience,
+        ...(couponCode?.trim() ? { couponCode: couponCode.trim() } : {}),
+      });
       setOpen(true);
     } catch (err) {
       toast.error(
@@ -170,6 +308,55 @@ export function EmailPreviewButton({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** Envía el correo de ejemplo a quien lo está preparando. */
+export function TestSendButton({
+  subject,
+  bodyText,
+  audience,
+  couponCode,
+  english = false,
+  disabled = false,
+}: {
+  subject: string;
+  bodyText: string;
+  audience: 'customers' | 'leads';
+  couponCode?: string;
+  english?: boolean;
+  disabled?: boolean;
+}) {
+  const test = useCampaignTestSend();
+  async function send() {
+    try {
+      const res = await test.mutateAsync({
+        subject,
+        bodyText,
+        audience,
+        english,
+        ...(couponCode?.trim() ? { couponCode: couponCode.trim() } : {}),
+      });
+      toast.success(`Te hemos enviado una prueba a ${res.sentTo}.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar la prueba');
+    }
+  }
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => void send()}
+      disabled={disabled || !subject.trim() || !bodyText.trim() || test.isPending}
+    >
+      <Send className="mr-1 h-4 w-4" />
+      {test.isPending
+        ? 'Enviando…'
+        : english
+          ? 'Enviarme la versión en inglés'
+          : 'Enviarme una prueba'}
+    </Button>
   );
 }
 

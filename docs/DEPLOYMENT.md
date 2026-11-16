@@ -2482,3 +2482,22 @@ Sin variables nuevas. Lo que cambia:
 - **Envíos atascados**: los que llevan 30 minutos pendientes sin trabajo en la cola se vuelven a encolar (cron `communications.requeue-stuck`, cada 10 minutos, en el worker).
 - **Avisos**: los rebotes de una campaña dan un aviso al día por campaña, no uno por correo.
 - Campañas: ficha con el texto, cambiar el borrador, duplicar, borrar y registro de actividad. Comunicaciones: ficha del envío, «Cargar más» sin páginas, tipos y canales en palabras, sin el filtro de SMS, programados con su fecha y filtros mal puestos → 400.
+
+## 142. Campañas y Comunicaciones: mejoras (2026-11-16)
+
+Migración `20270127100000_campaigns_features` (se aplica sola al arrancar el API): `campaigns.subject_en`, `body_text_en`, `coupon_code` y `whatsapp_template`, y las tablas `campaign_segments` (segmentos guardados), `campaign_automations` y `campaign_automation_sends` (campañas automáticas: un envío por destinatario y periodo), las tres con RLS.
+
+Sin variables nuevas. Lo que trae:
+
+- **Formato en los correos**: negrita, enlaces con texto y botón con el color de la marca, desde una barra en el editor (campañas, win-back y automáticas).
+- **«Enviarme una prueba»**: el correo de ejemplo llega al usuario que lo prepara.
+- **Versión en inglés** para los inquilinos que tienen el idioma en inglés.
+- **Cupón** en la campaña, con la variable `{{coupon.code}}` y su uso en los resultados.
+- **Programadas**: quién la recibe se decide al salir (entra quien se dé de alta entretanto y no quien se dé de baja). Las programadas antes de este cambio salen como hasta ahora.
+- **Filtros finos** (antigüedad, tamaño, sin seguro, contrato que termina, idioma, sin deudores, contactos recientes), «no escribir a quien recibió otra en N días» y **segmentos guardados**.
+- **Resultados con dinero**: contratos firmados, cuotas al mes, contactos ganados y usos del cupón en los 30 días siguientes, y quiénes están detrás de cada cifra.
+- **Campañas por WhatsApp** con una plantilla aprobada del número del negocio (necesita el extra WhatsApp Business activo y conectado). Quedan en Comunicaciones y en la bandeja de WhatsApp.
+- **Campañas automáticas** (apagadas por defecto): aniversario del inquilino (una vez al año, nunca a quien debe dinero) y contactos que no avanzan (una vez, a los N días sin moverse). Cron `campaigns.automations` a las 09:30 en el API.
+- **Comunicaciones**: filtro por tipo y por local, cifras arriba, CSV, ver el correo tal como llegó, recorrido del envío, cancelar uno programado y pestaña **«Direcciones con problemas»**.
+
+**Tras desplegar**: en Campañas, revisar si se activan las campañas automáticas y su texto.

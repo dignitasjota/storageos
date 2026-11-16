@@ -5,12 +5,16 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  BadRequestException,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
+  Query,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   type CampaignDto,
   type CampaignEmailPreviewDto,
@@ -20,6 +24,15 @@ import {
   type CampaignTemplateDto,
   CreateCampaignSchema,
   CreateCampaignTemplateSchema,
+  CampaignAutomationKindEnum,
+  type CampaignAutomationDto,
+  CampaignRecipientFilterEnum,
+  type CampaignRecipientDto,
+  type CampaignSavedSegmentDto,
+  CampaignTestSendSchema,
+  type CampaignTestSendResultDto,
+  SaveCampaignSegmentSchema,
+  UpdateCampaignAutomationSchema,
   UpdateCampaignSchema,
   UpdateCampaignTemplateSchema,
   type WinbackPreviewDto,
@@ -37,6 +50,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { CampaignAutomationsService } from './campaign-automations.service';
 import { CampaignInsightsService } from './campaign-insights.service';
 import { type CampaignActor, CampaignsService, assertWholeBusiness } from './campaigns.service';
 import { WinbackService } from './winback.service';
@@ -51,6 +65,9 @@ class UpdateWinbackSettingsDto extends createZodDto(UpdateWinbackSettingsSchema)
 class CreateCampaignTemplateDto extends createZodDto(CreateCampaignTemplateSchema) {}
 class UpdateCampaignTemplateDto extends createZodDto(UpdateCampaignTemplateSchema) {}
 class CampaignEmailPreviewBodyDto extends createZodDto(CampaignEmailPreviewSchema) {}
+class CampaignTestSendDto extends createZodDto(CampaignTestSendSchema) {}
+class SaveCampaignSegmentDto extends createZodDto(SaveCampaignSegmentSchema) {}
+class UpdateCampaignAutomationDto extends createZodDto(UpdateCampaignAutomationSchema) {}
 
 @Controller('campaigns')
 export class CampaignsController {
@@ -58,6 +75,7 @@ export class CampaignsController {
     private readonly campaigns: CampaignsService,
     private readonly winback: WinbackService,
     private readonly insights: CampaignInsightsService,
+    private readonly automations: CampaignAutomationsService,
   ) {}
 
   @RequirePermission('communications:read')
@@ -110,6 +128,70 @@ export class CampaignsController {
   @Get('winback/stats')
   winbackStats(@CurrentUser() user: AuthenticatedUser): Promise<WinbackStatsDto> {
     return this.winback.stats(user.tenantId);
+  }
+
+  // --- Campañas automáticas (aniversario, contactos que no avanzan) ----------
+
+  @RequirePermission('communications:read')
+  @Get('automations')
+  listAutomations(@CurrentUser() user: AuthenticatedUser): Promise<CampaignAutomationDto[]> {
+    return this.automations.list(user.tenantId);
+  }
+
+  @RequirePermission('automations:manage')
+  @Put('automations/:kind')
+  updateAutomation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('kind') kind: string,
+    @Body() body: UpdateCampaignAutomationDto,
+    @Req() req: Request,
+  ): Promise<CampaignAutomationDto[]> {
+    assertWholeBusiness(user.facilityScope, 'Las campañas automáticas');
+    const parsed = CampaignAutomationKindEnum.safeParse(kind);
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'invalid_kind', message: 'Tipo no válido' });
+    }
+    return this.automations.update(user.tenantId, parsed.data, body, actor(user, req));
+  }
+
+  // --- Segmentos guardados ----------------------------------------------------
+
+  @RequirePermission('communications:read')
+  @Get('segments')
+  listSegments(@CurrentUser() user: AuthenticatedUser): Promise<CampaignSavedSegmentDto[]> {
+    return this.insights.listSegments(user.tenantId);
+  }
+
+  @RequirePermission('communications:send')
+  @Post('segments')
+  saveSegment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: SaveCampaignSegmentDto,
+    @Req() req: Request,
+  ): Promise<CampaignSavedSegmentDto> {
+    return this.insights.saveSegment(user.tenantId, body, actor(user, req));
+  }
+
+  @RequirePermission('communications:send')
+  @Delete('segments/:segmentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeSegment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('segmentId', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    await this.insights.removeSegment(user.tenantId, id);
+  }
+
+  /** Envía el correo de ejemplo a quien lo pide. */
+  @RequirePermission('communications:send')
+  @Post('test-send')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  testSend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CampaignTestSendDto,
+  ): Promise<CampaignTestSendResultDto> {
+    return this.insights.testSend(user.tenantId, user.sub, body);
   }
 
   // --- Plantillas y vista previa --------------------------------------------
@@ -172,6 +254,21 @@ export class CampaignsController {
     return this.insights.results(user.tenantId, id, user.facilityScope ?? null);
   }
 
+  /** Quién la recibió según qué pasó (pulsaron, rebotaron, se dieron de baja…). */
+  @RequirePermission('communications:read')
+  @Get(':id/recipients')
+  recipients(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('filter') filter?: string,
+  ): Promise<CampaignRecipientDto[]> {
+    const parsed = CampaignRecipientFilterEnum.safeParse(filter);
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'invalid_filter', message: 'Filtro no válido' });
+    }
+    return this.insights.recipients(user.tenantId, id, parsed.data, user.facilityScope ?? null);
+  }
+
   @RequirePermission('communications:read')
   @Get(':id')
   detail(
@@ -189,7 +286,12 @@ export class CampaignsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: PreviewCampaignDto,
   ): Promise<CampaignPreviewDto> {
-    return this.campaigns.preview(user.tenantId, body.segment, user.facilityScope ?? null);
+    return this.campaigns.preview(
+      user.tenantId,
+      body.segment,
+      user.facilityScope ?? null,
+      body.channel,
+    );
   }
 
   @RequirePermission('communications:send')

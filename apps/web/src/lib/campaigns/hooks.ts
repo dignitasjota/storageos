@@ -3,6 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  CampaignAutomationDto,
+  CampaignAutomationKind,
+  CampaignChannel,
+  CampaignRecipientDto,
+  CampaignRecipientFilter,
+  CampaignSavedSegmentDto,
+  CampaignTestSendInput,
+  CampaignTestSendResultDto,
+  SaveCampaignSegmentInput,
+  UpdateCampaignAutomationInput,
   CampaignEmailPreviewDto,
   CampaignEmailPreviewInput,
   CampaignResultsDto,
@@ -78,8 +88,17 @@ export function useCampaign(id: string | undefined) {
 
 export function usePreviewCampaign() {
   return useMutation({
-    mutationFn: (segment: CampaignSegmentInput) =>
-      apiFetch<CampaignPreviewDto>('/campaigns/preview', { method: 'POST', json: { segment } }),
+    mutationFn: ({
+      segment,
+      channel = 'email',
+    }: {
+      segment: CampaignSegmentInput;
+      channel?: CampaignChannel;
+    }) =>
+      apiFetch<CampaignPreviewDto>('/campaigns/preview', {
+        method: 'POST',
+        json: { segment, channel },
+      }),
   });
 }
 
@@ -192,5 +211,76 @@ export function usePreviewCampaignEmail() {
         method: 'POST',
         json: input,
       }),
+  });
+}
+
+/** Envía el correo de ejemplo a quien lo pide. */
+export function useCampaignTestSend() {
+  return useMutation({
+    mutationFn: (input: CampaignTestSendInput) =>
+      apiFetch<CampaignTestSendResultDto>('/campaigns/test-send', { method: 'POST', json: input }),
+  });
+}
+
+const segmentsKey = [...campaignsKey, 'segments'] as const;
+
+export function useCampaignSegments() {
+  return useQuery({
+    queryKey: segmentsKey,
+    queryFn: () => apiFetch<CampaignSavedSegmentDto[]>('/campaigns/segments'),
+  });
+}
+
+export function useSaveCampaignSegment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: SaveCampaignSegmentInput) =>
+      apiFetch<CampaignSavedSegmentDto>('/campaigns/segments', { method: 'POST', json: input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: segmentsKey }),
+  });
+}
+
+export function useDeleteCampaignSegment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/campaigns/segments/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: segmentsKey }),
+  });
+}
+
+/** Quién la recibió según qué pasó (pulsaron, rebotaron…). */
+export function useCampaignRecipients(id: string | null, filter: CampaignRecipientFilter | null) {
+  return useQuery({
+    queryKey: [...campaignsKey, 'recipients', id, filter] as const,
+    queryFn: () => apiFetch<CampaignRecipientDto[]>(`/campaigns/${id}/recipients?filter=${filter}`),
+    enabled: !!id && !!filter,
+  });
+}
+
+const automationsKey = [...campaignsKey, 'automations'] as const;
+
+export function useCampaignAutomations(enabled = true) {
+  return useQuery({
+    queryKey: automationsKey,
+    queryFn: () => apiFetch<CampaignAutomationDto[]>('/campaigns/automations'),
+    enabled,
+  });
+}
+
+export function useUpdateCampaignAutomation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      kind,
+      input,
+    }: {
+      kind: CampaignAutomationKind;
+      input: UpdateCampaignAutomationInput;
+    }) =>
+      apiFetch<CampaignAutomationDto[]>(`/campaigns/automations/${kind}`, {
+        method: 'PUT',
+        json: input,
+      }),
+    onSuccess: (data) => qc.setQueryData(automationsKey, data),
   });
 }
