@@ -13,7 +13,7 @@ import { captureSalesCodeFromUrl } from '@/lib/sales-code';
  */
 export function PlatformAttribution() {
   useEffect(() => {
-    // El enlace o el QR de un comercial (`?comercial=`) queda guardado: el
+    // El enlace o el QR de un comercial (`?team=`) queda guardado: el
     // registro y los formularios lo llevan y la cuenta será suya.
     captureSalesCodeFromUrl();
     recordVisit(PLATFORM_ATTRIBUTION_KEY);

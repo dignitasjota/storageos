@@ -162,7 +162,7 @@ describe('Comerciales (e2e)', () => {
     const ok = await http().get('/admin/sales/me').set('Authorization', `Bearer ${repAToken}`);
     expect(ok.status).toBe(200);
     expect(ok.body.salesCode).toMatch(/^[A-Z0-9]{4,12}$/);
-    expect(ok.body.signupUrl).toContain(`comercial=${ok.body.salesCode}`);
+    expect(ok.body.signupUrl).toContain(`team=${ok.body.salesCode}`);
     repACode = ok.body.salesCode;
 
     // El resto del panel le está cerrado.
@@ -489,7 +489,7 @@ describe('Comerciales (e2e)', () => {
     expect(sent.status).toBe(201);
     const offer = sent.body.lead.quoteOffers[0];
     expect(offer.expiresAt).toBeTruthy();
-    expect(offer.acceptUrl).toContain(`comercial=${repACode}`);
+    expect(offer.acceptUrl).toContain(`team=${repACode}`);
     const tracked = app.get(AdminQuoteService).trackedUrl(offer.id);
     const path = new URL(tracked).pathname + new URL(tracked).search;
     const wrong = await http().get(`/v1/public/offers/${offer.id}/open?sig=nope`);
@@ -499,7 +499,7 @@ describe('Comerciales (e2e)', () => {
     ).toBeNull();
     const opened = await http().get(path);
     expect(opened.status).toBe(302);
-    expect(opened.headers.location).toContain(`comercial=${repACode}`);
+    expect(opened.headers.location).toContain(`team=${repACode}`);
     expect(
       (await db.platformQuoteOffer.findUniqueOrThrow({ where: { id: offer.id } })).openedAt,
     ).not.toBeNull();
@@ -613,15 +613,19 @@ describe('Comerciales (e2e)', () => {
       .send({ repId: repAId, month });
     expect(settlement.status).toBe(201);
     expect(settlement.body.total).toBeCloseTo(expected, 2);
+    // Se paga en efectivo: queda pagada al liquidar y no se le avisa.
+    expect(settlement.body.status).toBe('paid');
+    expect(settlement.body.paidAt).toBeTruthy();
+    expect(
+      await db.superAdminNotification.count({
+        where: { recipientId: repAId, type: 'sales.settlement' },
+      }),
+    ).toBe(0);
     const twice = await http()
       .post('/admin/sales-team/settlements')
       .set('Authorization', `Bearer ${superToken}`)
       .send({ repId: repAId, month });
     expect(twice.status).toBe(400);
-    await http()
-      .post(`/admin/sales-team/settlements/${settlement.body.id}/paid`)
-      .set('Authorization', `Bearer ${superToken}`)
-      .expect(200);
     const mine = await http()
       .get('/admin/sales/settlements')
       .set('Authorization', `Bearer ${repAToken}`);
@@ -694,6 +698,41 @@ describe('Comerciales (e2e)', () => {
     expect(disable.status).toBe(400);
     expect(disable.body.code).toBe('two_factor_required_by_policy');
     await db.superAdmin.update({ where: { id: repBId }, data: { twoFactorSecretEncrypted: null } });
+  });
+
+  it('la dirección puede quitarle a un comercial la verificación en dos pasos', async () => {
+    await db.superAdmin.update({ where: { id: repBId }, data: { twoFactorEnabled: false } });
+    const blocked = await http().get('/admin/sales/me').set('Authorization', `Bearer ${repBToken}`);
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe('admin_two_factor_required');
+
+    const off = await http()
+      .patch(`/admin/sales-team/reps/${repBId}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ twoFactorRequired: false });
+    expect(off.status).toBe(200);
+    expect(off.body.twoFactorRequired).toBe(false);
+    const ok = await http().get('/admin/sales/me').set('Authorization', `Bearer ${repBToken}`);
+    expect(ok.status).toBe(200);
+    const status = await http()
+      .get('/admin/auth/2fa/status')
+      .set('Authorization', `Bearer ${repBToken}`);
+    expect(status.body).toMatchObject({ required: false, deadline: null });
+    // Un comercial no puede quitársela a sí mismo.
+    const self = await http()
+      .patch(`/admin/sales-team/reps/${repBId}`)
+      .set('Authorization', `Bearer ${repBToken}`)
+      .send({ twoFactorRequired: false });
+    expect(self.status).toBe(403);
+
+    const on = await http()
+      .patch(`/admin/sales-team/reps/${repBId}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ twoFactorRequired: true });
+    expect(on.body.twoFactorRequired).toBe(true);
+    const again = await http().get('/admin/sales/me').set('Authorization', `Bearer ${repBToken}`);
+    expect(again.status).toBe(403);
+    await db.superAdmin.update({ where: { id: repBId }, data: { twoFactorEnabled: true } });
   });
 
   it('materiales y plantillas: los prepara la dirección y los lee el comercial', async () => {

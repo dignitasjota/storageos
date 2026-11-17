@@ -39,7 +39,7 @@ export interface RegisterDefaults {
   email?: string;
   tenantName?: string;
   fullName?: string;
-  /** Código del comercial del enlace o el QR (`?comercial=`). */
+  /** Código del comercial del enlace o el QR (`?team=`). */
   salesCode?: string;
 }
 

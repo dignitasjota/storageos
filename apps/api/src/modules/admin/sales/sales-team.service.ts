@@ -111,6 +111,7 @@ export class SalesTeamService {
         email: r.email,
         isActive: r.isActive,
         twoFactorEnabled: r.twoFactorEnabled,
+        twoFactorRequired: !r.salesTwoFactorExempt,
         lastLoginAt: r.lastLoginAt?.toISOString() ?? null,
         salesCode: r.salesCode,
         phone: r.phone,
@@ -263,6 +264,9 @@ export class SalesTeamService {
         ...(input.whatsapp !== undefined ? { whatsapp: clean(input.whatsapp) } : {}),
         ...(input.bookingUrl !== undefined ? { bookingUrl: clean(input.bookingUrl) } : {}),
         ...(code ? { salesCode: code } : {}),
+        ...(input.twoFactorRequired !== undefined
+          ? { salesTwoFactorExempt: !input.twoFactorRequired }
+          : {}),
       },
     });
     await this.audit.record({
@@ -272,6 +276,18 @@ export class SalesTeamService {
       targetId: repId,
       changes: { fields: Object.keys(input) },
     });
+    if (
+      input.twoFactorRequired !== undefined &&
+      input.twoFactorRequired === rep.salesTwoFactorExempt
+    ) {
+      await this.audit.record({
+        superAdminId: byId,
+        action: 'admin.sales.rep_two_factor_changed',
+        targetType: 'super_admin',
+        targetId: repId,
+        changes: { required: input.twoFactorRequired },
+      });
+    }
     return this.repDetail(repId);
   }
 

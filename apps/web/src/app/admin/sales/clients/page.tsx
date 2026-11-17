@@ -57,7 +57,7 @@ export default function SalesClientsPage() {
     <SalesPage>
       <PageHeader
         title="Clientes"
-        description="Las cuentas que son tuyas: sus pruebas, lo que pagan y cómo las usan. No ves sus inquilinos ni su facturación."
+        description="Las cuentas que son tuyas: sus pruebas, lo que pagan y cómo las usan."
       />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Cuentas" value={base.length} />

@@ -36,6 +36,19 @@ describe('Chat de la web: mejoras (e2e)', () => {
   const tomorrow = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
   const post = (slug: string, path: string, body: Record<string, unknown>) =>
     http().post(`/public/landing/${slug}/${path}`).set('User-Agent', UA).send(body);
+  /** Algunos avisos se crean sin esperar a la respuesta: se cuentan cuando llegan. */
+  const countNotifications = async (
+    where: { tenantId: string; type: string; userId?: string },
+    expected: number,
+  ): Promise<number> => {
+    let n = 0;
+    for (let i = 0; i < 30; i++) {
+      n = await db.notification.count({ where });
+      if (n === expected) return n;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return n;
+  };
 
   beforeAll(async () => {
     await cleanupTestTenants();
@@ -200,9 +213,9 @@ describe('Chat de la web: mejoras (e2e)', () => {
     const visits = await db.leadVisit.findMany({ where: { leadId: lead.id } });
     expect(visits).toHaveLength(1);
     expect(visits[0]).toMatchObject({ facilityId, status: 'scheduled' });
-    expect(
-      await db.notification.count({ where: { tenantId: owner.tenantId, type: 'web_chat.visit' } }),
-    ).toBe(1);
+    expect(await countNotifications({ tenantId: owner.tenantId, type: 'web_chat.visit' }, 1)).toBe(
+      1,
+    );
 
     // Una fecha pasada no se apunta.
     const past = (
@@ -284,9 +297,10 @@ describe('Chat de la web: mejoras (e2e)', () => {
       (detail.body.items as WebChatConversationDto[]).find((c) => c.id === conv.id),
     ).toMatchObject({ assignedToUserId: managerId, assignedToName: expect.any(String) });
     expect(
-      await db.notification.count({
-        where: { tenantId: owner.tenantId, type: 'web_chat.assigned', userId: managerId },
-      }),
+      await countNotifications(
+        { tenantId: owner.tenantId, type: 'web_chat.assigned', userId: managerId },
+        1,
+      ),
     ).toBe(1);
     const nobody = await http()
       .patch(`/web-chat/conversations/${conv.id}`)
