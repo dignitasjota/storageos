@@ -10,8 +10,8 @@ import type { PlatformQuoteOfferDto } from '../admin/catalog';
 
 // ---------------------------------------------------------------- código
 
-/** Parámetro de la URL con el código del comercial (`?comercial=ANA7K2`). */
-export const SALES_CODE_PARAM = 'comercial';
+/** Parámetro de la URL con el código del comercial (`?team=ANA7K2`). */
+export const SALES_CODE_PARAM = 'team';
 /** Lo que guarda el navegador del código del enlace (días). */
 export const SALES_CODE_TTL_DAYS = 90;
 
@@ -621,6 +621,8 @@ export interface SalesRepSummaryDto {
   email: string;
   isActive: boolean;
   twoFactorEnabled: boolean;
+  /** false = la dirección le ha quitado la verificación en dos pasos obligatoria. */
+  twoFactorRequired: boolean;
   lastLoginAt: string | null;
   salesCode: string | null;
   phone: string | null;
@@ -665,6 +667,8 @@ export const UpdateSalesRepSchema = z.object({
   whatsapp: z.string().trim().max(30).nullable().optional(),
   bookingUrl: z.string().trim().url().max(500).nullable().optional().or(z.literal('')),
   salesCode: z.string().trim().max(12).optional(),
+  /** false = puede entrar sin la verificación en dos pasos. */
+  twoFactorRequired: z.boolean().optional(),
 });
 export type UpdateSalesRepInput = z.infer<typeof UpdateSalesRepSchema>;
 

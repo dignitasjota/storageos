@@ -7,7 +7,7 @@ import {
   type SalesCommissionConceptDto,
   type SalesRepDetailDto,
 } from '@storageos/shared';
-import { ArrowLeft, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -605,13 +605,13 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
     const ok = await confirm({
       title: `Liquidar ${monthLabel(settleMonth)}`,
       description:
-        'Junta todas sus comisiones aprobadas y sin liquidar hasta ese mes. Después puedes marcarla como pagada.',
+        'Junta todas sus comisiones aprobadas y sin liquidar hasta ese mes y la da por pagada en efectivo. No se le avisa: la verá en «Mis comisiones».',
       confirmLabel: 'Liquidar',
     });
     if (!ok) return;
     try {
       const s = await createSettlement.mutateAsync({ repId: rep.id, month: settleMonth });
-      toast.success(`Liquidación de ${formatEur(s.total)} creada.`);
+      toast.success(`Liquidado ${formatEur(s.total)} en efectivo.`);
     } catch (err) {
       toast.error(errorText(err));
     }
@@ -727,7 +727,7 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Liquidaciones</CardTitle>
-          <CardDescription>Lo que le pagas cada mes (en nómina o como acordéis).</CardDescription>
+          <CardDescription>Lo que le pagas en efectivo cada mes.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -744,7 +744,7 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
               </SelectContent>
             </Select>
             <Button size="sm" disabled={createSettlement.isPending} onClick={() => void settle()}>
-              Liquidar este mes
+              Liquidar
             </Button>
           </div>
           {(settlements.data ?? []).length === 0 ? (
@@ -762,7 +762,7 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
                   <span className="flex items-center gap-2">
                     <span className="font-medium tabular-nums">{formatEur(s.total)}</span>
                     {s.status === 'paid' ? (
-                      <Badge>Pagada {formatDate(s.paidAt)}</Badge>
+                      <Badge>Pagada en efectivo {formatDate(s.paidAt)}</Badge>
                     ) : (
                       <Button
                         size="sm"
@@ -929,6 +929,7 @@ export default function SalesRepPage() {
   const params = useParams<{ id: string }>();
   const rep = useSalesRep(params.id);
   const setActive = useSetSalesRepActive(params.id);
+  const update = useUpdateSalesRep(params.id);
   const confirm = useConfirm();
   const [editOpen, setEditOpen] = useState(false);
 
@@ -946,6 +947,30 @@ export default function SalesRepPage() {
     );
   }
   const r = rep.data;
+
+  async function toggleTwoFactor() {
+    const required = !r.twoFactorRequired;
+    const ok = await confirm({
+      title: required
+        ? `Exigir la verificación en dos pasos a ${r.fullName}`
+        : `Quitar la verificación en dos pasos a ${r.fullName}`,
+      description: required
+        ? r.twoFactorEnabled
+          ? 'Ya la tiene activada; a partir de ahora no podrá desactivarla.'
+          : 'No podrá usar su panel hasta que la active.'
+        : 'Podrá entrar solo con su contraseña y desactivarla si la tiene. Su cuenta queda menos protegida.',
+      confirmLabel: required ? 'Exigirla' : 'Quitarla',
+      destructive: !required,
+    });
+    if (!ok) return;
+    try {
+      await update.mutateAsync({ twoFactorRequired: required });
+      await rep.refetch();
+      toast.success(required ? 'Verificación en dos pasos exigida.' : 'Ya no se le exige.');
+    } catch (err) {
+      toast.error(errorText(err));
+    }
+  }
 
   async function toggleActive() {
     const ok = await confirm({
@@ -983,7 +1008,13 @@ export default function SalesRepPage() {
           </p>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {!r.isActive && <Badge variant="secondary">Desactivado</Badge>}
-            {!r.twoFactorEnabled && <Badge variant="outline">Sin verificación en dos pasos</Badge>}
+            {!r.twoFactorRequired ? (
+              <Badge variant="outline">Verificación en dos pasos no obligatoria</Badge>
+            ) : (
+              !r.twoFactorEnabled && (
+                <Badge variant="outline">Sin verificación en dos pasos (no puede entrar)</Badge>
+              )
+            )}
             <span className="text-xs text-muted-foreground">
               Entró {relativeDays(r.lastLoginAt)}
             </span>
@@ -993,6 +1024,17 @@ export default function SalesRepPage() {
           <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
             <Pencil className="mr-1.5 size-4" />
             Editar
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={update.isPending}
+            onClick={() => void toggleTwoFactor()}
+          >
+            <ShieldCheck className="mr-1.5 size-4" />
+            {r.twoFactorRequired
+              ? 'Quitar verificación en dos pasos'
+              : 'Exigir verificación en dos pasos'}
           </Button>
           <Button
             size="sm"

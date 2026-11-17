@@ -2669,3 +2669,12 @@ Cómo funciona:
 3. Revisar las reglas del equipo (días de prueba de más con el código, liberar prospectos sin contacto, topes de días) y crear la cuenta de demostración.
 4. En «Catálogo y precios → Cupones», marcar «Lo pueden usar los comerciales» en los cupones que puedan ofrecer.
 5. Subir el material de venta (dossier, tarifas, guion) en «Equipo comercial → Materiales y plantillas» y revisar las plantillas de partida.
+
+## 152. Ajustes del equipo comercial (2026-11-17)
+
+Migración `20270204100000_sales_two_factor_exempt` (se aplica sola al arrancar el API): `super_admins.sales_two_factor_exempt`, por defecto no. Sin variables nuevas.
+
+- **Verificación en dos pasos**: sigue siendo obligatoria para los comerciales, pero en la ficha de cada uno («Equipo comercial → Comerciales») está «Quitar verificación en dos pasos». Sin ella entra solo con su contraseña; «Exigir verificación en dos pasos» la vuelve a pedir.
+- **Enlace del comercial**: el registro y la web llevan `?team=CÓDIGO` (antes `?comercial=`).
+- **Liquidaciones en efectivo**: «Liquidar» en la ficha del comercial la deja pagada en el acto. No se le avisa: la ve en «Mis comisiones» → Liquidaciones.
+- La página «Clientes» del comercial ya no dice que no ve los inquilinos ni la facturación de sus clientes.

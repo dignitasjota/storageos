@@ -20,9 +20,9 @@ describe('normalizeSalesCode', () => {
 });
 
 describe('salesSignupUrl', () => {
-  it('lleva el código en el parámetro comercial', () => {
+  it('lleva el código en el parámetro team', () => {
     expect(salesSignupUrl('https://trasteros.pro/', 'ANA7K2')).toBe(
-      'https://trasteros.pro/register?comercial=ANA7K2',
+      'https://trasteros.pro/register?team=ANA7K2',
     );
   });
 });

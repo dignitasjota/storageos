@@ -4950,6 +4950,8 @@ model SuperAdmin {
   phone                           String?
   whatsapp                        String?
   bookingUrl                      String?        @map("booking_url")
+  /// La dirección le quita la verificación en dos pasos obligatoria.
+  salesTwoFactorExempt            Boolean        @default(false) @map("sales_two_factor_exempt")
   createdAt                       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 

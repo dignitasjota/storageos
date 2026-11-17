@@ -80,6 +80,7 @@ export class AdminGuard implements CanActivate {
         isActive: true,
         role: true,
         twoFactorEnabled: true,
+        salesTwoFactorExempt: true,
         tokensValidAfter: true,
         createdAt: true,
       },
@@ -138,7 +139,12 @@ export class AdminGuard implements CanActivate {
   /** Pasado el plazo de la política, sin 2FA solo se puede activarla. */
   private async assertTwoFactorPolicy(
     ctx: ExecutionContext,
-    record: { twoFactorEnabled: boolean; createdAt: Date; role: string },
+    record: {
+      twoFactorEnabled: boolean;
+      salesTwoFactorExempt: boolean;
+      createdAt: Date;
+      role: string;
+    },
   ): Promise<void> {
     if (record.twoFactorEnabled) return;
     const allowed = this.reflector.getAllAndOverride<boolean>(ALLOW_WITHOUT_TWO_FACTOR_KEY, [
@@ -147,8 +153,10 @@ export class AdminGuard implements CanActivate {
     ]);
     if (allowed) return;
     // Un comercial ve datos de clientes: la verificación en dos pasos es
-    // obligatoria desde el primer día, haya o no política para el resto.
+    // obligatoria desde el primer día, haya o no política para el resto, salvo
+    // que la dirección se la haya quitado desde su ficha.
     if (record.role === 'sales') {
+      if (record.salesTwoFactorExempt) return;
       throw new ForbiddenException({
         code: 'admin_two_factor_required',
         message: 'Activa la verificación en dos pasos para usar el panel',

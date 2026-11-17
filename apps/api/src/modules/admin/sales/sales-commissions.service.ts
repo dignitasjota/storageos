@@ -953,7 +953,10 @@ export class SalesCommissionsService {
     }));
   }
 
-  /** Cierra el mes: todo lo aprobado sin liquidar hasta ese mes. */
+  /**
+   * Cierra el mes: todo lo aprobado sin liquidar hasta ese mes, ya pagado (se
+   * paga en efectivo). No se avisa al comercial: lo ve en «Mis comisiones».
+   */
   async createSettlement(
     input: CreateSalesSettlementInput,
     byId: string,
@@ -986,6 +989,9 @@ export class SalesCommissionsService {
             itemsCount: items.length,
             note: input.note?.trim() || null,
             createdById: byId,
+            status: 'paid',
+            paidAt: new Date(),
+            paidById: byId,
           },
         });
         const { count } = await tx.salesCommissionItem.updateMany({
@@ -1014,13 +1020,7 @@ export class SalesCommissionsService {
       action: 'admin.sales.settlement_created',
       targetType: 'super_admin',
       targetId: input.repId,
-      changes: { month: input.month, total, items: items.length },
-    });
-    await this.notify.rep(input.repId, {
-      type: 'sales.settlement',
-      title: `Liquidación de ${input.month}: ${money(total)}`,
-      body: `${items.length} comisiones.`,
-      link: '/admin/sales/results?tab=settlements',
+      changes: { month: input.month, total, items: items.length, paidInCash: true },
     });
     const [dto] = (await this.settlements(input.repId)).filter((s) => s.id === settlementId);
     return dto!;
@@ -1043,12 +1043,6 @@ export class SalesCommissionsService {
       targetType: 'super_admin',
       targetId: row.repId,
       changes: { settlementId: id, total: Number(row.total) },
-    });
-    await this.notify.rep(row.repId, {
-      type: 'sales.settlement',
-      title: `Pagada la liquidación de ${row.month}`,
-      body: money(Number(row.total)),
-      link: '/admin/sales/results?tab=settlements',
     });
     const [dto] = (await this.settlements(row.repId)).filter((s) => s.id === id);
     return dto!;

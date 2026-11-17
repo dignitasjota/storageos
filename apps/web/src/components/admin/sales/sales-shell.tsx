@@ -132,8 +132,14 @@ export function SalesShell({ children }: { children: ReactNode }) {
   const logout = useAdminLogout();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const status = useAdmin2faStatus();
-  const twoFactor = status.data?.enabled ?? admin?.twoFactorEnabled ?? false;
-  const unread = useSalesUnreadCount(twoFactor).data?.count ?? 0;
+  // La verificación es obligatoria salvo que la dirección se la haya quitado
+  // (`required` del estado). Hasta saberlo no se pinta el panel.
+  const statusKnown = !!status.data || !!admin?.twoFactorEnabled || status.isError;
+  const needsTwoFactor = status.data
+    ? status.data.required && !status.data.enabled
+    : !admin?.twoFactorEnabled;
+  const ready = statusKnown && !needsTwoFactor;
+  const unread = useSalesUnreadCount(ready).data?.count ?? 0;
   const allowed = salesPathAllowed(pathname);
 
   useEffect(() => {
@@ -246,7 +252,9 @@ export function SalesShell({ children }: { children: ReactNode }) {
           </div>
         </header>
         <main className="min-w-0 flex-1">
-          {!allowed ? null : !twoFactor && pathname !== '/admin/security' ? (
+          {!allowed ? null : pathname === '/admin/security' ? (
+            children
+          ) : !statusKnown ? null : needsTwoFactor ? (
             <TwoFactorGate />
           ) : (
             children

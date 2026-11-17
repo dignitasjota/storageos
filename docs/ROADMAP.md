@@ -1188,3 +1188,5 @@ Perfil **Comercial** en el panel de administración para los comerciales en plan
 - **Cliente**: «Tu comercial» en Suscripción y en Soporte; los correos automáticos de la plataforma pueden salir con el nombre de su comercial.
 
 Fuera de esta PR: el pago de las comisiones (las liquidaciones solo dejan constancia; se paga por nómina), un jefe de ventas intermedio (decidido no tenerlo) y WhatsApp desde el número de la plataforma (el comercial escribe desde su móvil).
+
+**Ajustes (2026-11-17)**: la dirección puede quitarle a un comercial la verificación en dos pasos; el enlace usa `?team=`; las liquidaciones se pagan en efectivo (quedan pagadas al liquidar y no se avisa al comercial); fuera la frase de «Clientes» sobre inquilinos y facturación.

@@ -1303,3 +1303,8 @@ Todas las tablas nuevas son de la plataforma (sin tenant ni RLS, con `REVOKE` a 
 - **`sales_commission_items`**: movimientos (`revenue`, `sale`, `addon_sale`, `concept`, `adjustment`), con base, %, importe con signo, estado y liquidación; únicos parciales para la venta y cada extra.
 - **`sales_settlements`** (único comercial + mes), **`sales_targets`**, **`platform_sales_settings`** (un registro: días de prueba de más con el código, liberar prospectos, topes del comercial, correos con su nombre y cuenta de demostración).
 - **`sales_materials`**, **`sales_templates`**, **`sales_cadences`** y **`sales_cadence_enrollments`** (`followup_ids` UUID[]). La migración crea dos cadencias y cuatro plantillas de partida.
+
+### Ajustes del equipo comercial (`20270204100000_sales_two_factor_exempt`)
+
+- `super_admins.sales_two_factor_exempt` (por defecto `false`): la dirección le quita a un comercial la verificación en dos pasos obligatoria.
+- `sales_settlements`: desde esta versión una liquidación nace `paid` (se paga en efectivo); `pending_payment` solo queda para las antiguas.

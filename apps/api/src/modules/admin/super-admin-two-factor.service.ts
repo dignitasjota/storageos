@@ -112,6 +112,7 @@ export class SuperAdminTwoFactorService {
         })
       : 0;
     const settings = await this.admin.platformSecuritySettings.findFirst();
+    const isSales = record.role === 'sales';
     const deadline =
       settings && !record.twoFactorEnabled
         ? adminTwoFactorDeadline(settings, record.createdAt)
@@ -120,9 +121,10 @@ export class SuperAdminTwoFactorService {
       enabled: record.twoFactorEnabled,
       enrolledAt: record.twoFactorEnrolledAt ? record.twoFactorEnrolledAt.toISOString() : null,
       recoveryCodesRemaining: remaining,
-      // Para un comercial es obligatoria siempre y sin plazo.
-      required: record.role === 'sales' || (settings?.requireAdminTwoFactor ?? false),
-      deadline: record.role === 'sales' ? null : deadline ? deadline.toISOString() : null,
+      // Para un comercial es obligatoria y sin plazo, salvo que la dirección
+      // se la haya quitado (entonces no le alcanza tampoco la política general).
+      required: isSales ? !record.salesTwoFactorExempt : (settings?.requireAdminTwoFactor ?? false),
+      deadline: isSales ? null : deadline ? deadline.toISOString() : null,
     };
   }
 
@@ -223,8 +225,13 @@ export class SuperAdminTwoFactorService {
       });
     }
     const settings = await this.admin.platformSecuritySettings.findFirst();
-    // Los comerciales la tienen siempre (su panel no abre sin ella).
-    if (settings?.requireAdminTwoFactor || record.role === 'sales') {
+    // Los comerciales la tienen siempre (su panel no abre sin ella), salvo los
+    // que la dirección ha dejado exentos.
+    const mustKeep =
+      record.role === 'sales'
+        ? !record.salesTwoFactorExempt
+        : (settings?.requireAdminTwoFactor ?? false);
+    if (mustKeep) {
       throw new BadRequestException({
         code: 'two_factor_required_by_policy',
         message: 'La política de la plataforma obliga a tener la verificación en dos pasos',

@@ -32,7 +32,7 @@ export function storedSalesCode(): string | null {
   }
 }
 
-/** Lee `?comercial=` de la URL actual y lo guarda. */
+/** Lee `?team=` de la URL actual y lo guarda. */
 export function captureSalesCodeFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
   const code = normalizeSalesCode(

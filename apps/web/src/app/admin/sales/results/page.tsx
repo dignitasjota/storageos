@@ -299,7 +299,7 @@ export default function SalesResultsPage() {
                       <TableCell>
                         <Badge variant={s.status === 'paid' ? 'default' : 'outline'}>
                           {s.status === 'paid'
-                            ? `Pagada ${formatDate(s.paidAt)}`
+                            ? `Pagada en efectivo ${formatDate(s.paidAt)}`
                             : 'Pendiente de pago'}
                         </Badge>
                       </TableCell>
