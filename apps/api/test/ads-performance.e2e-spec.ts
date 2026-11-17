@@ -11,8 +11,12 @@ import { createTestApp } from './helpers/test-app.factory';
 import type { INestApplication } from '@nestjs/common';
 import type { AdPerformanceDto } from '@storageos/shared';
 
+// Días en hora de España, como el servicio: en UTC, entre las 00:00 y las 01:00
+// (o 02:00 en verano) de Madrid «hoy» sería ayer y los contactos quedarían fuera.
 const day = (offset: number) =>
-  new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+  new Date(Date.now() + offset * 86_400_000).toLocaleDateString('sv-SE', {
+    timeZone: 'Europe/Madrid',
+  });
 
 describe('Rendimiento de los anuncios (e2e)', () => {
   let app: INestApplication;

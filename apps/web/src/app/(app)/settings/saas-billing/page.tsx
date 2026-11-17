@@ -10,6 +10,7 @@ import { BillingDetailsSection } from './billing-details-section';
 import { RedsysPaySection } from './redsys-pay-section';
 import { SepaMandateSection } from './sepa-mandate-section';
 
+import { SalesRepCard } from '@/components/billing/sales-rep-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -185,6 +186,8 @@ export default function SaasBillingPage() {
           Gestiona el plan que tienes contratado con nosotros.
         </p>
       </div>
+
+      <SalesRepCard />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2">

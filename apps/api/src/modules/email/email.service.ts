@@ -64,6 +64,11 @@ export interface SendMailRenderedArgs {
   headers?: Record<string, string>;
   /** «Responder a» de este envío (p. ej. quien rellenó un formulario de contacto). */
   replyTo?: EmailAddress;
+  /**
+   * Nombre del remitente de este envío (p. ej. el comercial que lleva la
+   * cuenta). La dirección sigue siendo la de la plataforma; solo sin `tenantId`.
+   */
+  fromName?: string;
   /** Anuncio del panel admin al que pertenece (historial de correos). */
   announcementId?: string;
 }
@@ -158,9 +163,13 @@ export class EmailService {
       args.tenantId
         ? await this.senders.resolve(args.tenantId)
         : await this.platform.platformSender(args.category, args.kind);
+    const from =
+      args.fromName && !args.tenantId
+        ? { email: sender.from.email, name: args.fromName.slice(0, 70) }
+        : sender.from;
     try {
       return await this.provider.send({
-        from: sender.from,
+        from,
         ...(args.replyTo
           ? { replyTo: args.replyTo }
           : sender.replyTo

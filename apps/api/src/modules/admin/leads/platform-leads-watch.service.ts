@@ -9,6 +9,7 @@ import {
   type PlatformTenantRegisteredEvent,
 } from '../../../common/platform-lead-events';
 import { ChatAlertsService } from '../chat-alerts.service';
+import { SalesAssignmentService } from '../sales/sales-assignment.service';
 
 import { PlatformLeadsService } from './platform-leads.service';
 
@@ -26,12 +27,15 @@ export class PlatformLeadsWatchService {
   constructor(
     private readonly leads: PlatformLeadsService,
     private readonly chat: ChatAlertsService,
+    private readonly sales: SalesAssignmentService,
   ) {}
 
   @OnEvent(PLATFORM_LEAD_INBOUND)
   async onInbound(e: PlatformLeadInboundEvent): Promise<void> {
     try {
-      await this.leads.ingestContact(e);
+      const leadId = await this.leads.ingestContact(e);
+      // Con el código de un comercial, el contacto es suyo.
+      if (e.salesCode) await this.sales.attributeContact(leadId, e.salesCode);
     } catch (err) {
       this.logger.error(`Mensaje de la web ${e.contactMessageId} sin lead: ${String(err)}`);
     }
@@ -41,6 +45,14 @@ export class PlatformLeadsWatchService {
   async onTenant(e: PlatformTenantRegisteredEvent): Promise<void> {
     try {
       await this.leads.ingestTenant(e);
+      // Comercial de la cuenta: solo con su código o si la crea él.
+      await this.sales.attributeSignup({
+        tenantId: e.tenantId,
+        tenantName: e.tenantName,
+        salesCode: e.salesCode ?? null,
+        salesCodeFrom: e.salesCodeFrom ?? null,
+        createdById: e.source === 'admin' ? e.superAdminId : null,
+      });
     } catch (err) {
       this.logger.error(`Tenant ${e.tenantId} sin lead: ${String(err)}`);
     }

@@ -520,6 +520,13 @@ export class SuperAdminService {
         message: 'No puedes cambiar tu propio rol',
       });
     }
+    // Un comercial tiene código, cartera y comisiones: se gestiona en «Equipo comercial».
+    if ((target.role === 'sales') !== (args.role === 'sales')) {
+      throw new BadRequestException({
+        code: 'sales_role_locked',
+        message: 'Los comerciales se dan de alta y de baja en «Equipo comercial»',
+      });
+    }
     if (target.role === 'superadmin' && args.role !== 'superadmin' && target.isActive) {
       const activeSuperadmins = await this.admin.superAdmin.count({
         where: { isActive: true, role: 'superadmin' },
@@ -550,6 +557,7 @@ export class SuperAdminService {
       twoFactorEnabled: record.twoFactorEnabled,
       lastLoginAt: record.lastLoginAt ? record.lastLoginAt.toISOString() : null,
       createdAt: record.createdAt.toISOString(),
+      ...(record.role === 'sales' ? { salesCode: record.salesCode ?? null } : {}),
     };
   }
 }

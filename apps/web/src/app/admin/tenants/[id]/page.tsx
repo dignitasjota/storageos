@@ -46,6 +46,7 @@ import { TenantUsersDialog } from './tenant-users-dialog';
 import { WhatsappAiCard } from './whatsapp-ai-card';
 
 import { PlatformEmailLog } from '@/components/admin/platform-email-log';
+import { TenantRepCard } from '@/components/admin/sales/tenant-rep-card';
 import { SupportTicketList } from '@/components/admin/support-ticket-list';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -430,6 +431,7 @@ export default function AdminTenantDetailPage() {
             <AiUsageCard tenantId={id} />
             <WhatsappAiCard tenantId={id} />
             <TenantNotesCard tenantId={id} />
+            <TenantRepCard tenantId={id} />
           </div>
         </TabsContent>
 

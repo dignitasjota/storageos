@@ -92,6 +92,14 @@ export interface LeadActor {
   userAgent?: string | null;
 }
 
+/** Remitente de un correo a un lead: el comercial que lo lleva (y su firma). */
+export interface LeadEmailSender {
+  fromName: string;
+  replyTo: { email: string; name?: string };
+  /** Firma con la que acaba la propuesta (en vez de «El equipo de TrasterOS»). */
+  signature?: string;
+}
+
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 const madridToday = (now = new Date()) => isoDate(todayInTimezone('Europe/Madrid', now));
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
@@ -226,6 +234,17 @@ export class PlatformLeadsService {
       followups: followups.map(toLeadFollowupDto),
       quoteOffers: offers.items,
     };
+  }
+
+  /** Leads de un filtro (lo usa la cartera de cada comercial). */
+  async listDtos(where: Prisma.PlatformLeadWhereInput, take = 500): Promise<PlatformLeadDto[]> {
+    const rows = await this.admin.platformLead.findMany({
+      where: { discardedAt: null, ...where },
+      include: LEAD_INCLUDE,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take,
+    });
+    return this.toDtos(rows);
   }
 
   private async toDtos(rows: LeadRow[]): Promise<PlatformLeadDto[]> {
@@ -723,6 +742,7 @@ export class PlatformLeadsService {
     id: string,
     input: SendPlatformLeadEmailInput,
     actor: LeadActor,
+    sender?: LeadEmailSender,
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
     if (!lead.email) {
@@ -731,7 +751,7 @@ export class PlatformLeadsService {
         message: 'Este lead no tiene email',
       });
     }
-    await this.deliver(lead.email, lead.contactName, input.subject, input.body);
+    await this.deliver(lead.email, lead.contactName, input.subject, input.body, sender);
     await this.addActivity(id, 'email_out', input.body, actor.superAdminId, {
       subject: input.subject,
     });
@@ -744,17 +764,24 @@ export class PlatformLeadsService {
     name: string | null,
     subject: string,
     markdown: string,
+    sender?: LeadEmailSender,
   ): Promise<void> {
-    const website = await this.admin.platformWebsite.findFirst({ select: { contactEmail: true } });
+    const website = sender
+      ? null
+      : await this.admin.platformWebsite.findFirst({ select: { contactEmail: true } });
     const mail = renderAdminEmail(markdown);
     const result = await this.email.sendRendered({
       to,
       subject,
       html: mail.html,
       text: mail.text,
-      ...(website?.contactEmail ? { replyTo: { email: website.contactEmail } } : {}),
+      ...(sender
+        ? { replyTo: sender.replyTo, fromName: sender.fromName }
+        : website?.contactEmail
+          ? { replyTo: { email: website.contactEmail } }
+          : {}),
       kind: 'web_contact',
-      tags: { type: 'platform_lead' },
+      tags: { type: sender ? 'sales' : 'platform_lead' },
     });
     if (result.suppressed) {
       throw new BadRequestException({
@@ -900,6 +927,7 @@ export class PlatformLeadsService {
     id: string,
     input: SendAdminQuoteInput,
     actor: LeadActor,
+    sender?: LeadEmailSender,
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
     const meta = {
@@ -911,7 +939,7 @@ export class PlatformLeadsService {
     let planSlug: string | null = null;
     if (lead.tenantId) {
       // Ya tiene cuenta: la propuesta de siempre, a sus propietarios.
-      const res = await this.quotes.send(lead.tenantId, input, meta);
+      const res = await this.quotes.send(lead.tenantId, input, meta, sender);
       summary = quoteSummary(res.quote);
     } else {
       if (!lead.email) {
@@ -920,7 +948,7 @@ export class PlatformLeadsService {
           message: 'Este lead no tiene email',
         });
       }
-      const { quote, registerUrl } = await this.quotes.createLeadOffer(
+      const { quote, registerUrl, trackedUrl } = await this.quotes.createLeadOffer(
         { id, email: lead.email, companyName: lead.companyName, contactName: lead.contactName },
         input,
         actor.superAdminId,
@@ -946,17 +974,18 @@ export class PlatformLeadsService {
         '',
         'Para empezar, crea tu cuenta (tienes la prueba gratis) y, cuando quieras contratar, la propuesta te estará esperando en «Suscripción».',
         '',
-        `[[boton: Crear mi cuenta | ${registerUrl}]]`,
+        `[[boton: Crear mi cuenta | ${trackedUrl ?? registerUrl}]]`,
         '',
         'Si tienes dudas, responde a este correo.',
         '',
-        'El equipo de TrasterOS',
+        sender?.signature ?? 'El equipo de TrasterOS',
       ].join('\n');
       await this.deliver(
         lead.email,
         lead.contactName,
         `Tu propuesta de TrasterOS: ${money(quote.total)} ${period}`,
         body,
+        sender,
       );
       if (input.followupDays > 0) {
         await this.admin.platformLeadFollowup.create({

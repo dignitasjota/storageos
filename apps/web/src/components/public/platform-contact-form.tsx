@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { salesCodeFields } from '@/lib/sales-code';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -61,6 +62,7 @@ export function PlatformContactForm({ config }: { config: PublicContactFormDto }
           ...(config.showUnits && form.units ? { units: form.units } : {}),
           ...(config.showProfile && form.profile ? { profile: form.profile } : {}),
           ...platformTrafficFields(),
+          ...salesCodeFields(),
         }),
       });
       if (res.ok) {

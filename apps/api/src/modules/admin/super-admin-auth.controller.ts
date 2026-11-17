@@ -51,7 +51,7 @@ import { respondThenRun } from '../../common/security/respond-then-run';
 
 import { AdminGuard } from './admin.guard';
 import { CurrentSuperAdmin, type AuthenticatedSuperAdmin } from './current-super-admin.decorator';
-import { AllowWithoutTwoFactor } from './require-superadmin.decorator';
+import { AllowWithoutTwoFactor, SalesAccess } from './require-superadmin.decorator';
 import { SuperAdminSessionsService } from './super-admin-sessions.service';
 import { SuperAdminTwoFactorService } from './super-admin-two-factor.service';
 import { SuperAdminService, type SuperAdminLoginMeta } from './super-admin.service';
@@ -94,6 +94,7 @@ const COOKIE_PATH = '/v1/admin';
  */
 @ApiTags('Admin')
 @AllowWithoutTwoFactor()
+@SalesAccess()
 @Controller('admin/auth')
 export class SuperAdminAuthController {
   private readonly logger = new Logger(SuperAdminAuthController.name);

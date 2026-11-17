@@ -1,10 +1,17 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type RegisterInput, RegisterSchema } from '@storageos/shared';
+import {
+  normalizeSalesCode,
+  type RegisterInput,
+  RegisterSchema,
+  type SalesCodeCheckDto,
+} from '@storageos/shared';
+import { BadgeCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -22,14 +29,114 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import { ApiError } from '@/lib/auth/api';
+import { Label } from '@/components/ui/label';
+import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useRegister } from '@/lib/auth/hooks';
+import { rememberSalesCode, storedSalesCode } from '@/lib/sales-code';
 
 /** Datos que trae el enlace de una propuesta (email, empresa y nombre). */
 export interface RegisterDefaults {
   email?: string;
   tenantName?: string;
   fullName?: string;
+  /** Código del comercial del enlace o el QR (`?comercial=`). */
+  salesCode?: string;
+}
+
+/** Comprueba un código de comercial (nombre de quien atiende y días de más). */
+async function checkSalesCode(code: string): Promise<SalesCodeCheckDto | null> {
+  try {
+    return await apiFetch<SalesCodeCheckDto>(`/public/sales/code/${encodeURIComponent(code)}`, {
+      requiresAuth: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Código de comercial: viene puesto si la visita llegó por su enlace o su QR;
+ * si no, el cliente puede escribirlo (solo así la cuenta será de ese comercial).
+ */
+function SalesCodeField({
+  value,
+  fromLink,
+  onChange,
+}: {
+  value: string;
+  fromLink: boolean;
+  onChange: (code: string, fromLink: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [check, setCheck] = useState<SalesCodeCheckDto | null>(null);
+  const code = normalizeSalesCode(value);
+
+  useEffect(() => {
+    if (!code) {
+      setCheck(null);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      void checkSalesCode(code).then((r) => alive && setCheck(r));
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [code]);
+
+  if (fromLink && code && check?.valid) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+        <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+        <div>
+          Te atiende <strong>{check.repName}</strong> (código {code}).
+          {check.extraTrialDays > 0 && <> Tienes {check.extraTrialDays} días más de prueba.</>}
+        </div>
+      </div>
+    );
+  }
+
+  if (!open && !value) {
+    return (
+      <button
+        type="button"
+        className="text-sm text-primary underline-offset-2 hover:underline"
+        onClick={() => setOpen(true)}
+      >
+        ¿Te ha atendido un comercial? Añade su código
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <Label htmlFor="register-sales-code">Código de comercial (opcional)</Label>
+      <Input
+        id="register-sales-code"
+        value={value}
+        maxLength={20}
+        autoComplete="off"
+        placeholder="Por ejemplo, ANA7K2"
+        onChange={(e) => onChange(e.target.value.toUpperCase(), false)}
+      />
+      {value && !code && (
+        <p className="text-xs text-destructive">El código tiene entre 4 y 12 letras o números.</p>
+      )}
+      {code && check && !check.valid && (
+        <p className="text-xs text-destructive">
+          No encontramos ese código. Revísalo con tu comercial.
+        </p>
+      )}
+      {code && check?.valid && (
+        <p className="text-xs text-emerald-700 dark:text-emerald-400">
+          Te atiende {check.repName}.
+          {check.extraTrialDays > 0 && ` Tienes ${check.extraTrialDays} días más de prueba.`}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults }) {
@@ -37,6 +144,21 @@ export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults })
   const tCommon = useTranslations('common');
   const router = useRouter();
   const register = useRegister();
+  const [salesCode, setSalesCode] = useState(defaults.salesCode ?? '');
+  const [salesCodeFromLink, setSalesCodeFromLink] = useState(!!defaults.salesCode);
+
+  // El código del enlace del comercial: el de la URL o el que guardó la web.
+  useEffect(() => {
+    if (defaults.salesCode) {
+      rememberSalesCode(defaults.salesCode);
+      return;
+    }
+    const stored = storedSalesCode();
+    if (stored) {
+      setSalesCode(stored);
+      setSalesCodeFromLink(true);
+    }
+  }, [defaults.salesCode]);
 
   const form = useForm<RegisterInput>({
     resolver: zodResolver(RegisterSchema),
@@ -53,10 +175,12 @@ export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults })
   });
 
   async function onSubmit(values: RegisterInput) {
+    const code = normalizeSalesCode(salesCode);
     const payload: RegisterInput = {
       ...values,
       tenantSlug: values.tenantSlug?.trim() || undefined,
       ...platformTrafficFields(),
+      ...(code ? { salesCode: code, salesCodeFrom: salesCodeFromLink ? 'link' : 'typed' } : {}),
     };
     try {
       const res = await register.mutateAsync(payload);
@@ -151,6 +275,14 @@ export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults })
               <FormMessage />
             </FormItem>
           )}
+        />
+        <SalesCodeField
+          value={salesCode}
+          fromLink={salesCodeFromLink}
+          onChange={(code, fromLink) => {
+            setSalesCode(code);
+            setSalesCodeFromLink(fromLink);
+          }}
         />
         <FormField
           control={form.control}

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -62,6 +63,12 @@ export class AdminSuperAdminsController {
     @Body() input: CreateSuperAdminDto,
     @Req() req: Request,
   ): Promise<SuperAdminDto> {
+    if (input.role === 'sales') {
+      throw new BadRequestException({
+        code: 'sales_role_locked',
+        message: 'Los comerciales se dan de alta en «Equipo comercial»',
+      });
+    }
     const created = await this.admins.create({
       email: input.email,
       fullName: input.fullName,

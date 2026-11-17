@@ -23,6 +23,8 @@ interface ImpersonateArgs {
   reason: string;
   /** Solo lectura: permisos de `readonly` y el API rechaza las escrituras. */
   readOnly?: boolean;
+  /** Sin aviso al propietario (la cuenta de demostración de los comerciales). */
+  skipOwnerNotice?: boolean;
   ipAddress?: string | null;
   userAgent?: string | null;
 }
@@ -126,7 +128,9 @@ export class ImpersonationService {
       },
     );
 
-    if (!args.readOnly) void this.notifyOwners(tenant.id, tenant.name, args.reason);
+    if (!args.readOnly && !args.skipOwnerNotice) {
+      void this.notifyOwners(tenant.id, tenant.name, args.reason);
+    }
 
     await this.audit.write({
       tenantId: tenant.id,

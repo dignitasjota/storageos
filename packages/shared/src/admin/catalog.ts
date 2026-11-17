@@ -106,6 +106,12 @@ export interface PlatformQuoteOfferDto {
   status: QuoteOfferStatus;
   resolvedAt: string | null;
   createdAt: string;
+  /** Primera vez que abrió el enlace del correo. */
+  openedAt: string | null;
+  /** Hasta cuándo vale (null = sin fecha). */
+  expiresAt: string | null;
+  /** Enviada y ya fuera de plazo. */
+  expired: boolean;
   superAdminName: string | null;
   /** Enlace para aceptarla: Suscripción del tenant, o el registro si es de un lead. */
   acceptUrl: string;

@@ -28,6 +28,8 @@ export interface SuperAdminDto {
   twoFactorEnabled: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+  /** Solo comerciales: su código. */
+  salesCode?: string | null;
 }
 
 export interface SuperAdminSessionDto {
@@ -1788,6 +1790,8 @@ export interface PlatformCouponDto {
   validFrom: string | null;
   /** Se puede usar al pagar con tarjeta (existe en Stripe). */
   stripeReady: boolean;
+  /** Lo pueden usar los comerciales en sus propuestas. */
+  salesAllowed: boolean;
   createdAt: string;
   updatedAt: string;
 }

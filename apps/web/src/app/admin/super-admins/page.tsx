@@ -6,6 +6,7 @@ import {
   type SuperAdminDto,
   type SuperAdminRoleValue,
 } from '@storageos/shared';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -245,7 +246,11 @@ export default function SuperAdminsPage() {
                     <TableCell className="font-medium">{a.fullName}</TableCell>
                     <TableCell className="text-sm">{a.email}</TableCell>
                     <TableCell>
-                      {canManage && a.id !== me.data?.id ? (
+                      {a.role === 'sales' ? (
+                        <Link href={`/admin/sales-team/${a.id}`}>
+                          <Badge variant="outline">Comercial</Badge>
+                        </Link>
+                      ) : canManage && a.id !== me.data?.id ? (
                         <select
                           aria-label={`Rol de ${a.fullName}`}
                           className="h-8 rounded-md border bg-background px-2 text-sm"

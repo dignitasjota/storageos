@@ -15,6 +15,7 @@ import { adminTwoFactorDeadline } from './admin-two-factor-policy';
 import {
   ALLOW_WITHOUT_TWO_FACTOR_KEY,
   REQUIRE_SUPERADMIN_KEY,
+  SALES_ACCESS_KEY,
 } from './require-superadmin.decorator';
 
 import type { AuthenticatedSuperAdmin } from './current-super-admin.decorator';
@@ -101,6 +102,20 @@ export class AdminGuard implements CanActivate {
       });
     }
     await this.assertTwoFactorPolicy(ctx, record);
+    // Comercial: denegado por defecto. Solo llega a las rutas marcadas con
+    // @SalesAccess() (las suyas y las de su propia cuenta).
+    if (record.role === 'sales') {
+      const salesAllowed = this.reflector.getAllAndOverride<boolean>(SALES_ACCESS_KEY, [
+        ctx.getHandler(),
+        ctx.getClass(),
+      ]);
+      if (!salesAllowed) {
+        throw new ForbiddenException({
+          code: 'sales_not_allowed',
+          message: 'Esta sección no está disponible para los comerciales',
+        });
+      }
+    }
     // Separacion de roles: acciones destructivas/de dinero/de seguridad
     // marcadas con @RequireSuperadmin() exigen el rol completo.
     const requiresSuperadmin = this.reflector.getAllAndOverride<boolean>(REQUIRE_SUPERADMIN_KEY, [
@@ -123,7 +138,7 @@ export class AdminGuard implements CanActivate {
   /** Pasado el plazo de la política, sin 2FA solo se puede activarla. */
   private async assertTwoFactorPolicy(
     ctx: ExecutionContext,
-    record: { twoFactorEnabled: boolean; createdAt: Date },
+    record: { twoFactorEnabled: boolean; createdAt: Date; role: string },
   ): Promise<void> {
     if (record.twoFactorEnabled) return;
     const allowed = this.reflector.getAllAndOverride<boolean>(ALLOW_WITHOUT_TWO_FACTOR_KEY, [
@@ -131,6 +146,14 @@ export class AdminGuard implements CanActivate {
       ctx.getClass(),
     ]);
     if (allowed) return;
+    // Un comercial ve datos de clientes: la verificación en dos pasos es
+    // obligatoria desde el primer día, haya o no política para el resto.
+    if (record.role === 'sales') {
+      throw new ForbiddenException({
+        code: 'admin_two_factor_required',
+        message: 'Activa la verificación en dos pasos para usar el panel',
+      });
+    }
     const settings = await this.adminDb.platformSecuritySettings.findFirst();
     if (!settings) return;
     const deadline = adminTwoFactorDeadline(settings, record.createdAt);

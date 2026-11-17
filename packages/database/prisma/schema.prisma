@@ -315,6 +315,16 @@ model Tenant {
   platformCouponRedemptions PlatformCouponRedemption[]
   quoteOffers       PlatformQuoteOffer[]
   platformLead      PlatformLead?
+  /// Comercial que lleva la cuenta (y cobra su comisión).
+  salesRepId        String?        @map("sales_rep_id") @db.Uuid
+  salesAssignedAt   DateTime?      @map("sales_assigned_at") @db.Timestamptz(6)
+  /// link · code · created · manual
+  salesSource       String?        @map("sales_source")
+  salesRep          SuperAdmin?    @relation("TenantSalesRep", fields: [salesRepId], references: [id], onDelete: SetNull)
+  salesAssignments  SalesAssignment[]
+  salesAddonClaims  SalesAddonClaim[]
+  salesCommissionItems SalesCommissionItem[]
+  salesDemoSettings PlatformSalesSettings[] @relation("SalesDemoTenant")
   /// Comisión propia por cobros con tarjeta (Stripe Connect); null = la general.
   applicationFeePct Decimal? @map("application_fee_pct") @db.Decimal(5, 2)
   businessReminders           BusinessReminder[]
@@ -4886,6 +4896,8 @@ model CameraEvent {
 enum SuperAdminRole {
   superadmin
   support
+  /// Comercial: solo sus pantallas (`/admin/sales/*`) y su cartera.
+  sales
 
   @@map("super_admin_role")
 }
@@ -4933,8 +4945,25 @@ model SuperAdmin {
   passwordResetExpiresAt          DateTime?      @map("password_reset_expires_at") @db.Timestamptz(6)
   /// Los access tokens emitidos antes de esta fecha ya no valen.
   tokensValidAfter                DateTime?      @map("tokens_valid_after") @db.Timestamptz(6)
+  /// Comercial: código de su enlace y su QR, y cómo contactarle.
+  salesCode                       String?        @unique @map("sales_code")
+  phone                           String?
+  whatsapp                        String?
+  bookingUrl                      String?        @map("booking_url")
   createdAt                       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  notificationsReceived   SuperAdminNotification[] @relation("NotificationRecipient")
+  salesTenants            Tenant[]                 @relation("TenantSalesRep")
+  salesLeads              PlatformLead[]           @relation("PlatformLeadSalesRep")
+  salesAssignments        SalesAssignment[]
+  salesCommissionPlan     SalesCommissionPlan?
+  salesCommissionConcepts SalesCommissionConcept[]
+  salesAddonClaims        SalesAddonClaim[]
+  salesSettlements        SalesSettlement[]
+  salesCommissionItems    SalesCommissionItem[]
+  salesTargets            SalesTarget[]
+  salesCadenceEnrollments SalesCadenceEnrollment[]
 
   securityBlocks SecurityBlock[] @relation("SecurityBlockAuthor")
   todaySnoozes   AdminTodaySnooze[] @relation("TodaySnoozeAuthor")
@@ -6233,6 +6262,7 @@ model TenantSubscriptionPayment {
   /// Factura real (del tenant propio) que factura este pago.
   ownTenantInvoice Invoice? @relation("InvoicePlatformPayment")
   sepaItems        PlatformSepaRemittanceItem[]
+  salesCommissionItems SalesCommissionItem[]
 
   @@index([tenantId, paidAt])
   @@index([firstFailedAt])
@@ -6260,6 +6290,8 @@ model PlatformCoupon {
   oncePerTenant Boolean   @default(false) @map("once_per_tenant")
   validFrom     DateTime? @map("valid_from") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Lo pueden usar los comerciales en sus propuestas.
+  salesAllowed  Boolean   @default(false) @map("sales_allowed")
   updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   redemptions PlatformCouponRedemption[]
@@ -6319,8 +6351,14 @@ model PlatformQuoteOffer {
   /// `sent` · `accepted` · `rejected`.
   status       String    @default("sent")
   resolvedAt   DateTime? @map("resolved_at") @db.Timestamptz(6)
+  /// Primera vez que abrió el enlace del correo.
+  openedAt     DateTime? @map("opened_at") @db.Timestamptz(6)
+  /// Hasta cuándo vale (null = sin fecha).
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz(6)
+  reminderSentAt DateTime? @map("reminder_sent_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  salesAddonClaims SalesAddonClaim[]
   tenant Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lead   PlatformLead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
   plan   SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -7102,9 +7140,14 @@ model SuperAdminNotification {
   readAt    DateTime? @map("read_at") @db.Timestamptz(6)
   /// Cuándo se envió por push (null = pendiente).
   pushedAt  DateTime? @map("pushed_at") @db.Timestamptz(6)
+  /// Aviso personal (p. ej. de un comercial). Null = del equipo de administración.
+  recipientId String?   @map("recipient_id") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  recipient SuperAdmin? @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
   @@index([createdAt(sort: Desc)])
+  @@index([recipientId, createdAt(sort: Desc)], map: "super_admin_notifications_recipient_idx")
   @@map("super_admin_notifications")
 }
 
@@ -7689,6 +7732,7 @@ model SubscriptionAddon {
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenantAddons  TenantSubscriptionAddon[]
+  salesAddonClaims SalesAddonClaim[]
   featureTrials TenantFeatureOverride[]
 
   @@map("subscription_addons")
@@ -8351,9 +8395,16 @@ model PlatformLead {
   /// «No es un lead»: sale del tablero y de las cifras.
   discardedAt          DateTime? @map("discarded_at") @db.Timestamptz(6)
   createdById          String?   @map("created_by_id") @db.Uuid
+  /// Comercial que lo lleva.
+  salesRepId           String?   @map("sales_rep_id") @db.Uuid
+  salesAssignedAt      DateTime? @map("sales_assigned_at") @db.Timestamptz(6)
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  salesRep        SuperAdmin?              @relation("PlatformLeadSalesRep", fields: [salesRepId], references: [id], onDelete: SetNull)
+  salesProfile    SalesAccountProfile?
+  salesAssignments SalesAssignment[]
+  salesCadenceEnrollments SalesCadenceEnrollment[]
   assignedTo  SuperAdmin?            @relation("PlatformLeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   createdBy   SuperAdmin?            @relation("PlatformLeadCreator", fields: [createdById], references: [id], onDelete: SetNull)
   tenant      Tenant?                @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -8556,4 +8607,285 @@ model MarketingAnnotation {
 
   @@index([tenantId, day], map: "marketing_annotations_tenant_day_idx")
   @@map("marketing_annotations")
+}
+
+// ============================================================================
+// Comerciales (panel de administración, rol `sales`). Tablas globales sin RLS:
+// solo las usa el panel de administración (REVOKE a la app en la migración).
+// ============================================================================
+
+/// Historial de asignaciones de cuentas y leads a comerciales.
+model SalesAssignment {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  repId        String    @map("rep_id") @db.Uuid
+  tenantId     String?   @map("tenant_id") @db.Uuid
+  leadId       String?   @map("lead_id") @db.Uuid
+  /// link · code · created · lead · manual · import
+  source       String
+  assignedById String?   @map("assigned_by_id") @db.Uuid
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
+  /// reassigned · released · unassigned
+  endedReason  String?   @map("ended_reason")
+
+  rep    SuperAdmin    @relation(fields: [repId], references: [id], onDelete: Cascade)
+  tenant Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lead   PlatformLead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, startedAt], map: "sales_assignments_tenant_idx")
+  @@index([leadId, startedAt], map: "sales_assignments_lead_idx")
+  @@index([repId, startedAt], map: "sales_assignments_rep_idx")
+  @@map("sales_assignments")
+}
+
+/// Ficha de llamada de una cuenta (siempre por su lead).
+model SalesAccountProfile {
+  leadId             String    @id @map("lead_id") @db.Uuid
+  pinnedNote         String?   @map("pinned_note")
+  status             String?
+  temperature        String?
+  decisionMaker      String?   @map("decision_maker")
+  bestTime           String?   @map("best_time")
+  nextAction         String?   @map("next_action")
+  lastOutcome        String?   @map("last_outcome")
+  lastContactAt      DateTime? @map("last_contact_at") @db.Timestamptz(6)
+  trialExtensionDays Int       @default(0) @map("trial_extension_days")
+  addonTrials        Int       @default(0) @map("addon_trials")
+  updatedById        String?   @map("updated_by_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lead PlatformLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@map("sales_account_profiles")
+}
+
+/// Comisión de un comercial.
+model SalesCommissionPlan {
+  repId          String   @id @map("rep_id") @db.Uuid
+  revenuePct     Decimal  @default(0) @map("revenue_pct") @db.Decimal(5, 2)
+  /// Meses desde el primer pago del cliente en que cuenta el % (null = siempre).
+  revenueMonths  Int?     @map("revenue_months")
+  perSaleAmount  Decimal  @default(0) @map("per_sale_amount") @db.Decimal(10, 2)
+  perAddonAmount Decimal  @default(0) @map("per_addon_amount") @db.Decimal(10, 2)
+  notes          String?
+  updatedById    String?  @map("updated_by_id") @db.Uuid
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rep SuperAdmin @relation(fields: [repId], references: [id], onDelete: Cascade)
+
+  @@map("sales_commission_plans")
+}
+
+/// Conceptos propios de la comisión de un comercial (p. ej. migración de datos).
+model SalesCommissionConcept {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  repId     String   @map("rep_id") @db.Uuid
+  name      String
+  amount    Decimal  @db.Decimal(10, 2)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rep   SuperAdmin            @relation(fields: [repId], references: [id], onDelete: Cascade)
+  items SalesCommissionItem[]
+
+  @@index([repId], map: "sales_commission_concepts_rep_idx")
+  @@map("sales_commission_concepts")
+}
+
+/// Extra contratado por un cliente de un comercial (cuenta solo si se aprueba).
+model SalesAddonClaim {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  tenantAddonId String    @unique(map: "sales_addon_claims_tenant_addon_key") @map("tenant_addon_id") @db.Uuid
+  addonId       String    @map("addon_id") @db.Uuid
+  repId         String    @map("rep_id") @db.Uuid
+  /// pending · approved · rejected
+  status        String    @default("pending")
+  offerId       String?   @map("offer_id") @db.Uuid
+  repNote       String?   @map("rep_note")
+  partOfSale    Boolean   @default(false) @map("part_of_sale")
+  decidedById   String?   @map("decided_by_id") @db.Uuid
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
+  decisionNote  String?   @map("decision_note")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  addon  SubscriptionAddon   @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  rep    SuperAdmin          @relation(fields: [repId], references: [id], onDelete: Cascade)
+  offer  PlatformQuoteOffer? @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  items  SalesCommissionItem[]
+
+  @@index([status, createdAt], map: "sales_addon_claims_status_idx")
+  @@index([repId, createdAt], map: "sales_addon_claims_rep_idx")
+  @@map("sales_addon_claims")
+}
+
+/// Liquidación mensual de comisiones de un comercial.
+model SalesSettlement {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  repId       String    @map("rep_id") @db.Uuid
+  month       String
+  total       Decimal   @db.Decimal(12, 2)
+  itemsCount  Int       @map("items_count")
+  /// pending_payment · paid
+  status      String    @default("pending_payment")
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
+  paidById    String?   @map("paid_by_id") @db.Uuid
+  note        String?
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rep   SuperAdmin            @relation(fields: [repId], references: [id], onDelete: Cascade)
+  items SalesCommissionItem[]
+
+  @@unique([repId, month], map: "sales_settlements_rep_month_key")
+  @@map("sales_settlements")
+}
+
+/// Cada comisión devengada o pendiente de aprobar.
+model SalesCommissionItem {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  repId         String    @map("rep_id") @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  /// revenue · sale · addon_sale · concept · adjustment
+  kind          String
+  paymentId     String?   @map("payment_id") @db.Uuid
+  addonId       String?   @map("addon_id") @db.Uuid
+  claimId       String?   @map("claim_id") @db.Uuid
+  conceptId     String?   @map("concept_id") @db.Uuid
+  description   String
+  /// Mes de devengo (AAAA-MM, hora de España).
+  month         String
+  baseAmount    Decimal?  @map("base_amount") @db.Decimal(12, 2)
+  rate          Decimal?  @db.Decimal(6, 3)
+  amount        Decimal   @db.Decimal(12, 2)
+  /// pending · approved · rejected
+  status        String    @default("approved")
+  settlementId  String?   @map("settlement_id") @db.Uuid
+  requestedById String?   @map("requested_by_id") @db.Uuid
+  decidedById   String?   @map("decided_by_id") @db.Uuid
+  decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
+  decisionNote  String?   @map("decision_note")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rep        SuperAdmin                 @relation(fields: [repId], references: [id], onDelete: Cascade)
+  tenant     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment    TenantSubscriptionPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  claim      SalesAddonClaim?           @relation(fields: [claimId], references: [id], onDelete: SetNull)
+  concept    SalesCommissionConcept?    @relation(fields: [conceptId], references: [id], onDelete: SetNull)
+  settlement SalesSettlement?           @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([repId, month], map: "sales_commission_items_rep_month_idx")
+  @@index([paymentId], map: "sales_commission_items_payment_idx")
+  @@index([status, createdAt], map: "sales_commission_items_status_idx")
+  @@index([settlementId], map: "sales_commission_items_settlement_idx")
+  @@map("sales_commission_items")
+}
+
+/// Objetivo mensual de un comercial.
+model SalesTarget {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  repId      String   @map("rep_id") @db.Uuid
+  month      String
+  newClients Int      @default(0) @map("new_clients")
+  newMrr     Decimal  @default(0) @map("new_mrr") @db.Decimal(10, 2)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  rep SuperAdmin @relation(fields: [repId], references: [id], onDelete: Cascade)
+
+  @@unique([repId, month], map: "sales_targets_rep_month_key")
+  @@map("sales_targets")
+}
+
+/// Ajustes del equipo comercial (un registro).
+model PlatformSalesSettings {
+  id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  signupExtraTrialDays  Int       @default(0) @map("signup_extra_trial_days")
+  leadReleaseDays       Int       @default(90) @map("lead_release_days")
+  repTrialExtensionDays Int       @default(14) @map("rep_trial_extension_days")
+  repAddonTrialDays     Int       @default(14) @map("rep_addon_trial_days")
+  lifecycleFromRep      Boolean   @default(true) @map("lifecycle_from_rep")
+  demoTenantId          String?   @map("demo_tenant_id") @db.Uuid
+  demoResetEnabled      Boolean   @default(true) @map("demo_reset_enabled")
+  demoResetAt           DateTime? @map("demo_reset_at") @db.Timestamptz(6)
+  updatedById           String?   @map("updated_by_id") @db.Uuid
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  demoTenant Tenant? @relation("SalesDemoTenant", fields: [demoTenantId], references: [id], onDelete: SetNull)
+
+  @@map("platform_sales_settings")
+}
+
+/// Materiales de venta.
+model SalesMaterial {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  title       String
+  description String?
+  /// file · link · note
+  kind        String
+  url         String?
+  fileKey     String?  @map("file_key")
+  fileName    String?  @map("file_name")
+  mimeType    String?  @map("mime_type")
+  sizeBytes   Int?     @map("size_bytes")
+  body        String?
+  position    Int      @default(0)
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("sales_materials")
+}
+
+/// Plantillas de correo y WhatsApp de los comerciales.
+model SalesTemplate {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name      String
+  /// email · whatsapp
+  channel   String
+  stage     String?
+  subject   String?
+  body      String
+  position  Int      @default(0)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("sales_templates")
+}
+
+/// Cadencias de contacto (pasos que crean seguimientos).
+model SalesCadence {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name        String
+  description String?
+  steps       Json     @default("[]")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollments SalesCadenceEnrollment[]
+
+  @@map("sales_cadences")
+}
+
+model SalesCadenceEnrollment {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  cadenceId   String    @map("cadence_id") @db.Uuid
+  leadId      String    @map("lead_id") @db.Uuid
+  repId       String    @map("rep_id") @db.Uuid
+  followupIds String[]  @default([]) @map("followup_ids") @db.Uuid
+  /// active · done · stopped
+  status      String    @default("active")
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  cadence SalesCadence @relation(fields: [cadenceId], references: [id], onDelete: Cascade)
+  lead    PlatformLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  rep     SuperAdmin   @relation(fields: [repId], references: [id], onDelete: Cascade)
+
+  @@index([repId, status], map: "sales_cadence_enrollments_rep_idx")
+  @@map("sales_cadence_enrollments")
 }

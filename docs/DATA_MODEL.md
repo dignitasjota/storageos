@@ -1232,3 +1232,74 @@ Migración `20270112100000_platform_blog`. Tabla global (sin tenant, REVOKE a `s
 
 - **`platform_blog_posts`**: guías de trasteros.pro/blog. `slug` único, `title`, `excerpt`, `content_markdown`, `cover_image_key` (bucket público, `platform/blog/<id>/…`) y `cover_image_alt`, `seo_title`, `seo_description`, `is_published` y `published_at` (se fija la primera vez que se publica; índice `(is_published, published_at DESC)`). La migración trae 4 guías en borrador.
 - `platform_website.home` (jsonb) gana `testimonials` (hasta 6) y `platform_leads.source` admite `demo` y `calculator`.
+
+### Campañas y Comunicaciones: arreglos (`20270126100000_campaigns_review`)
+
+- `campaigns.facility_scope` (UUID[], no nulo, por defecto vacío = toda la empresa): locales de quien creó la campaña; su audiencia se limita a los inquilinos con contrato en ellos y a los contactos de esos locales.
+- `campaigns.results_snapshot` (jsonb): resultados guardados antes de que la limpieza de 180 días borre los envíos.
+- La migración libera las reservas del win-back sin correo de los últimos 90 días (una variable mal escrita las dejaba marcadas) y tapa con `••••` el código de los enlaces con acceso (firma, anexo, domiciliación, valoración, descarga de factura, `?token=`) en los envíos ya guardados.
+
+### Campañas y Comunicaciones: mejoras (`20270127100000_campaigns_features`)
+
+- En `campaigns`: `subject_en` y `body_text_en` (versión en inglés), `coupon_code` y `whatsapp_template` (nombre e idioma de la plantilla aprobada de WhatsApp).
+- **`campaign_segments`** (RLS): segmentos guardados del negocio (nombre y filtros).
+- **`campaign_automations`** (RLS): campañas automáticas (aniversario del inquilino y contactos que no avanzan), apagadas por defecto, con su texto, canal y días.
+- **`campaign_automation_sends`** (RLS): un envío por automática, destinatario y periodo. `recipient_key` es texto (`c:<id>` inquilino, `l:<id>` contacto) sin clave ajena, así que no entra en `CUSTOMER_REFERENCES`.
+
+### Fianzas con servicio (`20270128100000_deposit_service_invoice`)
+
+- `contracts.deposit_service_invoice_id` (sin clave ajena): factura con IVA del servicio pagado con la fianza al liquidarla (limpieza, vaciado, retirada de enseres).
+- `tenants.deposit_registry_storage` (por defecto `false`): depositar también las fianzas de los trasteros (las de vivienda siempre).
+
+### Fidelización: arreglos (`20270129100000_loyalty_review`)
+
+- `promotions.announce_on_web`: la promoción que anuncia la web (y cuyo código acepta la reserva online). La migración marca en cada negocio la que su web anunciaba hasta ese día.
+- `referrals.reward_applied_amount`: lo ya descontado de una recompensa fija que se reparte entre varias facturas. Los referidos concedidos y sin descontar cuyo recomendado no ha pagado vuelven a `pending` (la recompensa se gana al pagar).
+- `reviews.publish_consent`: permiso del autor para publicar su valoración en la web.
+
+### Fidelización: mejoras (`20270130100000_loyalty_features`)
+
+- En `promotions`: `duration_months` (el contrato guarda `discount_expires_at` y vuelve solo a su precio), `unit_type_ids`, `facility_ids`, `new_customers_only` y `once_per_customer`.
+- En `coupons`: `announce_on_web`, `kind` (normal o personal) y `personal_for` (inquilino o contacto del cupón personal de un solo uso).
+- `referrals.reward_skipped_reason` (recompensa no concedida por el tope anual o por otra causa).
+- En `reviews`: `reminded_at` (recordatorio a los 7 días) y `exit_reason` (motivo de la baja en la encuesta de salida).
+- En `tenants`: `referral_friend_reward_type/value` (premio del recomendado), `referral_max_rewards_per_year`, `reviews_reminder_enabled`, `reviews_yearly_enabled` y `booking_recovery_coupon_pct/days` (cupón del recordatorio de reservas sin terminar).
+
+### Marketing: seguridad (`20270131100000_marketing_security`)
+
+- `tenant_ga4.verified_at` y **índice único** de `tenant_ga4.property_id`: una propiedad de Google Analytics solo puede estar en un negocio (si estaba en dos, se queda el que la conectó antes).
+- La migración borra de `ga4_page_rows` y `web_events` las rutas `/sign/…` (llevaban el enlace secreto) y las credenciales de anuncios y las conexiones con Google de los negocios anonimizados.
+
+### Marketing: revisión (`20270201100000_marketing_review`)
+
+- `tenants.web_chat_team_hours` (jsonb): horario del equipo para el chat de la web.
+- `web_chat_conversations.utm_source/utm_medium/utm_campaign`: origen de la visita en cada conversación.
+- En `marketing_channels`: `renewal_months`, `renewal_notified_on`, `last_sync_at`, `last_sync_error`, `sync_failing_since` y `sync_failure_notified_at` (renovación periódica y estado de la sincronización del gasto).
+- `contracts.signing_token_encrypted`: copia cifrada del enlace de firma, para que los recordatorios reenvíen el mismo.
+- Índices nuevos para los informes de contactos, visitas y gastos.
+
+### Marketing: mejoras (`20270202100000_marketing_features`)
+
+- En `leads`: `marketing_channel_id` (canal con el que llegó; los informes lo usan antes que el origen) y `click_ids` (jsonb con `gclid`, `gbraid`, `wbraid`, `fbclid` y la hora, solo con «Aceptar todas» las cookies).
+- En `marketing_channels`: `coupon_id`, `monthly_budget`, `budget_notified_month` y `midmonth_notified_month`.
+- `google_ads_settings.conversion_action_id` y `meta_ads_settings.pixel_id`; tabla **`ad_conversion_uploads`** (RLS, único por contrato y plataforma): cada contrato firmado de quien llegó por un anuncio, enviado una vez.
+- `web_events.facility_id/unit_type_id` (local y tamaño al empezar una reserva).
+- Tablas ya sumadas **`web_visits`** (visitante, día en la zona del negocio y origen) y **`web_page_daily`** (RLS), rellenas con los eventos que había; los informes de visitas las leen.
+- **`marketing_annotations`** (RLS): notas en la gráfica de visitas.
+- `error_notified_at` en GA4, redes y Search Console (aviso de conexión rota); `social_posts.link_clicks`; `web_chat_conversations.assigned_to_user_id`; `tenants.web_chat_limit_warned`.
+
+### Equipo comercial (`20270203100000_sales_reps`)
+
+Todas las tablas nuevas son de la plataforma (sin tenant ni RLS, con `REVOKE` a `storageos_app`); solo las usa el panel de administración.
+
+- `super_admin_role` gana `sales`. En `super_admins`: `sales_code` (único), `phone`, `whatsapp` y `booking_url`.
+- `super_admin_notifications.recipient_id`: aviso personal (solo lo ve ese super admin). Los avisos sin destinatario son los del feed común.
+- En `tenants`: `sales_rep_id`, `sales_assigned_at` y `sales_source` (`link`, `code`, `created`, `lead`, `manual`, `import`). En `platform_leads`: `sales_rep_id` y `sales_assigned_at`.
+- `platform_quote_offers.opened_at`, `expires_at` (15 días) y `reminder_sent_at`; `platform_coupons.sales_allowed`.
+- **`sales_assignments`**: historial de quién llevaba cada cuenta y desde cuándo (la comisión de un cobro es del comercial que la tenía ese día).
+- **`sales_account_profiles`** (PK `lead_id`): ficha de llamada (nota fija, estado, temperatura, quién decide, mejor momento, siguiente paso, último resultado y contacto, días de prueba ampliados y pruebas de extras dadas).
+- **`sales_commission_plans`** (PK `rep_id`: %, meses, fijo por venta, fijo por extra y notas) y **`sales_commission_concepts`** (trabajos extra con su importe).
+- **`sales_addon_claims`** (único `tenant_addon_id`): extra contratado por un cliente de un comercial; `part_of_sale` (antes del primer pago o de la asignación: cuenta solo) o por aprobar.
+- **`sales_commission_items`**: movimientos (`revenue`, `sale`, `addon_sale`, `concept`, `adjustment`), con base, %, importe con signo, estado y liquidación; únicos parciales para la venta y cada extra.
+- **`sales_settlements`** (único comercial + mes), **`sales_targets`**, **`platform_sales_settings`** (un registro: días de prueba de más con el código, liberar prospectos, topes del comercial, correos con su nombre y cuenta de demostración).
+- **`sales_materials`**, **`sales_templates`**, **`sales_cadences`** y **`sales_cadence_enrollments`** (`followup_ids` UUID[]). La migración crea dos cadencias y cuatro plantillas de partida.

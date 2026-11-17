@@ -57,6 +57,7 @@ function conditionsLabel(c: PlatformCouponDto, planNames: Map<string, string>): 
   if (c.durationMonths) parts.push(`${c.durationMonths} primeras cuotas`);
   else if (c.oncePerTenant) parts.push('Un uso por tenant');
   if (c.validFrom) parts.push(`Desde ${fmtDate(c.validFrom)}`);
+  if (c.salesAllowed) parts.push('Para comerciales');
   return parts.join(' · ') || '—';
 }
 
@@ -319,6 +320,7 @@ function CouponDialog({
                       durationMonths: values.durationMonths,
                       oncePerTenant: values.oncePerTenant,
                       validFrom: values.validFrom,
+                      salesAllowed: values.salesAllowed,
                     },
                   });
                   toast.success('Cupón actualizado.');
@@ -334,6 +336,7 @@ function CouponDialog({
                     durationMonths: values.durationMonths,
                     oncePerTenant: values.oncePerTenant,
                     validFrom: values.validFrom,
+                    salesAllowed: values.salesAllowed,
                   });
                   toast.success('Cupón creado.');
                 }
@@ -361,6 +364,7 @@ interface FormValues {
   durationMonths: number | null;
   oncePerTenant: boolean;
   validFrom: string | null;
+  salesAllowed: boolean;
 }
 
 function CouponForm({
@@ -391,6 +395,7 @@ function CouponForm({
     coupon?.durationMonths != null ? String(coupon.durationMonths) : '',
   );
   const [oncePerTenant, setOncePerTenant] = useState(coupon?.oncePerTenant ?? false);
+  const [salesAllowed, setSalesAllowed] = useState(coupon?.salesAllowed ?? false);
   const [validFrom, setValidFrom] = useState(
     coupon?.validFrom ? coupon.validFrom.slice(0, 10) : '',
   );
@@ -425,6 +430,7 @@ function CouponForm({
         : null,
       oncePerTenant,
       validFrom: validFrom ? new Date(`${validFrom}T00:00:00`).toISOString() : null,
+      salesAllowed,
     });
   }
 
@@ -529,6 +535,20 @@ function CouponForm({
             onChange={(e) => setOncePerTenant(e.target.checked)}
           />
           Un solo uso por tenant
+        </label>
+        <label className="col-span-2 flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={salesAllowed}
+            onChange={(e) => setSalesAllowed(e.target.checked)}
+          />
+          <span>
+            Lo pueden usar los comerciales
+            <span className="block text-xs text-muted-foreground">
+              Aparece en sus propuestas. Los demás cupones no los pueden ofrecer.
+            </span>
+          </span>
         </label>
         <label className="col-span-2 flex items-center gap-2 text-sm">
           <input

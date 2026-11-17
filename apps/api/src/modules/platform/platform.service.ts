@@ -304,12 +304,17 @@ export class PlatformService {
 
   // ---- notificaciones del super admin ----
 
-  /** Crea una notificación en el feed del super admin (best-effort). */
+  /**
+   * Crea una notificación en el feed del super admin (best-effort). Con
+   * `recipientId` es personal (p. ej. de un comercial); sin él, del equipo de
+   * administración (los comerciales nunca la ven).
+   */
   async notify(input: {
     type: string;
     title: string;
     body?: string;
     link?: string;
+    recipientId?: string | null;
   }): Promise<void> {
     await this.admin.superAdminNotification
       .create({
@@ -318,13 +323,20 @@ export class PlatformService {
           title: input.title,
           body: input.body ?? null,
           link: input.link ?? null,
+          recipientId: input.recipientId ?? null,
         },
       })
       .catch(() => undefined);
   }
 
-  async listNotifications(): Promise<SuperAdminNotificationDto[]> {
+  /** Lo que ve un administrador: los avisos del equipo y los suyos. */
+  private notificationScope(viewerId: string) {
+    return { OR: [{ recipientId: null }, { recipientId: viewerId }] };
+  }
+
+  async listNotifications(viewerId: string): Promise<SuperAdminNotificationDto[]> {
     const rows = await this.admin.superAdminNotification.findMany({
+      where: this.notificationScope(viewerId),
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -344,13 +356,17 @@ export class PlatformService {
    * todas o solo las sin leer.
    */
   async pageNotifications(args: {
+    viewerId: string;
     cursor?: string;
     limit?: number;
     unread?: boolean;
   }): Promise<{ items: SuperAdminNotificationDto[]; nextCursor: string | null }> {
     const limit = Math.min(Math.max(args.limit ?? 30, 1), 100);
     const rows = await this.admin.superAdminNotification.findMany({
-      where: args.unread ? { readAt: null } : {},
+      where: {
+        ...this.notificationScope(args.viewerId),
+        ...(args.unread ? { readAt: null } : {}),
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(args.cursor ? { cursor: { id: args.cursor }, skip: 1 } : {}),
@@ -370,21 +386,23 @@ export class PlatformService {
     };
   }
 
-  async markRead(id: string): Promise<void> {
+  async markRead(id: string, viewerId: string): Promise<void> {
     await this.admin.superAdminNotification.updateMany({
-      where: { id, readAt: null },
+      where: { id, readAt: null, ...this.notificationScope(viewerId) },
       data: { readAt: new Date() },
     });
   }
 
-  async unreadCount(): Promise<{ count: number }> {
-    const count = await this.admin.superAdminNotification.count({ where: { readAt: null } });
+  async unreadCount(viewerId: string): Promise<{ count: number }> {
+    const count = await this.admin.superAdminNotification.count({
+      where: { readAt: null, ...this.notificationScope(viewerId) },
+    });
     return { count };
   }
 
-  async markAllRead(): Promise<void> {
+  async markAllRead(viewerId: string): Promise<void> {
     await this.admin.superAdminNotification.updateMany({
-      where: { readAt: null },
+      where: { readAt: null, ...this.notificationScope(viewerId) },
       data: { readAt: new Date() },
     });
   }

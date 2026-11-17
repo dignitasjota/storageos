@@ -26,6 +26,10 @@ import type { Env } from '../../config/env.schema';
  * comprueba los bytes REALES tras la subida, antes de que el "register"
  * correspondiente persista la key en BD.
  */
+function isZip(b: Buffer): boolean {
+  return b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
+}
+
 const MAGIC_BYTE_CHECKS: Record<string, (buf: Buffer) => boolean> = {
   'image/jpeg': (b) => b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
   'image/png': (b) =>
@@ -37,6 +41,10 @@ const MAGIC_BYTE_CHECKS: Record<string, (buf: Buffer) => boolean> = {
     b.subarray(8, 12).toString('ascii') === 'WEBP',
   'application/pdf': (b) => b.length >= 4 && b.subarray(0, 4).toString('ascii') === '%PDF',
   'image/x-icon': (b) => b.length >= 4 && b[0] === 0 && b[1] === 0 && b[2] === 1 && b[3] === 0,
+  // Documentos de Office (pptx, docx, xlsx): son un ZIP.
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': isZip,
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': isZip,
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': isZip,
 };
 
 interface PresignArgs {

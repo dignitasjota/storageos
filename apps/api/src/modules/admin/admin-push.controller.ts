@@ -20,6 +20,7 @@ import { SuperAdminPushService } from '../push/super-admin-push.service';
 
 import { AdminGuard } from './admin.guard';
 import { CurrentSuperAdmin } from './current-super-admin.decorator';
+import { SalesAccess } from './require-superadmin.decorator';
 
 class PushSubscribeDto extends createZodDto(PushSubscribeSchema) {}
 class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
@@ -29,6 +30,7 @@ class PushUnsubscribeDto extends createZodDto(PushUnsubscribeSchema) {}
  * super admin lo activa en el suyo; vale también para el rol soporte.
  */
 @Public()
+@SalesAccess()
 @Controller('admin/me/push')
 @UseGuards(AdminGuard)
 export class AdminPushController {

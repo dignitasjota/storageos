@@ -20,6 +20,8 @@ export interface PlatformLeadInboundEvent {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  /** Código del comercial (de su enlace o escrito a mano). */
+  salesCode?: string | null;
 }
 
 /** Se ha creado la cuenta de un tenant (registro en la web o alta desde el panel). */
@@ -36,4 +38,8 @@ export interface PlatformTenantRegisteredEvent {
   utmSource: string | null;
   utmMedium: string | null;
   utmCampaign: string | null;
+  /** Código del comercial con el que se registró. */
+  salesCode?: string | null;
+  /** `link` si lo puso el enlace del comercial; `typed` si lo escribió. */
+  salesCodeFrom?: 'link' | 'typed' | null;
 }

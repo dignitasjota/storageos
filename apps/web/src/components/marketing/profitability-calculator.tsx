@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { trackConversion } from '@/lib/marketing/track';
+import { salesCodeFields } from '@/lib/sales-code';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -193,6 +194,7 @@ function ReportForm({ input }: { input: ProfitabilityInput }) {
           acceptPrivacy: true,
           hp,
           ...platformTrafficFields(),
+          ...salesCodeFields(),
         }),
       });
       if (res.ok) {

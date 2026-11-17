@@ -1021,7 +1021,7 @@ El despliegue del 12-11 tumbó la web: el servidor (4 GB) compilaba cinco imáge
 
 Antes, una reserva abandonada dejaba factura y rectificativa. Ahora el contrato entra en vigor con el primer pago y la factura se emite al cobrarlo (`invoices.issue_on_payment`). Si caduca sin pagar, el borrador se anula sin número. **Asesoría (2026-11-16)**: conforme con facturar cuando la reserva se confirma con el pago (antes, el resumen del primer pago hace de presupuesto); la fianza va sin IVA ni factura, con su justificante; si se usa para un servicio (limpiar, vaciar) se factura con IVA; el depósito de la fianza depende de cada comunidad autónoma. Ver «Fianzas tras la asesoría». DEPLOYMENT §125.
 
-### Fianzas tras la asesoría ✅ (2026-11-16)
+### Fianzas tras la asesoría ✅ (2026-11-16, #961)
 
 - **Servicio pagado con la fianza**: al liquidarla, la parte retenida que paga un servicio (limpieza, vaciado, retirada de enseres) se factura con IVA (21 %, incluido en el importe) y se paga con la fianza. La deuda se aplica a sus facturas y los daños se retienen sin factura (indemnización). **Por confirmar con la asesoría**: que los daños no llevan IVA (art. 78.Tres.1.º de la Ley del IVA).
 - **Depósito de las fianzas de trasteros**: ajuste por negocio en Configuración → Plantilla de contrato, apagado por defecto (las de vivienda se depositan siempre). Cada operador lo activa si su comunidad lo pide. **Pendiente de Jota**: preguntar en la Generalitat Valenciana si un trastero alquilado está obligado. DEPLOYMENT §143.
@@ -1143,3 +1143,48 @@ Decisiones de Jota: las siete recomendaciones del análisis (alcance como Analí
 - **Oportunidades**: seis tipos nuevos (renovar, pago anual, completar datos, reseña en Google, recomendar, trastero más pequeño), posponer o descartar, «Me interesa» primero con número en el menú, envío en bloque, resultados, filtro por local, buscador y CSV.
 
 Fuera de esta PR: la secuencia automática por WhatsApp (necesita plantillas aprobadas por Meta) y que el inquilino contrate el pago anual desde su área de clientes (hoy lo prepara el equipo).
+
+### Ampliar el plazo para firmar y pagar ✅ (2026-11-15, #958)
+
+«Ampliar plazo» en la pestaña Firma de un contrato con el trastero reservado: +1, +3, +7 días o hasta una fecha, como mucho 30 días desde la reserva o la firma, con motivo y, si se quiere, correo al inquilino con el enlace para firmar o pagar.
+
+### Campañas y Comunicaciones: revisión y mejoras ✅ (2026-11-16, #959–#960)
+
+- **Arreglos (#959)**: textos comprobados al guardar (una variable mal escrita dejaba la campaña «Enviada · 0»), alcance por local en Comunicaciones y campañas, enlaces con acceso tapados en el historial, programar en un paso, baja de las comunicaciones comerciales por email, win-back nunca a quien se fue debiendo, envíos atascados que se reencolan y un aviso al día por campaña con rebotes.
+- **Mejoras (#960)**: formato en los correos, «Enviarme una prueba», versión en inglés, cupón en la campaña, audiencia decidida al salir, filtros finos y segmentos guardados, resultados con dinero, campañas por WhatsApp, campañas automáticas (aniversario y contactos que no avanzan) y en Comunicaciones filtros, cifras, CSV, recorrido del envío y «Direcciones con problemas».
+
+Decisiones de Jota: campañas de quien solo ve unos locales solo a sus inquilinos; win-back solo propietario y gestor; nunca a quien se fue debiendo; la baja va por email.
+
+### Fidelización: revisión y mejoras ✅ (2026-11-16, #962–#963)
+
+- **Arreglos (#962)**: la recompensa del referido se gana cuando el recomendado paga (antes al firmar, con fraude posible); la web anuncia solo la promoción marcada y la reserva acepta su código; recompensas fijas repartidas; meses gratis sin pago adelantado; promociones y cupones solo para quien ve todos los locales; valoraciones publicadas solo con permiso del autor.
+- **Mejoras (#963)**: promociones con duración y condiciones, cupones en la web y personales, cupón para reservas sin terminar, premio al recomendado, tope anual y enlace para compartir; recordatorio y valoración anual, motivo de la baja y tarea automática con notas bajas.
+
+### Primer pago pendiente ✅ (2026-11-16, #964–#965)
+
+- Al firmar por enlace llega un correo con lo que hay que pagar (desglose, total, plazo y «Pagar ahora») y el primer pago sale en la ficha del inquilino.
+- El primer pago tiene PDF sin número (al pagarse, el mismo enlace descarga la factura) y se puede reenviar desde el panel con un enlace nuevo.
+
+Decisión de Jota: la factura sigue sin número hasta el pago, pero con un documento que se puede pagar.
+
+### Marketing del tenant: seguridad, revisión y mejoras ✅ (2026-11-16, #966–#968)
+
+- **Seguridad (#966)**: un negocio ya no puede conectar la propiedad de Google Analytics o el sitio de Search Console de otro; los enlaces de firma no llegan a Google Analytics; topes del chat por IP; Google Ads v26 y Meta v25.0; un contacto cuenta en un solo canal.
+- **Revisión (#967)**: dinero y alcance de Marketing según permisos, rendimiento corregido, gasto de anuncios sin huecos y con aviso si falla, QR que no cuentan robots, chat con horario del equipo y vuelta a la IA, política de cookies con la medición propia.
+- **Mejoras (#968)**: canales con local, enlace de seguimiento, cupón y presupuesto; rendimiento con modelo de atribución y embudo completo; visitas con embudo de la reserva, demanda y notas; «Conectar con Facebook»; conversiones a Google Ads y Meta; chat con reserva por formulario, visitas al local, presupuestos, responsable y «Probar el asistente».
+
+Pendiente de Jota: activar la Google Analytics Admin API, crear la app de Meta para «Conectar con Facebook», probar con cuentas reales de Google Ads y Meta y revisar con la asesoría los textos de cookies y privacidad.
+
+### Equipo comercial ✅ (2026-11-16, 1 PR)
+
+Perfil **Comercial** en el panel de administración para los comerciales en plantilla (decisiones de Jota: una sola PR con las 8 partes del plan, comisiones definidas por comercial y extras de después de la venta solo con su aprobación).
+
+- **Acceso**: menú propio (Hoy, Prospectos, Clientes, Propuestas, Qué ofrecer, Peticiones, Mis comisiones, Materiales, Mi enlace y QR) y nada más del panel; verificación en dos pasos obligatoria desde el primer día; nunca ve inquilinos ni facturación de sus clientes ni entra en sus cuentas.
+- **Código, enlace y QR**: la cuenta es suya solo si llega por su enlace o su QR, si el cliente escribe su código o si la crea él. Sin código no se asigna a nadie. Días de prueba de más opcionales con el código. Prospectos sin actividad que se liberan a los N días.
+- **Cartera y ficha de llamada**: nota fija, estado, temperatura, quién decide, mejor momento, resultado de cada llamada con el siguiente seguimiento, resumen para preparar la llamada (con IA), cadencias, plantillas de correo y WhatsApp con sus datos, importar prospectos desde CSV.
+- **Vender**: propuestas que caducan a los 15 días con aviso al abrirlas, cupones marcados para comerciales, ampliar pruebas y probar un extra con topes, peticiones a la dirección para lo demás, crear la cuenta del cliente.
+- **Comisiones**: % de lo cobrado (sin IVA, durante los meses que se fijen), fijo por venta, fijo por extra aprobado y trabajos extra; movimientos, liquidaciones mensuales y objetivos.
+- **Dirección**: equipo con cifras, ficha de cada comercial (condiciones, objetivos, comisiones, liquidaciones y cartera), «Por decidir», materiales y plantillas, reglas del equipo, cuenta de demostración que se pone a cero cada noche y comercial de cada cuenta en la ficha del tenant.
+- **Cliente**: «Tu comercial» en Suscripción y en Soporte; los correos automáticos de la plataforma pueden salir con el nombre de su comercial.
+
+Fuera de esta PR: el pago de las comisiones (las liquidaciones solo dejan constancia; se paga por nómina), un jefe de ventas intermedio (decidido no tenerlo) y WhatsApp desde el número de la plataforma (el comercial escribe desde su móvil).
