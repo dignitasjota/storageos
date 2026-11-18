@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -27,6 +27,9 @@ interface EffectiveLimits {
  * `null`). Se consulta con `PrismaAdminService` (subscription + add-ons son
  * globales); el conteo actual lo pasa el caller (que ya está en su tenant).
  */
+/** Planes grandes: al llegar al tope de trasteros se ofrece un precio a medida. */
+const CUSTOM_PRICING_PLANS = new Set(['pro', 'administrador']);
+
 const RESOURCE_NAMES: Record<LimitResource, string> = {
   units: 'trasteros',
   facilities: 'locales',
@@ -45,15 +48,59 @@ export function limitMessage(
       ? `Tu plan Basic incluye ${what}. Añade el segundo usuario en Suscripción o pasa a Starter.`
       : `Tu plan Basic llega hasta ${what}. Pasa a Starter para seguir creciendo.`;
   }
-  if (planSlug === 'pro' || planSlug === 'administrador') {
-    return `Has llegado a ${what}, el máximo de tu plan. Escríbenos y lo ampliamos.`;
+  if (CUSTOM_PRICING_PLANS.has(planSlug ?? '')) {
+    return resource === 'units'
+      ? `Has llegado a ${what}, el máximo de tu plan. Te contactaremos para darte un precio a medida; si lo prefieres, escríbenos desde Soporte.`
+      : `Has llegado a ${what}, el máximo de tu plan. Escríbenos desde Soporte y lo ampliamos.`;
   }
   return 'Has alcanzado el límite de tu plan. Amplíalo con un extra o sube de plan.';
 }
 
 @Injectable()
 export class PlanLimitsService {
+  private readonly logger = new Logger(PlanLimitsService.name);
+
   constructor(private readonly admin: PrismaAdminService) {}
+
+  /**
+   * Un cliente de un plan grande llega al tope de trasteros: seguimiento para
+   * contactarle y darle un precio a medida (de su comercial, si lo tiene) y
+   * aviso al equipo. Una sola vez mientras el seguimiento siga pendiente.
+   */
+  private async flagCustomPricing(
+    tenantId: string,
+    planName: string,
+    limit: number,
+  ): Promise<void> {
+    const title = 'Precio a medida: ha llegado al máximo de trasteros';
+    const open = await this.admin.tenantFollowup.count({
+      where: { tenantId, status: 'pending', title },
+    });
+    if (open > 0) return;
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, salesRepId: true },
+    });
+    if (!tenant) return;
+    const note = `Tiene el plan ${planName} y ha intentado pasar de ${limit.toLocaleString('es-ES')} trasteros. Contactar para darle un precio a medida (se amplía con un extra que dé más trasteros).`;
+    await this.admin.tenantFollowup.create({
+      data: {
+        tenantId,
+        title,
+        note,
+        dueDate: new Date(),
+        ...(tenant.salesRepId ? { assignedToId: tenant.salesRepId } : {}),
+      },
+    });
+    await this.admin.superAdminNotification.create({
+      data: {
+        type: 'tenant.custom_pricing',
+        title: `${tenant.name} necesita un precio a medida`,
+        body: note,
+        link: `/admin/tenants/${tenantId}`,
+      },
+    });
+  }
 
   /** Límites efectivos = plan + Σ(add-on.grants × quantity). null = ilimitado. */
   async resolveLimits(tenantId: string): Promise<EffectiveLimits> {
@@ -114,8 +161,14 @@ export class PlanLimitsService {
     if (limit !== null && currentCount >= limit) {
       const sub = await this.admin.tenantSubscription.findUnique({
         where: { tenantId },
-        select: { plan: { select: { slug: true } } },
+        select: { plan: { select: { slug: true, name: true } } },
       });
+      if (resource === 'units' && sub && CUSTOM_PRICING_PLANS.has(sub.plan.slug)) {
+        // Avisamos al equipo para contactar con él y darle un precio a medida.
+        await this.flagCustomPricing(tenantId, sub.plan.name, limit).catch((err: unknown) =>
+          this.logger.warn(`[límites] aviso de precio a medida (${tenantId}): ${String(err)}`),
+        );
+      }
       throw new ForbiddenException({
         code: `${resource}_limit_reached`,
         message: limitMessage(sub?.plan.slug ?? null, resource, limit),

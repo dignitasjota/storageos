@@ -14,8 +14,10 @@ ALTER TABLE "subscription_addons"
 -- Periodo para el que ya se fijaron los trasteros de más.
 ALTER TABLE "tenant_subscriptions" ADD COLUMN "units_billed_for" TIMESTAMPTZ(6);
 
--- Pro pasa a tener hasta 1.000 trasteros (más, con un plan a medida).
+-- Pro pasa a tener hasta 1.000 trasteros y Administrador hasta 1.500 (más, con
+-- un precio a medida).
 UPDATE "subscription_plans" SET "max_units" = 1000 WHERE "slug" = 'pro' AND "max_units" IS NULL;
+UPDATE "subscription_plans" SET "max_units" = 1500 WHERE "slug" = 'administrador' AND "max_units" IS NULL;
 
 -- El plan gratis deja de ofrecerse (sigue para quien lo tiene hasta pasar a Basic).
 UPDATE "subscription_plans" SET "is_public" = false WHERE "slug" = 'free';

@@ -1199,12 +1199,12 @@ Fuera de esta PR: el pago de las comisiones (las liquidaciones solo dejan consta
 
 Tras revisar los precios de la competencia (decisiones de Jota: prueba sin método de pago, Basic por trastero exacto, SEPA incluida solo en Pro y Administrador (en Basic y Starter, como extra), Pro hasta 1.000 trasteros, al acabar la prueba sin pagar solo lectura, y los del plan gratis pasan a Basic con aviso).
 
-| Plan          | Precio                        | Trasteros  | Locales    | Usuarios        |
-| ------------- | ----------------------------- | ---------- | ---------- | --------------- |
-| Basic         | 1 € por trastero, mínimo 19 € | 50         | 1          | 1 (+1 por 10 €) |
-| Starter       | 79 €                          | 200        | 3          | 10              |
-| Pro           | 149 €                         | 1.000      | Sin límite | Sin límite      |
-| Administrador | 349 €                         | Sin límite | Sin límite | Sin límite      |
+| Plan          | Precio                        | Trasteros | Locales    | Usuarios        |
+| ------------- | ----------------------------- | --------- | ---------- | --------------- |
+| Basic         | 1 € por trastero, mínimo 19 € | 50        | 1          | 1 (+1 por 10 €) |
+| Starter       | 79 €                          | 200       | 3          | 10              |
+| Pro           | 149 €                         | 1.000     | Sin límite | Sin límite      |
+| Administrador | 349 €                         | 1.500     | Sin límite | Sin límite      |
 
-- **PR C** ✅ (2026-11-18): plan Basic con el extra interno «Trasteros de más» fijado 7 días antes de cada cobro (sin prorrateos, solo pago mensual), «Segundo usuario», extras limitados por plan y por cantidad, extras que sobran al cambiar de plan dados de baja con aviso, bajar de plan solo si cabe, Pro hasta 1.000, plan gratis oculto, precios en la web, Suscripción, panel admin y simulador. Los trasteros de más cuentan como cuota del plan en las comisiones de los comerciales.
+- **PR C** ✅ (2026-11-18): plan Basic con el extra interno «Trasteros de más» fijado 7 días antes de cada cobro (sin prorrateos, solo pago mensual), «Segundo usuario», extras limitados por plan y por cantidad, extras que sobran al cambiar de plan dados de baja con aviso, bajar de plan solo si cabe, Pro hasta 1.000 y Administrador hasta 1.500 (al llegar al tope, aviso y seguimiento para darle un precio a medida), plan gratis oculto, precios en la web, Suscripción, panel admin y simulador. Los trasteros de más cuentan como cuota del plan en las comisiones de los comerciales.
 - **PR D**: elegir plan al registrarse, prueba de 30 días sin método de pago con los límites del plan elegido, solo lectura al acabar sin pagar, avisos con importe y fecha, y paso de los clientes del plan gratis a Basic con 30 días de aviso.

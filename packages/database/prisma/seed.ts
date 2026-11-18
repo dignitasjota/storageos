@@ -104,7 +104,7 @@ async function seedPlans() {
       slug: 'administrador',
       priceMonthly: 349,
       priceYearly: 3490,
-      maxUnits: null,
+      maxUnits: 1500,
       maxFacilities: null,
       maxUsers: null,
       features: { support: 'priority', branding: true, api: true },

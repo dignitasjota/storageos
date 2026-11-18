@@ -239,4 +239,45 @@ describe('Plan Basic (e2e)', () => {
     });
     expect(plans.some((p) => p.slug === 'free')).toBe(false);
   });
+  it('al llegar al tope de Administrador, avisa para darle un precio a medida (una vez)', async () => {
+    const owner = await registerVerifiedUser(app, 'admin-cap');
+    const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    await setTenantPlan(owner.slug, 'administrador');
+    const tenant = await db.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+    const { facilityId, unitTypeId } = await createFacilityWithUnits(app, owner.accessToken, {
+      unitsCount: 1,
+    });
+    // Tope bajo solo para la prueba (de verdad, 1.500).
+    await db.subscriptionPlan.update({ where: { slug: 'administrador' }, data: { maxUnits: 1 } });
+    try {
+      const unit = (code: string) =>
+        http().post('/units').set(auth).send({
+          facilityId,
+          unitTypeId,
+          code,
+          widthM: 2,
+          depthM: 2,
+          heightM: 2.5,
+          basePriceMonthly: 50,
+        });
+      const res = await unit('CAP-2').expect(403);
+      expect(res.body.code).toBe('units_limit_reached');
+      expect(res.body.message).toContain('precio a medida');
+      await unit('CAP-3').expect(403);
+      const followups = await db.tenantFollowup.findMany({
+        where: { tenantId: tenant.id, status: 'pending', title: { startsWith: 'Precio a medida' } },
+      });
+      expect(followups).toHaveLength(1);
+      expect(
+        await db.superAdminNotification.count({
+          where: { type: 'tenant.custom_pricing', link: `/admin/tenants/${tenant.id}` },
+        }),
+      ).toBe(1);
+    } finally {
+      await db.subscriptionPlan.update({
+        where: { slug: 'administrador' },
+        data: { maxUnits: 1500 },
+      });
+    }
+  });
 });
