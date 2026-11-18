@@ -207,10 +207,17 @@ export default function SaasBillingPage() {
             <>
               <Row
                 label="Precio"
-                value={sub.plan.priceMonthly.toLocaleString('es-ES', {
-                  style: 'currency',
-                  currency: sub.plan.currency,
-                })}
+                value={
+                  sub.plan.includedUnits != null
+                    ? `${sub.plan.priceMonthly.toLocaleString('es-ES', {
+                        style: 'currency',
+                        currency: sub.plan.currency,
+                      })} (incluye ${sub.plan.includedUnits} trasteros; los demás, en «Extras»)`
+                    : sub.plan.priceMonthly.toLocaleString('es-ES', {
+                        style: 'currency',
+                        currency: sub.plan.currency,
+                      })
+                }
               />
               <Row
                 label="Periodo actual"
@@ -328,7 +335,28 @@ export default function SaasBillingPage() {
                       )}
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {cycle === 'yearly' ? (
+                      {p.includedUnits != null && p.extraUnitPrice != null ? (
+                        <div>
+                          <div className="text-2xl font-semibold">
+                            {p.extraUnitPrice.toLocaleString('es-ES', {
+                              style: 'currency',
+                              currency: p.currency,
+                            })}
+                            <span className="ml-1 text-xs font-normal text-muted-foreground">
+                              /trastero al mes
+                              {p.pricesIncludeVat === false ? ' + IVA' : ' IVA incl.'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Mínimo{' '}
+                            {p.priceMonthly.toLocaleString('es-ES', {
+                              style: 'currency',
+                              currency: p.currency,
+                            })}{' '}
+                            al mes. Solo pago mensual.
+                          </p>
+                        </div>
+                      ) : cycle === 'yearly' ? (
                         <div>
                           <div className="text-2xl font-semibold">
                             {p.priceYearly.toLocaleString('es-ES', {
@@ -359,6 +387,21 @@ export default function SaasBillingPage() {
                         </div>
                       )}
 
+                      {(p.maxUnits != null || p.maxFacilities != null || p.maxUsers != null) && (
+                        <p className="text-xs text-muted-foreground">
+                          {[
+                            p.maxUnits != null
+                              ? `Hasta ${p.maxUnits.toLocaleString('es-ES')} trasteros`
+                              : 'Trasteros sin límite',
+                            p.maxFacilities != null
+                              ? `${p.maxFacilities} ${p.maxFacilities === 1 ? 'local' : 'locales'}`
+                              : 'locales sin límite',
+                            p.maxUsers != null
+                              ? `${p.maxUsers} ${p.maxUsers === 1 ? 'usuario' : 'usuarios'}`
+                              : 'usuarios sin límite',
+                          ].join(' · ')}
+                        </p>
+                      )}
                       {p.tenantFeatures.length > 0 ? (
                         <ul className="space-y-1 text-xs text-muted-foreground">
                           {p.tenantFeatures.map((f) => (
@@ -644,17 +687,27 @@ function SelfAddonsSection() {
                     key={a.id}
                     className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
                   >
-                    <span className="font-medium">{a.name}</span>
+                    <span className="font-medium">
+                      {a.name}
+                      {a.isSystem && (
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          {a.quantity} {a.quantity === 1 ? 'trastero' : 'trasteros'} por encima de
+                          los incluidos, contados antes de cada cobro
+                        </span>
+                      )}
+                    </span>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold">{price(a.lineTotal)}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => doCancel(a.id)}
-                        disabled={cancel.isPending}
-                      >
-                        Cancelar
-                      </Button>
+                      {!a.isSystem && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => doCancel(a.id)}
+                          disabled={cancel.isPending}
+                        >
+                          Cancelar
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}

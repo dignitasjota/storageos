@@ -253,7 +253,8 @@ export class SalesCommissionsService {
       const ids = chunk.map((t) => t.id);
       const [all, claimed, firstPaid, openAssignments] = await Promise.all([
         this.admin.tenantSubscriptionAddon.findMany({
-          where: { tenantId: { in: ids } },
+          // Los de la plataforma (trasteros de más) son cuota del plan.
+          where: { tenantId: { in: ids }, addon: { isSystem: false } },
           select: {
             id: true,
             tenantId: true,
@@ -681,7 +682,7 @@ export class SalesCommissionsService {
               quantity: true,
               billingMode: true,
               createdAt: true,
-              addon: { select: { name: true } },
+              addon: { select: { name: true, isSystem: true } },
             },
           },
         },
@@ -718,7 +719,11 @@ export class SalesCommissionsService {
     const activeRep = new Set(
       reps.filter((r) => r.isActive && r.role === 'sales').map((r) => r.id),
     );
-    const approved = new Set(claims.map((c) => c.addonId));
+    // Lo aprobado y los de la plataforma (trasteros de más), que son cuota del plan.
+    const approved = new Set([
+      ...claims.map((c) => c.addonId),
+      ...tenant.subscriptionAddons.filter((a) => a.addon.isSystem).map((a) => a.addonId),
+    ]);
     const planMonthly = Number(tenant.subscription?.plan.priceMonthly ?? 0);
     const defaultTax = Number(settings?.taxRate ?? 21);
     const first = allPaid[0];

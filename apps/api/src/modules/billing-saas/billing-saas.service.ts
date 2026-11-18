@@ -17,6 +17,7 @@ import { StripeGateway } from '../payments/stripe.gateway';
 import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
+import { addonFitsPlan, SaasAddonsService } from './saas-addons.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { SubscriptionStatus } from '@storageos/database';
@@ -179,6 +180,7 @@ export class BillingSaasService {
     private readonly coupons: PlatformCouponsService,
     private readonly platformSepaMandates: PlatformSepaMandateService,
     private readonly stripeGateway: StripeGateway,
+    private readonly addons: SaasAddonsService,
   ) {
     this.stripe = stripeGateway.getClient();
   }
@@ -378,6 +380,7 @@ export class BillingSaasService {
       });
     }
 
+    await this.assertFitsPlan(args.tenantId, plan, yearly);
     const coupon = args.couponCode
       ? await this.stripeCouponFor(args.couponCode, args.tenantId, plan, yearly)
       : null;
@@ -404,7 +407,11 @@ export class BillingSaasService {
         // (ver billing-saas.service.ts `setBillingMode`).
         payment_method_types: ['card'],
         customer: stripeCustomerId,
-        line_items: [{ price: priceId, quantity: 1 }],
+        line_items: [
+          { price: priceId, quantity: 1 },
+          // Plan por trastero: los que pasan de los incluidos, ya en el primer pago.
+          ...(await this.addons.extraUnitsCheckoutLine(args.tenantId, plan.includedUnits)),
+        ],
         ...(coupon ? { discounts: [{ coupon: coupon.stripeCouponId }] } : {}),
         success_url: args.successUrl,
         cancel_url: args.cancelUrl,
@@ -519,6 +526,76 @@ export class BillingSaasService {
    * `planId` en BD directamente (el webhook `subscription.updated` no trae el
    * plan). Un tenant de pago manual no puede cambiar solo → contacta con soporte.
    */
+  /** Tras cambiar de plan (también desde el panel admin): extras que sobran y trasteros de más. */
+  reconcileAddonsAfterPlanChange(tenantId: string): Promise<string[]> {
+    return this.addons.reconcileAfterPlanChange(tenantId);
+  }
+
+  /**
+   * Un plan más pequeño solo si lo que ya tiene cabe (con sus extras de
+   * capacidad que sigan valiendo): nunca se borra nada al cambiar de plan.
+   */
+  private async assertFitsPlan(
+    tenantId: string,
+    plan: {
+      includedUnits?: number | null;
+      slug: string;
+      maxUnits: number | null;
+      maxFacilities: number | null;
+      maxUsers: number | null;
+    },
+    yearly = false,
+  ): Promise<void> {
+    if (yearly && plan.includedUnits != null) {
+      throw new BadRequestException({
+        code: 'yearly_not_available',
+        message: 'Este plan se paga por trastero cada mes: no tiene pago anual.',
+      });
+    }
+    const [units, facilities, users, invites, addons] = await Promise.all([
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
+      this.admin.user.count({ where: { tenantId, isActive: true } }),
+      this.admin.invitation.count({
+        where: { tenantId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { tenantId, suspendedAt: null },
+        select: {
+          quantity: true,
+          addon: {
+            select: {
+              planSlugs: true,
+              grantsUnits: true,
+              grantsFacilities: true,
+              grantsUsers: true,
+            },
+          },
+        },
+      }),
+    ]);
+    const kept = addons.filter((a) => addonFitsPlan(a.addon, plan.slug));
+    const grant = (k: 'grantsUnits' | 'grantsFacilities' | 'grantsUsers') =>
+      kept.reduce((s, a) => s + (a.addon[k] ?? 0) * a.quantity, 0);
+    const over: string[] = [];
+    if (plan.maxUnits != null && units > plan.maxUnits + grant('grantsUnits')) {
+      over.push(`${units} trasteros (máximo ${plan.maxUnits + grant('grantsUnits')})`);
+    }
+    if (plan.maxFacilities != null && facilities > plan.maxFacilities + grant('grantsFacilities')) {
+      over.push(`${facilities} locales (máximo ${plan.maxFacilities + grant('grantsFacilities')})`);
+    }
+    if (plan.maxUsers != null && users + invites > plan.maxUsers + grant('grantsUsers')) {
+      over.push(`${users + invites} usuarios (máximo ${plan.maxUsers + grant('grantsUsers')})`);
+    }
+    if (over.length > 0) {
+      throw new BadRequestException({
+        code: 'plan_limits_exceeded',
+        message: `Para pasar a este plan tienes que quedarte dentro de sus límites: ${over.join(', ')}.`,
+        details: { over },
+      });
+    }
+  }
+
   async changePlanSelfService(args: {
     tenantId: string;
     userId: string;
@@ -547,6 +624,7 @@ export class BillingSaasService {
         message: 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
       });
     }
+    await this.assertFitsPlan(args.tenantId, plan, args.billingCycle === 'yearly');
     const coupon = args.couponCode
       ? await this.stripeCouponFor(
           args.couponCode,
@@ -587,6 +665,8 @@ export class BillingSaasService {
       where: { tenantId: args.tenantId },
       data: { planId: plan.id },
     });
+    // Extras que el plan nuevo ya incluye o no admite, y trasteros de más.
+    await this.addons.reconcileAfterPlanChange(args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -828,6 +908,14 @@ export class BillingSaasService {
         });
       }
       await this.acceptQuoteOffers(tenantId);
+      // Plan por trastero: enlaza los trasteros de más que se cobraron en el Checkout.
+      await this.addons
+        .syncExtraUnits(tenantId, { force: true })
+        .catch((err: unknown) =>
+          this.logger.warn(
+            `[basic] trasteros de más tras el Checkout (${tenantId}): ${String(err)}`,
+          ),
+        );
     }
 
     // Si Stripe reporta la suscripción activa (el tenant se suscribió y pagó),
@@ -1211,6 +1299,7 @@ export class BillingSaasService {
       features: unknown;
       tenantFeatures?: string[];
       stripePriceId: string | null;
+      includedUnits?: number | null;
       isActive: boolean;
     };
   }): TenantSubscriptionDto {
@@ -1229,6 +1318,8 @@ export class BillingSaasService {
       maxUnits: null,
       maxFacilities: null,
       maxUsers: null,
+      includedUnits: row.plan.includedUnits ?? null,
+      extraUnitPrice: null,
       isActive: row.plan.isActive,
       isPublic: true,
     };

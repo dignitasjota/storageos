@@ -65,7 +65,12 @@ export class SalesInsightsService {
         subscription: { select: { plan: { select: { priceMonthly: true } } } },
         subscriptionAddons: {
           where: { suspendedAt: null },
-          select: { addonId: true, priceMonthly: true, quantity: true },
+          select: {
+            addonId: true,
+            priceMonthly: true,
+            quantity: true,
+            addon: { select: { isSystem: true } },
+          },
         },
       },
     });
@@ -88,7 +93,7 @@ export class SalesInsightsService {
       const paid = firstPaid.get(t.id);
       if (!paid || !t.salesRepId) continue;
       const addons = t.subscriptionAddons
-        .filter((a) => counted.has(`${t.id}:${a.addonId}`))
+        .filter((a) => a.addon.isSystem || counted.has(`${t.id}:${a.addonId}`))
         .reduce((s, a) => s + Number(a.priceMonthly) * a.quantity, 0);
       const gross = Number(t.subscription?.plan.priceMonthly ?? 0) + addons;
       const list = out.get(t.salesRepId) ?? [];

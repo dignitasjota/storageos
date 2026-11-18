@@ -35,12 +35,28 @@ async function seedPlans() {
     {
       name: 'Free',
       slug: 'free',
+      // Ya no se ofrece: solo para quien aún lo tiene, hasta pasar a Basic.
+      isPublic: false,
       priceMonthly: 0,
       priceYearly: 0,
       maxUnits: 10,
       maxFacilities: 1,
       maxUsers: 2,
       features: { support: 'community', branding: false, api: false },
+      tenantFeatures: [],
+    },
+    {
+      name: 'Basic',
+      slug: 'basic',
+      // 1 € por trastero con un mínimo de 19 €: los 19 primeros van en la cuota y
+      // el resto se cobra con el extra «Trasteros de más».
+      priceMonthly: 19,
+      priceYearly: 0,
+      maxUnits: 50,
+      maxFacilities: 1,
+      maxUsers: 1,
+      includedUnits: 19,
+      features: { support: 'email', branding: false, api: false },
       tenantFeatures: [],
     },
     {
@@ -66,7 +82,7 @@ async function seedPlans() {
       slug: 'pro',
       priceMonthly: 149,
       priceYearly: 1490,
-      maxUnits: null,
+      maxUnits: 1000,
       maxFacilities: null,
       maxUsers: null,
       features: { support: 'priority', branding: true, api: true },
@@ -90,7 +106,7 @@ async function seedPlans() {
       slug: 'administrador',
       priceMonthly: 349,
       priceYearly: 3490,
-      maxUnits: null,
+      maxUnits: 1500,
       maxFacilities: null,
       maxUsers: null,
       features: { support: 'priority', branding: true, api: true },
@@ -233,7 +249,28 @@ async function seedAddons() {
     priceMonthly: number;
     feature: string | null;
     grantsAiQueries?: number;
+    grantsUsers?: number;
+    planSlugs?: string[];
+    maxQuantity?: number;
+    isSystem?: boolean;
   }[] = [
+    {
+      slug: 'addon-extra-units',
+      name: 'Trasteros de más',
+      priceMonthly: 1,
+      feature: null,
+      planSlugs: ['basic'],
+      isSystem: true,
+    },
+    {
+      slug: 'addon-basic-user',
+      name: 'Segundo usuario',
+      priceMonthly: 10,
+      feature: null,
+      grantsUsers: 1,
+      planSlugs: ['basic'],
+      maxQuantity: 1,
+    },
     {
       slug: 'addon-ai-extra',
       name: 'IA ampliada',
@@ -296,6 +333,10 @@ async function seedAddons() {
         priceMonthly: a.priceMonthly,
         feature: a.feature,
         grantsAiQueries: a.grantsAiQueries ?? null,
+        grantsUsers: a.grantsUsers ?? null,
+        planSlugs: a.planSlugs ?? [],
+        maxQuantity: a.maxQuantity ?? null,
+        isSystem: a.isSystem ?? false,
       },
     });
   }

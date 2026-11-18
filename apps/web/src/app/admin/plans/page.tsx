@@ -58,6 +58,7 @@ type FormState = {
   maxUnits: string;
   maxFacilities: string;
   maxUsers: string;
+  includedUnits: string;
   tenantFeatures: TenantFeature[];
   isActive: boolean;
   isPublic: boolean;
@@ -76,6 +77,7 @@ const emptyForm: FormState = {
   maxUnits: '',
   maxFacilities: '',
   maxUsers: '',
+  includedUnits: '',
   tenantFeatures: [],
   isActive: true,
   isPublic: true,
@@ -93,6 +95,7 @@ function toForm(p: SubscriptionPlanDto): FormState {
     maxUnits: p.maxUnits?.toString() ?? '',
     maxFacilities: p.maxFacilities?.toString() ?? '',
     maxUsers: p.maxUsers?.toString() ?? '',
+    includedUnits: p.includedUnits?.toString() ?? '',
     tenantFeatures: p.tenantFeatures,
     isActive: p.isActive,
     isPublic: p.isPublic,
@@ -142,6 +145,7 @@ export default function PlansPage() {
       maxUnits: form.maxUnits ? Number(form.maxUnits) : null,
       maxFacilities: form.maxFacilities ? Number(form.maxFacilities) : null,
       maxUsers: form.maxUsers ? Number(form.maxUsers) : null,
+      includedUnits: form.includedUnits ? Number(form.includedUnits) : null,
       isActive: form.isActive,
       isPublic: form.isPublic,
     });
@@ -403,6 +407,18 @@ export default function PlansPage() {
                 value={form.maxUsers}
                 onChange={(e) => setForm((f) => ({ ...f, maxUsers: e.target.value }))}
               />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label>Trasteros incluidos en la cuota (plan por trastero)</Label>
+              <Input
+                value={form.includedUnits}
+                placeholder="Vacío = precio fijo"
+                onChange={(e) => setForm((f) => ({ ...f, includedUnits: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                Con un número, los trasteros que pasen se cobran al precio del extra «Trasteros de
+                más», fijados unos días antes de cada cobro.
+              </p>
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>Features premium incluidas</Label>

@@ -1194,3 +1194,17 @@ Fuera de esta PR: el pago de las comisiones (las liquidaciones solo dejan consta
 **Revisión (2026-11-18)**: arreglos tras un análisis completo. Graves: las devoluciones de la suscripción no descontaban comisión (el cálculo solo leía los cobros `paid`) y un extra contratado después rebajaba la comisión de cobros anteriores (el reparto se congela ahora al cobrarse). Además: duplicados al editar un lead, topes de prueba sin carreras, importación y altas de una en una, liberación que respeta los seguimientos y no admite notas futuras, recordatorios de propuesta y avisos de impago solo cuando tienen sentido, propuestas caducadas que ya no se aceptan solas, cambio de decisión de un extra con descuento o reintegro, objetivos con lo que aportaba el cliente al pagar, demo repetible y un reinicio a la vez, y en las pantallas: carga y errores en todas las listas, la ficha no pierde lo escrito, «Ninguno» se respeta, el resumen con IA no se vuelve a pedir solo, importes con punto de miles, avisos que llevan a su pestaña y código del comercial editable en el registro.
 
 **Funcionalidades (2026-11-18)**: «Recibido» de cada liquidación en efectivo con justificante en PDF; garantía de la venta (si el cliente se va antes de N meses, el fijo se descuenta y vuelve si se reactiva); tramos del fijo por venta y bonus por cumplir el objetivo al cerrar el mes; previsión del % a 6 meses para el comercial y para la dirección; comparativa del equipo por periodo. Fuera: los tramos no se recalculan si una venta del mes se anula después de cerrarlo.
+
+### Nuevos planes: Basic por trastero y Pro hasta 1.000 (2026-11-18, 2 PR)
+
+Tras revisar los precios de la competencia (decisiones de Jota: prueba sin método de pago, Basic por trastero exacto, SEPA incluida solo en Pro y Administrador (en Basic y Starter, como extra), Pro hasta 1.000 trasteros, al acabar la prueba sin pagar solo lectura, y los del plan gratis pasan a Basic con aviso).
+
+| Plan          | Precio                        | Trasteros | Locales    | Usuarios        |
+| ------------- | ----------------------------- | --------- | ---------- | --------------- |
+| Basic         | 1 € por trastero, mínimo 19 € | 50        | 1          | 1 (+1 por 10 €) |
+| Starter       | 79 €                          | 200       | 3          | 10              |
+| Pro           | 149 €                         | 1.000     | Sin límite | Sin límite      |
+| Administrador | 349 €                         | 1.500     | Sin límite | Sin límite      |
+
+- **PR C** ✅ (2026-11-18): plan Basic con el extra interno «Trasteros de más» fijado 7 días antes de cada cobro (sin prorrateos, solo pago mensual), «Segundo usuario», extras limitados por plan y por cantidad, extras que sobran al cambiar de plan dados de baja con aviso, bajar de plan solo si cabe, Pro hasta 1.000 y Administrador hasta 1.500 (al llegar al tope, aviso y seguimiento para darle un precio a medida), plan gratis oculto, precios en la web, Suscripción, panel admin y simulador. Los trasteros de más cuentan como cuota del plan en las comisiones de los comerciales.
+- **PR D**: elegir plan al registrarse, prueba de 30 días sin método de pago con los límites del plan elegido, solo lectura al acabar sin pagar, avisos con importe y fecha, y paso de los clientes del plan gratis a Basic con 30 días de aviso.

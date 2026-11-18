@@ -16,9 +16,50 @@ export interface DefaultAddon {
   feature: TenantFeature | null;
   /** Consultas al mes del asistente IA que añade. */
   grantsAiQueries?: number;
+  /** Usuarios de más que da (por unidad). */
+  grantsUsers?: number;
+  /** Solo en estos planes (vacío = en cualquiera). */
+  planSlugs?: string[];
+  /** Cantidad máxima por cliente. */
+  maxQuantity?: number;
+  /** De la plataforma: no se contrata ni se quita a mano. */
+  isSystem?: boolean;
+}
+
+/** Plan de entrada: 1 € por trastero con un mínimo de 19 €. */
+export const BASIC_PLAN_SLUG = 'basic';
+/** Extra interno con los trasteros que pasan de los incluidos en la cuota. */
+export const EXTRA_UNITS_ADDON_SLUG = 'addon-extra-units';
+/** Segundo usuario del plan Basic. */
+export const BASIC_USER_ADDON_SLUG = 'addon-basic-user';
+
+/** Trasteros que se cobran aparte: los que pasan de los incluidos. */
+export function extraUnitsFor(units: number, includedUnits: number | null | undefined): number {
+  if (includedUnits == null) return 0;
+  return Math.max(0, Math.floor(units) - includedUnits);
 }
 
 export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
+  {
+    slug: EXTRA_UNITS_ADDON_SLUG,
+    name: 'Trasteros de más',
+    description:
+      'Plan Basic: cada trastero por encima de los 19 incluidos. Se fija con los trasteros dados de alta antes de cada cobro.',
+    priceMonthly: 1,
+    feature: null,
+    planSlugs: [BASIC_PLAN_SLUG],
+    isSystem: true,
+  },
+  {
+    slug: BASIC_USER_ADDON_SLUG,
+    name: 'Segundo usuario',
+    description: 'Plan Basic: un usuario más para el equipo.',
+    priceMonthly: 10,
+    feature: null,
+    grantsUsers: 1,
+    planSlugs: [BASIC_PLAN_SLUG],
+    maxQuantity: 1,
+  },
   {
     slug: 'addon-ai-extra',
     name: 'IA ampliada',

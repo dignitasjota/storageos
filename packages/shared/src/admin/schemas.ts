@@ -576,6 +576,8 @@ export const UpsertSubscriptionPlanSchema = z.object({
   maxUnits: z.number().int().nonnegative().nullable().optional(),
   maxFacilities: z.number().int().nonnegative().nullable().optional(),
   maxUsers: z.number().int().nonnegative().nullable().optional(),
+  /** Trasteros incluidos en la cuota; los que pasen van a 1 € (extra «Trasteros de más»). */
+  includedUnits: z.number().int().min(0).max(100000).nullable().optional(),
   isActive: z.boolean().default(true),
   /** false = oculto: no sale en la web ni en el autoservicio. */
   isPublic: z.boolean().default(true),
@@ -956,6 +958,10 @@ export const UpsertSaasAddonSchema = z.object({
   grantsAiQueries: z.number().int().min(0).max(100000).optional().nullable(),
   /** Precio por tramos de cantidad; vacío o null = precio único. */
   priceTiers: AddonPriceTiersSchema.nullable().optional(),
+  /** Solo en estos planes (slugs); vacío = en cualquiera. */
+  planSlugs: z.array(z.string().trim().min(1).max(64)).max(20).optional(),
+  /** Cantidad máxima por cliente (null = sin tope). */
+  maxQuantity: z.number().int().min(1).max(999).nullable().optional(),
   isActive: z.boolean().default(true),
 });
 export type UpsertSaasAddonInput = z.infer<typeof UpsertSaasAddonSchema>;
@@ -1455,6 +1461,8 @@ export const AdminQuoteSchema = z.object({
     .max(30)
     .default([]),
   couponCode: z.string().trim().max(60).optional(),
+  /** Plan por trastero (Basic): trasteros que tendrá; sin ellos, los del cliente. */
+  units: z.number().int().min(0).max(100000).optional(),
 });
 export type AdminQuoteInput = z.infer<typeof AdminQuoteSchema>;
 

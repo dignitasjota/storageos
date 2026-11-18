@@ -66,6 +66,7 @@ function QuoteSimulator() {
   const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [qty, setQty] = useState<Record<string, number>>({});
   const [coupon, setCoupon] = useState('');
+  const [units, setUnits] = useState('');
   const [quote, setQuote] = useState<AdminQuoteDto | null>(null);
   const [tenant, setTenant] = useState<{ id: string; name: string } | null>(null);
   const [tenantSearch, setTenantSearch] = useState('');
@@ -104,8 +105,9 @@ function QuoteSimulator() {
         .filter(([, n]) => n > 0)
         .map(([addonId, quantity]) => ({ addonId, quantity })),
       ...(coupon.trim() ? { couponCode: coupon.trim() } : {}),
+      ...(units.trim() !== '' && Number(units) >= 0 ? { units: Math.floor(Number(units)) } : {}),
     }),
-    [planId, cycle, qty, coupon],
+    [planId, cycle, qty, coupon, units],
   );
 
   // Recalcula al cambiar algo (con una pequeña espera por el cupón).
@@ -127,8 +129,13 @@ function QuoteSimulator() {
   }, [tenantSearch]);
   const search = useAdminTenants(debounced.length >= 2 ? { search: debounced } : {});
   const found = debounced.length >= 2 ? (search.data?.pages[0]?.items ?? []).slice(0, 6) : [];
-  const addons = (catalog.data ?? []).filter((a) => a.isActive);
   const selectedPlan = (plans.data ?? []).find((p) => p.id === planId);
+  const addons = (catalog.data ?? []).filter(
+    (a) =>
+      a.isActive &&
+      !a.isSystem &&
+      (a.planSlugs.length === 0 || (!!selectedPlan && a.planSlugs.includes(selectedPlan.slug))),
+  );
   const planFeatures = selectedPlan ? resolvePlanFeatures(selectedPlan) : [];
   const vatMode = plans.data?.[0]?.pricesIncludeVat === false ? '+ IVA' : 'IVA incl.';
 
@@ -204,6 +211,25 @@ function QuoteSimulator() {
                 </div>
               </div>
             </div>
+
+            {selectedPlan?.includedUnits != null && (
+              <div className="space-y-1">
+                <Label htmlFor="quote-units">Trasteros</Label>
+                <Input
+                  id="quote-units"
+                  type="number"
+                  min={0}
+                  className="w-32"
+                  value={units}
+                  onChange={(e) => setUnits(e.target.value)}
+                  placeholder={tenant ? 'Los suyos' : '0'}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Incluye {selectedPlan.includedUnits}; cada uno más,{' '}
+                  {eur(selectedPlan.extraUnitPrice ?? 0)} al mes. Solo pago mensual.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Extras</Label>

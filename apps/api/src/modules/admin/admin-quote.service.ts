@@ -2,6 +2,8 @@ import { BadRequestException, HttpException, Injectable, NotFoundException } fro
 import { ConfigService } from '@nestjs/config';
 import {
   addonUnitPrice,
+  EXTRA_UNITS_ADDON_SLUG,
+  extraUnitsFor,
   parseAddonPriceTiers,
   platformLeadName,
   resolvePlanFeatures,
@@ -78,7 +80,7 @@ export class AdminQuoteService {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
     const ids = [...new Set(input.addons.map((a) => a.addonId))];
     const addons = ids.length
-      ? await this.admin.subscriptionAddon.findMany({ where: { id: { in: ids } } })
+      ? await this.admin.subscriptionAddon.findMany({ where: { id: { in: ids }, isSystem: false } })
       : [];
     if (addons.length !== ids.length) {
       throw new NotFoundException({ code: 'addon_not_found', message: 'Extra no encontrado' });
@@ -95,6 +97,25 @@ export class AdminQuoteService {
         amount: round2(yearly ? planYearly : monthlyPrice),
       },
     ];
+    // Plan por trastero: los que pasan de los incluidos, a su precio.
+    if (plan.includedUnits != null) {
+      const units =
+        input.units ?? (tenantId ? await this.admin.unit.count({ where: { tenantId } }) : 0);
+      const extra = extraUnitsFor(units, plan.includedUnits);
+      const unitAddon = extra
+        ? await this.admin.subscriptionAddon.findUnique({
+            where: { slug: EXTRA_UNITS_ADDON_SLUG },
+            select: { priceMonthly: true },
+          })
+        : null;
+      if (unitAddon) {
+        const price = Number(unitAddon.priceMonthly);
+        lines.push({
+          label: `Trasteros de más (${extra} × ${price.toLocaleString('es-ES')} €)${yearly ? ' (12 meses)' : ''}`,
+          amount: round2(extra * price * months),
+        });
+      }
+    }
     const planFeatures = resolvePlanFeatures(plan);
     const includedAddonIds: string[] = [];
     for (const a of input.addons) {

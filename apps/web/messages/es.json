@@ -241,16 +241,17 @@
       "trialNote": "Prueba 30 días gratis. Sin tarjeta ni permanencia. Te migramos tus datos.",
       "plans": [
         {
-          "slug": "free",
-          "name": "Free",
-          "price": "0€",
-          "tagline": "Para empezar y probar",
-          "cta": "Crear cuenta",
+          "slug": "basic",
+          "name": "Basic",
+          "price": "19€",
+          "tagline": "Para un local pequeño",
+          "cta": "Empezar 30 días gratis",
           "features": [
-            "Hasta 10 trasteros",
-            "1 local · 2 usuarios",
+            "Pagas solo por los trasteros que tienes",
+            "Hasta 50 trasteros · 1 local · 1 usuario",
+            "Segundo usuario por 10 € al mes",
             "Contratos, inquilinos y facturación Veri*Factu",
-            "Cobros por tarjeta y SEPA"
+            "Cobro con tarjeta y Bizum; domiciliación SEPA como extra"
           ]
         },
         {
@@ -263,7 +264,7 @@
           "cta": "Empezar 30 días gratis",
           "features": [
             "Hasta 200 trasteros · 3 locales · 10 usuarios",
-            "Todo lo de Free, y además:",
+            "Todo lo de Basic, y además:",
             "Control de accesos (PIN/QR/RFID)",
             "Subidas de precio (ECRI), seguros y automatizaciones",
             "Gestión de impagos (candado, requerimiento y custodia)"
@@ -277,7 +278,7 @@
           "tagline": "Sin límites, todo incluido",
           "cta": "Empezar 30 días gratis",
           "features": [
-            "Trasteros, locales y usuarios ilimitados",
+            "Hasta 1.000 trasteros · locales y usuarios sin límite",
             "Todo lo de Starter, y además:",
             "Asistente IA + chatbot del portal",
             "Domiciliación SEPA + conciliación bancaria (N43)",
@@ -292,6 +293,7 @@
           "tagline": "Para gestores de cartera de varios propietarios",
           "cta": "Empezar 30 días gratis",
           "features": [
+            "Hasta 1.500 trasteros · locales y usuarios sin límite",
             "Todo lo de Pro, y además:",
             "Varios propietarios: cada local, de su dueño",
             "Facturas emitidas a nombre de cada propietario (Veri*Factu)",
