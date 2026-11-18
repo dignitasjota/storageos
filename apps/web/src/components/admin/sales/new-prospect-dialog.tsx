@@ -53,6 +53,12 @@ export function NewProspectDialog({ open, onClose }: { open: boolean; onClose: (
     (k: keyof typeof EMPTY) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  function close() {
+    setForm(EMPTY);
+    setError(null);
+    onClose();
+  }
+
   async function submit() {
     setError(null);
     const parsed = CreateSalesProspectSchema.safeParse(form);
@@ -63,8 +69,7 @@ export function NewProspectDialog({ open, onClose }: { open: boolean; onClose: (
     try {
       const account = await create.mutateAsync(parsed.data);
       toast.success('Prospecto añadido a tu cartera.');
-      setForm(EMPTY);
-      onClose();
+      close();
       router.push(`/admin/sales/accounts/${account.lead.id}`);
     } catch (err) {
       setError(errorText(err, 'No se ha podido guardar.'));
@@ -72,7 +77,7 @@ export function NewProspectDialog({ open, onClose }: { open: boolean; onClose: (
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nuevo prospecto</DialogTitle>
@@ -167,7 +172,7 @@ export function NewProspectDialog({ open, onClose }: { open: boolean; onClose: (
         </div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={close}>
             Cancelar
           </Button>
           <Button onClick={() => void submit()} disabled={create.isPending}>

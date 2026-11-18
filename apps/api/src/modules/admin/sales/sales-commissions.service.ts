@@ -28,7 +28,13 @@ import {
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { SuperAdminAuditService } from '../super-admin-audit.service';
 
-import { commissionBase, splitPaymentForCommission, type SplitAddon } from './commission-split';
+import {
+  commissionBase,
+  parseSplit,
+  scaleSplit,
+  splitPaymentForCommission,
+  type SplitAddon,
+} from './commission-split';
 import { addMonths, DAY, monthOf, monthRange, round2 } from './sales-common';
 import { SalesNotifyService } from './sales-notify.service';
 
@@ -36,6 +42,8 @@ import { SalesNotifyService } from './sales-notify.service';
 const NEW_ITEM_WINDOW_DAYS = 60;
 /** Se revisan devoluciones de cobros de hasta este tiempo atrás. */
 const RECHECK_DAYS = 400;
+/** Cobros que cuentan: también los devueltos (cuenta lo que queda). */
+const PAID_STATUSES = ['paid', 'partially_refunded', 'refunded'];
 
 const money = (n: number) =>
   n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 });
@@ -166,7 +174,15 @@ export class SalesCommissionsService {
     conceptId: string,
     byId: string,
   ): Promise<SalesCommissionPlanDto> {
-    const used = await this.admin.salesCommissionItem.count({ where: { conceptId } });
+    await this.assertRep(repId);
+    const concept = await this.admin.salesCommissionConcept.findFirst({
+      where: { id: conceptId, repId },
+      select: { id: true },
+    });
+    if (!concept) {
+      throw new NotFoundException({ code: 'concept_not_found', message: 'Concepto no encontrado' });
+    }
+    const used = await this.admin.salesCommissionItem.count({ where: { conceptId, repId } });
     if (used > 0) {
       // Ya se ha usado: se desactiva para conservar el historial.
       await this.admin.salesCommissionConcept.updateMany({
@@ -247,7 +263,12 @@ export class SalesCommissionsService {
           !paidAt ||
           ta.createdAt.getTime() <= paidAt.getTime() ||
           (since !== null && ta.createdAt.getTime() < since.getTime());
-        const offerId = await this.offerWithAddon(tenant.salesRepId, ta.tenantId, ta.addonId);
+        const offerId = await this.offerWithAddon(
+          tenant.salesRepId,
+          ta.tenantId,
+          ta.addonId,
+          ta.createdAt,
+        );
         try {
           await this.admin.salesAddonClaim.create({
             data: {
@@ -273,7 +294,7 @@ export class SalesCommissionsService {
             type: 'sales.addon_claim',
             title: `${tenant.name} ha contratado ${ta.addon.name}`,
             body: 'Es cliente de un comercial: decide si cuenta para su comisión.',
-            link: '/admin/sales-team?tab=approvals',
+            link: '/admin/sales-team/pending',
           });
           await this.notify.rep(tenant.salesRepId, {
             type: 'sales.claim_pending',
@@ -287,14 +308,20 @@ export class SalesCommissionsService {
     return created;
   }
 
-  /** La propuesta más reciente del comercial que incluía ese extra. */
+  /** La propuesta del comercial que incluía ese extra y seguía en vigor al contratarlo. */
   private async offerWithAddon(
     repId: string,
     tenantId: string,
     addonId: string,
+    at: Date,
   ): Promise<string | null> {
     const offers = await this.admin.platformQuoteOffer.findMany({
-      where: { superAdminId: repId, tenantId },
+      where: {
+        superAdminId: repId,
+        tenantId,
+        createdAt: { lte: at },
+        OR: [{ expiresAt: null }, { expiresAt: { gte: at } }],
+      },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: { id: true, addons: true },
@@ -377,44 +404,22 @@ export class SalesCommissionsService {
     });
     if (!claim)
       throw new NotFoundException({ code: 'claim_not_found', message: 'Extra no encontrado' });
+    const wanted = approve ? 'approved' : 'rejected';
+    if (claim.status === wanted) {
+      const [same] = (await this.claims({ repId: claim.repId })).filter((c) => c.id === claimId);
+      return same!;
+    }
     const now = new Date();
     await this.admin.salesAddonClaim.update({
       where: { id: claimId },
       data: {
-        status: approve ? 'approved' : 'rejected',
+        status: wanted,
         decidedById: byId,
         decidedAt: now,
         decisionNote: note?.trim() || null,
       },
     });
-    if (approve && !claim.partOfSale) {
-      const plan = await this.admin.salesCommissionPlan.findUnique({
-        where: { repId: claim.repId },
-      });
-      const fixed = Number(plan?.perAddonAmount ?? 0);
-      if (fixed > 0) {
-        await this.admin.salesCommissionItem
-          .create({
-            data: {
-              repId: claim.repId,
-              tenantId: claim.tenantId,
-              kind: 'addon_sale',
-              claimId: claim.id,
-              addonId: claim.addonId,
-              description: `Extra vendido: ${claim.addon.name}`,
-              month: salesMonth(now),
-              amount: fixed,
-              status: 'approved',
-              decidedById: byId,
-              decidedAt: now,
-            },
-          })
-          .catch((err: unknown) => {
-            if (!isUniqueViolation(err)) throw err;
-          });
-      }
-    }
-    if (!approve) await this.reverseItem({ claimId: claim.id }, 'Extra no aprobado', byId);
+    await this.syncClaimFixed(claim, approve, byId, now);
     await this.audit.record({
       superAdminId: byId,
       action: approve ? 'admin.sales.addon_claim_approved' : 'admin.sales.addon_claim_rejected',
@@ -440,18 +445,101 @@ export class SalesCommissionsService {
   }
 
   /**
-   * Anula una comisión fija (de venta o de extra): si aún no se ha liquidado,
+   * Deja el fijo de un extra en lo que toca según la decisión: si la partida aún
+   * no se ha liquidado se aprueba o se rechaza ella misma; si ya se pagó, la
+   * diferencia va en un ajuste (descuento o reintegro).
+   */
+  private async syncClaimFixed(
+    claim: { id: string; repId: string; tenantId: string; addonId: string; partOfSale: boolean },
+    approve: boolean,
+    byId: string | null,
+    now: Date,
+  ): Promise<void> {
+    if (claim.partOfSale) return;
+    const addonName =
+      (
+        await this.admin.subscriptionAddon.findUnique({
+          where: { id: claim.addonId },
+          select: { name: true },
+        })
+      )?.name ?? 'extra';
+    const original = await this.admin.salesCommissionItem.findFirst({
+      where: { claimId: claim.id, kind: 'addon_sale' },
+    });
+    if (!original) {
+      if (!approve) return;
+      const plan = await this.admin.salesCommissionPlan.findUnique({
+        where: { repId: claim.repId },
+      });
+      const fixed = Number(plan?.perAddonAmount ?? 0);
+      if (!(fixed > 0)) return;
+      await this.admin.salesCommissionItem
+        .create({
+          data: {
+            repId: claim.repId,
+            tenantId: claim.tenantId,
+            kind: 'addon_sale',
+            claimId: claim.id,
+            addonId: claim.addonId,
+            description: `Extra vendido: ${addonName}`,
+            month: salesMonth(now),
+            amount: fixed,
+            status: 'approved',
+            decidedById: byId,
+            decidedAt: now,
+          },
+        })
+        .catch((err: unknown) => {
+          if (!isUniqueViolation(err)) throw err;
+        });
+      return;
+    }
+    if (!original.settlementId) {
+      await this.admin.salesCommissionItem.update({
+        where: { id: original.id },
+        data: {
+          status: approve ? 'approved' : 'rejected',
+          decidedById: byId,
+          decidedAt: now,
+          decisionNote: approve ? null : 'Extra no aprobado',
+        },
+      });
+      return;
+    }
+    const paid = await this.admin.salesCommissionItem.aggregate({
+      where: { claimId: claim.id, status: 'approved' },
+      _sum: { amount: true },
+    });
+    const target = approve ? Number(original.amount) : 0;
+    const delta = round2(target - Number(paid._sum.amount ?? 0));
+    if (Math.abs(delta) < 0.01) return;
+    await this.admin.salesCommissionItem.create({
+      data: {
+        repId: original.repId,
+        tenantId: original.tenantId,
+        kind: 'adjustment',
+        claimId: claim.id,
+        description: `${delta < 0 ? 'Descuento' : 'Reintegro'}: ${original.description}`,
+        month: salesMonth(now),
+        amount: delta,
+        status: 'approved',
+        decidedById: byId,
+        decidedAt: now,
+      },
+    });
+  }
+
+  /**
+   * Anula el fijo de una venta: si aún no se ha liquidado,
    * queda rechazada; si ya se pagó, se descuenta con un ajuste en negativo.
    */
   private async reverseItem(
-    where: { claimId?: string; saleOfTenant?: string },
+    where: { saleOfTenant: string },
     reason: string,
     byId: string | null,
   ): Promise<void> {
     const item = await this.admin.salesCommissionItem.findFirst({
-      where: where.claimId
-        ? { claimId: where.claimId, kind: 'addon_sale' }
-        : { tenantId: where.saleOfTenant!, kind: 'sale' },
+      where: { tenantId: where.saleOfTenant, kind: 'sale' },
     });
     if (!item || item.status === 'rejected') return;
     const now = new Date();
@@ -486,12 +574,12 @@ export class SalesCommissionsService {
 
   // ------------------------------------------------------------------ cálculo
 
-  /** Primer cobro (con importe) de cada tenant. */
+  /** Primer cobro (con importe) de cada tenant, aunque luego se devolviera. */
   async firstPaidByTenant(tenantIds: string[]): Promise<Map<string, Date>> {
     if (tenantIds.length === 0) return new Map();
     const rows = await this.admin.tenantSubscriptionPayment.groupBy({
       by: ['tenantId'],
-      where: { tenantId: { in: tenantIds }, status: 'paid', amount: { gt: 0 } },
+      where: { tenantId: { in: tenantIds }, status: { in: PAID_STATUSES }, amount: { gt: 0 } },
       _min: { paidAt: true, createdAt: true },
     });
     return new Map(
@@ -520,6 +608,12 @@ export class SalesCommissionsService {
   /**
    * Comisiones de un cliente: el % de cada cobro (y sus ajustes si se devuelve o
    * cambia lo que cuenta) y el fijo por la venta. Idempotente.
+   *
+   * - Un cobro devuelto (total o en parte) sigue contando con lo que queda.
+   * - El reparto entre plan y extras se guarda al cobrarse: contratar o quitar
+   *   un extra después no cambia la comisión de cobros anteriores.
+   * - Un comercial desactivado no genera comisiones nuevas; las devoluciones de
+   *   lo que ya cobró se le siguen descontando.
    */
   async computeTenant(tenantId: string, now = new Date()): Promise<number> {
     const assignments: AssignmentWindow[] = (
@@ -531,8 +625,9 @@ export class SalesCommissionsService {
     ).map((a) => ({ repId: a.repId, startedAt: a.startedAt, endedAt: a.endedAt }));
     if (assignments.length === 0) return 0;
 
+    const repIds = [...new Set(assignments.map((a) => a.repId))];
     const since = new Date(now.getTime() - RECHECK_DAYS * DAY);
-    const [tenant, payments, allPaid, items, claims, plans, settings] = await Promise.all([
+    const [tenant, payments, allPaid, items, claims, plans, reps, settings] = await Promise.all([
       this.admin.tenant.findUnique({
         where: { id: tenantId },
         select: {
@@ -544,18 +639,24 @@ export class SalesCommissionsService {
               priceMonthly: true,
               quantity: true,
               billingMode: true,
+              createdAt: true,
               addon: { select: { name: true } },
             },
           },
         },
       }),
       this.admin.tenantSubscriptionPayment.findMany({
-        where: { tenantId, status: 'paid', amount: { gt: 0 }, paidAt: { gte: since } },
+        where: {
+          tenantId,
+          status: { in: PAID_STATUSES },
+          amount: { gt: 0 },
+          paidAt: { gte: since },
+        },
         orderBy: { paidAt: 'asc' },
         include: { invoice: { select: { taxRate: true, lines: true } } },
       }),
       this.admin.tenantSubscriptionPayment.findMany({
-        where: { tenantId, status: 'paid', amount: { gt: 0 } },
+        where: { tenantId, status: { in: PAID_STATUSES }, amount: { gt: 0 } },
         orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
         select: { paidAt: true, createdAt: true, amount: true, refundedAmount: true },
       }),
@@ -564,20 +665,19 @@ export class SalesCommissionsService {
         where: { tenantId, status: 'approved' },
         select: { addonId: true },
       }),
-      this.admin.salesCommissionPlan.findMany({
-        where: { repId: { in: [...new Set(assignments.map((a) => a.repId))] } },
+      this.admin.salesCommissionPlan.findMany({ where: { repId: { in: repIds } } }),
+      this.admin.superAdmin.findMany({
+        where: { id: { in: repIds } },
+        select: { id: true, isActive: true, role: true },
       }),
       this.admin.platformBillingSettings.findFirst({ select: { taxRate: true } }),
     ]);
     if (!tenant) return 0;
     const planOf = new Map(plans.map((p) => [p.repId, p]));
+    const activeRep = new Set(
+      reps.filter((r) => r.isActive && r.role === 'sales').map((r) => r.id),
+    );
     const approved = new Set(claims.map((c) => c.addonId));
-    const addons: SplitAddon[] = tenant.subscriptionAddons.map((a) => ({
-      addonId: a.addonId,
-      name: a.addon.name,
-      monthly: Number(a.priceMonthly) * a.quantity,
-      billingMode: a.billingMode,
-    }));
     const planMonthly = Number(tenant.subscription?.plan.priceMonthly ?? 0);
     const defaultTax = Number(settings?.taxRate ?? 21);
     const first = allPaid[0];
@@ -596,7 +696,7 @@ export class SalesCommissionsService {
         existing[0]?.rate != null ? Number(existing[0].rate) : Number(plan?.revenuePct ?? 0);
       const isNew = existing.length === 0;
       if (isNew) {
-        if (!(rate > 0)) continue;
+        if (!(rate > 0) || !activeRep.has(repId)) continue;
         if (paidAt.getTime() < now.getTime() - NEW_ITEM_WINDOW_DAYS * DAY) continue;
         if (
           plan?.revenueMonths &&
@@ -606,21 +706,36 @@ export class SalesCommissionsService {
           continue;
         }
       }
-      const split = splitPaymentForCommission({
-        gross: Number(p.amount),
-        refunded: Number(p.refundedAmount ?? 0),
-        taxRate: p.invoice ? Number(p.invoice.taxRate) : defaultTax,
-        provider: p.provider,
-        description: p.description,
-        lines: (p.invoice?.lines ?? []).map((l) => ({
-          kind: l.kind,
-          description: l.description,
-          total: Number(l.total),
-        })),
-        planMonthly,
-        addons,
-      });
-      const base = commissionBase(split, approved);
+      const gross = Number(p.amount);
+      const kept = Math.max(0, gross - Number(p.refundedAmount ?? 0)) / gross;
+      const stored = existing.map((i) => parseSplit(i.split)).find((x) => x !== null) ?? null;
+      // Reparto del cobro con los extras que tenía el cliente al pagar.
+      const snapshot =
+        stored ??
+        splitPaymentForCommission({
+          gross,
+          refunded: 0,
+          taxRate: p.invoice ? Number(p.invoice.taxRate) : defaultTax,
+          provider: p.provider,
+          description: p.description,
+          lines: (p.invoice?.lines ?? []).map((l) => ({
+            kind: l.kind,
+            description: l.description,
+            total: Number(l.total),
+          })),
+          planMonthly,
+          addons: tenant.subscriptionAddons
+            .filter((a) => a.createdAt.getTime() <= paidAt.getTime())
+            .map(
+              (a): SplitAddon => ({
+                addonId: a.addonId,
+                name: a.addon.name,
+                monthly: Number(a.priceMonthly) * a.quantity,
+                billingMode: a.billingMode,
+              }),
+            ),
+        });
+      const base = commissionBase(scaleSplit(snapshot, kept), approved);
       const target = revenueCommission(base, rate);
       const current = round2(existing.reduce((s, i) => s + Number(i.amount), 0));
       const delta = round2(target - current);
@@ -639,6 +754,7 @@ export class SalesCommissionsService {
           rate,
           amount: delta,
           status: 'approved',
+          ...(stored ? {} : { split: snapshot as unknown as Prisma.InputJsonValue }),
         },
       });
       created += 1;
@@ -652,7 +768,8 @@ export class SalesCommissionsService {
         (s, x) => s + Number(x.amount) - Number(x.refundedAmount ?? 0),
         0,
       );
-      if (saleRep && !sale && netPaid > 0.005) {
+      if (saleRep && netPaid > 0.005) await this.ensureWin(tenantId, saleRep, firstPaidAt);
+      if (saleRep && !sale && netPaid > 0.005 && activeRep.has(saleRep)) {
         const fixed = Number(planOf.get(saleRep)?.perSaleAmount ?? 0);
         const recent = firstPaidAt.getTime() >= now.getTime() - NEW_ITEM_WINDOW_DAYS * DAY;
         if (fixed > 0 && recent) {
@@ -682,11 +799,37 @@ export class SalesCommissionsService {
           });
         }
       }
-      if (sale && sale.status !== 'rejected' && netPaid <= 0.005) {
-        await this.reverseItem({ saleOfTenant: tenantId }, 'Se ha devuelto todo lo cobrado', null);
+      if (netPaid <= 0.005) {
+        // Todo devuelto: la venta no cuenta.
+        await this.admin.salesWin.deleteMany({ where: { tenantId } });
+        if (sale && sale.status !== 'rejected') {
+          await this.reverseItem(
+            { saleOfTenant: tenantId },
+            'Se ha devuelto todo lo cobrado',
+            null,
+          );
+        }
       }
     }
     return created;
+  }
+
+  /**
+   * La venta de un cliente (su primer pago) queda anotada con lo que aportaba
+   * al mes entonces: los objetivos no cambian si después sube o baja de plan.
+   */
+  private async ensureWin(tenantId: string, repId: string, paidAt: Date): Promise<void> {
+    const exists = await this.admin.salesWin.findUnique({
+      where: { tenantId },
+      select: { tenantId: true },
+    });
+    if (exists) return;
+    const monthly = (await this.monthlyByTenant([tenantId])).get(tenantId) ?? 0;
+    await this.admin.salesWin
+      .create({ data: { tenantId, repId, month: monthOf(paidAt), paidAt, monthly } })
+      .catch((err: unknown) => {
+        if (!isUniqueViolation(err)) throw err;
+      });
   }
 
   // ------------------------------------------------------------------ partidas
@@ -822,7 +965,7 @@ export class SalesCommissionsService {
       type: 'sales.concept_request',
       title: `Comisión por «${concept.name}» para aprobar`,
       body: `${tenant.name} · ${money(Number(concept.amount))}`,
-      link: '/admin/sales-team?tab=approvals',
+      link: '/admin/sales-team/pending',
     });
     return this.view(repId);
   }
@@ -898,6 +1041,14 @@ export class SalesCommissionsService {
         message: 'Ya está en una liquidación: para corregirla, añade un ajuste',
       });
     }
+    if (item.status !== 'pending') {
+      // Las calculadas solas (cobros, ventas, extras) se recalculan: rechazarlas
+      // a mano haría que volvieran a salir. Para corregirlas, un ajuste.
+      throw new ConflictException({
+        code: 'item_not_pending',
+        message: 'Ya está decidida: para corregirla, añade un ajuste',
+      });
+    }
     const row = await this.admin.salesCommissionItem.update({
       where: { id: itemId },
       data: {
@@ -918,7 +1069,7 @@ export class SalesCommissionsService {
       targetTenantId: item.tenantId,
       changes: { itemId, amount: Number(item.amount) },
     });
-    if (item.status === 'pending') {
+    {
       await this.notify.rep(item.repId, {
         type: 'sales.claim_decided',
         title: approve ? `Aprobada: ${item.description}` : `Rechazada: ${item.description}`,
@@ -1073,42 +1224,52 @@ export class SalesCommissionsService {
   }
 
   /**
-   * Clientes nuevos de cada comercial en el mes (su primer pago fue ese mes y
-   * con él) y lo que aportan al mes.
+   * Clientes nuevos de cada comercial en el mes (su primer pago fue ese mes, en
+   * hora de España, y con él) y lo que aportaban al mes al pagar.
    */
   async monthAchievements(
     month: string,
   ): Promise<Map<string, { newClients: number; newMrr: number }>> {
+    await this.ensureWinsOf(month);
+    const wins = await this.admin.salesWin.findMany({
+      where: { month },
+      select: { repId: true, monthly: true },
+    });
+    const out = new Map<string, { newClients: number; newMrr: number }>();
+    for (const w of wins) {
+      const cur = out.get(w.repId) ?? { newClients: 0, newMrr: 0 };
+      cur.newClients += 1;
+      cur.newMrr = round2(cur.newMrr + Number(w.monthly));
+      out.set(w.repId, cur);
+    }
+    return out;
+  }
+
+  /** Anota las ventas del mes que aún no estén (el cálculo horario aún no ha pasado). */
+  private async ensureWinsOf(month: string): Promise<void> {
     const { from, to } = monthRange(month);
     const rows = await this.admin.$queryRaw<{ tenant_id: string; first_paid: Date }[]>`
-      SELECT tenant_id, MIN(COALESCE(paid_at, created_at)) AS first_paid
-        FROM tenant_subscription_payments
-       WHERE status = 'paid' AND amount > 0
-       GROUP BY tenant_id
-      HAVING MIN(COALESCE(paid_at, created_at)) >= ${from}
-         AND MIN(COALESCE(paid_at, created_at)) < ${to}`;
-    const out = new Map<string, { newClients: number; newMrr: number }>();
-    if (rows.length === 0) return out;
-    const ids = rows.map((r) => r.tenant_id);
-    const [assignments, monthly] = await Promise.all([
-      this.admin.salesAssignment.findMany({
-        where: { tenantId: { in: ids } },
-        select: { tenantId: true, repId: true, startedAt: true, endedAt: true },
-      }),
-      this.monthlyByTenant(ids),
-    ]);
+      SELECT p.tenant_id, MIN(COALESCE(p.paid_at, p.created_at)) AS first_paid
+        FROM tenant_subscription_payments p
+       WHERE p.status IN ('paid', 'partially_refunded', 'refunded') AND p.amount > 0
+         AND NOT EXISTS (SELECT 1 FROM sales_wins w WHERE w.tenant_id = p.tenant_id)
+         AND EXISTS (SELECT 1 FROM sales_assignments a WHERE a.tenant_id = p.tenant_id)
+       GROUP BY p.tenant_id
+      HAVING MIN(COALESCE(p.paid_at, p.created_at)) >= ${from}
+         AND MIN(COALESCE(p.paid_at, p.created_at)) < ${to}
+         AND SUM(p.amount - p.refunded_amount) > 0.005`;
+    if (rows.length === 0) return;
+    const assignments = await this.admin.salesAssignment.findMany({
+      where: { tenantId: { in: rows.map((r) => r.tenant_id) } },
+      select: { tenantId: true, repId: true, startedAt: true, endedAt: true },
+    });
     for (const r of rows) {
       const own = assignments
         .filter((a) => a.tenantId === r.tenant_id)
         .map((a) => ({ repId: a.repId, startedAt: a.startedAt, endedAt: a.endedAt }));
       const repId = repAt(own, r.first_paid);
-      if (!repId) continue;
-      const cur = out.get(repId) ?? { newClients: 0, newMrr: 0 };
-      cur.newClients += 1;
-      cur.newMrr = round2(cur.newMrr + (monthly.get(r.tenant_id) ?? 0));
-      out.set(repId, cur);
+      if (repId) await this.ensureWin(r.tenant_id, repId, r.first_paid);
     }
-    return out;
   }
 
   async commissionByRep(month: string): Promise<Map<string, number>> {

@@ -26,7 +26,7 @@ const NONE = '-';
 export function TenantRepCard({ tenantId }: { tenantId: string }) {
   const isSuperadmin = useIsSuperadmin();
   const rep = useAccountRep(tenantId, isSuperadmin);
-  const team = useSalesTeam();
+  const team = useSalesTeam(isSuperadmin);
   const assign = useAssignSalesAccount();
   const [repId, setRepId] = useState(NONE);
   useEffect(() => setRepId(rep.data?.repId ?? NONE), [rep.data?.repId]);

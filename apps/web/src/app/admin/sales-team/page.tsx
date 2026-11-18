@@ -12,6 +12,7 @@ import {
   errorText,
   Field,
   PageHeader,
+  QueryError,
   relativeDays,
   SalesPage,
   Stat,
@@ -146,6 +147,7 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
     repAddonTrialDays: settings.repAddonTrialDays,
     lifecycleFromRep: settings.lifecycleFromRep,
   });
+  // Solo cuando cambian estas reglas (no al tocar la demo, que comparte ajustes).
   useEffect(() => {
     setForm({
       signupExtraTrialDays: settings.signupExtraTrialDays,
@@ -154,7 +156,13 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
       repAddonTrialDays: settings.repAddonTrialDays,
       lifecycleFromRep: settings.lifecycleFromRep,
     });
-  }, [settings]);
+  }, [
+    settings.signupExtraTrialDays,
+    settings.leadReleaseDays,
+    settings.repTrialExtensionDays,
+    settings.repAddonTrialDays,
+    settings.lifecycleFromRep,
+  ]);
   const num = (k: keyof typeof form, max: number) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: Math.max(0, Math.min(max, e.target.valueAsNumber || 0)) }));
 
@@ -395,6 +403,8 @@ export default function SalesTeamPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Cargando…
         </div>
+      ) : team.isError ? (
+        <QueryError query={team} />
       ) : reps.length === 0 ? (
         <Empty>Aún no tienes comerciales.</Empty>
       ) : (

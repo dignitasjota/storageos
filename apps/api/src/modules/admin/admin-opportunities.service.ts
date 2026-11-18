@@ -87,7 +87,13 @@ export class AdminOpportunitiesService {
     private readonly audit: SuperAdminAuditService,
   ) {}
 
-  async opportunities(now = new Date()): Promise<AdminAddonOpportunityDto[]> {
+  /** `onlyTenantIds` limita el cálculo a esos tenants (p. ej. la cartera de un comercial). */
+  async opportunities(
+    now = new Date(),
+    onlyTenantIds?: string[],
+  ): Promise<AdminAddonOpportunityDto[]> {
+    if (onlyTenantIds && onlyTenantIds.length === 0) return [];
+    const scope = onlyTenantIds ? { tenantId: { in: onlyTenantIds } } : {};
     const since30 = new Date(now.getTime() - 30 * DAY);
     const yearAgo = new Date(now.getTime() - 365 * DAY);
     const [catalog, tenants, overrides, owned, interest, offers] = await Promise.all([
@@ -96,7 +102,12 @@ export class AdminOpportunitiesService {
         orderBy: { name: 'asc' },
       }),
       this.admin.tenant.findMany({
-        where: { deletedAt: null, billingExempt: false, status: { in: ['active', 'trial'] } },
+        where: {
+          deletedAt: null,
+          billingExempt: false,
+          status: { in: ['active', 'trial'] },
+          ...(onlyTenantIds ? { id: { in: onlyTenantIds } } : {}),
+        },
         select: {
           id: true,
           name: true,
@@ -119,21 +130,25 @@ export class AdminOpportunitiesService {
         },
       }),
       this.admin.tenantFeatureOverride.findMany({
-        where: liveOverrideWhere(now),
+        where: { ...liveOverrideWhere(now), ...scope },
         select: { tenantId: true, feature: true, enabled: true },
       }),
       this.admin.tenantSubscriptionAddon.findMany({
-        where: { suspendedAt: null },
+        where: { suspendedAt: null, ...scope },
         select: { tenantId: true, addonId: true },
       }),
       this.admin.featureInterestEvent.groupBy({
         by: ['tenantId', 'feature'],
-        where: { createdAt: { gte: since30 } },
+        where: { createdAt: { gte: since30 }, ...scope },
         _count: { _all: true },
         _max: { createdAt: true },
       }),
       this.admin.superAdminAuditLog.findMany({
-        where: { action: OFFER_ACTION, occurredAt: { gte: new Date(now.getTime() - 90 * DAY) } },
+        where: {
+          action: OFFER_ACTION,
+          occurredAt: { gte: new Date(now.getTime() - 90 * DAY) },
+          ...(onlyTenantIds ? { targetTenantId: { in: onlyTenantIds } } : {}),
+        },
         select: { targetTenantId: true, changes: true, occurredAt: true },
         orderBy: { occurredAt: 'desc' },
       }),

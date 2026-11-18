@@ -26,6 +26,8 @@ import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { addDaysIso, madridToday, type SalesActor } from './sales-common';
 
+import type { Prisma } from '@storageos/database';
+
 export interface SalesCatalogDto {
   plans: {
     id: string;
@@ -157,6 +159,7 @@ export class SalesSellingService {
     const sender = await this.accounts.sender(repId);
     // El seguimiento lo lleva su cartera (no el de la ficha del tenant).
     await this.leads.sendQuote(leadId, { ...input, followupDays: 0 }, this.actor(actor), sender);
+    await this.accounts.touchContact(leadId, repId, null);
     if (input.followupDays > 0) {
       await this.leads.createFollowup(
         leadId,
@@ -182,7 +185,7 @@ export class SalesSellingService {
       ).map((t) => t.id),
     );
     if (mine.size === 0) return [];
-    const all = await this.opportunitiesSvc.opportunities();
+    const all = await this.opportunitiesSvc.opportunities(new Date(), [...mine]);
     return all
       .map((o) => ({ ...o, candidates: o.candidates.filter((c) => mine.has(c.tenantId)) }))
       .filter((o) => o.candidates.length > 0);
@@ -197,10 +200,20 @@ export class SalesSellingService {
   ): Promise<SalesAccountDto> {
     await this.assignment.clientOf(repId, tenantId);
     const leadId = await this.assignment.ensureLeadForTenant(tenantId);
-    const profile = await this.admin.salesAccountProfile.findUnique({ where: { leadId } });
     const settings = await this.assignment.settings();
     if (input.trial) {
-      if (settings.repAddonTrialDays <= 0 || (profile?.addonTrials ?? 0) >= 1) {
+      // Se reserva antes de darla: dos peticiones a la vez no dan dos pruebas.
+      const reserved =
+        settings.repAddonTrialDays > 0 &&
+        (await this.reserveProfile(
+          leadId,
+          repId,
+          { addonTrials: { lt: 1 } },
+          {
+            addonTrials: { increment: 1 },
+          },
+        ));
+      if (!reserved) {
         throw new ForbiddenException({
           code: 'addon_trial_limit',
           message:
@@ -208,16 +221,27 @@ export class SalesSellingService {
         });
       }
     }
-    const res = await this.opportunitiesSvc.propose(
-      tenantId,
-      {
-        addonId: input.addonId,
-        ...(input.message ? { message: input.message } : {}),
-        ...(input.trial ? { trialDays: settings.repAddonTrialDays } : {}),
-        followupDays: 0,
-      },
-      this.actor(actor),
-    );
+    let res: Awaited<ReturnType<typeof this.opportunitiesSvc.propose>>;
+    try {
+      res = await this.opportunitiesSvc.propose(
+        tenantId,
+        {
+          addonId: input.addonId,
+          ...(input.message ? { message: input.message } : {}),
+          ...(input.trial ? { trialDays: settings.repAddonTrialDays } : {}),
+          followupDays: 0,
+        },
+        this.actor(actor),
+      );
+    } catch (err) {
+      if (input.trial) {
+        await this.admin.salesAccountProfile.update({
+          where: { leadId },
+          data: { addonTrials: { decrement: 1 } },
+        });
+      }
+      throw err;
+    }
     const addon = await this.admin.subscriptionAddon.findUnique({
       where: { id: input.addonId },
       select: { name: true },
@@ -233,13 +257,7 @@ export class SalesSellingService {
         }.${input.message ? `\n\n${input.message}` : ''}`,
       },
     });
-    if (input.trial) {
-      await this.admin.salesAccountProfile.upsert({
-        where: { leadId },
-        create: { leadId, addonTrials: 1, updatedById: repId },
-        update: { addonTrials: { increment: 1 }, updatedById: repId },
-      });
-    }
+    await this.accounts.touchContact(leadId, repId, null);
     if (input.followupDays > 0) {
       await this.leads.createFollowup(
         leadId,
@@ -253,6 +271,25 @@ export class SalesSellingService {
       );
     }
     return this.accounts.account(repId, leadId);
+  }
+
+  /** Suma al contador de la ficha solo si se cumple la condición (sin carreras). */
+  private async reserveProfile(
+    leadId: string,
+    repId: string,
+    where: Prisma.SalesAccountProfileWhereInput,
+    data: Prisma.SalesAccountProfileUpdateManyMutationInput,
+  ): Promise<boolean> {
+    await this.admin.salesAccountProfile.upsert({
+      where: { leadId },
+      create: { leadId, updatedById: repId },
+      update: {},
+    });
+    const { count } = await this.admin.salesAccountProfile.updateMany({
+      where: { leadId, ...where },
+      data: { ...data, updatedById: repId },
+    });
+    return count > 0;
   }
 
   /** Amplía la prueba hasta el tope de la dirección (contando lo ya ampliado). */
@@ -270,13 +307,21 @@ export class SalesSellingService {
       });
     }
     const leadId = await this.assignment.ensureLeadForTenant(tenantId);
-    const [profile, settings] = await Promise.all([
-      this.admin.salesAccountProfile.findUnique({ where: { leadId } }),
-      this.assignment.settings(),
-    ]);
-    const used = profile?.trialExtensionDays ?? 0;
-    const remaining = Math.max(0, settings.repTrialExtensionDays - used);
-    if (input.days > remaining) {
+    const settings = await this.assignment.settings();
+    // Se reserva antes de ampliar: dos peticiones a la vez no se saltan el tope.
+    const reserved =
+      input.days <= settings.repTrialExtensionDays &&
+      (await this.reserveProfile(
+        leadId,
+        repId,
+        { trialExtensionDays: { lte: settings.repTrialExtensionDays - input.days } },
+        { trialExtensionDays: { increment: input.days } },
+      ));
+    if (!reserved) {
+      const used =
+        (await this.admin.salesAccountProfile.findUnique({ where: { leadId } }))
+          ?.trialExtensionDays ?? 0;
+      const remaining = Math.max(0, settings.repTrialExtensionDays - used);
       throw new ForbiddenException({
         code: 'trial_extension_limit',
         message:
@@ -286,18 +331,21 @@ export class SalesSellingService {
         details: { remaining },
       });
     }
-    await this.tenants.extendTrial(tenantId, {
-      superAdminId: repId,
-      reason: input.reason,
-      days: input.days,
-      ipAddress: actor.ipAddress ?? null,
-      userAgent: actor.userAgent ?? null,
-    });
-    await this.admin.salesAccountProfile.upsert({
-      where: { leadId },
-      create: { leadId, trialExtensionDays: input.days, updatedById: repId },
-      update: { trialExtensionDays: { increment: input.days }, updatedById: repId },
-    });
+    try {
+      await this.tenants.extendTrial(tenantId, {
+        superAdminId: repId,
+        reason: input.reason,
+        days: input.days,
+        ipAddress: actor.ipAddress ?? null,
+        userAgent: actor.userAgent ?? null,
+      });
+    } catch (err) {
+      await this.admin.salesAccountProfile.update({
+        where: { leadId },
+        data: { trialExtensionDays: { decrement: input.days } },
+      });
+      throw err;
+    }
     await this.admin.platformLeadActivity.create({
       data: {
         leadId,

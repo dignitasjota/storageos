@@ -135,9 +135,12 @@ export function SalesShell({ children }: { children: ReactNode }) {
   // La verificación es obligatoria salvo que la dirección se la haya quitado
   // (`required` del estado). Hasta saberlo no se pinta el panel.
   const statusKnown = !!status.data || !!admin?.twoFactorEnabled || status.isError;
+  // Si no se ha podido saber, no se le pide (el servidor lo exige igualmente).
   const needsTwoFactor = status.data
     ? status.data.required && !status.data.enabled
-    : !admin?.twoFactorEnabled;
+    : status.isError
+      ? false
+      : !admin?.twoFactorEnabled;
   const ready = statusKnown && !needsTwoFactor;
   const unread = useSalesUnreadCount(ready).data?.count ?? 0;
   const allowed = salesPathAllowed(pathname);

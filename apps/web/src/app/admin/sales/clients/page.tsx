@@ -8,6 +8,7 @@ import {
   Empty,
   PageHeader,
   ProfileGlance,
+  QueryError,
   relativeDays,
   SalesPage,
   Stat,
@@ -89,6 +90,8 @@ export default function SalesClientsPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Cargando…
         </div>
+      ) : clients.isError ? (
+        <QueryError query={clients} />
       ) : rows.length === 0 ? (
         <Empty>No hay clientes con este filtro.</Empty>
       ) : (

@@ -2222,7 +2222,13 @@ export class AdminTenantsService {
     // Una propuesta de cuota con este plan queda aceptada.
     await this.admin.platformQuoteOffer
       .updateMany({
-        where: { tenantId, planId: plan.id, status: 'sent' },
+        where: {
+          tenantId,
+          planId: plan.id,
+          status: 'sent',
+          // Una caducada ya no se acepta sola.
+          OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+        },
         data: { status: 'accepted', resolvedAt: new Date() },
       })
       .catch(() => undefined);
@@ -2511,6 +2517,8 @@ export class AdminTenantsService {
       if (lead) {
         await tx.platformLeadActivity.deleteMany({ where: { leadId: lead.id } });
         await tx.platformLeadFollowup.deleteMany({ where: { leadId: lead.id } });
+        // La ficha del comercial (nota fijada, quién decide…) también.
+        await tx.salesAccountProfile.deleteMany({ where: { leadId: lead.id } });
         await tx.platformLead.update({
           where: { id: lead.id },
           data: {

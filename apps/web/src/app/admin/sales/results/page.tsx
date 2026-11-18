@@ -7,10 +7,17 @@ import {
   type SalesAddonClaimDto,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
-import { Empty, errorText, PageHeader, SalesPage, Stat } from '@/components/admin/sales/common';
+import {
+  Empty,
+  errorText,
+  PageHeader,
+  QueryState,
+  SalesPage,
+  Stat,
+} from '@/components/admin/sales/common';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -83,6 +90,12 @@ export default function SalesResultsPage() {
   const settlements = useSalesSettlements();
   const targets = useSalesTargets();
   const data = commissions.data;
+  // Los avisos llevan a una pestaña concreta (?tab=claims).
+  const [tab, setTab] = useState('items');
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+    if (wanted && ['items', 'claims', 'settlements', 'targets'].includes(wanted)) setTab(wanted);
+  }, []);
 
   return (
     <SalesPage>
@@ -146,7 +159,7 @@ export default function SalesResultsPage() {
         </>
       )}
 
-      <Tabs defaultValue="items">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
           <TabsTrigger value="items">Movimientos</TabsTrigger>
           <TabsTrigger value="claims">Extras vendidos</TabsTrigger>
@@ -155,7 +168,9 @@ export default function SalesResultsPage() {
         </TabsList>
 
         <TabsContent value="items">
-          {!data || data.items.length === 0 ? (
+          {commissions.isLoading || commissions.isError ? (
+            <QueryState query={commissions} />
+          ) : !data || data.items.length === 0 ? (
             <Empty>Aún no hay comisiones. Llegan cuando tus clientes pagan.</Empty>
           ) : (
             <div className="rounded-md border">
@@ -218,7 +233,9 @@ export default function SalesResultsPage() {
             cuando la dirección comprueba que los vendiste tú. Los de la venta inicial cuentan
             solos.
           </p>
-          {(claims.data ?? []).length === 0 ? (
+          {claims.isLoading || claims.isError ? (
+            <QueryState query={claims} />
+          ) : (claims.data ?? []).length === 0 ? (
             <Empty>Tus clientes no han contratado extras todavía.</Empty>
           ) : (
             <div className="rounded-md border">
@@ -272,7 +289,9 @@ export default function SalesResultsPage() {
         </TabsContent>
 
         <TabsContent value="settlements">
-          {(settlements.data ?? []).length === 0 ? (
+          {settlements.isLoading || settlements.isError ? (
+            <QueryState query={settlements} />
+          ) : (settlements.data ?? []).length === 0 ? (
             <Empty>Aún no hay liquidaciones.</Empty>
           ) : (
             <div className="rounded-md border">
@@ -312,7 +331,9 @@ export default function SalesResultsPage() {
         </TabsContent>
 
         <TabsContent value="targets">
-          {(targets.data ?? []).length === 0 ? (
+          {targets.isLoading || targets.isError ? (
+            <QueryState query={targets} />
+          ) : (targets.data ?? []).length === 0 ? (
             <Empty>La dirección no te ha puesto objetivos.</Empty>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">

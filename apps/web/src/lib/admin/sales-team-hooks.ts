@@ -45,10 +45,11 @@ function useInvalidate() {
   };
 }
 
-export function useSalesTeam() {
+export function useSalesTeam(enabled = true) {
   return useQuery({
     queryKey: [...ROOT, 'overview'] as const,
     queryFn: () => adminApiFetch<SalesTeamDto>('/admin/sales-team'),
+    enabled,
   });
 }
 

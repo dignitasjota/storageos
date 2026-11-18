@@ -10,6 +10,8 @@ import {
   Empty,
   errorText,
   PageHeader,
+  QueryError,
+  QueryState,
   SalesPage,
 } from '@/components/admin/sales/common';
 import { Button } from '@/components/ui/button';
@@ -100,6 +102,8 @@ export default function SalesMaterialsPage() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" /> Cargando…
             </div>
+          ) : materials.isError ? (
+            <QueryError query={materials} />
           ) : (materials.data ?? []).length === 0 ? (
             <Empty>La dirección aún no ha subido materiales.</Empty>
           ) : (
@@ -114,7 +118,9 @@ export default function SalesMaterialsPage() {
           <p className="mb-3 text-sm text-muted-foreground">
             Desde la ficha de cada cuenta se rellenan solas con sus datos. Aquí puedes copiarlas.
           </p>
-          {(templates.data ?? []).length === 0 ? (
+          {templates.isLoading || templates.isError ? (
+            <QueryState query={templates} />
+          ) : (templates.data ?? []).length === 0 ? (
             <Empty>No hay plantillas.</Empty>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">

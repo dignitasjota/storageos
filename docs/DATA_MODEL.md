@@ -1308,3 +1308,9 @@ Todas las tablas nuevas son de la plataforma (sin tenant ni RLS, con `REVOKE` a 
 
 - `super_admins.sales_two_factor_exempt` (por defecto `false`): la dirección le quita a un comercial la verificación en dos pasos obligatoria.
 - `sales_settlements`: desde esta versión una liquidación nace `paid` (se paga en efectivo); `pending_payment` solo queda para las antiguas.
+
+### Revisión del equipo comercial (`20270205100000_sales_review`)
+
+- `sales_commission_items.split` (jsonb, opcional): reparto del cobro entre el plan y los extras, sin IVA ni devoluciones, tal como era al cobrarse. Lo lleva la primera partida de cada cobro; los recálculos lo escalan por lo que queda tras las devoluciones, así que contratar o quitar un extra después no cambia la comisión de cobros anteriores.
+- **`sales_wins`** (PK `tenant_id`, `REVOKE`): la venta de cada cliente de comercial (su primer pago): comercial, mes en hora de España, fecha y lo que aportaba al mes entonces. Es lo que cuentan los objetivos; se borra si se devuelve todo lo cobrado.
+- `platform_sales_settings.demo_resetting_at`: reinicio de la cuenta de demostración en marcha (uno a la vez; caduca a los 15 minutos).

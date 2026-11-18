@@ -2678,3 +2678,13 @@ Migración `20270204100000_sales_two_factor_exempt` (se aplica sola al arrancar 
 - **Enlace del comercial**: el registro y la web llevan `?team=CÓDIGO` (antes `?comercial=`).
 - **Liquidaciones en efectivo**: «Liquidar» en la ficha del comercial la deja pagada en el acto. No se le avisa: la ve en «Mis comisiones» → Liquidaciones.
 - La página «Clientes» del comercial ya no dice que no ve los inquilinos ni la facturación de sus clientes.
+
+## 153. Revisión del equipo comercial (2026-11-18)
+
+Migración `20270205100000_sales_review` (se aplica sola al arrancar el API): `sales_commission_items.split`, tabla `sales_wins` y `platform_sales_settings.demo_resetting_at`. Sin variables nuevas.
+
+- **Comisiones**: un reembolso, contracargo perdido o adeudo SEPA devuelto se descuenta del % del comercial en el siguiente cálculo horario (y, si se devuelve todo, el fijo por la venta). Contratar o quitar un extra no cambia la comisión de cobros anteriores. Un comercial desactivado deja de sumar comisiones nuevas.
+- **Extras**: en «Equipo comercial → Por decidir», «Extras ya decididos» permite cambiar la decisión; si el fijo ya se liquidó, va un ajuste.
+- **Objetivos**: cuentan lo que aportaba cada cliente al pagar por primera vez (no lo que paga hoy).
+- **Demo**: el reinicio de cada noche deja también tipos, locales y trasteros como al crearla. Si falla, aviso en el panel («La cuenta de demostración no se ha podido poner a cero»).
+- **Leads**: no se puede descartar ni borrar el lead de un cliente que lleva un comercial sin quitarle antes el comercial.

@@ -4,7 +4,13 @@ import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo } from 'react';
 
-import { Empty, PageHeader, relativeDays, SalesPage } from '@/components/admin/sales/common';
+import {
+  Empty,
+  PageHeader,
+  QueryError,
+  relativeDays,
+  SalesPage,
+} from '@/components/admin/sales/common';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSalesClients, useSalesOpportunities } from '@/lib/admin/sales-hooks';
@@ -29,6 +35,8 @@ export default function SalesOpportunitiesPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Cargando…
         </div>
+      ) : opps.isError ? (
+        <QueryError query={opps} />
       ) : rows.length === 0 ? (
         <Empty>Ahora mismo no hay nada que ofrecer a tus clientes.</Empty>
       ) : (

@@ -16,6 +16,7 @@ import { SuperAdminAuditService } from '../super-admin-audit.service';
 
 import { SalesAssignmentService } from './sales-assignment.service';
 import { DAY } from './sales-common';
+import { SalesNotifyService } from './sales-notify.service';
 
 const DNI_LETTERS = 'TRWAGMYFPDXBNJZSQVHLCKE';
 const FIRST_NAMES = [
@@ -169,6 +170,7 @@ export class SalesDemoService {
     private readonly impersonation: ImpersonationService,
     private readonly assignment: SalesAssignmentService,
     private readonly audit: SuperAdminAuditService,
+    private readonly notify: SalesNotifyService,
   ) {}
 
   private async demoTenantId(): Promise<string | null> {
@@ -276,31 +278,80 @@ export class SalesDemoService {
         })
       )?.id;
     if (!auditor) return this.assignment.settingsDto();
+    // Un reinicio a la vez (el de la noche y uno a mano, o un doble clic).
+    const claimed = await this.claimReset();
+    if (!claimed) {
+      throw new ConflictException({
+        code: 'demo_resetting',
+        message: 'La demostración se está poniendo a cero: espera un momento',
+      });
+    }
+    try {
+      await this.runReset(id, tenant.slug, auditor);
+    } finally {
+      await this.releaseReset();
+    }
+    return this.assignment.settingsDto();
+  }
+
+  private async runReset(id: string, slug: string, auditor: string): Promise<void> {
     await this.reset.reset({
       tenantId: id,
       superAdminId: auditor,
       input: {
-        confirmSlug: tenant.slug,
+        confirmSlug: slug,
         reason: 'Reinicio de la cuenta de demostración',
         exported: true,
       },
       quiet: true,
     });
+    await this.seedStructure(id);
     await this.seedOperational(id);
     const s = await this.assignment.settings();
     await this.admin.platformSalesSettings.update({
       where: { id: s.id },
       data: { demoResetAt: new Date() },
     });
-    return this.assignment.settingsDto();
+  }
+
+  /** Reserva el reinicio (caduca a los 15 minutos por si un proceso se cae). */
+  private async claimReset(): Promise<boolean> {
+    const s = await this.assignment.settings();
+    const { count } = await this.admin.platformSalesSettings.updateMany({
+      where: {
+        id: s.id,
+        OR: [
+          { demoResettingAt: null },
+          { demoResettingAt: { lt: new Date(Date.now() - 15 * 60_000) } },
+        ],
+      },
+      data: { demoResettingAt: new Date() },
+    });
+    return count > 0;
+  }
+
+  private async releaseReset(): Promise<void> {
+    await this.admin.platformSalesSettings.updateMany({ data: { demoResettingAt: null } });
   }
 
   /** Reinicio de cada noche (si la dirección lo tiene activado). */
   async nightlyReset(): Promise<boolean> {
     const s = await this.assignment.settings();
     if (!s.demoResetEnabled || !(await this.demoTenantId())) return false;
-    await this.resetNow(null);
-    return true;
+    try {
+      await this.resetNow(null);
+      return true;
+    } catch (err) {
+      this.logger.error(`[sales] reinicio de la demo: ${String(err)}`);
+      // Que la dirección se entere (una vez al día) en vez de solo en el log.
+      await this.notify.team({
+        type: 'sales.demo_reset_failed',
+        title: 'La cuenta de demostración no se ha podido poner a cero',
+        body: err instanceof Error ? err.message.slice(0, 300) : null,
+        link: '/admin/sales-team',
+      });
+      return false;
+    }
   }
 
   /** Abre la demo para enseñarla (con cambios: se reinicia cada noche). */
@@ -327,60 +378,76 @@ export class SalesDemoService {
 
   // ------------------------------------------------------------ datos de ejemplo
 
+  /**
+   * Tipos, locales, plantas y trasteros de ejemplo. Se puede repetir: deja todo
+   * como al crearla (lo que el comercial haya borrado o cambiado vuelve).
+   */
   private async seedStructure(tenantId: string): Promise<void> {
     const types = [];
     for (const size of SIZES) {
+      const data = {
+        defaultPriceMonthly: size.price,
+        defaultDepositAmount: size.deposit,
+        color: size.color,
+        isActive: true,
+      };
       types.push(
-        await this.admin.unitType.create({
-          data: {
-            tenantId,
-            name: size.name,
-            defaultPriceMonthly: size.price,
-            defaultDepositAmount: size.deposit,
-            color: size.color,
-          },
+        await this.admin.unitType.upsert({
+          where: { tenantId_name: { tenantId, name: size.name } },
+          create: { tenantId, name: size.name, ...data },
+          update: data,
         }),
       );
     }
     for (const f of FACILITIES) {
-      const facility = await this.admin.facility.create({
-        data: {
-          tenantId,
-          name: f.name,
-          publicSlug: f.name.toLowerCase(),
-          address: f.address,
-          city: f.city,
-          postalCode: f.postalCode,
-          contactPhone: '960 000 000',
-          openingHours: {
-            mon: { open: '07:00', close: '22:00' },
-            tue: { open: '07:00', close: '22:00' },
-            wed: { open: '07:00', close: '22:00' },
-            thu: { open: '07:00', close: '22:00' },
-            fri: { open: '07:00', close: '22:00' },
-            sat: { open: '09:00', close: '14:00' },
-            sun: null,
-          },
+      const data = {
+        name: f.name,
+        address: f.address,
+        city: f.city,
+        postalCode: f.postalCode,
+        contactPhone: '960 000 000',
+        isActive: true,
+        deletedAt: null,
+        openingHours: {
+          mon: { open: '07:00', close: '22:00' },
+          tue: { open: '07:00', close: '22:00' },
+          wed: { open: '07:00', close: '22:00' },
+          thu: { open: '07:00', close: '22:00' },
+          fri: { open: '07:00', close: '22:00' },
+          sat: { open: '09:00', close: '14:00' },
+          sun: null,
         },
+      };
+      const facility = await this.admin.facility.upsert({
+        where: { tenantId_publicSlug: { tenantId, publicSlug: f.name.toLowerCase() } },
+        create: { tenantId, publicSlug: f.name.toLowerCase(), ...data },
+        update: data,
       });
-      const floor = await this.admin.facilityFloor.create({
-        data: { facilityId: facility.id, name: 'Planta baja', isDefault: true },
-      });
+      const floor =
+        (await this.admin.facilityFloor.findFirst({
+          where: { facilityId: facility.id },
+          orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+        })) ??
+        (await this.admin.facilityFloor.create({
+          data: { facilityId: facility.id, name: 'Planta baja', isDefault: true },
+        }));
       let n = 1;
       for (const [i, size] of SIZES.entries()) {
         for (let k = 0; k < size.count; k++) {
-          await this.admin.unit.create({
-            data: {
-              tenantId,
-              facilityId: facility.id,
-              floorId: floor.id,
-              unitTypeId: types[i]!.id,
-              code: `${f.prefix}-${String(n).padStart(3, '0')}`,
-              widthM: size.w,
-              depthM: size.d,
-              heightM: size.h,
-              basePriceMonthly: size.price,
-            },
+          const code = `${f.prefix}-${String(n).padStart(3, '0')}`;
+          const data = {
+            floorId: floor.id,
+            unitTypeId: types[i]!.id,
+            widthM: size.w,
+            depthM: size.d,
+            heightM: size.h,
+            basePriceMonthly: size.price,
+            status: 'available' as const,
+          };
+          await this.admin.unit.upsert({
+            where: { facilityId_code: { facilityId: facility.id, code } },
+            create: { tenantId, facilityId: facility.id, code, ...data },
+            update: data,
           });
           n += 1;
         }
@@ -391,7 +458,7 @@ export class SalesDemoService {
   /** Inquilinos y contratos (lo que se vacía y se vuelve a crear cada noche). */
   private async seedOperational(tenantId: string): Promise<void> {
     const units = await this.admin.unit.findMany({
-      where: { tenantId },
+      where: { tenantId, status: 'available', facility: { deletedAt: null, isActive: true } },
       orderBy: { code: 'asc' },
       select: { id: true, basePriceMonthly: true, unitTypeId: true },
     });

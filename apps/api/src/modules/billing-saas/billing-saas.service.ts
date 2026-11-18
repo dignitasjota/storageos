@@ -282,7 +282,13 @@ export class BillingSaasService {
       });
       if (!sub) return;
       await this.admin.platformQuoteOffer.updateMany({
-        where: { tenantId, planId: sub.planId, status: 'sent' },
+        where: {
+          tenantId,
+          planId: sub.planId,
+          status: 'sent',
+          // Una caducada ya no se acepta sola.
+          OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+        },
         data: { status: 'accepted', resolvedAt: new Date() },
       });
     } catch (err) {

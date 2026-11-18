@@ -98,3 +98,26 @@ export function commissionBase(split: SplitPaymentResult, approvedAddonIds: Set<
       split.addons.filter((a) => approvedAddonIds.has(a.addonId)).reduce((s, a) => s + a.net, 0),
   );
 }
+
+/** Reparto guardado de un cobro, escalado a lo que queda tras las devoluciones. */
+export function scaleSplit(split: SplitPaymentResult, kept: number): SplitPaymentResult {
+  const k = Math.max(0, Math.min(1, kept));
+  return {
+    planNet: round2(split.planNet * k),
+    addons: split.addons.map((a) => ({ addonId: a.addonId, net: round2(a.net * k) })),
+  };
+}
+
+/** Lee un reparto guardado (JSON) o null si no tiene la forma esperada. */
+export function parseSplit(value: unknown): SplitPaymentResult | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as { planNet?: unknown; addons?: unknown };
+  if (typeof v.planNet !== 'number' || !Array.isArray(v.addons)) return null;
+  const addons = v.addons.filter(
+    (a): a is { addonId: string; net: number } =>
+      !!a &&
+      typeof (a as { addonId?: unknown }).addonId === 'string' &&
+      typeof (a as { net?: unknown }).net === 'number',
+  );
+  return { planNet: v.planNet, addons };
+}

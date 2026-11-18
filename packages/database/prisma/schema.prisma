@@ -324,6 +324,7 @@ model Tenant {
   salesAssignments  SalesAssignment[]
   salesAddonClaims  SalesAddonClaim[]
   salesCommissionItems SalesCommissionItem[]
+  salesWin          SalesWin?
   salesDemoSettings PlatformSalesSettings[] @relation("SalesDemoTenant")
   /// Comisión propia por cobros con tarjeta (Stripe Connect); null = la general.
   applicationFeePct Decimal? @map("application_fee_pct") @db.Decimal(5, 2)
@@ -4965,6 +4966,7 @@ model SuperAdmin {
   salesSettlements        SalesSettlement[]
   salesCommissionItems    SalesCommissionItem[]
   salesTargets            SalesTarget[]
+  salesWins               SalesWin[]
   salesCadenceEnrollments SalesCadenceEnrollment[]
 
   securityBlocks SecurityBlock[] @relation("SecurityBlockAuthor")
@@ -8760,6 +8762,9 @@ model SalesCommissionItem {
   /// Mes de devengo (AAAA-MM, hora de España).
   month         String
   baseAmount    Decimal?  @map("base_amount") @db.Decimal(12, 2)
+  /// Reparto del cobro entre el plan y los extras, sin IVA ni devoluciones,
+  /// tal como era al cobrarse (solo en la primera partida de cada cobro).
+  split         Json?
   rate          Decimal?  @db.Decimal(6, 3)
   amount        Decimal   @db.Decimal(12, 2)
   /// pending · approved · rejected
@@ -8801,6 +8806,23 @@ model SalesTarget {
   @@map("sales_targets")
 }
 
+/// Primer pago de un cliente de comercial: de quién fue la venta, en qué mes
+/// y lo que aportaba al mes entonces (para los objetivos).
+model SalesWin {
+  tenantId  String   @id @map("tenant_id") @db.Uuid
+  repId     String   @map("rep_id") @db.Uuid
+  month     String
+  paidAt    DateTime @map("paid_at") @db.Timestamptz(6)
+  monthly   Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rep    SuperAdmin @relation(fields: [repId], references: [id], onDelete: Cascade)
+
+  @@index([repId, month], map: "sales_wins_rep_month_idx")
+  @@map("sales_wins")
+}
+
 /// Ajustes del equipo comercial (un registro).
 model PlatformSalesSettings {
   id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
@@ -8812,6 +8834,8 @@ model PlatformSalesSettings {
   demoTenantId          String?   @map("demo_tenant_id") @db.Uuid
   demoResetEnabled      Boolean   @default(true) @map("demo_reset_enabled")
   demoResetAt           DateTime? @map("demo_reset_at") @db.Timestamptz(6)
+  /// Reinicio de la demo en marcha (uno a la vez; caduca a los 15 minutos).
+  demoResettingAt DateTime? @map("demo_resetting_at") @db.Timestamptz(6)
   updatedById           String?   @map("updated_by_id") @db.Uuid
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
