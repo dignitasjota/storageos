@@ -8,7 +8,10 @@ import {
 import { Prisma } from '@storageos/database';
 import {
   revenueCommission,
+  saleTierExtra,
+  SalesSaleTierSchema,
   salesMonth,
+  type SalesSaleTier,
   type CreateSalesCommissionItemInput,
   type CreateSalesSettlementInput,
   type RequestSalesConceptInput,
@@ -25,6 +28,7 @@ import {
   type UpsertSalesTargetInput,
 } from '@storageos/shared';
 
+import { loadPuppeteer } from '../../../common/puppeteer';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { SuperAdminAuditService } from '../super-admin-audit.service';
 
@@ -35,8 +39,9 @@ import {
   splitPaymentForCommission,
   type SplitAddon,
 } from './commission-split';
-import { addMonths, DAY, monthOf, monthRange, round2 } from './sales-common';
+import { addMonths, DAY, monthNameEs, monthOf, monthRange, round2 } from './sales-common';
 import { SalesNotifyService } from './sales-notify.service';
+import { renderSettlementReceipt } from './settlement-receipt';
 
 /** Cobros de hace más de esto no generan comisión nueva (sí se ajustan si se devuelven). */
 const NEW_ITEM_WINDOW_DAYS = 60;
@@ -56,6 +61,12 @@ interface AssignmentWindow {
   repId: string;
   startedAt: Date;
   endedAt: Date | null;
+}
+
+/** Tramos guardados (o ninguno si no tienen la forma esperada). */
+function parseTiers(value: unknown): SalesSaleTier[] {
+  const parsed = SalesSaleTierSchema.array().safeParse(value ?? []);
+  return parsed.success ? parsed.data : [];
 }
 
 const repAt = (assignments: AssignmentWindow[], at: Date): string | null =>
@@ -97,6 +108,9 @@ export class SalesCommissionsService {
       perSaleAmount: Number(plan?.perSaleAmount ?? 0),
       perAddonAmount: Number(plan?.perAddonAmount ?? 0),
       notes: plan?.notes ?? null,
+      guaranteeMonths: plan?.guaranteeMonths ?? null,
+      saleTiers: parseTiers(plan?.saleTiers),
+      targetBonus: Number(plan?.targetBonus ?? 0),
       concepts: concepts.map((c) => ({
         id: c.id,
         name: c.name,
@@ -119,6 +133,15 @@ export class SalesCommissionsService {
       perSaleAmount: input.perSaleAmount,
       perAddonAmount: input.perAddonAmount,
       notes: input.notes ?? null,
+      ...(input.guaranteeMonths !== undefined ? { guaranteeMonths: input.guaranteeMonths } : {}),
+      ...(input.saleTiers !== undefined
+        ? {
+            saleTiers: [...input.saleTiers].sort(
+              (a, b) => a.fromSales - b.fromSales,
+            ) as unknown as Prisma.InputJsonValue,
+          }
+        : {}),
+      ...(input.targetBonus !== undefined ? { targetBonus: input.targetBonus } : {}),
       updatedById: byId,
     };
     await this.admin.salesCommissionPlan.upsert({
@@ -530,44 +553,58 @@ export class SalesCommissionsService {
   }
 
   /**
-   * Anula el fijo de una venta: si aún no se ha liquidado,
-   * queda rechazada; si ya se pagó, se descuenta con un ajuste en negativo.
+   * Deja el fijo de la venta de un cliente en lo que toca: si aún no se ha
+   * liquidado, la partida se aprueba o se rechaza; si ya se pagó, la diferencia
+   * va en un ajuste (descuento o reintegro) que apunta a ella.
    */
-  private async reverseItem(
-    where: { saleOfTenant: string },
+  private async syncSaleFixed(
+    tenantId: string,
+    wanted: boolean,
     reason: string,
     byId: string | null,
   ): Promise<void> {
     const item = await this.admin.salesCommissionItem.findFirst({
-      where: { tenantId: where.saleOfTenant, kind: 'sale' },
+      where: { tenantId, kind: 'sale' },
     });
-    if (!item || item.status === 'rejected') return;
+    if (!item) return;
     const now = new Date();
     if (!item.settlementId) {
+      const status = wanted ? 'approved' : 'rejected';
+      if (item.status === status) return;
       await this.admin.salesCommissionItem.update({
         where: { id: item.id },
-        data: { status: 'rejected', decidedById: byId, decidedAt: now, decisionNote: reason },
+        data: {
+          status,
+          decidedById: byId,
+          decidedAt: now,
+          decisionNote: wanted ? null : reason,
+        },
       });
       return;
     }
-    const marker = `Descuento: ${item.description}`;
-    const exists = await this.admin.salesCommissionItem.findFirst({
-      where: { tenantId: item.tenantId, kind: 'adjustment', description: marker },
-      select: { id: true },
+    const paid = await this.admin.salesCommissionItem.aggregate({
+      where: {
+        status: 'approved',
+        OR: [{ id: item.id }, { relatedItemId: item.id }],
+      },
+      _sum: { amount: true },
     });
-    if (exists) return;
+    const target = wanted ? Number(item.amount) : 0;
+    const delta = round2(target - Number(paid._sum.amount ?? 0));
+    if (Math.abs(delta) < 0.01) return;
     await this.admin.salesCommissionItem.create({
       data: {
         repId: item.repId,
         tenantId: item.tenantId,
         kind: 'adjustment',
-        description: marker,
+        relatedItemId: item.id,
+        description: `${delta < 0 ? 'Descuento' : 'Reintegro'}: ${item.description}`,
         month: salesMonth(now),
-        amount: -Number(item.amount),
+        amount: delta,
         status: 'approved',
         decidedById: byId,
         decidedAt: now,
-        decisionNote: reason,
+        decisionNote: delta < 0 ? reason : null,
       },
     });
   }
@@ -632,6 +669,10 @@ export class SalesCommissionsService {
         where: { id: tenantId },
         select: {
           name: true,
+          status: true,
+          canceledAt: true,
+          updatedAt: true,
+          deletedAt: true,
           subscription: { select: { plan: { select: { priceMonthly: true } } } },
           subscriptionAddons: {
             select: {
@@ -802,13 +843,24 @@ export class SalesCommissionsService {
       if (netPaid <= 0.005) {
         // Todo devuelto: la venta no cuenta.
         await this.admin.salesWin.deleteMany({ where: { tenantId } });
-        if (sale && sale.status !== 'rejected') {
-          await this.reverseItem(
-            { saleOfTenant: tenantId },
-            'Se ha devuelto todo lo cobrado',
-            null,
-          );
-        }
+      }
+      if (sale) {
+        // Garantía: si se da de baja antes de los meses del plan, el fijo no
+        // cuenta (y vuelve si se reactiva).
+        const guarantee = planOf.get(sale.repId)?.guaranteeMonths ?? null;
+        const gone =
+          !!tenant.deletedAt || tenant.status === 'cancelled' || tenant.status === 'suspended';
+        const goneAt = tenant.canceledAt ?? tenant.deletedAt ?? tenant.updatedAt;
+        const earlyChurn =
+          guarantee != null &&
+          gone &&
+          goneAt.getTime() < addMonths(firstPaidAt, guarantee).getTime();
+        await this.syncSaleFixed(
+          tenantId,
+          netPaid > 0.005 && !earlyChurn,
+          netPaid <= 0.005 ? 'Se ha devuelto todo lo cobrado' : `Baja antes de ${guarantee} meses`,
+          null,
+        );
       }
     }
     return created;
@@ -854,7 +906,7 @@ export class SalesCommissionsService {
       repId: r.repId,
       repName: r.rep.fullName,
       tenantId: r.tenantId,
-      tenantName: r.tenant.name,
+      tenantName: r.tenant?.name ?? null,
       kind: r.kind as SalesCommissionKind,
       description: r.description,
       month: r.month,
@@ -1100,6 +1152,8 @@ export class SalesCommissionsService {
       status: r.status === 'paid' ? 'paid' : 'pending_payment',
       paidAt: r.paidAt?.toISOString() ?? null,
       note: r.note,
+      receivedAt: r.receivedAt?.toISOString() ?? null,
+      receivedNote: r.receivedNote,
       createdAt: r.createdAt.toISOString(),
     }));
   }
@@ -1197,6 +1251,184 @@ export class SalesCommissionsService {
     });
     const [dto] = (await this.settlements(row.repId)).filter((s) => s.id === id);
     return dto!;
+  }
+
+  /** El comercial confirma que ha recibido la liquidación (en efectivo). */
+  async acknowledgeSettlement(
+    repId: string,
+    id: string,
+    note: string | undefined,
+  ): Promise<SalesSettlementDto> {
+    const { count } = await this.admin.salesSettlement.updateMany({
+      where: { id, repId, status: 'paid', receivedAt: null },
+      data: { receivedAt: new Date(), receivedNote: note?.trim() || null },
+    });
+    if (count === 0) {
+      const exists = await this.admin.salesSettlement.findFirst({
+        where: { id, repId },
+        select: { id: true },
+      });
+      if (!exists) {
+        throw new NotFoundException({
+          code: 'settlement_not_found',
+          message: 'Liquidación no encontrada',
+        });
+      }
+      throw new ConflictException({
+        code: 'settlement_already_received',
+        message: 'Ya la habías marcado como recibida',
+      });
+    }
+    const [dto] = (await this.settlements(repId)).filter((s) => s.id === id);
+    return dto!;
+  }
+
+  /** Justificante de una liquidación (HTML para el PDF). `repId` = solo si es suya. */
+  async settlementReceiptHtml(id: string, repId?: string): Promise<string> {
+    const row = await this.admin.salesSettlement.findFirst({
+      where: { id, ...(repId ? { repId } : {}) },
+      include: {
+        rep: { select: { fullName: true, email: true } },
+        items: {
+          orderBy: [{ month: 'asc' }, { createdAt: 'asc' }],
+          include: { tenant: { select: { name: true } } },
+        },
+      },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        code: 'settlement_not_found',
+        message: 'Liquidación no encontrada',
+      });
+    }
+    const paidBy = row.paidById
+      ? await this.admin.superAdmin.findUnique({
+          where: { id: row.paidById },
+          select: { fullName: true },
+        })
+      : null;
+    return renderSettlementReceipt({
+      repName: row.rep.fullName,
+      repEmail: row.rep.email,
+      month: row.month,
+      total: Number(row.total),
+      paidAt: row.paidAt,
+      paidByName: paidBy?.fullName ?? null,
+      receivedAt: row.receivedAt,
+      receivedNote: row.receivedNote,
+      note: row.note,
+      items: row.items.map((i) => ({
+        month: i.month,
+        tenantName: i.tenant?.name ?? null,
+        kind: i.kind,
+        description: i.description,
+        amount: Number(i.amount),
+      })),
+    });
+  }
+
+  async settlementReceiptPdf(id: string, repId?: string): Promise<Buffer> {
+    const html = await this.settlementReceiptHtml(id, repId);
+    const puppeteer = await loadPuppeteer();
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'load' });
+      const pdf = await page.pdf({
+        format: 'A4',
+        margin: { top: '18mm', bottom: '18mm', left: '16mm', right: '16mm' },
+      });
+      return Buffer.from(pdf);
+    } finally {
+      await browser.close();
+    }
+  }
+
+  // ---------------------------------------------------------- cierre de mes
+
+  /**
+   * Cierra un mes ya terminado: el tramo (si llegó a las ventas de un tramo,
+   * cada venta del mes paga el fijo del tramo) y el bonus por cumplir el
+   * objetivo. Cada uno sale una vez por comercial y mes.
+   */
+  async closeMonth(month: string, now = new Date()): Promise<{ tiers: number; bonuses: number }> {
+    if (month >= salesMonth(now)) {
+      throw new BadRequestException({
+        code: 'month_not_closed',
+        message: 'El mes aún no ha terminado',
+      });
+    }
+    const plans = await this.admin.salesCommissionPlan.findMany({
+      where: { rep: { role: 'sales' } },
+    });
+    const achieved = await this.monthAchievements(month);
+    let tiers = 0;
+    let bonuses = 0;
+    for (const plan of plans) {
+      const repId = plan.repId;
+      const saleTiers = parseTiers(plan.saleTiers);
+      if (saleTiers.length > 0) {
+        const sales = await this.admin.salesCommissionItem.count({
+          where: { repId, kind: 'sale', status: 'approved', month },
+        });
+        const extra = saleTierExtra(saleTiers, Number(plan.perSaleAmount), sales);
+        if (extra > 0) {
+          const ok = await this.createMonthItem(repId, month, 'tier', extra, {
+            description: `Tramo de ${monthNameEs(month)}: ${sales} ventas`,
+          });
+          if (ok) tiers += 1;
+        }
+      }
+      const bonus = Number(plan.targetBonus);
+      if (bonus > 0) {
+        const target = await this.admin.salesTarget.findUnique({
+          where: { repId_month: { repId, month } },
+        });
+        const got = achieved.get(repId) ?? { newClients: 0, newMrr: 0 };
+        const hasTarget = !!target && (target.newClients > 0 || Number(target.newMrr) > 0);
+        if (
+          hasTarget &&
+          got.newClients >= target.newClients &&
+          got.newMrr >= Number(target.newMrr)
+        ) {
+          const ok = await this.createMonthItem(repId, month, 'bonus', bonus, {
+            description: `Objetivo de ${monthNameEs(month)} cumplido`,
+          });
+          if (ok) bonuses += 1;
+        }
+      }
+    }
+    return { tiers, bonuses };
+  }
+
+  private async createMonthItem(
+    repId: string,
+    month: string,
+    kind: 'tier' | 'bonus',
+    amount: number,
+    extra: { description: string },
+  ): Promise<boolean> {
+    try {
+      await this.admin.salesCommissionItem.create({
+        data: { repId, tenantId: null, kind, month, amount, status: 'approved', ...extra },
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) return false;
+      throw err;
+    }
+    await this.notify.rep(repId, {
+      type: 'sales.month_closed',
+      title:
+        kind === 'bonus'
+          ? `¡Objetivo cumplido! Bonus de ${money(amount)}`
+          : `Has llegado a un tramo: ${money(amount)} más`,
+      body: extra.description,
+      link: '/admin/sales/results',
+    });
+    return true;
   }
 
   // ------------------------------------------------------------- resultados

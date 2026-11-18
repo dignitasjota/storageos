@@ -399,10 +399,11 @@ describe('Comerciales (e2e)', () => {
       .set(auth(repBToken))
       .send({ companyName: 'De Beto', email: ofB })
       .expect(201);
+    const phone = `6${Date.now().toString().slice(-8)}`;
     const mine = await http()
       .post('/admin/sales/leads')
       .set(auth(repAToken))
-      .send({ companyName: 'Solo teléfono', phone: '622111000' });
+      .send({ companyName: 'Solo teléfono', phone: phone });
     expect(mine.status).toBe(201);
     const leadId = mine.body.lead.id as string;
     // Ponerle el email de un prospecto de otro comercial no se puede.
@@ -416,7 +417,10 @@ describe('Comerciales (e2e)', () => {
     await http()
       .patch(`/admin/sales/accounts/${leadId}`)
       .set(auth(repAToken))
-      .send({ phone: '622 111 000', city: 'Sevilla' })
+      .send({
+        phone: `${phone.slice(0, 3)} ${phone.slice(3, 6)} ${phone.slice(6)}`,
+        city: 'Sevilla',
+      })
       .expect(200);
 
     // «Ninguno»: no se crea seguimiento.
@@ -914,5 +918,159 @@ describe('Comerciales (e2e)', () => {
       .delete(`/admin/sales-team/materials/${note.body.id}`)
       .set('Authorization', `Bearer ${superToken}`)
       .expect(204);
+  });
+
+  it('garantía de la venta, tramos y bonus al cerrar el mes, «recibido», previsión y comparativa', async () => {
+    const asSuper = { Authorization: `Bearer ${superToken}` };
+    const asA = { Authorization: `Bearer ${repAToken}` };
+    const asB = { Authorization: `Bearer ${repBToken}` };
+    const recalc = () =>
+      http().post('/admin/sales-team/commissions/recalculate').set(asSuper).expect(200);
+
+    // Garantía: si se va antes de 6 meses, el fijo de la venta (ya liquidado) se descuenta.
+    const plan = await http().put(`/admin/sales-team/reps/${repAId}/plan`).set(asSuper).send({
+      revenuePct: 10,
+      revenueMonths: 12,
+      perSaleAmount: 50,
+      perAddonAmount: 20,
+      guaranteeMonths: 6,
+    });
+    expect(plan.status).toBe(200);
+    expect(plan.body.guaranteeMonths).toBe(6);
+    const saleSum = async () => {
+      const sale = await db.salesCommissionItem.findFirstOrThrow({
+        where: { tenantId: paidTenantId, kind: 'sale' },
+      });
+      const agg = await db.salesCommissionItem.aggregate({
+        where: { status: 'approved', OR: [{ id: sale.id }, { relatedItemId: sale.id }] },
+        _sum: { amount: true },
+      });
+      return Number(agg._sum.amount ?? 0);
+    };
+    expect(await saleSum()).toBeCloseTo(50, 2);
+    await db.tenant.update({
+      where: { id: paidTenantId },
+      data: { status: 'cancelled', canceledAt: new Date() },
+    });
+    await recalc();
+    expect(await saleSum()).toBeCloseTo(0, 2);
+    // Vuelve: el fijo se reintegra.
+    await db.tenant.update({
+      where: { id: paidTenantId },
+      data: { status: 'active', canceledAt: null },
+    });
+    await recalc();
+    expect(await saleSum()).toBeCloseTo(50, 2);
+
+    // Tramos y bonus de Beto en el mes pasado.
+    const prev = new Date(
+      `${new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' }).slice(0, 7)}-15T12:00:00Z`,
+    );
+    prev.setUTCMonth(prev.getUTCMonth() - 1);
+    const prevMonth = prev.toISOString().slice(0, 7);
+    await http()
+      .put(`/admin/sales-team/reps/${repBId}/plan`)
+      .set(asSuper)
+      .send({
+        revenuePct: 0,
+        revenueMonths: null,
+        perSaleAmount: 50,
+        perAddonAmount: 0,
+        saleTiers: [{ fromSales: 2, amount: 80 }],
+        targetBonus: 100,
+      })
+      .expect(200);
+    await http()
+      .put(`/admin/sales-team/reps/${repBId}/targets`)
+      .set(asSuper)
+      .send({ month: prevMonth, newClients: 1, newMrr: 50 })
+      .expect(200);
+    const t1 = await register(app, 'salestier1');
+    const t2 = await register(app, 'salestier2');
+    for (const t of [t1, t2]) {
+      await db.salesCommissionItem.create({
+        data: {
+          repId: repBId,
+          tenantId: t.tenantId,
+          kind: 'sale',
+          description: 'Venta',
+          month: prevMonth,
+          amount: 50,
+          status: 'approved',
+        },
+      });
+    }
+    await db.salesWin.create({
+      data: { tenantId: t1.tenantId, repId: repBId, month: prevMonth, paidAt: prev, monthly: 79 },
+    });
+    const closed = await http()
+      .post('/admin/sales-team/commissions/close-month')
+      .set(asSuper)
+      .send({ month: prevMonth });
+    expect(closed.status).toBe(200);
+    expect(closed.body).toEqual({ tiers: 1, bonuses: 1 });
+    const again = await http()
+      .post('/admin/sales-team/commissions/close-month')
+      .set(asSuper)
+      .send({ month: prevMonth });
+    expect(again.body).toEqual({ tiers: 0, bonuses: 0 });
+    const thisMonth = new Date()
+      .toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' })
+      .slice(0, 7);
+    await http()
+      .post('/admin/sales-team/commissions/close-month')
+      .set(asSuper)
+      .send({ month: thisMonth })
+      .expect(400);
+    const bView = await http().get('/admin/sales/commissions').set(asB);
+    const tier = bView.body.items.find((i: { kind: string }) => i.kind === 'tier');
+    const bonus = bView.body.items.find((i: { kind: string }) => i.kind === 'bonus');
+    expect(tier.amount).toBe(60);
+    expect(tier.tenantId).toBeNull();
+    expect(bonus.amount).toBe(100);
+
+    // Liquidación en efectivo: Beto confirma que la ha recibido (una vez); Ana no puede.
+    const settlement = await http()
+      .post('/admin/sales-team/settlements')
+      .set(asSuper)
+      .send({ repId: repBId, month: prevMonth });
+    expect(settlement.status).toBe(201);
+    expect(settlement.body.receivedAt).toBeNull();
+    await http()
+      .post(`/admin/sales/settlements/${settlement.body.id}/received`)
+      .set(asA)
+      .send({})
+      .expect(404);
+    const got = await http()
+      .post(`/admin/sales/settlements/${settlement.body.id}/received`)
+      .set(asB)
+      .send({ note: 'Recibido en mano' });
+    expect(got.status).toBe(200);
+    expect(got.body.receivedAt).toBeTruthy();
+    expect(got.body.receivedNote).toBe('Recibido en mano');
+    await http()
+      .post(`/admin/sales/settlements/${settlement.body.id}/received`)
+      .set(asB)
+      .send({})
+      .expect(409);
+    // El justificante de otro comercial no se puede pedir.
+    await http().get(`/admin/sales/settlements/${settlement.body.id}/receipt`).set(asA).expect(404);
+
+    // Previsión del comercial y del equipo, y comparativa.
+    const forecast = await http().get('/admin/sales/forecast').set(asA);
+    expect(forecast.status).toBe(200);
+    expect(forecast.body.months).toHaveLength(6);
+    expect(forecast.body.revenuePct).toBe(10);
+    expect(forecast.body.clients).toBeGreaterThanOrEqual(1);
+    const team = await http().get('/admin/sales-team/forecast').set(asSuper);
+    expect(team.status).toBe(200);
+    expect(team.body.reps.some((r: { repId: string }) => r.repId === repAId)).toBe(true);
+    const comparison = await http().get('/admin/sales-team/comparison?months=3').set(asSuper);
+    expect(comparison.status).toBe(200);
+    const a = comparison.body.rows.find((r: { repId: string }) => r.repId === repAId);
+    expect(a.wins).toBeGreaterThanOrEqual(1);
+    expect(a.mrr).toBeGreaterThan(0);
+    // Un comercial no ve la comparativa del equipo.
+    await http().get('/admin/sales-team/comparison').set(asA).expect(403);
   });
 });

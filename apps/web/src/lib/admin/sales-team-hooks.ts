@@ -24,7 +24,9 @@ import type {
   SalesRepDetailDto,
   SalesSettlementDto,
   SalesTargetDto,
+  SalesTeamComparisonDto,
   SalesTeamDto,
+  SalesTeamForecastDto,
   SalesTemplateDto,
   UpdatePlatformSalesSettingsInput,
   UpdateSalesCommissionPlanInput,
@@ -105,6 +107,21 @@ export function useTeamCommissions(f: { repId?: string; month?: string; status?:
     queryKey: [...ROOT, 'commissions', f] as const,
     queryFn: () =>
       adminApiFetch<SalesCommissionItemDto[]>(`/admin/sales-team/commissions${s ? `?${s}` : ''}`),
+  });
+}
+
+export function useTeamForecast() {
+  return useQuery({
+    queryKey: [...ROOT, 'forecast'] as const,
+    queryFn: () => adminApiFetch<SalesTeamForecastDto>('/admin/sales-team/forecast'),
+  });
+}
+
+export function useTeamComparison(months: number) {
+  return useQuery({
+    queryKey: [...ROOT, 'comparison', months] as const,
+    queryFn: () =>
+      adminApiFetch<SalesTeamComparisonDto>(`/admin/sales-team/comparison?months=${months}`),
   });
 }
 

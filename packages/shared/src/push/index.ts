@@ -115,6 +115,7 @@ export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   'sales.lead_released': 'Un prospecto tuyo queda libre por inactividad',
   'sales.assigned': 'Te asignan una cuenta',
   'sales.settlement': 'Liquidación de comisiones',
+  'sales.month_closed': 'Tramo o bonus por objetivo del mes',
 };
 
 export function isSuperAdminPushType(type: string): boolean {

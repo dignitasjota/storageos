@@ -98,3 +98,13 @@ export function addMonths(d: Date, months: number): Date {
   r.setUTCDate(Math.min(day, last));
   return r;
 }
+
+/** «octubre de 2026» a partir de AAAA-MM. */
+export function monthNameEs(month: string): string {
+  const [y, m] = month.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('es-ES', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}

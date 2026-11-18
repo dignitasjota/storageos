@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   cadenceDueDates,
+  forecastRevenueCommission,
   normalizeSalesCode,
   renderSalesTemplate,
   revenueCommission,
   salesSignupUrl,
+  saleTierAmount,
+  saleTierExtra,
 } from './index';
 
 describe('normalizeSalesCode', () => {
@@ -60,5 +63,45 @@ describe('revenueCommission', () => {
   it('sin base o sin porcentaje no hay comisión', () => {
     expect(revenueCommission(0, 10)).toBe(0);
     expect(revenueCommission(100, 0)).toBe(0);
+  });
+});
+
+describe('tramos y previsión de comisiones', () => {
+  const tiers = [
+    { fromSales: 3, amount: 70 },
+    { fromSales: 6, amount: 90 },
+  ];
+
+  it('el fijo del tramo más alto alcanzado', () => {
+    expect(saleTierAmount(tiers, 50, 2)).toBe(50);
+    expect(saleTierAmount(tiers, 50, 3)).toBe(70);
+    expect(saleTierAmount(tiers, 50, 8)).toBe(90);
+    expect(saleTierExtra(tiers, 50, 4)).toBe(80);
+    expect(saleTierExtra(tiers, 50, 1)).toBe(0);
+    // Un tramo por debajo del fijo normal no resta.
+    expect(saleTierAmount([{ fromSales: 2, amount: 10 }], 50, 5)).toBe(50);
+  });
+
+  it('prevé el % de cada cliente mientras dura su plazo', () => {
+    const months = ['2026-12', '2027-01', '2027-02'];
+    const out = forecastRevenueCommission({
+      clients: [
+        { monthlyNet: 100, firstPaidMonth: '2026-11' },
+        { monthlyNet: 50, firstPaidMonth: '2027-01' },
+      ],
+      revenuePct: 10,
+      revenueMonths: 2,
+      months,
+    });
+    // El primero cuenta noviembre y diciembre; el segundo enero y febrero.
+    expect(out).toEqual([10, 5, 5]);
+    expect(
+      forecastRevenueCommission({
+        clients: [{ monthlyNet: 100, firstPaidMonth: '2026-11' }],
+        revenuePct: 10,
+        revenueMonths: null,
+        months,
+      }),
+    ).toEqual([10, 10, 10]);
   });
 });

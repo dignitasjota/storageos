@@ -5,8 +5,9 @@ import {
   SALES_COMMISSION_KIND_LABELS,
   SALES_COMMISSION_STATUS_LABELS,
   type SalesAddonClaimDto,
+  type SalesSettlementDto,
 } from '@storageos/shared';
-import { Loader2 } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -18,6 +19,7 @@ import {
   SalesPage,
   Stat,
 } from '@/components/admin/sales/common';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,9 +34,12 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  downloadAdminFile,
+  useAcknowledgeSettlement,
   useSalesClaimNote,
   useSalesClaims,
   useSalesCommissions,
+  useSalesForecast,
   useSalesSettlements,
   useSalesTargets,
 } from '@/lib/admin/sales-hooks';
@@ -81,6 +86,98 @@ function ClaimNote({ claim }: { claim: SalesAddonClaimDto }) {
         Guardar
       </Button>
     </div>
+  );
+}
+
+function SettlementActions({ settlement: s }: { settlement: SalesSettlementDto }) {
+  const ack = useAcknowledgeSettlement();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+
+  async function received() {
+    const r = await confirm({
+      title: `¿Has recibido ${formatEur(s.total)}?`,
+      description: 'Queda constancia de que te lo han pagado en efectivo.',
+      input: { label: 'Nota (opcional)' },
+      confirmLabel: 'Sí, lo he recibido',
+    });
+    if (!r) return;
+    try {
+      await ack.mutateAsync({ id: s.id, ...(r.value ? { note: r.value } : {}) });
+      toast.success('Anotado como recibido.');
+    } catch (err) {
+      toast.error(errorText(err));
+    }
+  }
+
+  async function receipt() {
+    setBusy(true);
+    try {
+      await downloadAdminFile(
+        `/admin/sales/settlements/${s.id}/receipt`,
+        `liquidacion-${s.month}.pdf`,
+      );
+    } catch (err) {
+      toast.error(errorText(err, 'No se ha podido descargar.'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {s.status === 'paid' && !s.receivedAt && (
+        <Button size="sm" disabled={ack.isPending} onClick={() => void received()}>
+          Recibido
+        </Button>
+      )}
+      <Button size="sm" variant="outline" disabled={busy} onClick={() => void receipt()}>
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+        <span className="ml-1.5">Justificante</span>
+      </Button>
+    </div>
+  );
+}
+
+/** Lo que cobrará por el % de sus clientes los próximos meses. */
+function ForecastCard() {
+  const forecast = useSalesForecast();
+  const f = forecast.data;
+  if (!f || f.revenuePct <= 0) return null;
+  const max = Math.max(1, ...f.months.map((m) => m.amount));
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Lo que viene</CardTitle>
+        <CardDescription>
+          Tu {f.revenuePct} % de lo que pagan{' '}
+          {f.clients === 1 ? 'tu cliente de pago' : `tus ${f.clients} clientes de pago`}, si siguen
+          como hoy. No incluye ventas nuevas ni fijos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {f.months.map((m) => (
+            <div key={m.month} className="text-center">
+              <div className="flex h-20 items-end justify-center">
+                <div
+                  className="w-6 rounded-t bg-primary"
+                  style={{ height: `${Math.max(4, (m.amount / max) * 100)}%` }}
+                  title={formatEur(m.amount)}
+                />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {monthLabel(m.month).split(' ')[0]}
+              </p>
+              <p className="text-xs tabular-nums">{formatEur(m.amount)}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm">
+          En total, <strong>{formatEur(f.total)}</strong> los próximos {f.months.length} meses.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -151,6 +248,30 @@ export default function SalesResultsPage() {
                   . Se anotan desde la ficha del cliente.
                 </p>
               )}
+              {data.plan.guaranteeMonths && data.plan.perSaleAmount > 0 && (
+                <p>
+                  El fijo por venta cuenta si el cliente sigue al menos{' '}
+                  <strong>{data.plan.guaranteeMonths} meses</strong>; si se va antes, se descuenta.
+                </p>
+              )}
+              {data.plan.saleTiers.length > 0 && (
+                <p>
+                  Tramos:{' '}
+                  {data.plan.saleTiers
+                    .map(
+                      (t) =>
+                        `desde ${t.fromSales} ventas en el mes, ${formatEur(t.amount)} cada una`,
+                    )
+                    .join(' · ')}
+                  . Se suma al cerrar el mes.
+                </p>
+              )}
+              {data.plan.targetBonus > 0 && (
+                <p>
+                  <strong>{formatEur(data.plan.targetBonus)}</strong> de bonus si cumples el
+                  objetivo del mes.
+                </p>
+              )}
               {data.plan.notes && (
                 <p className="text-muted-foreground sm:col-span-2">{data.plan.notes}</p>
               )}
@@ -159,8 +280,10 @@ export default function SalesResultsPage() {
         </>
       )}
 
+      <ForecastCard />
+
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap">
+        <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="items">Movimientos</TabsTrigger>
           <TabsTrigger value="claims">Extras vendidos</TabsTrigger>
           <TabsTrigger value="settlements">Liquidaciones</TabsTrigger>
@@ -190,7 +313,7 @@ export default function SalesResultsPage() {
                       <TableCell className="whitespace-nowrap text-xs">
                         {monthLabel(i.month)}
                       </TableCell>
-                      <TableCell className="text-sm">{i.tenantName}</TableCell>
+                      <TableCell className="text-sm">{i.tenantName ?? '—'}</TableCell>
                       <TableCell className="text-sm">
                         {SALES_COMMISSION_KIND_LABELS[i.kind]}
                         <span className="block text-xs text-muted-foreground">{i.description}</span>
@@ -301,6 +424,7 @@ export default function SalesResultsPage() {
                     <TableHead>Mes</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -321,6 +445,14 @@ export default function SalesResultsPage() {
                             ? `Pagada en efectivo ${formatDate(s.paidAt)}`
                             : 'Pendiente de pago'}
                         </Badge>
+                        {s.receivedAt && (
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            La recibiste el {formatDate(s.receivedAt)}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <SettlementActions settlement={s} />
                       </TableCell>
                     </TableRow>
                   ))}
