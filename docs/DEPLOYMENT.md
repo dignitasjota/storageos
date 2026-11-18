@@ -2733,3 +2733,7 @@ Sin migración ni variables nuevas. Arreglos tras analizar el plan Basic y la pr
 - **Fin del plan gratuito**: al cancelar en Stripe la cuenta conserva su plan en solo lectura; «Pasar a Free» desaparece de Cobros pendientes y el panel ya no asigna ni da de alta el plan gratuito (400 `plan_retired`). En instalaciones nuevas el plan gratuito nace oculto.
 - **Pagar el plan que ya tienes** está permitido aunque no quepas en él (solo no puedes crecer).
 - **Panel admin**: las cuentas en solo lectura salen como «Solo lectura» (sin aportar al mes, salud baja), con «Reabrir la prueba» en la ficha (también para su comercial). La vista previa del cambio de plan incluye los trasteros de más y los extras que se darán de baja. El simulador y la propuesta a un contacto usan los trasteros reales, no ofrecen Basic anual ni extras de otro plan, y los selectores ya no ofrecen el plan gratuito.
+
+## 158. Leads del admin asignados a un comercial (2026-11-18)
+
+🐛 Un lead creado o editado en Leads del panel admin y asignado a un comercial solo guardaba «quién lo lleva» en el tablero, no el comercial (`sales_rep_id`), así que no salía en el panel del comercial. Ahora, si el asignado tiene el rol comercial, el lead pasa a su cartera con su asignación (y su cuenta, si ya la tiene y no tiene comercial) y se le avisa; reasignarlo a otro comercial lo cambia de cartera. La migración `20270209100000_lead_sales_rep_backfill` arregla los leads ya afectados (activos, sin comercial y asignados a un comercial activo). Sin variables nuevas.

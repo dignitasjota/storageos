@@ -23,6 +23,7 @@ import { PlatformService } from '../../platform/platform.service';
 import { AdminQuoteService } from '../admin-quote.service';
 import { AdminTenantInteractionsService } from '../admin-tenant-interactions.service';
 import { AdminTenantToolsService } from '../admin-tenant-tools.service';
+import { SalesAssignmentService } from '../sales/sales-assignment.service';
 import { SuperAdminAuditService } from '../super-admin-audit.service';
 
 import type {
@@ -139,6 +140,7 @@ export class PlatformLeadsService {
     private readonly quotes: AdminQuoteService,
     private readonly interactions: AdminTenantInteractionsService,
     private readonly audit: SuperAdminAuditService,
+    private readonly assignment: SalesAssignmentService,
   ) {}
 
   // ------------------------------------------------------------- lectura
@@ -416,6 +418,7 @@ export class PlatformLeadsService {
     if (clean(input.message)) {
       await this.addActivity(lead.id, 'note', clean(input.message)!, actor.superAdminId);
     }
+    await this.assignSalesRep(lead.id, assignedToId ?? null, actor.superAdminId);
     await this.audit.record({
       superAdminId: actor.superAdminId,
       action: 'admin.platform_lead.created',
@@ -428,7 +431,11 @@ export class PlatformLeadsService {
     return this.detail(lead.id);
   }
 
-  async update(id: string, input: UpdatePlatformLeadInput): Promise<PlatformLeadDetailDto> {
+  async update(
+    id: string,
+    input: UpdatePlatformLeadInput,
+    byId: string | null = null,
+  ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
     const email =
       input.email !== undefined ? (clean(input.email)?.toLowerCase() ?? null) : lead.email;
@@ -458,7 +465,28 @@ export class PlatformLeadsService {
     if (input.source) data.source = input.source;
     if (input.assignedToId !== undefined) data.assignedToId = input.assignedToId;
     await this.admin.platformLead.update({ where: { id }, data });
+    if (input.assignedToId !== undefined) {
+      await this.assignSalesRep(id, input.assignedToId, byId);
+    }
     return this.detail(id);
+  }
+
+  /**
+   * Asignarlo a un comercial lo pone también en su cartera (su panel lista por
+   * comercial, no por quien lo lleva en el tablero) y le avisa.
+   */
+  private async assignSalesRep(
+    leadId: string,
+    assigneeId: string | null,
+    byId: string | null,
+  ): Promise<void> {
+    if (!assigneeId) return;
+    const rep = await this.admin.superAdmin.findFirst({
+      where: { id: assigneeId, role: 'sales', isActive: true },
+      select: { id: true },
+    });
+    if (!rep) return;
+    await this.assignment.assign({ leadId, repId: rep.id, source: 'manual', byId });
   }
 
   /** Mover a mano entre Nuevo, Contactado e Interesado (también reabre un perdido). */

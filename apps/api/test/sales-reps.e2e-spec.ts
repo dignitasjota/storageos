@@ -824,6 +824,34 @@ describe('Comerciales (e2e)', () => {
     }
   });
 
+  it('un lead creado en el admin y asignado a un comercial sale en su panel', async () => {
+    const created = await http()
+      .post('/admin/leads')
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({
+        companyName: 'Trasteros del Admin',
+        phone: `6${String(Date.now()).slice(-8)}`,
+        source: 'phone',
+        assignedToId: repAId,
+      })
+      .expect(201);
+    const leadId = created.body.id as string;
+    const listOf = async (token: string) =>
+      (
+        await http().get('/admin/sales/leads').set('Authorization', `Bearer ${token}`).expect(200)
+      ).body.items.map((l: { id: string }) => l.id) as string[];
+    expect(await listOf(repAToken)).toContain(leadId);
+
+    // Reasignado desde el admin a otro comercial: cambia de cartera.
+    await http()
+      .patch(`/admin/leads/${leadId}`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ assignedToId: repBId })
+      .expect(200);
+    expect(await listOf(repBToken)).toContain(leadId);
+    expect(await listOf(repAToken)).not.toContain(leadId);
+  });
+
   it('un comercial solo se gestiona en «Equipo comercial» y no puede quitarse la 2FA', async () => {
     const viaSuperAdmins = await http()
       .post('/admin/super-admins')

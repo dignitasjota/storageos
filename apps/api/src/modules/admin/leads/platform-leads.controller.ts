@@ -152,8 +152,9 @@ export class PlatformLeadsController {
   update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdatePlatformLeadDto,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
   ): Promise<PlatformLeadDetailDto> {
-    return this.leads.update(id, body);
+    return this.leads.update(id, body, admin.sub);
   }
 
   @Post(':id/move')
