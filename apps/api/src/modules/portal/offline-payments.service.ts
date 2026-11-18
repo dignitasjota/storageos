@@ -8,6 +8,7 @@ import {
 } from '@storageos/shared';
 
 import { emailLocale, formatDateLong, formatEur, type EmailLocale } from '../../common/format';
+import { PAYABLE_INVOICE_WHERE } from '../../common/sepa-remittance-guard';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { CommunicationsService } from '../communications/communications.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -110,7 +111,8 @@ export class OfflinePaymentsService {
             },
             // La fianza que se paga junto a esta factura.
             bundledReceipts: {
-              where: { status: { in: ['issued', 'overdue'] }, deletedAt: null },
+              // También la del primer pago sin emitir (se emite al cobrarse).
+              where: { ...PAYABLE_INVOICE_WHERE, deletedAt: null },
               select: { invoiceNumber: true, total: true, amountPaid: true },
             },
             customer: {

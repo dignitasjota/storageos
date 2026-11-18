@@ -248,7 +248,11 @@ export function SignPageBody({
               </p>
             )}
             {pending.length > 0 && portalToken ? (
-              <BookingPayment portalToken={portalToken} invoice={pending[0]!} locale={locale} />
+              <BookingPayment
+                portalToken={portalToken}
+                invoice={paymentHead(pending)}
+                locale={locale}
+              />
             ) : !result && view.paymentPending ? (
               <>
                 {!view.generalTerms.accepted && (
@@ -595,6 +599,9 @@ function BookingPayment({
     );
   }
 
+  // La factura cobra también la fianza que va con ella (un solo pago).
+  const toPay = invoice.amountPending + invoice.bundledReceiptPending;
+
   async function startStripe() {
     setBusy(true);
     try {
@@ -636,18 +643,26 @@ function BookingPayment({
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
       <p className="font-medium">
         {invoice.status === 'draft'
-          ? t('firstPaymentPending', { amount: formatPrice(invoice.amountPending, locale) })
+          ? t('firstPaymentPending', { amount: formatPrice(toPay, locale) })
           : t('firstInvoice', {
               number: invoice.invoiceNumber,
-              amount: formatPrice(invoice.amountPending, locale),
+              amount: formatPrice(toPay, locale),
             })}
       </p>
+      {invoice.bundledReceiptPending > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {t('paymentBreakdown', {
+            rent: formatPrice(invoice.amountPending, locale),
+            deposit: formatPrice(invoice.bundledReceiptPending, locale),
+          })}
+        </p>
+      )}
       {setupIntent ? (
         <StripeSetupForm
           clientSecret={setupIntent.clientSecret}
           publishableKey={setupIntent.publishableKey}
           stripeAccount={setupIntent.stripeAccount}
-          submitLabel={t('payAmount', { amount: formatPrice(invoice.amountPending, locale) })}
+          submitLabel={t('payAmount', { amount: formatPrice(toPay, locale) })}
           onConfirmed={onConfirmed}
         />
       ) : (
@@ -700,6 +715,18 @@ function BookingPayment({
       )}
       <p className="text-xs text-muted-foreground">{t('paymentEmailNote')}</p>
     </div>
+  );
+}
+
+/**
+ * Qué se paga en esta página: la factura del alquiler (que cobra su fianza a la
+ * vez), no el justificante de fianza suelto, aunque se haya creado después.
+ */
+function paymentHead(pending: PortalInvoiceDto[]): PortalInvoiceDto {
+  return (
+    pending.find((i) => i.kind === 'invoice' && i.amountPending > 0) ??
+    pending.find((i) => !i.paidWithInvoiceId) ??
+    pending[0]!
   );
 }
 

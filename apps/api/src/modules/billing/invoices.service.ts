@@ -26,6 +26,7 @@ import {
 import { assertCashDayOpen, invoiceFacilityId } from '../../common/cash-day';
 import { customerScopeWhere } from '../../common/customer-scope';
 import { assertFacilityAllowed, invoiceFacilityWhere } from '../../common/facility-scope';
+import { paymentHeadId } from '../../common/first-payment';
 import { assertFiscalPeriodOpen } from '../../common/fiscal-closure';
 import {
   emailLocale,
@@ -50,6 +51,7 @@ import {
   assertNotInSepaRemittance,
   CHARGEABLE_MANDATE_WHERE,
   hasPaymentInFlight,
+  PAYABLE_INVOICE_WHERE,
 } from '../../common/sepa-remittance-guard';
 import { tenantFiscalDataMissing } from '../../common/tenant-readiness';
 import { HoldedSettingsService } from '../accounting/holded-settings.service';
@@ -127,6 +129,11 @@ export interface ManualPaymentArgs {
    * es un doble clic (409), no dos cobros.
    */
   rejectDuplicate?: boolean;
+  /**
+   * Cobro conjunto (factura + su fianza en un solo pago): no lanza el aviso de
+   * pagado; quien reparte el cobro lo lanza una vez, con todo ya pagado.
+   */
+  silentPaidEvent?: boolean;
 }
 
 /** Tipo fiscal de la línea: el indicado (validado) o el de por defecto según el tipo. */
@@ -185,6 +192,14 @@ type InvoiceWithRelations = Invoice & {
   /** Local de una factura sin contrato (pase nocturno, factura a mano…). */
   facility?: { id: string; name: string } | null;
   productSale?: { facility: { id: string; name: string } } | null;
+  /** La fianza que se paga con esta factura (cuando se cargó). */
+  bundledReceipts?: {
+    id: string;
+    invoiceNumber: string;
+    total: Prisma.Decimal;
+    amountPaid: Prisma.Decimal;
+    status: InvoiceStatusValue;
+  }[];
 };
 
 /** El local de una factura: el de su contrato, el suyo o el de su venta. */
@@ -214,6 +229,8 @@ export interface ListFilters {
   customerId?: string;
   contractId?: string;
   overdue?: boolean;
+  /** Primeros pagos sin cobrar (sin número hasta que se pagan) y su fianza. */
+  awaitingPayment?: boolean;
   /** Locales a los que el usuario está restringido; null/undefined = todos. */
   facilityScope?: string[] | null;
   /** Local elegido en el selector de la cabecera. */
@@ -319,7 +336,8 @@ export class InvoicesService {
           _sum: { total: true },
         }),
         tx.invoice.aggregate({
-          where: { AND: [where, { status: { in: ['issued', 'overdue'] } }] },
+          // También el primer pago sin cobrar (sin número hasta que se paga).
+          where: { AND: [where, PAYABLE_INVOICE_WHERE] },
           _sum: { total: true, amountPaid: true },
         }),
         tx.payment.aggregate({
@@ -331,10 +349,30 @@ export class InvoicesService {
           _sum: { amount: true, refundedAmount: true },
         }),
       ]);
+      // «Pendiente de pago» lista solo las facturas: su fianza (que va en el
+      // mismo pago) también suma al total y a lo pendiente.
+      const deposits = filters.awaitingPayment
+        ? await tx.invoice.aggregate({
+            where: {
+              kind: 'deposit_receipt',
+              deletedAt: null,
+              ...PAYABLE_INVOICE_WHERE,
+              bundledWithInvoice: { is: where },
+            },
+            _sum: { total: true, amountPaid: true },
+          })
+        : null;
+      const depositTotal = Number(deposits?._sum.total ?? 0);
+      const depositPending = deposits
+        ? subtractAmounts(deposits._sum.total ?? 0, deposits._sum.amountPaid ?? 0)
+        : 0;
       return {
         count,
-        total: Number(all._sum.total ?? 0),
-        pending: subtractAmounts(open._sum.total ?? 0, open._sum.amountPaid ?? 0),
+        total: addAmounts(Number(all._sum.total ?? 0), depositTotal),
+        pending: addAmounts(
+          subtractAmounts(open._sum.total ?? 0, open._sum.amountPaid ?? 0),
+          depositPending,
+        ),
         collected: subtractAmounts(paid._sum.amount ?? 0, paid._sum.refundedAmount ?? 0),
       };
     }, tenantId);
@@ -368,8 +406,14 @@ export class InvoicesService {
           { customer: { firstName: q } },
           { customer: { lastName: q } },
           { customer: { companyName: q } },
+          // El primer pago aún no tiene número: se encuentra por su contrato.
+          { contract: { contractNumber: q } },
         ],
       });
+    }
+    if (filters.awaitingPayment) {
+      // La fianza va dentro de su factura (`bundledDeposit`), no como otra fila.
+      and.push({ status: 'draft', issueOnPayment: true, kind: 'invoice' });
     }
     if (filters.overdue) {
       // «Solo vencidas» se suma al estado elegido (antes lo pisaba).
@@ -1498,6 +1542,19 @@ export class InvoicesService {
   }): Promise<BulkInvoiceActionResultDto> {
     const succeeded: string[] = [];
     const failed: BulkInvoiceActionResultDto['failed'] = [];
+    // La fianza que va con una factura pendiente se recuerda con su factura.
+    args = {
+      ...args,
+      ids: [
+        ...new Set(
+          await Promise.all(
+            args.ids.map((id) =>
+              this.prisma.withTenant((tx) => paymentHeadId(tx, args.tenantId, id), args.tenantId),
+            ),
+          ),
+        ),
+      ],
+    };
     // Un solo correo por inquilino: con varias facturas suyas, uno que las lista.
     const owners = await this.prisma.withTenant(
       (tx) =>
@@ -1743,6 +1800,11 @@ export class InvoicesService {
           facilityId: true,
           contract: { select: { unit: { select: { facilityId: true } } } },
           productSale: { select: { facilityId: true } },
+          // La fianza que se paga con ella: el recordatorio pide las dos juntas.
+          bundledReceipts: {
+            where: { status: { in: ['issued', 'overdue'] }, deletedAt: null },
+            select: { total: true, amountPaid: true },
+          },
         },
       });
       if (!invoice) return null;
@@ -1819,7 +1881,10 @@ export class InvoicesService {
       });
     }
 
-    const amountPending = subtractAmounts(invoice.total, invoice.amountPaid);
+    const amountPending = invoice.bundledReceipts.reduce(
+      (sum, r) => addAmounts(sum, subtractAmounts(r.total, r.amountPaid)),
+      subtractAmounts(invoice.total, invoice.amountPaid),
+    );
     const daysOverdue = invoice.dueDate
       ? Math.max(0, Math.floor((Date.now() - invoice.dueDate.getTime()) / 86_400_000))
       : 0;
@@ -3023,7 +3088,49 @@ export class InvoicesService {
 
   /** Marca una factura como pagada manualmente (cobro en efectivo, transferencia...). */
   async markPaidManually(args: ManualPaymentArgs): Promise<InvoiceDto> {
+    if (args.input.includeBundledDeposit) return this.markPaidWithDeposit(args);
     return (await this.registerManualPayment(args)).invoice;
+  }
+
+  /**
+   * Cobro a mano de una factura y de la fianza que va con ella (primer pago de
+   * un contrato), con la misma forma de pago: la fianza solo si la factura
+   * queda pagada del todo. Un solo aviso al inquilino, por el total.
+   */
+  private async markPaidWithDeposit(args: ManualPaymentArgs): Promise<InvoiceDto> {
+    const receipts = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findMany({
+          where: {
+            tenantId: args.tenantId,
+            bundledWithInvoiceId: args.invoiceId,
+            kind: 'deposit_receipt',
+            deletedAt: null,
+            ...PAYABLE_INVOICE_WHERE,
+          },
+          select: { id: true, total: true, amountPaid: true },
+        }),
+      args.tenantId,
+    );
+    const { includeBundledDeposit: _include, ...input } = args.input;
+    if (receipts.length === 0) {
+      return (await this.registerManualPayment({ ...args, input })).invoice;
+    }
+    const head = await this.registerManualPayment({ ...args, input, silentPaidEvent: true });
+    if (head.invoice.status !== 'paid') return head.invoice;
+    for (const r of receipts) {
+      const pending = subtractAmounts(r.total, r.amountPaid);
+      if (pending <= 0) continue;
+      await this.registerManualPayment({
+        ...args,
+        invoiceId: r.id,
+        rejectDuplicate: false,
+        silentPaidEvent: true,
+        input: { ...input, amount: pending },
+      });
+    }
+    await this.emitPaidEvent(args.tenantId, args.invoiceId);
+    return this.detail(args.tenantId, args.invoiceId, args.facilityScope);
   }
 
   /** Igual que `markPaidManually`, y además devuelve el cobro creado. */
@@ -3206,7 +3313,7 @@ export class InvoicesService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    if (fullyPaid) {
+    if (fullyPaid && !args.silentPaidEvent) {
       const payload: DomainEventPayload = {
         tenantId: args.tenantId,
         entityType: 'invoice',
@@ -3224,6 +3331,36 @@ export class InvoicesService {
       this.events.emit(DOMAIN_EVENTS.invoice_paid, payload);
     }
     return { invoice: this.toDto(updated), paymentId };
+  }
+
+  /**
+   * Aviso de pagado de una factura cobrada junto a su fianza (`silentPaidEvent`):
+   * uno solo, cuando las dos ya están pagadas (correo por el total y acceso).
+   */
+  async emitPaidEvent(tenantId: string, invoiceId: string): Promise<void> {
+    const inv = await this.prisma.withTenant(
+      (tx) =>
+        tx.invoice.findFirst({
+          where: { id: invoiceId, tenantId, status: 'paid', deletedAt: null },
+          select: { invoiceNumber: true, total: true, paidAt: true, customerId: true },
+        }),
+      tenantId,
+    );
+    if (!inv) return;
+    this.events.emit(DOMAIN_EVENTS.invoice_paid, {
+      tenantId,
+      entityType: 'invoice',
+      entityId: invoiceId,
+      customerId: inv.customerId,
+      recipientEmail: null,
+      scope: {
+        invoice: {
+          number: inv.invoiceNumber,
+          total: Number(inv.total).toFixed(2),
+          paidAt: (inv.paidAt ?? new Date()).toISOString(),
+        },
+      },
+    } satisfies DomainEventPayload);
   }
 
   /**
@@ -4551,6 +4688,12 @@ export class InvoicesService {
       lateFeeInvoice: { select: { id: true } },
       facility: { select: { id: true, name: true } },
       productSale: { select: { facility: { select: { id: true, name: true } } } },
+      bundledReceipts: {
+        where: { deletedAt: null, status: { not: 'cancelled' as const } },
+        select: { id: true, invoiceNumber: true, total: true, amountPaid: true, status: true },
+        orderBy: { createdAt: 'asc' as const },
+        take: 1,
+      },
     } as const;
   }
 
@@ -4926,6 +5069,18 @@ export class InvoicesService {
       contractNumber: row.contract?.contractNumber ?? null,
       kind: row.kind === 'deposit_receipt' ? 'deposit_receipt' : 'invoice',
       bundledWithInvoiceId: row.bundledWithInvoiceId,
+      bundledDeposit: row.bundledReceipts?.[0]
+        ? {
+            id: row.bundledReceipts[0].id,
+            invoiceNumber: row.bundledReceipts[0].invoiceNumber,
+            total: Number(row.bundledReceipts[0].total),
+            amountPending: Math.max(
+              0,
+              subtractAmounts(row.bundledReceipts[0].total, row.bundledReceipts[0].amountPaid),
+            ),
+            status: row.bundledReceipts[0].status,
+          }
+        : null,
       issueOnPayment: row.issueOnPayment,
       unitId: row.contract?.unit?.id ?? null,
       unitCode: row.contract?.unit?.code ?? null,

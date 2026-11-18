@@ -14,6 +14,10 @@
 > (Fase 13) e integraciones API keys + webhooks salientes HMAC
 > (Fase 14).
 
+### El primer pago en un solo pago (2026-11-19)
+
+Área de clientes: `POST /portal/me/invoices/:id/charge`, `…/redsys-redirect` y `…/offline-payment` con el id de una fianza ligada a una factura aún por pagar cobran la factura (que incluye la fianza). `POST /invoices/:id/mark-paid` admite `includeBundledDeposit` (registra también la fianza pendiente, con la misma forma de pago, si la factura queda pagada). `InvoiceDto.bundledDeposit {id, invoiceNumber, total, amountPending, status}`. `GET /invoices/page|totals?awaitingPayment=true` (primeros pagos sin cobrar) y `search` busca también por número de contrato; el pendiente de los totales cuenta el primer pago. `TodayDto.firstPaymentsPending`.
+
 ### Citas de los comerciales (2026-11-18)
 
 Comercial (su cartera): `GET /admin/sales/appointments?leadId=&scope=upcoming|past|all` (sin `leadId`, las próximas), `POST /admin/sales/accounts/:leadId/appointments` (`kind` in_person|call|video, `title`, `startsAt` ISO con zona, `durationMinutes`, `location`, `notes`), `PATCH /admin/sales/appointments/:id` (también `status` scheduled|done|cancelled|no_show), `DELETE /admin/sales/appointments/:id`. Dirección (superadmin): `GET /admin/sales-team/appointments?repId=&leadId=&scope=`, `POST /admin/sales-team/appointments` (+ `leadId` y `repId`; sin `repId`, el comercial del lead), `PATCH|DELETE /admin/sales-team/appointments/:id`. Errores: 400 `appointment_in_past`, `appointment_too_far`, `appointment_rep_required`, `appointment_rep_mismatch`, `invalid_rep`; 404 `appointment_not_found`. `SalesTodayDto.appointments` (las pendientes de hoy).

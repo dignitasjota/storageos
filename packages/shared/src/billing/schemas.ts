@@ -526,6 +526,11 @@ export const MarkPaidManuallySchema = z.object({
    * doble cobro accidental; hay que confirmarlo conscientemente).
    */
   overridePaymentInFlight: z.boolean().optional(),
+  /**
+   * Registra también, con la misma forma de pago, la fianza pendiente que va
+   * con esta factura (primer pago de un contrato): un solo cobro.
+   */
+  includeBundledDeposit: z.boolean().optional(),
 });
 
 /**

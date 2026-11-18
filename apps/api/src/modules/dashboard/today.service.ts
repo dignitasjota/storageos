@@ -742,6 +742,47 @@ export class TodayService {
         }));
 
         const responseHours = tenantRow?.leadResponseHours ?? 4;
+        // Primeros pagos sin cobrar (factura sin número hasta el pago), con su
+        // fianza y el plazo: si no se pagan a tiempo, la reserva se cancela.
+        const firstPaymentWhere = {
+          kind: 'invoice' as const,
+          status: 'draft' as const,
+          issueOnPayment: true,
+          deletedAt: null,
+          contract: {
+            is: {
+              status: { in: ['draft' as const, 'active' as const, 'ending' as const] },
+              ...(fac ? { unit: { is: { facilityId: fac } } } : {}),
+            },
+          },
+        };
+        const [firstPayments, firstPaymentsCount] = await Promise.all([
+          tx.invoice.findMany({
+            where: firstPaymentWhere,
+            orderBy: [{ contract: { firstPaymentDeadline: 'asc' } }, { createdAt: 'asc' }],
+            take: TAKE,
+            select: {
+              id: true,
+              total: true,
+              amountPaid: true,
+              customerId: true,
+              customer: customerSelect,
+              bundledReceipts: {
+                where: { deletedAt: null, status: { not: 'cancelled' } },
+                select: { total: true, amountPaid: true },
+              },
+              contract: {
+                select: {
+                  id: true,
+                  contractNumber: true,
+                  firstPaymentDeadline: true,
+                  unit: { select: { code: true } },
+                },
+              },
+            },
+          }),
+          tx.invoice.count({ where: firstPaymentWhere }),
+        ]);
         const unattendedWhere = {
           status: 'new' as const,
           ...notSnoozed('lead'),
@@ -1073,6 +1114,37 @@ export class TodayService {
                 detail: r.unit?.code ?? null,
                 date: r.validUntil.toISOString(),
               })),
+            },
+            none,
+          ),
+          firstPaymentsPending: section(
+            'invoices:read',
+            {
+              count: firstPaymentsCount,
+              items: firstPayments.map((f) => {
+                const amount = f.bundledReceipts.reduce(
+                  (sum, r) => sum + Number(r.total) - Number(r.amountPaid),
+                  Number(f.total) - Number(f.amountPaid),
+                );
+                const deadline = f.contract?.firstPaymentDeadline ?? null;
+                return {
+                  id: f.id,
+                  linkId: f.contract?.id ?? null,
+                  label: f.customer ? customerName(f.customer) : 'Primer pago',
+                  detail: [
+                    f.contract?.unit?.code,
+                    f.contract ? `contrato ${f.contract.contractNumber}` : null,
+                    f.bundledReceipts.length ? 'con la fianza' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
+                  date: deadline ? deadline.toISOString() : null,
+                  overdue: !!deadline && deadline.getTime() < Date.now(),
+                  amount: Math.round(amount * 100) / 100,
+                  customerId: f.customerId,
+                  phone: f.customer?.phone ?? null,
+                };
+              }),
             },
             none,
           ),

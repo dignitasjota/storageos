@@ -133,6 +133,8 @@ export function InvoicesList({
     for (const i of invoices) {
       // Pendiente (con o sin la casilla de las condiciones) o con un cobro en curso.
       if ((i.amountPending > 0 && !i.paidWithInvoiceId) || i.paymentInProgress) continue;
+      // La fianza que se paga con su factura va dentro de ella, no como otra fila.
+      if (i.paidWithInvoiceId) continue;
       const y = (i.issueDate ?? '').slice(0, 4) || '—';
       byYear.set(y, [...(byYear.get(y) ?? []), i]);
     }
@@ -252,6 +254,8 @@ export function InvoicesList({
         {i.bundledReceiptPending > 0 && i.amountPending > 0 && (
           <p className="ml-6 text-xs text-muted-foreground">
             {t('includesDeposit', {
+              rent: eur(i.amountPending, locale),
+              deposit: eur(i.bundledReceiptPending, locale),
               total: eur(i.amountPending + i.bundledReceiptPending, locale),
             })}
           </p>
@@ -313,7 +317,9 @@ export function InvoicesList({
               {payingId === i.id && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               {i.lastFailure
                 ? t('retry')
-                : t('payAmount', { amount: eur(i.amountPending, locale) })}
+                : t('payAmount', {
+                    amount: eur(i.amountPending + i.bundledReceiptPending, locale),
+                  })}
             </Button>
           )}
           {payable(i) && redsysEnabled && (

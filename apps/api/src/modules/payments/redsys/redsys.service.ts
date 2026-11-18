@@ -439,11 +439,16 @@ export class RedsysService {
       try {
         // El cobro se reparte: primero la factura, después su justificante de
         // fianza (reserva online, un solo pago por el total).
-        for (const part of await this.splitOrder(orderRow)) {
+        const parts = await this.splitOrder(orderRow);
+        // Varios documentos en el mismo cobro (factura + fianza): un solo aviso
+        // de pagado, el de la factura, cuando ya está todo pagado.
+        const joint = parts.length > 1;
+        for (const part of parts) {
           await this.invoices.markPaidManually({
             tenantId: orderRow.tenantId,
             userId: null,
             invoiceId: part.invoiceId,
+            ...(joint ? { silentPaidEvent: true } : {}),
             input: {
               amount: part.cents / 100,
               // Con Bizum el TPV solo ofrece Bizum: el cobro es Bizum.
@@ -455,6 +460,14 @@ export class RedsysService {
             },
             meta: {},
           });
+        }
+        if (joint) {
+          // Solo los documentos pedidos (la fianza que va con su factura no avisa
+          // aparte: el correo de la factura ya suma lo pagado de su fianza).
+          const mains = new Set([orderRow.invoiceId, ...(orderRow.extraInvoiceIds ?? [])]);
+          for (const id of new Set(parts.map((p) => p.invoiceId))) {
+            if (mains.has(id)) await this.invoices.emitPaidEvent(orderRow.tenantId, id);
+          }
         }
       } catch (err) {
         // La factura podría estar ya pagada por otra vía (transferencia, otra

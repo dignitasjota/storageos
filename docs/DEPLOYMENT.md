@@ -2745,3 +2745,13 @@ Migración `20270210100000_sales_appointments` (tabla global `sales_appointments
 - **Comercial**: tarjeta «Citas» en la ficha de cada prospecto o cliente (llamada, videollamada o visita, con día, hora, duración, lugar o enlace y notas), página **Mis citas** (próximas y pasadas) y «Citas de hoy» en su «Hoy». Cada cita se marca como hecha, cancelada o «no se presentó».
 - **Dirección**: pestaña «Citas» en la ficha del lead (Leads del panel admin) para ponerle una cita a un comercial, y **Equipo comercial → Citas** con las de todos y filtro por comercial. Si el lead aún no tiene comercial, pasa a la cartera del elegido; si es de otro, hay que reasignarlo antes.
 - **Avisos al comercial** (campana y notificación en el móvil): al ponérsela otra persona (también al cambiarla o cancelarla), el día antes (24 h) y una hora antes. La tarea `sales.appointments` corre cada 5 minutos en el API; cada aviso se reserva en la propia cita. La dirección no recibe avisos de citas.
+
+## 160. El primer pago en un solo pago (2026-11-19)
+
+Sin migración ni variables nuevas. El primer pago de un contrato (la factura del alquiler y la fianza que va con ella) es un solo pago en todos los caminos:
+
+- 🐛 **La página del enlace (`/sign`, «Completar el pago») cobraba la fianza sola** (el primer documento pendiente era el justificante, creado después de la factura) y el inquilino tenía que volver para pagar el alquiler: ahora cobra la factura con su fianza y enseña el total con el desglose.
+- Pagar la fianza suelta mientras su factura está pendiente (tarjeta, Redsys, transferencia o en el local) cobra las dos. En el área de clientes salen como un solo pago, con «Alquiler + fianza = total» y el botón por el total.
+- **Un solo «Pago recibido»**: con Redsys llegaban «Pago recibido» y «Fianza recibida»; el correo de la transferencia, el recordatorio de reserva sin pagar, «Enviar por correo» y los recordatorios de una factura con fianza pendiente dicen el total.
+- **«Registrar cobro»** de una factura con fianza pendiente: casilla «Incluye la fianza», marcada por defecto, que registra las dos con la misma forma de pago.
+- **Panel**: filtro «Pendiente de pago» en Facturas (`?awaiting=1`), búsqueda por número de contrato, «Contrato …» y «+ fianza … en el mismo pago» bajo el número, lo pendiente cuenta el primer pago, el primer pago se ve en la ficha del contrato y en «Hoy» hay una tarjeta «Primeros pagos pendientes» con el total y el plazo.

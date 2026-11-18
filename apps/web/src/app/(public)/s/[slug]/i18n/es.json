@@ -517,6 +517,7 @@
       "paymentProcessing": "Domiciliación iniciada: tu banco la confirmará en 2-5 días hábiles y tu acceso se activará entonces.",
       "firstInvoice": "Primera factura: {number} — {amount}",
       "firstPaymentPending": "Primer pago: {amount} (la factura se emite al pagar)",
+      "paymentBreakdown": "Alquiler {rent} + fianza {deposit}",
       "payWithCard": "Pagar con tarjeta",
       "noOnlinePayment": "El negocio te indicará cómo pagar esta factura (transferencia o domiciliación). También la tienes en tu área de clientes.",
       "payAmount": "Pagar {amount}",

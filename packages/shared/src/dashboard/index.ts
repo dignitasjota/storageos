@@ -76,6 +76,11 @@ export interface TodayDto {
   depositsToSettle: { count: number; items: TodayItemDto[] };
   /** Fianzas a cobrar en el local (justificante sin pagar fuera del pago online). */
   depositsToCollect: { count: number; items: TodayItemDto[] };
+  /**
+   * Primeros pagos sin cobrar (la factura se emite, con su número, al pagarse):
+   * lo que falta con la fianza y el plazo; pasado, la reserva se cancela.
+   */
+  firstPaymentsPending: { count: number; items: TodayItemDto[] };
   /** Viviendas: fianzas aún sin depositar en el organismo autonómico. */
   depositsToRegister: { count: number; items: TodayItemDto[] };
   /** Solicitudes de protección de datos sin cerrar que vencen en 7 días (o ya vencidas). */

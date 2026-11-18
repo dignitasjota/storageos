@@ -13,6 +13,7 @@ import {
 } from '@storageos/shared';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { paymentHeadId } from '../../common/first-payment';
 import {
   loadFirstPayment,
   loadPendingFirstPayment,
@@ -1002,8 +1003,11 @@ export class CustomerEmailsService {
     /** Otro email; por defecto el de facturación del inquilino o el suyo. */
     email?: string;
   }): Promise<{ communicationId: string; recipient: string }> {
+    // La fianza que va con una factura aún por pagar: se manda la factura, que
+    // las cobra juntas (un solo correo y un solo pago).
+    const invoiceId = await paymentHeadId(this.admin, args.tenantId, args.invoiceId);
     const inv = await this.admin.invoice.findFirst({
-      where: { id: args.invoiceId, tenantId: args.tenantId, deletedAt: null },
+      where: { id: invoiceId, tenantId: args.tenantId, deletedAt: null },
       select: {
         customerId: true,
         invoiceNumber: true,
@@ -1013,6 +1017,10 @@ export class CustomerEmailsService {
         dueDate: true,
         paidAt: true,
         contractId: true,
+        bundledReceipts: {
+          where: { status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          select: { invoiceNumber: true, total: true, amountPaid: true },
+        },
       },
     });
     if (!inv?.customerId) {
@@ -1070,7 +1078,8 @@ export class CustomerEmailsService {
         dueDate: pending ? inv.dueDate : null,
         paidAt: paid ? (inv.paidAt ?? null) : null,
         payment: pending ? await this.paymentHint(args.tenantId, inv.customerId) : null,
-        pdfUrl: this.pdfUrl(args.tenantId, args.invoiceId),
+        pdfUrl: this.pdfUrl(args.tenantId, invoiceId),
+        deposit: pending ? bundledDeposit(inv.bundledReceipts) : null,
       },
     );
     const comm = await this.communications.enqueue({
@@ -1081,7 +1090,7 @@ export class CustomerEmailsService {
       bodyText: rendered.text,
       bodyHtml: rendered.html,
       customerId: inv.customerId,
-      invoiceId: args.invoiceId,
+      invoiceId,
       ...(inv.contractId ? { contractId: inv.contractId } : {}),
       source: 'invoice.sent',
     });
@@ -1182,4 +1191,21 @@ export class CustomerEmailsService {
       );
     }
   }
+}
+
+/** La fianza pendiente que va con una factura (número y lo que falta), o null. */
+function bundledDeposit(
+  receipts: { invoiceNumber: string; total: unknown; amountPaid: unknown }[],
+): { number: string; amount: number } | null {
+  const pending = receipts
+    .map((r) => ({
+      number: r.invoiceNumber,
+      cents: Math.round(Number(r.total) * 100) - Math.round(Number(r.amountPaid) * 100),
+    }))
+    .filter((r) => r.cents > 0);
+  if (pending.length === 0) return null;
+  return {
+    number: pending.map((r) => r.number).join(', '),
+    amount: pending.reduce((s, r) => s + r.cents, 0) / 100,
+  };
 }
