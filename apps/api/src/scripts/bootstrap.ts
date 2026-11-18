@@ -28,6 +28,8 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
   {
     name: 'Free',
     slug: 'free',
+    // Ya no se ofrece: solo para quien aún lo tiene, hasta pasar a Basic.
+    isPublic: false,
     priceMonthly: 0,
     priceYearly: 0,
     maxUnits: 10,
