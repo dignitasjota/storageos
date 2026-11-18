@@ -273,6 +273,8 @@ describe('Comunicación del panel admin: mejoras (e2e)', () => {
       'trial_ending',
       'trial_ended',
       'past_due',
+      'free_plan_notice',
+      'free_plan_ended',
     ]);
     const saved = await request(app.getHttpServer())
       .put('/admin/email-templates/past_due')
