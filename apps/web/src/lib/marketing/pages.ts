@@ -551,7 +551,7 @@ export const SOLUTION_PAGES: MarketingPage[] = [
     faqs: [
       {
         q: '¿Cuánto cuesta?',
-        a: 'Hay un plan gratuito para empezar y planes según el número de trasteros y locales. Todos se prueban 30 días gratis, sin tarjeta.',
+        a: 'Desde 1 € por trastero al mes (mínimo 19 €) con el plan Basic, y planes según el número de trasteros y locales. Todos se prueban 30 días gratis, sin tarjeta.',
       },
       {
         q: '¿Me ayudáis a migrar?',

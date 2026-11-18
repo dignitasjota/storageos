@@ -23,7 +23,7 @@ import { fetchPlatformWebsite } from '@/lib/platform-website';
 
 const TITLE = 'Precios del software de gestión de trasteros | TrasterOS';
 const DESCRIPTION =
-  'Precios claros para tu negocio de trasteros: plan gratuito para empezar y planes por número de trasteros y locales. Prueba 30 días gratis, sin permanencia.';
+  'Precios claros para tu negocio de trasteros: desde 1 € por trastero al mes (mínimo 19 €) y planes por número de trasteros y locales. Prueba 30 días gratis, sin tarjeta ni permanencia.';
 
 export const metadata: Metadata = {
   title: { absolute: TITLE },
@@ -47,7 +47,11 @@ const CRUMBS = [
 const PRICING_FAQ = [
   {
     q: '¿Hay permanencia?',
-    a: 'No. Pagas mes a mes (o por año, con descuento) y puedes cambiar de plan o darte de baja cuando quieras.',
+    a: 'No. Pagas mes a mes (o por año, con descuento, salvo en Basic) y puedes cambiar de plan o darte de baja cuando quieras.',
+  },
+  {
+    q: '¿Cómo funciona el plan Basic?',
+    a: 'Pagas 1 € al mes por cada trastero, con un mínimo de 19 €. Contamos los trasteros que tienes unos días antes de cada cobro, sin prorrateos. Llega hasta 50 trasteros, 1 local y 1 usuario (el segundo, por 10 € al mes).',
   },
   {
     q: '¿Cómo funciona la prueba gratuita?',
@@ -55,7 +59,7 @@ const PRICING_FAQ = [
   },
   {
     q: '¿Qué pasa si supero los trasteros de mi plan?',
-    a: 'Te avisamos y puedes subir de plan o añadir un extra de capacidad. Nunca se borra nada de lo que ya tienes.',
+    a: 'No puedes dar de alta más hasta subir de plan o añadir un extra de capacidad; nunca se borra nada de lo que ya tienes. En Pro (hasta 1.000) y Administrador (hasta 1.500) te contactamos para darte un precio a medida.',
   },
   {
     q: '¿Hay cuota de alta o de integración?',
@@ -67,13 +71,24 @@ const PRICING_FAQ = [
   },
 ];
 
+// Con punto de miles también en 4 cifras («1.000»).
 const limit = (n: number | null, noun: string) =>
-  n === null ? 'Ilimitados' : `${n.toLocaleString('es-ES')} ${noun}`;
+  n === null ? 'Ilimitados' : `${String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} ${noun}`;
+
+const eur = (n: number) =>
+  `${n.toLocaleString('es-ES', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2 })} €`;
+
+/** Precio de cada plan en la comparativa («1 € por trastero, mínimo 19 €» en Basic). */
+const planPrice = (p: SubscriptionPlanDto) =>
+  p.includedUnits != null && p.extraUnitPrice != null
+    ? `${eur(p.extraUnitPrice)} por trastero (mínimo ${eur(p.priceMonthly)})`
+    : `${eur(p.priceMonthly)} al mes`;
 
 /** Tabla de lo que incluye cada plan (sale del catálogo: panel admin → Planes). */
 function PlanComparison({ plans }: { plans: SubscriptionPlanDto[] }) {
   const features = TenantFeatures.filter((f) => plans.some((p) => p.tenantFeatures.includes(f)));
   const rows: { label: string; values: (string | boolean)[] }[] = [
+    { label: 'Precio', values: plans.map((p) => planPrice(p)) },
     { label: 'Trasteros', values: plans.map((p) => limit(p.maxUnits, '')) },
     { label: 'Locales', values: plans.map((p) => limit(p.maxFacilities, '')) },
     { label: 'Usuarios del equipo', values: plans.map((p) => limit(p.maxUsers, '')) },
@@ -151,8 +166,8 @@ export default async function PricingPage() {
             Precios del software de gestión de trasteros
           </h1>
           <p className="mt-4 text-lg text-muted-foreground">
-            Sin cuota de alta ni permanencia. Empieza gratis y paga según los trasteros que
-            gestionas.
+            Sin cuota de alta ni permanencia. Desde 1 € por trastero al mes: pruébalo 30 días gratis
+            y elige el plan que encaja con tu negocio.
           </p>
         </div>
         {offer && (
