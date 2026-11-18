@@ -29,7 +29,6 @@ import {
 } from '@/components/ui/select';
 import {
   useAdminReceivables,
-  useChangePlan,
   useChargeAddon,
   useRemindReceivable,
   useSuspendTenant,
@@ -57,7 +56,7 @@ const PROVIDERS = [
 /**
  * Cobros pendientes de los tenants a TrasterOS: cuotas impagadas (con el
  * escalado automático) y extras de pago manual sin cobrar. Desde aquí se
- * registra el pago, se cobra un extra, se suspende o se pasa a Free.
+ * registra el pago, se cobra un extra o se suspende.
  */
 export default function ReceivablesPage() {
   const data = useAdminReceivables();
@@ -203,7 +202,6 @@ function ReceivableRow({ item: i }: { item: AdminReceivableDto }) {
   const canEdit = useIsSuperadmin();
   const charge = useChargeAddon();
   const suspend = useSuspendTenant();
-  const changePlan = useChangePlan();
   const remind = useRemindReceivable();
   const [payOpen, setPayOpen] = useState(false);
 
@@ -233,24 +231,6 @@ function ReceivableRow({ item: i }: { item: AdminReceivableDto }) {
         input: { reason: res.value || 'Impago', churnReason: 'nonpayment' },
       }),
       'Tenant suspendido.',
-    );
-  }
-
-  async function toFree() {
-    const res = await ask({
-      title: `Pasar ${i.tenantName} al plan Free`,
-      description: 'Deja de deber la cuota y pierde las funciones de pago.',
-      input: { label: 'Motivo' },
-      confirmLabel: 'Pasar a Free',
-      destructive: true,
-    });
-    if (!res) return;
-    await run(
-      changePlan.mutateAsync({
-        id: i.tenantId,
-        input: { planSlug: 'free', reason: res.value || 'Impago' },
-      }),
-      'Pasado al plan Free.',
     );
   }
 
@@ -363,11 +343,6 @@ function ReceivableRow({ item: i }: { item: AdminReceivableDto }) {
               disabled={!canEdit}
             >
               Suspender
-            </Button>
-          )}
-          {i.kind === 'subscription' && (
-            <Button size="sm" variant="ghost" onClick={() => void toFree()} disabled={!canEdit}>
-              Pasar a Free
             </Button>
           )}
         </div>

@@ -211,7 +211,7 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
   const [isActive, setIsActive] = useState(addon?.isActive ?? true);
   const [planSlugs, setPlanSlugs] = useState<string[]>(addon?.planSlugs ?? []);
   const [maxQuantity, setMaxQuantity] = useState(String(addon?.maxQuantity ?? ''));
-  const plans = useAdminSubscriptionPlans();
+  const plans = useAdminSubscriptionPlans({ assignable: true });
 
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s) || 0);
 
@@ -244,7 +244,11 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
         grantsUsers: toNum(grantsUsers),
         grantsAiQueries: toNum(grantsAiQueries),
         planSlugs,
-        maxQuantity: toNum(maxQuantity),
+        // Un número entero de 1 en adelante; vacío o 0 = sin límite.
+        maxQuantity:
+          maxQuantity.trim() === '' || Math.floor(Number(maxQuantity)) < 1
+            ? null
+            : Math.floor(Number(maxQuantity)),
         isActive,
       });
       toast.success('Add-on guardado.');
@@ -395,8 +399,10 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
             </div>
           </div>
           <div className="space-y-1">
-            <Label>Planes en los que se puede tener</Label>
-            <div className="flex flex-wrap gap-3">
+            <p className="text-sm font-medium" id="addon-plans-label">
+              Planes en los que se puede tener
+            </p>
+            <div className="flex flex-wrap gap-3" role="group" aria-labelledby="addon-plans-label">
               {(plans.data ?? []).map((p) => (
                 <label key={p.slug} className="flex items-center gap-1.5 text-sm">
                   <Checkbox
@@ -417,9 +423,12 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
             </p>
           </div>
           <div className="space-y-1">
-            <Label>Cantidad máxima por cliente</Label>
+            <Label htmlFor="addon-max-quantity">Cantidad máxima por cliente</Label>
             <Input
+              id="addon-max-quantity"
               type="number"
+              min={1}
+              step={1}
               value={maxQuantity}
               onChange={(e) => setMaxQuantity(e.target.value)}
               placeholder="Sin límite"

@@ -37,8 +37,8 @@ export function PaymentAlertBanner() {
         <div className="container flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-xs font-medium">
           <span className="flex items-center gap-2">
             <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
-            Tu prueba ha terminado: el panel está en solo lectura. Tus inquilinos siguen funcionando
-            con normalidad.
+            Tu suscripción no está pagada: el panel está en solo lectura. Tus inquilinos siguen
+            funcionando con normalidad. Si en 30 días no eliges cómo pagar, la cuenta se suspende.
           </span>
           <Link
             href="/settings/saas-billing"

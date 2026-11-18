@@ -25,6 +25,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
+import { billableUnits } from './billable-units';
 import { CatalogPriceHistoryService } from './catalog-price-history.service';
 import { amountToCharge, platformPricing } from './platform-pricing';
 
@@ -87,9 +88,6 @@ function assertAddonAllowed(
     });
   }
 }
-
-/** Días antes del cobro en que se fijan los trasteros de más (cubre el preaviso SEPA). */
-const EXTRA_UNITS_LEAD_DAYS = 7;
 
 @Injectable()
 export class SaasAddonsService {
@@ -301,6 +299,22 @@ export class SaasAddonsService {
   ): Promise<SaasAddonDto> {
     this.validateFeature(input.feature);
     const current = await this.findAddon(id);
+    if (current.isSystem) {
+      // Los trasteros de más se buscan por su slug y se cobran con la cuota: de
+      // este extra solo se cambian el nombre, la descripción y el precio.
+      input = {
+        ...input,
+        slug: current.slug,
+        feature: '',
+        grantsUnits: null,
+        grantsFacilities: null,
+        grantsUsers: null,
+        grantsAiQueries: null,
+        planSlugs: current.planSlugs,
+        maxQuantity: null,
+        isActive: true,
+      };
+    }
     // Cambiar la `feature` de un add-on YA asignado dejaría overrides
     // desincronizados (los tenants perderían/ganarían features sin motivo).
     const newFeature = input.feature || null;
@@ -361,7 +375,7 @@ export class SaasAddonsService {
     const [subscription, addons] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
-        include: { plan: { select: { name: true, priceMonthly: true } } },
+        include: { plan: { select: { name: true, slug: true, priceMonthly: true } } },
       }),
       this.admin.tenantSubscriptionAddon.findMany({
         where: { tenantId },
@@ -381,6 +395,7 @@ export class SaasAddonsService {
     const pricing = await platformPricing(this.admin);
     return {
       planName: subscription?.plan.name ?? null,
+      planSlug: subscription?.plan.slug ?? null,
       planMonthly,
       addons: addonDtos,
       addonsMonthly,
@@ -434,23 +449,18 @@ export class SaasAddonsService {
   // ---- trasteros de más (plan Basic) ----
 
   /**
-   * Fija los trasteros de más del plan Basic para el próximo cobro: los que
-   * pasan de los incluidos, contados con los dados de alta ese día. Se hace una
-   * vez por periodo, 7 días antes de cobrar (cubre el preaviso de la remesa
-   * SEPA); lo que se dé de alta después cuenta en el siguiente. Con `force`
-   * (cambio de plan) se fija ya. Devuelve si ha cambiado algo.
+   * Pone al día los trasteros de más de un plan por trastero (Basic): los que
+   * pasan de los incluidos, contados ahora. No se cobran nunca aparte: van en
+   * el mismo cargo que la cuota, por la vía que sea. Por eso se llama justo
+   * antes de cada cobro (remesa SEPA, Redsys, Checkout) y cada día, que es lo
+   * que deja en Stripe la cantidad de la próxima factura. Sin prorrateos.
+   * Devuelve si ha cambiado algo.
    */
-  async syncExtraUnits(
-    tenantId: string,
-    opts: { force?: boolean; now?: Date } = {},
-  ): Promise<boolean> {
-    const now = opts.now ?? new Date();
+  async syncExtraUnits(tenantId: string): Promise<boolean> {
     const [sub, addon] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
         select: {
-          currentPeriodEnd: true,
-          unitsBilledFor: true,
           billingMode: true,
           stripeSubscriptionId: true,
           plan: { select: { includedUnits: true } },
@@ -464,64 +474,60 @@ export class SaasAddonsService {
       where: { tenantId_addonId: { tenantId, addonId: addon.id } },
     });
     const included = sub.plan.includedUnits;
-    if (included == null || sub.tenant.billingExempt || sub.tenant.deletedAt) {
-      // Ya no está en un plan por trastero: fuera.
+    const extra =
+      included == null || sub.tenant.billingExempt || sub.tenant.deletedAt
+        ? 0
+        : extraUnitsFor(await billableUnits(this.admin, tenantId), included);
+    if (extra === 0) {
       if (!row) return false;
       if (row.billingMode === 'stripe' && row.stripeSubscriptionItemId) {
-        await this.deleteStripeItem(row.stripeSubscriptionItemId);
+        // Sin abonar lo ya cobrado: la cantidad deja de contar desde la próxima factura.
+        await this.deleteStripeItem(row.stripeSubscriptionItemId, false);
       }
       await this.admin.tenantSubscriptionAddon.delete({ where: { id: row.id } });
       return true;
     }
-    const periodEnd = sub.currentPeriodEnd;
-    const due =
-      opts.force ||
-      (periodEnd.getTime() - now.getTime() <= EXTRA_UNITS_LEAD_DAYS * 86_400_000 &&
-        sub.unitsBilledFor?.getTime() !== periodEnd.getTime());
-    if (!due) return false;
-    const units = await this.admin.unit.count({ where: { tenantId } });
-    const extra = extraUnitsFor(units, included);
-    if (extra === 0) {
-      if (row) {
-        if (row.billingMode === 'stripe' && row.stripeSubscriptionItemId) {
-          await this.deleteStripeItem(row.stripeSubscriptionItemId);
-        }
-        await this.admin.tenantSubscriptionAddon.delete({ where: { id: row.id } });
-      }
-    } else if (!row) {
-      const created = await this.admin.tenantSubscriptionAddon.create({
+    const current =
+      row ??
+      (await this.admin.tenantSubscriptionAddon.create({
         data: {
           tenantId,
           addonId: addon.id,
           priceMonthly: addon.priceMonthly,
           quantity: extra,
-          // Con pago a mano se cobra el mismo día que la cuota.
-          nextChargeAt: sub.billingMode === 'manual' ? periodEnd : null,
+          // Nunca un cobro aparte (no sale en «Hoy»): va con la cuota.
+          nextChargeAt: null,
         },
-      });
-      if (sub.billingMode === 'stripe' && sub.stripeSubscriptionId) {
-        await this.attachExtraUnitsItem(created.id, sub.stripeSubscriptionId, addon, extra).catch(
-          (err: unknown) =>
-            this.logger.warn(`[basic] trasteros de más en Stripe (${tenantId}): ${String(err)}`),
-        );
-      }
-    } else if (row.quantity !== extra) {
-      await this.admin.tenantSubscriptionAddon.update({
-        where: { id: row.id },
-        data: { quantity: extra },
-      });
-      if (row.billingMode === 'stripe' && row.stripeSubscriptionItemId) {
-        // Sin prorrateo: la cantidad nueva vale desde la próxima factura.
-        await this.stripe.subscriptionItems
-          .update(row.stripeSubscriptionItemId, { quantity: extra, proration_behavior: 'none' })
-          .catch((err: unknown) =>
-            this.logger.warn(`[basic] cantidad en Stripe (${tenantId}): ${String(err)}`),
-          );
-      }
+      }));
+    const onStripe = sub.billingMode === 'stripe' && !!sub.stripeSubscriptionId;
+    if (onStripe) {
+      const linked = current.billingMode === 'stripe' && !!current.stripeSubscriptionItemId;
+      if (linked && current.quantity === extra && !row?.suspendedAt) return !row;
+      // Si Stripe falla no se marca nada: mañana se vuelve a intentar.
+      await this.attachExtraUnitsItem(current.id, sub.stripeSubscriptionId!, addon, extra).catch(
+        (err: unknown) =>
+          this.logger.warn(`[basic] trasteros de más en Stripe (${tenantId}): ${String(err)}`),
+      );
+      return true;
     }
-    await this.admin.tenantSubscription.update({
-      where: { tenantId },
-      data: { unitsBilledFor: periodEnd },
+    if (
+      row &&
+      row.quantity === extra &&
+      row.billingMode !== 'stripe' &&
+      !row.suspendedAt &&
+      !row.nextChargeAt
+    ) {
+      return false;
+    }
+    await this.admin.tenantSubscriptionAddon.update({
+      where: { id: current.id },
+      data: {
+        quantity: extra,
+        billingMode: 'manual',
+        stripeSubscriptionItemId: null,
+        nextChargeAt: null,
+        suspendedAt: null,
+      },
     });
     return true;
   }
@@ -529,7 +535,7 @@ export class SaasAddonsService {
   /**
    * Enlaza los trasteros de más con su elemento de la suscripción de Stripe: si
    * ya existe (el del Checkout) lo reutiliza; si no, lo crea. Sin prorrateo: la
-   * cantidad vale desde la próxima factura.
+   * cantidad vale desde la próxima factura. La fila solo cambia si Stripe acepta.
    */
   private async attachExtraUnitsItem(
     tenantAddonId: string,
@@ -558,7 +564,13 @@ export class SaasAddonsService {
         });
     await this.admin.tenantSubscriptionAddon.update({
       where: { id: tenantAddonId },
-      data: { billingMode: 'stripe', stripeSubscriptionItemId: item.id, nextChargeAt: null },
+      data: {
+        billingMode: 'stripe',
+        stripeSubscriptionItemId: item.id,
+        quantity,
+        nextChargeAt: null,
+        suspendedAt: null,
+      },
     });
   }
 
@@ -568,8 +580,7 @@ export class SaasAddonsService {
     includedUnits: number | null,
   ): Promise<{ price: string; quantity: number }[]> {
     if (includedUnits == null) return [];
-    const units = await this.admin.unit.count({ where: { tenantId } });
-    const extra = extraUnitsFor(units, includedUnits);
+    const extra = extraUnitsFor(await billableUnits(this.admin, tenantId), includedUnits);
     if (extra === 0) return [];
     const addon = await this.admin.subscriptionAddon.findUnique({
       where: { slug: EXTRA_UNITS_ADDON_SLUG },
@@ -578,24 +589,28 @@ export class SaasAddonsService {
     return [{ price: await this.ensureStripePrice(addon), quantity: extra }];
   }
 
-  /** Recorre las suscripciones por trastero que cobran pronto (tarea diaria). */
-  async syncAllExtraUnits(now = new Date()): Promise<number> {
-    const subs = await this.admin.tenantSubscription.findMany({
-      where: {
-        plan: { includedUnits: { not: null } },
-        status: { in: ['trial', 'active', 'past_due'] },
-        currentPeriodEnd: { lte: new Date(now.getTime() + EXTRA_UNITS_LEAD_DAYS * 86_400_000) },
-        tenant: { deletedAt: null, billingExempt: false },
-      },
-      select: { tenantId: true, currentPeriodEnd: true, unitsBilledFor: true },
-    });
+  /**
+   * Tarea diaria: pone al día los trasteros de más de las cuentas por trastero
+   * (y quita los que quedaron de cuentas que ya no lo son).
+   */
+  async syncAllExtraUnits(): Promise<number> {
+    const [subs, leftovers] = await Promise.all([
+      this.admin.tenantSubscription.findMany({
+        where: { plan: { includedUnits: { not: null } }, tenant: { deletedAt: null } },
+        select: { tenantId: true },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { addon: { isSystem: true } },
+        select: { tenantId: true },
+      }),
+    ]);
+    const ids = new Set([...subs, ...leftovers].map((s) => s.tenantId));
     let changed = 0;
-    for (const s of subs) {
-      if (s.unitsBilledFor?.getTime() === s.currentPeriodEnd.getTime()) continue;
+    for (const tenantId of ids) {
       try {
-        if (await this.syncExtraUnits(s.tenantId, { now })) changed += 1;
+        if (await this.syncExtraUnits(tenantId)) changed += 1;
       } catch (err) {
-        this.logger.warn(`[basic] trasteros de más de ${s.tenantId}: ${String(err)}`);
+        this.logger.warn(`[basic] trasteros de más de ${tenantId}: ${String(err)}`);
       }
     }
     return changed;
@@ -621,7 +636,7 @@ export class SaasAddonsService {
         removed.push(r.addon.name);
       }
     }
-    await this.syncExtraUnits(tenantId, { force: true });
+    await this.syncExtraUnits(tenantId);
     if (removed.length > 0) {
       await this.admin.notification
         .create({
@@ -1047,9 +1062,15 @@ export class SaasAddonsService {
   async remove(tenantId: string, tenantAddonId: string): Promise<TenantBillingSummaryDto> {
     const row = await this.admin.tenantSubscriptionAddon.findFirst({
       where: { id: tenantAddonId, tenantId },
-      include: { addon: { select: { feature: true } } },
+      include: { addon: { select: { feature: true, isSystem: true } } },
     });
     if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (row.addon.isSystem) {
+      throw new BadRequestException({
+        code: 'addon_managed_by_platform',
+        message: 'Los trasteros de más los calcula la plataforma con los trasteros del cliente.',
+      });
+    }
     // Modo Stripe: borra también el subscription item (crédito prorrateado).
     if (row.billingMode === 'stripe' && row.stripeSubscriptionItemId) {
       await this.deleteStripeItem(row.stripeSubscriptionItemId);
@@ -1067,9 +1088,15 @@ export class SaasAddonsService {
   async suspend(tenantId: string, tenantAddonId: string): Promise<TenantBillingSummaryDto> {
     const row = await this.admin.tenantSubscriptionAddon.findFirst({
       where: { id: tenantAddonId, tenantId },
-      include: { addon: { select: { feature: true } } },
+      include: { addon: { select: { feature: true, isSystem: true } } },
     });
     if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (row.addon.isSystem) {
+      throw new BadRequestException({
+        code: 'addon_managed_by_platform',
+        message: 'Los trasteros de más los calcula la plataforma con los trasteros del cliente.',
+      });
+    }
     if (row.suspendedAt) {
       throw new BadRequestException({ code: 'already_suspended', message: 'Ya está suspendido' });
     }
@@ -1109,6 +1136,7 @@ export class SaasAddonsService {
     const lapsed = await this.admin.tenantSubscriptionAddon.findMany({
       where: {
         billingMode: { not: 'stripe' }, // manual (o legacy null); los de Stripe no
+        addon: { isSystem: false }, // los trasteros de más van con la cuota
         suspendedAt: null,
         nextChargeAt: { lt: cutoff },
         // Con la cuota domiciliada por SEPA los extras van en la misma remesa:
@@ -1140,9 +1168,15 @@ export class SaasAddonsService {
   async reactivate(tenantId: string, tenantAddonId: string): Promise<TenantBillingSummaryDto> {
     const row = await this.admin.tenantSubscriptionAddon.findFirst({
       where: { id: tenantAddonId, tenantId },
-      include: { addon: { select: { feature: true } } },
+      include: { addon: { select: { feature: true, isSystem: true } } },
     });
     if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (row.addon.isSystem) {
+      throw new BadRequestException({
+        code: 'addon_managed_by_platform',
+        message: 'Los trasteros de más los calcula la plataforma con los trasteros del cliente.',
+      });
+    }
     if (!row.suspendedAt) {
       throw new BadRequestException({ code: 'not_suspended', message: 'No está suspendido' });
     }
@@ -1174,6 +1208,12 @@ export class SaasAddonsService {
       include: { addon: true },
     });
     if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (row.addon.isSystem) {
+      throw new BadRequestException({
+        code: 'addon_managed_by_platform',
+        message: 'Los trasteros de más los calcula la plataforma con los trasteros del cliente.',
+      });
+    }
     if (row.suspendedAt) {
       throw new BadRequestException({
         code: 'addon_suspended',
@@ -1292,9 +1332,11 @@ export class SaasAddonsService {
     }
   }
 
-  private async deleteStripeItem(itemId: string): Promise<void> {
+  private async deleteStripeItem(itemId: string, prorate = true): Promise<void> {
     try {
-      await this.stripe.subscriptionItems.del(itemId, { proration_behavior: 'create_prorations' });
+      await this.stripe.subscriptionItems.del(itemId, {
+        proration_behavior: prorate ? 'create_prorations' : 'none',
+      });
     } catch (err) {
       this.logger.warn(
         `No se pudo borrar el subscription item ${itemId}: ${

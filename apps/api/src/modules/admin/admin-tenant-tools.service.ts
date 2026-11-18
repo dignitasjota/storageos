@@ -97,7 +97,8 @@ export class AdminTenantToolsService {
     opts: { leadId?: string | null } = {},
   ): Promise<AdminCreateTenantResultDto> {
     const plan = await this.admin.subscriptionPlan.findUnique({ where: { slug: input.planSlug } });
-    if (!plan?.isActive) {
+    // El plan gratuito ya no se ofrece.
+    if (!plan?.isActive || plan.slug === 'free') {
       throw new BadRequestException({
         code: 'plan_not_active',
         message: 'Ese plan no está disponible',

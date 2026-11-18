@@ -26,6 +26,7 @@ const eur = (n: number) =>
 /** Planes que se pueden elegir para la prueba, con su precio y límites. */
 async function registerPlans(): Promise<RegisterPlanOption[]> {
   const catalog = (await fetchPublicPlans()) ?? [];
+  const vat = catalog[0]?.pricesIncludeVat === false ? ' + IVA' : ' IVA incl.';
   const allowed = new Set<string>(REGISTER_PLAN_SLUGS);
   // Con punto de miles también en 4 cifras («1.000»).
   const num = (v: number) => String(v).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
@@ -38,8 +39,8 @@ async function registerPlans(): Promise<RegisterPlanOption[]> {
       name: p.name,
       price:
         p.includedUnits != null && p.extraUnitPrice != null
-          ? `${eur(p.extraUnitPrice)}/trastero`
-          : `${eur(p.priceMonthly)}/mes`,
+          ? `${eur(p.extraUnitPrice)}/trastero (mín. ${eur(p.priceMonthly)})${vat}`
+          : `${eur(p.priceMonthly)}/mes${vat}`,
       limits: [
         n(p.maxUnits, 'trastero', 'trasteros'),
         n(p.maxFacilities, 'local', 'locales'),

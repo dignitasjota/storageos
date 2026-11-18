@@ -86,7 +86,7 @@ export function PlanSelect({
   onChange: (v: string) => void;
   allowNone?: boolean;
 }) {
-  const plans = useAdminSubscriptionPlans();
+  const plans = useAdminSubscriptionPlans({ assignable: true });
   return (
     <Select value={value || NONE} onValueChange={(v) => onChange(v === NONE ? '' : v)}>
       <SelectTrigger>
@@ -576,7 +576,7 @@ export function QuoteLeadDialog({
   lead: PlatformLeadDetailDto;
   onClose: () => void;
 }) {
-  const plans = useAdminSubscriptionPlans();
+  const plans = useAdminSubscriptionPlans({ assignable: true });
   const addons = useAdminAddons();
   const preview = useAdminQuote();
   const send = useSendLeadQuote();
@@ -584,9 +584,22 @@ export function QuoteLeadDialog({
   const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [addonIds, setAddonIds] = useState<string[]>([]);
   const [couponCode, setCouponCode] = useState('');
+  const [units, setUnits] = useState('');
   const [message, setMessage] = useState('');
   const [followupDays, setFollowupDays] = useState(3);
   const [quote, setQuote] = useState<AdminQuoteDto | null>(null);
+  const selectedPlan = plans.data?.find((p) => p.id === planId);
+  const perUnitPlan = selectedPlan?.includedUnits != null;
+  // Un plan por trastero solo se paga cada mes.
+  useEffect(() => {
+    if (perUnitPlan && cycle === 'yearly') setCycle('monthly');
+  }, [perUnitPlan, cycle]);
+  const activeAddons = (addons.data ?? []).filter(
+    (a) =>
+      a.isActive &&
+      !a.isSystem &&
+      (a.planSlugs.length === 0 || (!!selectedPlan && a.planSlugs.includes(selectedPlan.slug))),
+  );
 
   // El plan que le interesa, si lo tiene.
   useEffect(() => {
@@ -598,8 +611,14 @@ export function QuoteLeadDialog({
   const input = {
     planId,
     cycle,
-    addons: addonIds.map((addonId) => ({ addonId, quantity: 1 })),
+    // Solo los extras que admite el plan elegido.
+    addons: addonIds
+      .filter((id) => activeAddons.some((a) => a.id === id))
+      .map((addonId) => ({ addonId, quantity: 1 })),
     ...(couponCode.trim() ? { couponCode: couponCode.trim() } : {}),
+    ...(perUnitPlan && units.trim() !== '' && Number(units) >= 0
+      ? { units: Math.floor(Number(units)) }
+      : {}),
   };
   const key = JSON.stringify(input);
   useEffect(() => {
@@ -635,7 +654,6 @@ export function QuoteLeadDialog({
     }
   }
 
-  const activeAddons = (addons.data ?? []).filter((a) => a.isActive && !a.isSystem);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
@@ -669,10 +687,24 @@ export function QuoteLeadDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="monthly">Mensual</SelectItem>
-                <SelectItem value="yearly">Anual</SelectItem>
+                <SelectItem value="yearly" disabled={perUnitPlan}>
+                  Anual
+                </SelectItem>
               </SelectContent>
             </Select>
           </Field>
+          {perUnitPlan && (
+            <Field id="lq-units" label="Trasteros que tendrá" className="sm:col-span-2">
+              <Input
+                id="lq-units"
+                type="number"
+                min={0}
+                value={units}
+                onChange={(e) => setUnits(e.target.value)}
+                placeholder="0"
+              />
+            </Field>
+          )}
           {activeAddons.length > 0 && (
             <Field label="Extras" className="sm:col-span-2">
               <div className="flex flex-wrap gap-x-4 gap-y-1">

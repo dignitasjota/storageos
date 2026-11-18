@@ -15,3 +15,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function suspensionDays(since: Date, now = new Date()): number {
   return Math.max(0, Math.floor((now.getTime() - since.getTime()) / DAY_MS));
 }
+
+/**
+ * Días en solo lectura (prueba o plan gratuito terminados sin pagar) antes de
+ * suspender la cuenta como un impago.
+ */
+export const EXPIRED_READ_ONLY_DAYS = 30;

@@ -81,23 +81,29 @@ export function TenantAddonsCard({
     try {
       await suspend.mutateAsync(id);
       toast.success('Add-on suspendido. Su funcionalidad queda desactivada.');
-    } catch {
-      toast.error('No se pudo suspender.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo suspender.');
     }
   }
   async function doReactivate(id: string) {
     try {
       await reactivate.mutateAsync(id);
       toast.success('Add-on reactivado.');
-    } catch {
-      toast.error('No se pudo reactivar.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo reactivar.');
     }
   }
 
   const assigned = summary.data?.addons ?? [];
   const assignedIds = new Set(assigned.map((a) => a.addonId));
+  const planSlug = summary.data?.planSlug ?? null;
   const available = (catalog.data ?? []).filter(
-    (a: SaasAddonDto) => a.isActive && !a.isSystem && !assignedIds.has(a.id),
+    (a: SaasAddonDto) =>
+      a.isActive &&
+      !a.isSystem &&
+      !assignedIds.has(a.id) &&
+      // Solo los que se pueden tener en su plan.
+      (a.planSlugs.length === 0 || (!!planSlug && a.planSlugs.includes(planSlug))),
   );
 
   const selectedAddon = available.find((a) => a.id === selected);
@@ -122,8 +128,8 @@ export function TenantAddonsCard({
       await assign.mutateAsync({ addonId: selected, quantity: 1 });
       toast.success('Add-on añadido. Si tiene feature, se activó en el tenant.');
       setSelected('');
-    } catch {
-      toast.error('No se pudo añadir.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo añadir.');
     }
   }
 
@@ -131,8 +137,8 @@ export function TenantAddonsCard({
     try {
       await remove.mutateAsync(id);
       toast.success('Add-on retirado.');
-    } catch {
-      toast.error('No se pudo retirar.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo retirar.');
     }
   }
 
@@ -250,17 +256,18 @@ export function TenantAddonsCard({
                           Suspender
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        hidden={!canEdit || a.isSystem}
-                        className="size-7 text-muted-foreground hover:text-red-600"
-                        aria-label="Quitar"
-                        onClick={() => doRemove(a.id)}
-                        disabled={remove.isPending}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                      {canEdit && !a.isSystem && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground hover:text-red-600"
+                          aria-label={`Quitar ${a.name}`}
+                          onClick={() => doRemove(a.id)}
+                          disabled={remove.isPending}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}

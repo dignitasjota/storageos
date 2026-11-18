@@ -48,7 +48,7 @@ const SUB_INCLUDE = {
           billingMode: true,
           nextChargeAt: true,
           suspendedAt: true,
-          addon: { select: { name: true } },
+          addon: { select: { name: true, isSystem: true } },
         },
       },
     },
@@ -107,10 +107,13 @@ export class AdminBillingOpsService {
     ];
     for (const a of sub.tenant.subscriptionAddons) {
       if (a.suspendedAt) continue;
+      // Los trasteros de más (extra de la plataforma) van siempre con la cuota,
+      // también pagando a mano.
       const withPlan =
         method === 'stripe'
           ? a.billingMode === 'stripe'
-          : (method === 'sepa' || method === 'redsys') && a.billingMode !== 'stripe';
+          : (method === 'sepa' || method === 'redsys' || a.addon.isSystem) &&
+            a.billingMode !== 'stripe';
       if (!withPlan) continue;
       lines.push({
         label: a.quantity > 1 ? `${a.addon.name} × ${a.quantity}` : a.addon.name,
@@ -129,7 +132,9 @@ export class AdminBillingOpsService {
   private separateAddonCharges(sub: SubRow, pricing: PlatformPricing): AdminScheduledChargeDto[] {
     if (sub.billingMode === 'sepa' || sub.billingMode === 'redsys') return [];
     return sub.tenant.subscriptionAddons
-      .filter((a) => !a.suspendedAt && a.billingMode !== 'stripe' && a.nextChargeAt)
+      .filter(
+        (a) => !a.suspendedAt && !a.addon.isSystem && a.billingMode !== 'stripe' && a.nextChargeAt,
+      )
       .map((a) => {
         const amount = amountToCharge(Number(a.priceMonthly) * a.quantity, pricing);
         return {
@@ -390,6 +395,8 @@ export class AdminBillingOpsService {
         nextChargeAt: { lte: now },
         suspendedAt: null,
         billingMode: { not: 'stripe' },
+        // Los trasteros de más no se cobran aparte: van en la cuota.
+        addon: { isSystem: false },
         tenant: {
           deletedAt: null,
           billingExempt: false,

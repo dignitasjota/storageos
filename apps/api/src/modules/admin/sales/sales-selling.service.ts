@@ -300,10 +300,14 @@ export class SalesSellingService {
     actor: SalesActor,
   ): Promise<SalesAccountDto> {
     const tenant = await this.assignment.clientOf(repId, tenantId);
-    if (tenant.status !== 'trial') {
+    // También una prueba ya vencida sin pagar (en solo lectura): se reabre.
+    const expired =
+      tenant.status === 'active' &&
+      (await this.admin.tenantSubscription.count({ where: { tenantId, status: 'expired' } })) > 0;
+    if (tenant.status !== 'trial' && !expired) {
       throw new BadRequestException({
         code: 'tenant_not_in_trial',
-        message: 'Solo se puede ampliar la prueba de un cliente que está en prueba',
+        message: 'Solo se puede ampliar la prueba de un cliente en prueba o con la prueba vencida',
       });
     }
     const leadId = await this.assignment.ensureLeadForTenant(tenantId);

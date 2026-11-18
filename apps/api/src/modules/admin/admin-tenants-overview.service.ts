@@ -110,7 +110,8 @@ export class AdminTenantsOverviewService {
         .filter((a) => !a.suspendedAt)
         .reduce((sum, a) => sum + Number(a.priceMonthly) * a.quantity, 0);
       const planMonthly = sub?.plan ? Number(sub.plan.priceMonthly) : 0;
-      const paying = !t.billingExempt && t.status === 'active' && !!sub;
+      // En solo lectura (prueba o plan gratuito terminados sin pagar) no paga.
+      const paying = !t.billingExempt && t.status === 'active' && !!sub && sub.status !== 'expired';
       const followup = followupBy.get(t.id);
       const owner = ownerBy.get(t.id);
       const h = healthBy.get(t.id);
@@ -128,7 +129,10 @@ export class AdminTenantsOverviewService {
         planName: sub?.plan?.name ?? null,
         subscriptionStatus: sub?.status ?? null,
         billingMode: sub?.billingMode ?? null,
-        monthly: t.billingExempt ? 0 : Math.round((planMonthly + addonsMonthly) * 100) / 100,
+        monthly:
+          t.billingExempt || sub?.status === 'expired'
+            ? 0
+            : Math.round((planMonthly + addonsMonthly) * 100) / 100,
         addons: tenantAddons.map((a) => ({
           slug: a.addon.slug,
           name: a.addon.name,

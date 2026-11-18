@@ -2719,3 +2719,17 @@ Migración `20270208100000_plan_trial` (`tenants.free_plan_ends_at`; se aplica s
 - **Plan gratuito**: la tarea diaria del ciclo de vida avisa una vez a cada cuenta (correo y aviso en el panel) con lo que pagará en Basic y, a los 30 días, la pasa a Basic; si no ha pagado, queda en solo lectura. Corre siempre, aunque los correos automáticos estén apagados.
 - **Correos editados**: si en Comunicación → Correos automáticos se editaron «La prueba termina pronto» o «La prueba ha terminado», se mantiene ese texto: conviene revisarlo (ya no se pasa al plan gratuito) y usar las variables nuevas `{plan}`, `{fecha}` e `{importe}`. Hay dos correos nuevos: «El plan gratuito se acaba» y «Ha pasado al plan Basic».
 - **Tras desplegar**: la primera ejecución diaria avisa a todas las cuentas del plan gratuito a la vez (pasan a Basic 30 días después).
+
+## 157. Revisión de los planes nuevos (2026-11-18)
+
+Sin migración ni variables nuevas. Arreglos tras analizar el plan Basic y la prueba con solo lectura (#973 y #974), y decisiones de Jota:
+
+- **Trasteros de más de Basic**: se cuentan **en el momento de cobrar** y van siempre en el mismo cargo que la cuota, por cualquier vía (Stripe, remesa SEPA, Redsys —también el pago suelto— y pago a mano). Nunca se cobran aparte, no salen en «Hoy» ni se suspenden solos; el admin no puede quitarlos, suspenderlos ni cambiarles el slug. La tarea `extra-units.daily` los pone al día cada día (con Stripe deja la cantidad de la próxima factura, sin prorrateos). Solo cuentan los trasteros de locales que no están borrados. Un plan por trastero no se paga por adelantado por Redsys.
+- **Solo lectura**:
+  - A los **30 días** sin pagar se suspende como un impago (tarea del ciclo de vida diario; el correo de fin de prueba lo avisa).
+  - Un pago tardío desde el solo lectura cuenta **desde el día en que paga** (pago a mano, Redsys y remesa).
+  - Firmar el mandato SEPA en prueba o en solo lectura pasa la cuota a domiciliación; la remesa admite cuentas en solo lectura y al cobrarse vuelven a la normalidad.
+  - En solo lectura se puede también desactivar usuarios, retirar invitaciones, aceptar los términos y exportar los datos.
+- **Fin del plan gratuito**: al cancelar en Stripe la cuenta conserva su plan en solo lectura; «Pasar a Free» desaparece de Cobros pendientes y el panel ya no asigna ni da de alta el plan gratuito (400 `plan_retired`). En instalaciones nuevas el plan gratuito nace oculto.
+- **Pagar el plan que ya tienes** está permitido aunque no quepas en él (solo no puedes crecer).
+- **Panel admin**: las cuentas en solo lectura salen como «Solo lectura» (sin aportar al mes, salud baja), con «Reabrir la prueba» en la ficha (también para su comercial). La vista previa del cambio de plan incluye los trasteros de más y los extras que se darán de baja. El simulador y la propuesta a un contacto usan los trasteros reales, no ofrecen Basic anual ni extras de otro plan, y los selectores ya no ofrecen el plan gratuito.

@@ -420,6 +420,7 @@ export class AdminTodayService {
         nextChargeAt: { lte: now },
         suspendedAt: null, // los suspendidos por impago no se cobran
         billingMode: { not: 'stripe' }, // manual (o legacy null); los de Stripe no
+        addon: { isSystem: false }, // los trasteros de más van con la cuota
         // Con la cuota domiciliada por SEPA los extras ya van en la remesa: no
         // se cobran aparte (se cobrarían dos veces).
         tenant: {
@@ -467,7 +468,7 @@ export class AdminTodayService {
     const row = await this.admin.tenantSubscriptionAddon.findUnique({
       where: { id: tenantAddonId },
       include: {
-        addon: { select: { name: true } },
+        addon: { select: { name: true, isSystem: true } },
         tenant: {
           select: {
             currency: true,
@@ -480,6 +481,12 @@ export class AdminTodayService {
     });
     if (!row) {
       throw new NotFoundException({ code: 'addon_not_found', message: 'Add-on no encontrado' });
+    }
+    if (row.addon.isSystem) {
+      throw new BadRequestException({
+        code: 'addon_managed_by_platform',
+        message: 'Los trasteros de más se cobran con la cuota, no aparte.',
+      });
     }
     // Pudo suspenderse entre que se pintó la bandeja «Hoy» y este cobro.
     if (row.suspendedAt) {

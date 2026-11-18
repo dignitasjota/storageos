@@ -228,6 +228,12 @@ describe('Admin: mejoras de Cobros (e2e)', () => {
       })
       .expect(200);
     const owner = await registerVerifiedUser(app, 'billfeatauto');
+    // Cliente que ya paga a mano: el paso a SEPA lo hace el admin (en prueba,
+    // firmar el mandato ya lo pasaría a domiciliación).
+    await db.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'active' },
+    });
     await http()
       .post('/settings/saas-billing/sepa-mandate')
       .set({ Authorization: `Bearer ${owner.accessToken}` })

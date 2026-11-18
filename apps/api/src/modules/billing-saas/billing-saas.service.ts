@@ -14,6 +14,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { StripeGateway } from '../payments/stripe.gateway';
 
+import { billableUnits } from './billable-units';
 import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformInvoicesService } from './platform-invoices.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
@@ -380,7 +381,9 @@ export class BillingSaasService {
       });
     }
 
-    await this.assertFitsPlan(args.tenantId, plan, yearly);
+    // Pagar el plan que ya tiene vale aunque no quepa en él: conserva lo que
+    // tiene y solo no puede crecer.
+    await this.assertFitsPlan(args.tenantId, plan, yearly, currentSub?.planId === plan.id);
     const coupon = args.couponCode
       ? await this.stripeCouponFor(args.couponCode, args.tenantId, plan, yearly)
       : null;
@@ -545,6 +548,7 @@ export class BillingSaasService {
       maxUsers: number | null;
     },
     yearly = false,
+    samePlan = false,
   ): Promise<void> {
     if (yearly && plan.includedUnits != null) {
       throw new BadRequestException({
@@ -552,8 +556,9 @@ export class BillingSaasService {
         message: 'Este plan se paga por trastero cada mes: no tiene pago anual.',
       });
     }
+    if (samePlan) return;
     const [units, facilities, users, invites, addons] = await Promise.all([
-      this.admin.unit.count({ where: { tenantId } }),
+      billableUnits(this.admin, tenantId),
       this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
       this.admin.user.count({ where: { tenantId, isActive: true } }),
       this.admin.invitation.count({
@@ -879,10 +884,13 @@ export class BillingSaasService {
     // Bypass RLS: este flujo nace de webhook publico, sin contexto de tenant
     // del lado HTTP. La tabla `tenant_subscriptions` lleva RLS pero el cliente
     // admin es owner y la salta. Es legitimo aqui.
+    // Un cobro aún sin completar (`incomplete`, el primer pago del Checkout en
+    // curso) no cambia el estado: no debe dejar la cuenta en solo lectura.
+    const keepStatus = args.status === 'incomplete';
     const updated = await this.admin.tenantSubscription.update({
       where: { tenantId },
       data: {
-        status: newStatus,
+        ...(keepStatus ? {} : { status: newStatus }),
         currentPeriodStart: periodStart,
         currentPeriodEnd: periodEnd,
         cancelAtPeriodEnd: args.cancelAtPeriodEnd,
@@ -908,13 +916,12 @@ export class BillingSaasService {
         });
       }
       await this.acceptQuoteOffers(tenantId);
-      // Plan por trastero: enlaza los trasteros de más que se cobraron en el Checkout.
+      // Plan nuevo: fuera los extras que ya incluye o no admite, y los trasteros
+      // de más (plan por trastero) quedan enlazados a la suscripción de Stripe.
       await this.addons
-        .syncExtraUnits(tenantId, { force: true })
+        .reconcileAfterPlanChange(tenantId)
         .catch((err: unknown) =>
-          this.logger.warn(
-            `[basic] trasteros de más tras el Checkout (${tenantId}): ${String(err)}`,
-          ),
+          this.logger.warn(`[planes] extras tras el Checkout (${tenantId}): ${String(err)}`),
         );
     }
 
@@ -958,10 +965,10 @@ export class BillingSaasService {
     stripeSubscriptionId: string,
     stripeStatus: string,
   ): Promise<void> {
-    const [tenant, freePlan] = await Promise.all([
-      this.admin.tenant.findUnique({ where: { id: tenantId }, select: { status: true } }),
-      this.admin.subscriptionPlan.findFirst({ where: { slug: 'free' } }),
-    ]);
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
     const stillTrial = tenant?.status === 'trial';
     const [updated] = await this.admin.$transaction([
       this.admin.tenantSubscription.update({
@@ -971,9 +978,9 @@ export class BillingSaasService {
           cancelAtPeriodEnd: false,
           billingMode: 'manual',
           manualExtensionDays: 0,
-          ...(stillTrial
-            ? { status: 'trial' as const }
-            : { status: 'active' as const, ...(freePlan ? { planId: freePlan.id } : {}) }),
+          // Sin prueba en curso, conserva su plan y queda en solo lectura hasta
+          // que vuelva a pagar (el plan gratuito ya no se ofrece).
+          ...(stillTrial ? { status: 'trial' as const } : { status: 'expired' as const }),
         },
       }),
       // Los extras que iban en la suscripción terminada pasan a cobro manual.
@@ -988,7 +995,7 @@ export class BillingSaasService {
       changes: {
         stripeSubscriptionId,
         stripeStatus,
-        newPlan: stillTrial ? null : 'free',
+        readOnly: !stillTrial,
       },
       ipAddress: null,
       userAgent: null,
@@ -1000,7 +1007,7 @@ export class BillingSaasService {
           title: 'Suscripción de Stripe terminada',
           body: stillTrial
             ? 'Un tenant en prueba no completó el primer pago de su suscripción; sigue en prueba.'
-            : 'Un tenant ha terminado su suscripción de Stripe y ha pasado al plan Free.',
+            : 'Un tenant ha terminado su suscripción de Stripe: conserva su plan en solo lectura hasta que vuelva a pagar.',
           link: `/admin/tenants/${tenantId}`,
         },
       })
@@ -1482,7 +1489,10 @@ export class BillingSaasService {
       // la que debía haber pagado), no desde la fecha del pago → un pago
       // tardío no regala el tiempo impagado ni deja hueco (si pagó 1 mes
       // debiendo 3, sigue en mora).
-      const base = sub.currentPeriodEnd;
+      // Salvo si viene de solo lectura (prueba o plan gratuito terminados sin
+      // pagar): ese tiempo no lo pudo usar, así que el mes empieza al pagar.
+      const base =
+        sub.status === 'expired' && sub.currentPeriodEnd < now ? now : sub.currentPeriodEnd;
       const newEnd = addMonths(base, args.durationMonths);
       // ¿El nuevo periodo cubre «ahora»? Si no (pago parcial de un moroso), la
       // suscripción sigue `past_due` y el tenant NO se reactiva.

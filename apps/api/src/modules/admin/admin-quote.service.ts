@@ -12,6 +12,7 @@ import {
 } from '@storageos/shared';
 
 import { offerKey, signOffer, verifyOffer } from '../../common/sales/offer-token';
+import { billableUnits } from '../billing-saas/billable-units';
 import { PlatformCouponsService } from '../billing-saas/platform-coupons.service';
 import { platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -85,6 +86,21 @@ export class AdminQuoteService {
     if (addons.length !== ids.length) {
       throw new NotFoundException({ code: 'addon_not_found', message: 'Extra no encontrado' });
     }
+    const notForPlan = addons.find(
+      (a) => a.planSlugs.length > 0 && !a.planSlugs.includes(plan.slug),
+    );
+    if (notForPlan) {
+      throw new BadRequestException({
+        code: 'addon_not_for_plan',
+        message: `«${notForPlan.name}» no está disponible en el plan ${plan.name}.`,
+      });
+    }
+    if (input.cycle === 'yearly' && plan.includedUnits != null) {
+      throw new BadRequestException({
+        code: 'yearly_not_available',
+        message: 'Este plan se paga por trastero cada mes: no tiene pago anual.',
+      });
+    }
     const yearly = input.cycle === 'yearly';
     const months = yearly ? 12 : 1;
     // Un plan sin precio anual (0) se cobra al año como 12 cuotas mensuales.
@@ -99,8 +115,7 @@ export class AdminQuoteService {
     ];
     // Plan por trastero: los que pasan de los incluidos, a su precio.
     if (plan.includedUnits != null) {
-      const units =
-        input.units ?? (tenantId ? await this.admin.unit.count({ where: { tenantId } }) : 0);
+      const units = input.units ?? (tenantId ? await billableUnits(this.admin, tenantId) : 0);
       const extra = extraUnitsFor(units, plan.includedUnits);
       const unitAddon = extra
         ? await this.admin.subscriptionAddon.findUnique({

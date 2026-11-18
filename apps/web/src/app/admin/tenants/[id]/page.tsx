@@ -371,16 +371,23 @@ export default function AdminTenantDetailPage() {
                 ) : (
                   <p className="text-muted-foreground">Sin suscripción activa.</p>
                 )}
-                {/* Acciones de trial: solo tienen sentido mientras el tenant
-                    está en periodo de prueba. */}
-                {canEdit && t.status === 'trial' && (
+                {/* Acciones de trial: en prueba, o con la prueba vencida sin pagar
+                    (en solo lectura), que se puede reabrir. */}
+                {canEdit && (t.status === 'trial' || t.subscription?.status === 'expired') && (
                   <div className="flex flex-wrap gap-2 border-t pt-3">
+                    {t.status !== 'trial' && (
+                      <p className="w-full text-xs text-amber-700 dark:text-amber-300">
+                        Sin pagar: el panel del cliente está en solo lectura.
+                      </p>
+                    )}
                     <Button variant="outline" size="sm" onClick={() => setDialog('extendTrial')}>
-                      Extender trial
+                      {t.status === 'trial' ? 'Extender trial' : 'Reabrir la prueba'}
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setDialog('endTrial')}>
-                      Finalizar prueba
-                    </Button>
+                    {t.status === 'trial' && (
+                      <Button variant="outline" size="sm" onClick={() => setDialog('endTrial')}>
+                        Finalizar prueba
+                      </Button>
+                    )}
                   </div>
                 )}
                 {!t.billingExempt && t.billingMissing.length > 0 && (
@@ -1341,7 +1348,7 @@ function ChangePlanControl({
   tenantId: string;
   currentSlug: string | null;
 }) {
-  const plans = useAdminSubscriptionPlans();
+  const plans = useAdminSubscriptionPlans({ assignable: true });
   const change = useChangePlan();
   const [slug, setSlug] = useState(currentSlug ?? '');
   const [reason, setReason] = useState('');
@@ -1428,10 +1435,17 @@ function ChangePlanControl({
               en su próxima factura.
             </p>
           ) : null}
+          {preview.data.extraUnits > 0 && (
+            <p className="text-muted-foreground">
+              Incluye {preview.data.extraUnits}{' '}
+              {preview.data.extraUnits === 1 ? 'trastero de más' : 'trasteros de más'}, que se
+              cobran con la cuota.
+            </p>
+          )}
           {preview.data.redundantAddons.length > 0 && (
             <p className="text-amber-600 dark:text-amber-400">
-              ⚠ Add-ons redundantes (su feature ya la incluye el plan nuevo):{' '}
-              {preview.data.redundantAddons.map((a) => a.name).join(', ')}.
+              ⚠ Se darán de baja (el plan nuevo los incluye o no los admite):{' '}
+              {preview.data.redundantAddons.map((a) => a.name).join(', ')}. Se le avisa.
             </p>
           )}
           {preview.data.overLimits.length > 0 && (
@@ -1445,7 +1459,7 @@ function ChangePlanControl({
       )}
 
       <p className="text-xs text-muted-foreground">
-        Controla qué módulos premium ve el tenant (free / starter / pro).
+        Controla qué módulos premium ve el tenant según su plan.
       </p>
     </div>
   );

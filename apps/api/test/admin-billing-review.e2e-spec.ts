@@ -77,20 +77,16 @@ describe('Admin: revisión de Cobros (e2e)', () => {
     return owner.tenantId;
   }
 
-  it('pasar a Free deja de deber: fuera de cobros pendientes y del escalado', async () => {
+  it('el plan gratuito ya no se asigna desde el panel', async () => {
     const tenantId = await lateTenant('billrevfree', 25);
-    await request(app.getHttpServer())
+    const res = await request(app.getHttpServer())
       .post(`/admin/tenants/${tenantId}/change-plan`)
       .set(auth())
       .send({ planSlug: 'free', reason: 'Impago' })
-      .expect(200);
+      .expect(400);
+    expect(res.body.code).toBe('plan_retired');
     const sub = await db.tenantSubscription.findUniqueOrThrow({ where: { tenantId } });
-    expect(sub.status).toBe('active');
-
-    await app.get(PlatformDunningService).run();
-    expect(await db.platformDunningEvent.count({ where: { tenantId } })).toBe(0);
-    const t = await db.tenant.findUniqueOrThrow({ where: { id: tenantId } });
-    expect(t.status).toBe('active');
+    expect(sub.status).toBe('past_due');
   });
 
   it('el escalado no toca a un tenant suspendido a mano (motivo y fecha de baja)', async () => {

@@ -331,7 +331,12 @@ export class PlatformDunningService {
             billingEmail: true,
             subscriptionAddons: {
               where: { suspendedAt: null },
-              select: { priceMonthly: true, quantity: true, billingMode: true },
+              select: {
+                priceMonthly: true,
+                quantity: true,
+                billingMode: true,
+                addon: { select: { isSystem: true } },
+              },
             },
           },
         },
@@ -353,12 +358,17 @@ export class PlatformDunningService {
         .catch(() => undefined);
       return 0;
     }
+    // Lo que va en el mismo cargo que la cuota: con Stripe, sus elementos; con
+    // remesa o Redsys, el resto de extras; pagando a mano, solo los trasteros
+    // de más (los demás extras tienen su propio cobro).
     const withPlan = sub.billingMode === 'sepa' || sub.billingMode === 'redsys';
-    const addons = withPlan
-      ? sub.tenant.subscriptionAddons
-          .filter((a) => a.billingMode !== 'stripe')
-          .reduce((sum, a) => sum + Number(a.priceMonthly) * a.quantity, 0)
-      : 0;
+    const addons = sub.tenant.subscriptionAddons
+      .filter((a) =>
+        sub.billingMode === 'stripe'
+          ? a.billingMode === 'stripe'
+          : a.billingMode !== 'stripe' && (withPlan || a.addon.isSystem),
+      )
+      .reduce((sum, a) => sum + Number(a.priceMonthly) * a.quantity, 0);
     const perPeriod = amountToCharge(
       Number(sub.plan.priceMonthly) + addons,
       await platformPricing(this.admin),

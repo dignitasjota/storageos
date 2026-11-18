@@ -290,7 +290,7 @@ export const LIFECYCLE_EMAIL_DEFAULTS: Record<LifecycleEmailCode, LifecycleEmail
       'Hola, {empresa}:\n\n' +
       'Tu prueba del plan {plan} termina el {fecha}. Para seguir trabajando sin cortes, elige cómo pagar antes de esa fecha: con lo que tienes hoy serían {importe} al mes (IVA incluido).\n\n' +
       '{enlace_pago}\n\n' +
-      'Si no lo haces, tu cuenta pasará a solo lectura: verás todos tus datos, pero no podrás cambiar nada hasta que pagues. Puedes cambiar de plan cuando quieras.\n\n' +
+      'Si no lo haces, tu cuenta pasará a solo lectura: verás todos tus datos, pero no podrás cambiar nada hasta que pagues. Al pagar puedes elegir otro plan.\n\n' +
       '{limites}\n\n' +
       '¿Dudas sobre qué plan te conviene? Escríbenos desde Soporte en tu panel.' +
       SIGN,
@@ -314,6 +314,7 @@ export const LIFECYCLE_EMAIL_DEFAULTS: Record<LifecycleEmailCode, LifecycleEmail
       'Tu prueba de TrasterOS ha terminado y tu cuenta está en solo lectura: tus datos siguen ahí y puedes consultarlos, pero no cambiar nada. Tus inquilinos siguen funcionando con normalidad.\n\n' +
       'Para volver a trabajar, elige cómo pagar el plan {plan} ({importe} al mes, IVA incluido) u otro plan:\n\n' +
       '{enlace_pago}\n\n' +
+      'Si en 30 días no has elegido cómo pagar, la cuenta se suspenderá: tu web y el área de clientes de tus inquilinos dejarán de funcionar hasta que pagues.\n\n' +
       '¿Necesitas más tiempo para probar? Escríbenos desde Soporte en tu panel.' +
       SIGN,
     variables: [
@@ -365,7 +366,7 @@ export const LIFECYCLE_EMAIL_DEFAULTS: Record<LifecycleEmailCode, LifecycleEmail
     subject: 'Tu cuenta de TrasterOS ha pasado al plan Basic',
     body:
       'Hola, {empresa}:\n\n' +
-      'Como te avisamos, tu cuenta ha pasado al plan Basic ({importe} al mes, IVA incluido). Mientras no elijas cómo pagar, está en solo lectura: puedes consultar tus datos, pero no cambiar nada. Tus inquilinos siguen funcionando con normalidad.\n\n' +
+      'Como te avisamos, tu cuenta ha pasado al plan Basic ({importe} al mes, IVA incluido). Mientras no elijas cómo pagar, está en solo lectura: puedes consultar tus datos, pero no cambiar nada. Tus inquilinos siguen funcionando con normalidad. Si en 30 días no has elegido cómo pagar, la cuenta se suspenderá.\n\n' +
       '{enlace_pago}\n\n' +
       '¿Dudas? Escríbenos desde Soporte en tu panel.' +
       SIGN,

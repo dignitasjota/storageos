@@ -48,6 +48,21 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
   cancelled: 'outline',
 };
 
+/** Estado de la fila: una cuenta activa sin pagar (prueba o plan gratuito terminados) va aparte. */
+function rowStatusLabel(t: { status: string; subscriptionStatus: string | null }): string {
+  return t.status === 'active' && t.subscriptionStatus === 'expired'
+    ? 'Solo lectura'
+    : tenantStatusLabel(t.status);
+}
+function rowStatusVariant(t: {
+  status: string;
+  subscriptionStatus: string | null;
+}): 'default' | 'secondary' | 'destructive' | 'outline' {
+  return t.status === 'active' && t.subscriptionStatus === 'expired'
+    ? 'outline'
+    : (STATUS_VARIANT[t.status] ?? 'secondary');
+}
+
 const MODE_LABEL: Record<string, string> = {
   stripe: 'Stripe',
   sepa: 'SEPA',
@@ -405,7 +420,7 @@ export default function AdminTenantsPage() {
       ...rows.map((t) => [
         t.name,
         t.slug,
-        tenantStatusLabel(t.status),
+        rowStatusLabel(t),
         t.planName ?? '',
         t.billingMode ? (MODE_LABEL[t.billingMode] ?? t.billingMode) : '',
         t.billingExempt ? 'Sí' : 'No',
@@ -753,8 +768,8 @@ function TenantCard({
               <div className="truncate font-medium">{t.name}</div>
               <div className="truncate text-xs text-muted-foreground">{t.slug}</div>
             </div>
-            <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'} className="shrink-0">
-              {tenantStatusLabel(t.status)}
+            <Badge variant={rowStatusVariant(t)} className="shrink-0">
+              {rowStatusLabel(t)}
             </Badge>
           </div>
           <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
@@ -865,9 +880,7 @@ function TenantRow({
         )}
       </td>
       <td className="px-3 py-2 align-top">
-        <Badge variant={STATUS_VARIANT[t.status] ?? 'secondary'}>
-          {tenantStatusLabel(t.status)}
-        </Badge>
+        <Badge variant={rowStatusVariant(t)}>{rowStatusLabel(t)}</Badge>
         {t.status === 'trial' && trialLeft !== null && (
           <div
             className={`mt-1 text-xs ${trialLeft <= 3 ? 'text-destructive' : 'text-muted-foreground'}`}

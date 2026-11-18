@@ -175,8 +175,12 @@ export class PlatformRedsysService {
     const amount = await this.amountDue(tenantId, sub.billingMode);
     if (amount <= 0) return { ...base, reason: 'free_plan' };
     const now = new Date();
+    // Con la cuenta en solo lectura (prueba o plan gratuito terminados) no debe
+    // nada atrás: paga desde hoy.
     const monthsOwed =
-      sub.currentPeriodEnd < now ? periodsOwed(sub.currentPeriodEnd, now, 1, false) : 1;
+      sub.status !== 'expired' && sub.currentPeriodEnd < now
+        ? periodsOwed(sub.currentPeriodEnd, now, 1, false)
+        : 1;
     return {
       ...base,
       available: true,
@@ -186,6 +190,8 @@ export class PlatformRedsysService {
       autoCharge: sub.billingMode === 'redsys' && !!card,
       amount,
       monthsOwed,
+      // En solo lectura el mes que paga empieza hoy.
+      ...(sub.status === 'expired' ? { currentPeriodEnd: now.toISOString() } : {}),
       reason: null,
     };
   }
@@ -221,7 +227,14 @@ export class PlatformRedsysService {
         message: 'El pago con Bizum no está activo',
       });
     }
-    const months = Math.min(12, Math.max(1, Math.floor(opts.months ?? 1)));
+    // Un plan por trastero se paga mes a mes (los trasteros cambian): como
+    // mucho, lo que debe.
+    const perUnit = await this.admin.tenantSubscription.findFirst({
+      where: { tenantId, plan: { includedUnits: { not: null } } },
+      select: { id: true },
+    });
+    const maxMonths = perUnit ? Math.max(1, options.monthsOwed) : 12;
+    const months = Math.min(maxMonths, Math.max(1, Math.floor(opts.months ?? 1)));
     const amountCents = toCents(options.amount) * months;
     const payMethod = opts.payMethod ?? null;
     // Guardar la tarjeta para cobrar sola cada mes (solo tarjeta, si el banco lo permite).
@@ -643,13 +656,16 @@ export class PlatformRedsysService {
    * tiene su propio cobro).
    */
   private async amountDue(tenantId: string, billingMode: string): Promise<number> {
+    // Trasteros de más (plan por trastero), contados ahora.
+    await this.addons.syncExtraUnits(tenantId);
     const summary = await this.addons.billingSummary(tenantId);
-    const addons =
-      billingMode === 'redsys'
-        ? summary.addons
-            .filter((a) => !a.suspended && a.billingMode !== 'stripe')
-            .reduce((sum, a) => sum + a.lineTotal, 0)
-        : 0;
+    // Pagando a mano, los trasteros de más van también en el cargo de la cuota.
+    const addons = summary.addons
+      .filter(
+        (a) =>
+          !a.suspended && a.billingMode !== 'stripe' && (billingMode === 'redsys' || a.isSystem),
+      )
+      .reduce((sum, a) => sum + a.lineTotal, 0);
     return amountToCharge(summary.planMonthly + addons, await platformPricing(this.admin));
   }
 }

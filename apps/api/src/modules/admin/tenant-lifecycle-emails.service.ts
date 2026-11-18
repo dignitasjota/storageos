@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import {
   BASIC_PLAN_SLUG,
+  EXPIRED_READ_ONLY_DAYS,
   EXTRA_UNITS_ADDON_SLUG,
   extraUnitsFor,
   SUSPENSION_NOTICE_DAYS,
@@ -16,6 +17,7 @@ import { formatDateLong, formatEur } from '../../common/format';
 import { tenantReadiness } from '../../common/tenant-readiness';
 import { AuditService } from '../auth/audit.service';
 import { AuthService, TENANT_OWNER_VERIFIED } from '../auth/auth.service';
+import { billableUnits } from '../billing-saas/billable-units';
 import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -112,6 +114,8 @@ export class TenantLifecycleEmailsService {
       trialsEnded: await this.expireTrials(emailsOn && !!settings?.sendTrialReminders),
       // El paso del plan gratuito a Basic va siempre (el aviso es lo que da el plazo).
       freePlanMoves: await this.runFreePlanTransition(),
+      // Y la suspensión de quien lleva 30 días en solo lectura sin pagar.
+      readOnlySuspended: await this.suspendLongReadOnly(),
       suspensionNotices: 0,
       activationNudges: 0,
     };
@@ -150,23 +154,35 @@ export class TenantLifecycleEmailsService {
       select: {
         id: true,
         name: true,
-        subscription: { select: { status: true, plan: { select: { slug: true, name: true } } } },
+        subscription: {
+          select: {
+            status: true,
+            billingMode: true,
+            plan: { select: { slug: true, name: true } },
+          },
+        },
       },
       take: 500,
     });
     let ended = 0;
     for (const t of tenants) {
-      const paid = t.subscription?.status === 'active';
-      // Solo la primera ejecución cambia el estado (otra réplica ve count 0).
+      // Ya paga (o el cobro de Stripe está en curso con su propio impago), o ya
+      // eligió cómo pagar (domiciliación o tarjeta guardada): no pasa a solo
+      // lectura, el cobro sale solo.
+      const paid = t.subscription?.status === 'active' || t.subscription?.status === 'past_due';
+      const willCharge =
+        t.subscription?.billingMode === 'sepa' || t.subscription?.billingMode === 'redsys';
+      // Solo la primera ejecución cambia el estado (otra réplica ve count 0), y
+      // no si alguien le amplió la prueba entretanto.
       const { count } = await this.admin.tenant.updateMany({
-        where: { id: t.id, status: 'trial' },
+        where: { id: t.id, status: 'trial', trialEndsAt: { lt: now } },
         data: { status: 'active', trialEndsAt: null },
       });
       if (count === 0) continue;
       if (!paid) {
         await this.admin.tenantSubscription.updateMany({
-          where: { tenantId: t.id, status: { not: 'active' } },
-          data: { status: 'expired' },
+          where: { tenantId: t.id, status: { notIn: ['active', 'past_due'] } },
+          data: { status: willCharge ? 'active' : 'expired' },
         });
       }
       ended += 1;
@@ -177,12 +193,12 @@ export class TenantLifecycleEmailsService {
           action: 'tenant.trial_expired',
           entityType: 'Tenant',
           entityId: t.id,
-          changes: { plan: t.subscription?.plan.slug ?? null, readOnly: !paid },
+          changes: { plan: t.subscription?.plan.slug ?? null, readOnly: !paid && !willCharge },
           ipAddress: null,
           userAgent: null,
         })
         .catch(() => undefined);
-      if (!paid) {
+      if (!paid && !willCharge) {
         await this.notifications
           .create(t.id, {
             type: 'billing.trial_ended',
@@ -192,7 +208,7 @@ export class TenantLifecycleEmailsService {
           })
           .catch(() => undefined);
       }
-      if (sendEmail && !paid) {
+      if (sendEmail && !paid && !willCharge) {
         const quote = await this.monthlyQuote(t.id).catch(() => null);
         await this.dispatch(
           t.id,
@@ -220,10 +236,15 @@ export class TenantLifecycleEmailsService {
       this.admin.subscriptionPlan.findUnique({ where: { slug: 'free' }, select: { id: true } }),
       this.admin.subscriptionPlan.findUnique({
         where: { slug: BASIC_PLAN_SLUG },
-        select: { id: true, name: true },
+        select: { id: true, name: true, isActive: true },
       }),
     ]);
-    if (!free || !basic) return 0;
+    if (!free || !basic?.isActive) return 0;
+    // Quien ya salió del plan gratuito no conserva la fecha del paso.
+    await this.admin.tenant.updateMany({
+      where: { freePlanEndsAt: { not: null }, subscription: { planId: { not: free.id } } },
+      data: { freePlanEndsAt: null },
+    });
     const tenants = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
@@ -245,7 +266,7 @@ export class TenantLifecycleEmailsService {
           });
           if (count === 0) continue;
           const [units, quote] = await Promise.all([
-            this.admin.unit.count({ where: { tenantId: t.id } }),
+            billableUnits(this.admin, t.id),
             this.monthlyQuote(t.id, BASIC_PLAN_SLUG),
           ]);
           const fecha = formatDateLong(endsAt);
@@ -326,6 +347,49 @@ export class TenantLifecycleEmailsService {
   }
 
   /**
+   * Solo lectura sin pagar durante 30 días (desde el fin de la prueba o del
+   * plan gratuito): la cuenta se suspende como un impago (su web acaba
+   * cerrándose y se retienen los cobros a sus inquilinos) hasta que pague.
+   */
+  async suspendLongReadOnly(now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - EXPIRED_READ_ONLY_DAYS * DAY_MS);
+    const subs = await this.admin.tenantSubscription.findMany({
+      where: {
+        status: 'expired',
+        currentPeriodEnd: { lt: cutoff },
+        tenant: { status: 'active', deletedAt: null, billingExempt: false },
+      },
+      select: { tenantId: true },
+      take: 500,
+    });
+    let suspended = 0;
+    for (const s of subs) {
+      const { count } = await this.admin.tenant.updateMany({
+        where: { id: s.tenantId, status: 'active', deletedAt: null },
+        data: { status: 'suspended', churnReason: 'nonpayment', canceledAt: now },
+      });
+      if (count === 0) continue;
+      suspended += 1;
+      await this.audit
+        .write({
+          tenantId: s.tenantId,
+          userId: null,
+          action: 'tenant.read_only_suspended',
+          entityType: 'Tenant',
+          entityId: s.tenantId,
+          changes: { days: EXPIRED_READ_ONLY_DAYS },
+          ipAddress: null,
+          userAgent: null,
+        })
+        .catch(() => undefined);
+    }
+    if (suspended > 0) {
+      this.logger.log(`tenant-lifecycle: ${suspended} cuentas en solo lectura suspendidas`);
+    }
+    return suspended;
+  }
+
+  /**
    * Lo que pagaría al mes con lo que tiene hoy: el plan (el suyo u otro), los
    * trasteros de más si el plan va por trastero y sus extras. Con el IVA como
    * se cobra.
@@ -346,7 +410,7 @@ export class TenantLifecycleEmailsService {
             select: { priceMonthly: true, includedUnits: true },
           })
         : null,
-      this.admin.unit.count({ where: { tenantId } }),
+      billableUnits(this.admin, tenantId),
       this.admin.tenantSubscriptionAddon.findMany({
         where: { tenantId, suspendedAt: null, addon: { isSystem: false } },
         select: { priceMonthly: true, quantity: true, addon: { select: { planSlugs: true } } },
