@@ -17,6 +17,8 @@ export interface PricingPlanView {
   monthly: number;
   /** Precio al año, o null si el plan no tiene pago anual. */
   yearly: number | null;
+  /** Plan por trastero (Basic): trasteros incluidos y precio de cada uno más. */
+  perUnit?: { included: number; unitPrice: number } | null;
 }
 
 const eur = (n: number) =>
@@ -93,26 +95,44 @@ export function PricingCards({
               <CardHeader>
                 <h3 className="text-lg font-semibold">{plan.name}</h3>
                 <p className="text-sm text-muted-foreground">{plan.tagline}</p>
-                <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-3xl font-semibold tracking-tight">
-                    {plan.monthly === 0
-                      ? '0 €'
-                      : showYearly
-                        ? eur(Math.round(((plan.yearly ?? 0) / 12) * 100) / 100)
-                        : eur(plan.monthly)}
-                  </span>
-                  {plan.monthly > 0 && <span className="text-sm text-muted-foreground">/mes</span>}
-                </div>
-                {plan.monthly > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {showYearly
-                      ? `${eur(plan.yearly ?? 0)} al año${saving > 0 ? ` · ahorras un ${saving} %` : ''}`
-                      : plan.yearly
-                        ? `o ${eur(plan.yearly)} al año`
-                        : 'Pago mensual'}
-                    {' · '}
-                    {vatNote}
-                  </p>
+                {plan.perUnit ? (
+                  <>
+                    <div className="mt-2 flex items-baseline gap-1">
+                      <span className="text-3xl font-semibold tracking-tight">
+                        {eur(plan.perUnit.unitPrice)}
+                      </span>
+                      <span className="text-sm text-muted-foreground">/trastero al mes</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Mínimo {eur(plan.monthly)} al mes · pago mensual · {vatNote}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-2 flex items-baseline gap-1">
+                      <span className="text-3xl font-semibold tracking-tight">
+                        {plan.monthly === 0
+                          ? '0 €'
+                          : showYearly
+                            ? eur(Math.round(((plan.yearly ?? 0) / 12) * 100) / 100)
+                            : eur(plan.monthly)}
+                      </span>
+                      {plan.monthly > 0 && (
+                        <span className="text-sm text-muted-foreground">/mes</span>
+                      )}
+                    </div>
+                    {plan.monthly > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {showYearly
+                          ? `${eur(plan.yearly ?? 0)} al año${saving > 0 ? ` · ahorras un ${saving} %` : ''}`
+                          : plan.yearly
+                            ? `o ${eur(plan.yearly)} al año`
+                            : 'Pago mensual'}
+                        {' · '}
+                        {vatNote}
+                      </p>
+                    )}
+                  </>
                 )}
               </CardHeader>
               <CardContent className="space-y-4">

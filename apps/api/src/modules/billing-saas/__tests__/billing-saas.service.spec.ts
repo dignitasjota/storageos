@@ -111,6 +111,7 @@ function buildService(admin: AdminMock): {
     } as unknown as PlatformCouponsService,
     { hasActiveMandate: jest.fn() } as unknown as PlatformSepaMandateService,
     { getClient: () => ({}) } as unknown as StripeGateway,
+    { reconcileAfterPlanChange: jest.fn().mockResolvedValue([]) } as never,
   );
   return { service, audit, issueBestEffort };
 }
@@ -452,6 +453,7 @@ describe('BillingSaasService.setBillingMode — cancelación en Stripe', () => {
         getClient: () => ({ subscriptions: stripe }),
         isConfigured: () => true,
       } as unknown as StripeGateway,
+      { reconcileAfterPlanChange: jest.fn().mockResolvedValue([]) } as never,
     );
     return { service, admin };
   }
@@ -528,6 +530,7 @@ describe('BillingSaasService.swapStripePlan', () => {
         getClient: () => ({ subscriptions: { retrieve, update } }),
         isConfigured: () => true,
       } as unknown as StripeGateway,
+      { reconcileAfterPlanChange: jest.fn().mockResolvedValue([]) } as never,
     );
     await service.swapStripePlan({
       tenantId: TENANT,

@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PLAN_FEATURES, normalizePlanFeatures } from '@storageos/shared';
+import { EXTRA_UNITS_ADDON_SLUG, PLAN_FEATURES, normalizePlanFeatures } from '@storageos/shared';
 
 import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -54,7 +54,8 @@ export class SubscriptionPlansService {
       orderBy: [{ priceMonthly: 'asc' }],
     });
     const { includeVat } = await platformPricing(this.admin);
-    return rows.map((r) => ({ ...this.toDto(r), pricesIncludeVat: includeVat }));
+    const unitPrice = await this.extraUnitPrice();
+    return rows.map((r) => ({ ...this.toDto(r, unitPrice), pricesIncludeVat: includeVat }));
   }
 
   /** Lista TODOS los planes (incluye inactivos y ocultos) con sus tenants y MRR. Solo admin. */
@@ -73,12 +74,13 @@ export class SubscriptionPlansService {
       }),
     ]);
     const { includeVat } = await platformPricing(this.admin);
+    const unitPrice = await this.extraUnitPrice();
     const allBy = new Map(all.map((g) => [g.planId, g._count._all]));
     const payingBy = new Map(paying.map((g) => [g.planId, g._count._all]));
     return rows.map((r) => {
       const payingTenants = payingBy.get(r.id) ?? 0;
       return {
-        ...this.toDto(r),
+        ...this.toDto(r, unitPrice),
         pricesIncludeVat: includeVat,
         tenantCount: allBy.get(r.id) ?? 0,
         payingTenants,
@@ -126,7 +128,16 @@ export class SubscriptionPlansService {
     if (!row) {
       throw new NotFoundException({ code: 'plan_not_found', message: 'Plan no encontrado' });
     }
-    return this.toDto(row);
+    return this.toDto(row, await this.extraUnitPrice());
+  }
+
+  /** Precio de cada trastero por encima de los incluidos (extra «Trasteros de más»). */
+  private async extraUnitPrice(): Promise<number | null> {
+    const addon = await this.admin.subscriptionAddon.findUnique({
+      where: { slug: EXTRA_UNITS_ADDON_SLUG },
+      select: { priceMonthly: true },
+    });
+    return addon ? Number(addon.priceMonthly) : null;
   }
 
   async create(
@@ -150,6 +161,7 @@ export class SubscriptionPlansService {
         ...(input.maxUnits !== undefined ? { maxUnits: input.maxUnits } : {}),
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
         ...(input.maxUsers !== undefined ? { maxUsers: input.maxUsers } : {}),
+        ...(input.includedUnits !== undefined ? { includedUnits: input.includedUnits } : {}),
         isActive: input.isActive ?? true,
         isPublic: input.isPublic ?? true,
       },
@@ -209,6 +221,7 @@ export class SubscriptionPlansService {
         ...(input.maxUnits !== undefined ? { maxUnits: input.maxUnits } : {}),
         ...(input.maxFacilities !== undefined ? { maxFacilities: input.maxFacilities } : {}),
         ...(input.maxUsers !== undefined ? { maxUsers: input.maxUsers } : {}),
+        ...(input.includedUnits !== undefined ? { includedUnits: input.includedUnits } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
         ...(input.isPublic !== undefined ? { isPublic: input.isPublic } : {}),
       },
@@ -268,24 +281,28 @@ export class SubscriptionPlansService {
     });
   }
 
-  private toDto(row: {
-    id: string;
-    slug: string;
-    name: string;
-    description?: string | null;
-    priceMonthly: { toString(): string } | number;
-    priceYearly?: { toString(): string } | number;
-    currency?: string;
-    features: unknown;
-    tenantFeatures?: string[];
-    stripePriceId: string | null;
-    stripePriceIdYearly?: string | null;
-    maxUnits?: number | null;
-    maxFacilities?: number | null;
-    maxUsers?: number | null;
-    isActive: boolean;
-    isPublic?: boolean;
-  }): SubscriptionPlanDto {
+  private toDto(
+    row: {
+      id: string;
+      slug: string;
+      name: string;
+      description?: string | null;
+      priceMonthly: { toString(): string } | number;
+      priceYearly?: { toString(): string } | number;
+      currency?: string;
+      features: unknown;
+      tenantFeatures?: string[];
+      stripePriceId: string | null;
+      stripePriceIdYearly?: string | null;
+      maxUnits?: number | null;
+      maxFacilities?: number | null;
+      maxUsers?: number | null;
+      includedUnits?: number | null;
+      isActive: boolean;
+      isPublic?: boolean;
+    },
+    extraUnitPrice: number | null = null,
+  ): SubscriptionPlanDto {
     return {
       id: row.id,
       slug: row.slug,
@@ -301,6 +318,8 @@ export class SubscriptionPlansService {
       maxUnits: row.maxUnits ?? null,
       maxFacilities: row.maxFacilities ?? null,
       maxUsers: row.maxUsers ?? null,
+      includedUnits: row.includedUnits ?? null,
+      extraUnitPrice: row.includedUnits != null ? extraUnitPrice : null,
       isActive: row.isActive,
       isPublic: row.isPublic ?? true,
     };

@@ -32,6 +32,7 @@ export async function PricingSection() {
     features: p.features,
     monthly: p.priceValue,
     yearly: p.yearly ?? null,
+    perUnit: p.perUnit ?? null,
   }));
   return (
     <PricingCards

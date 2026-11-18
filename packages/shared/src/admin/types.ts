@@ -685,6 +685,10 @@ export interface SubscriptionPlanDto {
   maxUnits: number | null;
   maxFacilities: number | null;
   maxUsers: number | null;
+  /** Trasteros incluidos en la cuota (plan Basic); null = cuota fija. */
+  includedUnits: number | null;
+  /** Precio de cada trastero por encima de los incluidos (null = no aplica). */
+  extraUnitPrice: number | null;
   isActive: boolean;
   /** false = oculto: no sale en la web ni en el autoservicio. */
   isPublic: boolean;
@@ -1228,6 +1232,12 @@ export interface SaasAddonDto {
   stripePriceId: string | null;
   /** Precio por tramos de cantidad (vacío = precio único). */
   priceTiers: { minQuantity: number; unitPrice: number }[];
+  /** Solo en estos planes (vacío = en cualquiera). */
+  planSlugs: string[];
+  /** Cantidad máxima por cliente (null = sin tope). */
+  maxQuantity: number | null;
+  /** De la plataforma: no se contrata ni se quita a mano. */
+  isSystem: boolean;
   /** Tenants que lo tienen contratado (activo o suspendido). */
   tenantCount: number;
 }
@@ -1249,6 +1259,8 @@ export interface TenantAddonDto {
   suspended: boolean;
   /** Modo de cobro: 'manual' (bandeja «Hoy») | 'stripe' (subscription item). */
   billingMode: 'manual' | 'stripe';
+  /** De la plataforma (p. ej. «Trasteros de más»): no se quita a mano. */
+  isSystem: boolean;
 }
 
 /** Resumen de la facturación efectiva del tenant (plan + add-ons). */

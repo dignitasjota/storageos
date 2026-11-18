@@ -2191,9 +2191,14 @@ export class AdminTenantsService {
         data: { status: 'active', trialEndsAt: null },
       });
     }
+    // Extras que el plan nuevo ya incluye o no admite (con aviso) y trasteros de más.
+    const removedAddons = await this.saasBilling
+      .reconcileAddonsAfterPlanChange(tenantId)
+      .catch(() => [] as string[]);
     const changes = {
       reason: args.reason,
       previousPlan: previousSlug,
+      ...(removedAddons.length ? { removedAddons } : {}),
       newPlan: plan.slug,
       ...(endsTrial ? { endedTrial: true } : {}),
       ...(clearsDebt ? { clearedDebt: true } : {}),

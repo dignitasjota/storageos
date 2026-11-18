@@ -98,7 +98,7 @@ export class AdminOpportunitiesService {
     const yearAgo = new Date(now.getTime() - 365 * DAY);
     const [catalog, tenants, overrides, owned, interest, offers] = await Promise.all([
       this.admin.subscriptionAddon.findMany({
-        where: { isActive: true },
+        where: { isActive: true, isSystem: false },
         orderBy: { name: 'asc' },
       }),
       this.admin.tenant.findMany({

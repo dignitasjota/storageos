@@ -15,6 +15,7 @@ import { BillingSaasController } from './billing-saas.controller';
 import { BillingSaasService } from './billing-saas.service';
 import { BillingStatusController } from './billing-status.controller';
 import { CatalogPriceHistoryService } from './catalog-price-history.service';
+import { ExtraUnitsCron } from './extra-units.cron';
 import { PlatformCouponsController } from './platform-coupons.controller';
 import { PlatformCouponsService } from './platform-coupons.service';
 import { PlatformDunningController } from './platform-dunning.controller';
@@ -103,6 +104,7 @@ import { SubscriptionPlansService } from './subscription-plans.service';
     PlatformCouponsService,
     PlatformDunningService,
     PlatformDunningCron,
+    ExtraUnitsCron,
     PlatformSepaAutoCron,
     PlatformSepaSettingsService,
     PlatformSepaMandateService,

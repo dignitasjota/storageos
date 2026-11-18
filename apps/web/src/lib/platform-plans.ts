@@ -18,6 +18,8 @@ export interface LandingPlanCopy {
 export interface LandingPlan extends LandingPlanCopy {
   /** Precio mensual numérico (para los datos estructurados). */
   priceValue: number;
+  /** Plan por trastero: trasteros incluidos en la cuota y precio de cada uno más. */
+  perUnit?: { included: number; unitPrice: number };
 }
 
 /**
@@ -70,6 +72,9 @@ export function mergeLandingPlans(
     };
     if (live.priceYearly > 0) merged.yearly = live.priceYearly;
     else delete merged.yearly;
+    if (live.includedUnits != null && live.extraUnitPrice != null) {
+      merged.perUnit = { included: live.includedUnits, unitPrice: live.extraUnitPrice };
+    }
     out.push(merged);
   }
   return out;

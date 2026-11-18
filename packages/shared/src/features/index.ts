@@ -39,6 +39,7 @@ export type TenantFeature = (typeof TenantFeatures)[number];
  */
 export const PLAN_FEATURES: Record<string, TenantFeature[]> = {
   free: [],
+  basic: [],
   starter: [
     'rent_increases',
     'insurance',

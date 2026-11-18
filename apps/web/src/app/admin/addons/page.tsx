@@ -31,6 +31,7 @@ import {
 import {
   useAddonAnalytics,
   useAdminAddons,
+  useAdminSubscriptionPlans,
   useCatalogPriceHistory,
   useUpsertAddon,
 } from '@/lib/admin/hooks';
@@ -102,6 +103,25 @@ export default function AdminAddonsPage() {
                   >
                     {a.stripePriceId ? 'Stripe ✓' : 'Sin Price Stripe'}
                   </Badge>
+                  {a.isSystem && (
+                    <Badge
+                      variant="outline"
+                      className="ml-2 text-[10px]"
+                      title="Lo calcula la plataforma: no se asigna ni se contrata a mano"
+                    >
+                      De la plataforma
+                    </Badge>
+                  )}
+                  {a.planSlugs.length > 0 && (
+                    <Badge variant="outline" className="ml-2 text-[10px]">
+                      Solo en {a.planSlugs.join(', ')}
+                    </Badge>
+                  )}
+                  {a.maxQuantity != null && (
+                    <Badge variant="outline" className="ml-2 text-[10px]">
+                      Máx. {a.maxQuantity}
+                    </Badge>
+                  )}
                   {a.description && (
                     <p className="text-xs text-muted-foreground">{a.description}</p>
                   )}
@@ -189,6 +209,9 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
   const [grantsUsers, setGrantsUsers] = useState(String(addon?.grantsUsers ?? ''));
   const [grantsAiQueries, setGrantsAiQueries] = useState(String(addon?.grantsAiQueries ?? ''));
   const [isActive, setIsActive] = useState(addon?.isActive ?? true);
+  const [planSlugs, setPlanSlugs] = useState<string[]>(addon?.planSlugs ?? []);
+  const [maxQuantity, setMaxQuantity] = useState(String(addon?.maxQuantity ?? ''));
+  const plans = useAdminSubscriptionPlans();
 
   const toNum = (s: string): number | null => (s.trim() === '' ? null : Number(s) || 0);
 
@@ -220,6 +243,8 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
         grantsFacilities: toNum(grantsFacilities),
         grantsUsers: toNum(grantsUsers),
         grantsAiQueries: toNum(grantsAiQueries),
+        planSlugs,
+        maxQuantity: toNum(maxQuantity),
         isActive,
       });
       toast.success('Add-on guardado.');
@@ -368,6 +393,38 @@ function AddonDialog({ addon, onClose }: { addon: SaasAddonDto | null; onClose: 
                 />
               </div>
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Planes en los que se puede tener</Label>
+            <div className="flex flex-wrap gap-3">
+              {(plans.data ?? []).map((p) => (
+                <label key={p.slug} className="flex items-center gap-1.5 text-sm">
+                  <Checkbox
+                    checked={planSlugs.includes(p.slug)}
+                    onCheckedChange={(v) =>
+                      setPlanSlugs((cur) =>
+                        v === true ? [...cur, p.slug] : cur.filter((x) => x !== p.slug),
+                      )
+                    }
+                  />
+                  {p.name}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Sin marcar ninguno, en todos. Al cambiar de plan, el cliente lo pierde si su nuevo
+              plan no lo admite (con aviso).
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label>Cantidad máxima por cliente</Label>
+            <Input
+              type="number"
+              value={maxQuantity}
+              onChange={(e) => setMaxQuantity(e.target.value)}
+              placeholder="Sin límite"
+              className="w-32"
+            />
           </div>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={isActive} onCheckedChange={(v) => setIsActive(v === true)} /> Activo

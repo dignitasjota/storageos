@@ -635,7 +635,7 @@ export function QuoteLeadDialog({
     }
   }
 
-  const activeAddons = (addons.data ?? []).filter((a) => a.isActive);
+  const activeAddons = (addons.data ?? []).filter((a) => a.isActive && !a.isSystem);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">

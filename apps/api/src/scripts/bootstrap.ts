@@ -37,6 +37,20 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
     tenantFeatures: [],
   },
   {
+    name: 'Basic',
+    slug: 'basic',
+    // 1 € por trastero con un mínimo de 19 €: los 19 primeros van en la cuota y
+    // el resto se cobra con el extra «Trasteros de más».
+    priceMonthly: 19,
+    priceYearly: 0,
+    maxUnits: 50,
+    maxFacilities: 1,
+    maxUsers: 1,
+    includedUnits: 19,
+    features: { support: 'email', branding: false, api: false },
+    tenantFeatures: [],
+  },
+  {
     name: 'Starter',
     slug: 'starter',
     priceMonthly: 79,
@@ -59,7 +73,7 @@ const PLANS: Prisma.SubscriptionPlanCreateInput[] = [
     slug: 'pro',
     priceMonthly: 149,
     priceYearly: 1490,
-    maxUnits: null,
+    maxUnits: 1000,
     maxFacilities: null,
     maxUsers: null,
     features: { support: 'priority', branding: true, api: true },
@@ -126,7 +140,8 @@ async function main(): Promise<void> {
     for (const a of DEFAULT_SAAS_ADDONS) {
       await prisma.subscriptionAddon.upsert({
         where: { slug: a.slug },
-        update: {},
+        // Lo que no se edita desde el panel (extras de la plataforma) se mantiene al día.
+        update: a.isSystem ? { isSystem: true, planSlugs: a.planSlugs ?? [] } : {},
         create: {
           slug: a.slug,
           name: a.name,
@@ -134,6 +149,10 @@ async function main(): Promise<void> {
           priceMonthly: a.priceMonthly,
           feature: a.feature,
           grantsAiQueries: a.grantsAiQueries ?? null,
+          grantsUsers: a.grantsUsers ?? null,
+          planSlugs: a.planSlugs ?? [],
+          maxQuantity: a.maxQuantity ?? null,
+          isSystem: a.isSystem ?? false,
         },
       });
     }

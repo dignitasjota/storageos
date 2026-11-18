@@ -84,7 +84,7 @@ export class SalesSellingService {
         select: { id: true, slug: true, name: true, priceMonthly: true, priceYearly: true },
       }),
       this.admin.subscriptionAddon.findMany({
-        where: { isActive: true },
+        where: { isActive: true, isSystem: false },
         orderBy: { name: 'asc' },
         select: { id: true, name: true, description: true, priceMonthly: true },
       }),

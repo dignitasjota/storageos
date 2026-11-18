@@ -2696,3 +2696,15 @@ Migración `20270206100000_sales_features` (se aplica sola al arrancar el API). 
 - En la ficha de cada comercial («Equipo comercial → Comerciales»): **garantía de la venta** en meses, **bonus por cumplir el objetivo** y **tramos** del fijo por venta. Vacío o 0 = no se aplica.
 - **Liquidaciones**: el comercial pulsa «Recibido» en «Mis comisiones → Liquidaciones» y los dos pueden descargar el justificante en PDF.
 - «Equipo comercial» enseña la **comparativa del equipo** (con periodo) y las **comisiones previstas** de los próximos 6 meses; el comercial ve las suyas en «Mis comisiones».
+
+## 155. Plan Basic por trastero, segundo usuario y Pro hasta 1.000 trasteros (2026-11-18)
+
+Migración `20270207100000_plan_basic` (se aplica sola al arrancar el API). Sin variables nuevas. El `bootstrap` crea el plan **Basic** y los extras **«Trasteros de más»** y **«Segundo usuario»**.
+
+- **Basic**: 1 € por trastero con un mínimo de 19 € (incluye 19), hasta 50 trasteros, 1 local y 1 usuario. Solo pago mensual. Sin funciones de pago; cobro a los inquilinos con tarjeta y Bizum (la domiciliación SEPA no se vende en Basic).
+- Los trasteros que pasan de los incluidos van en el extra interno «Trasteros de más» (1 €). La tarea `extra-units.daily` (06:15, hora de España) los fija **7 días antes de cada cobro** con los trasteros dados de alta ese día; lo que se dé de alta después cuenta en el siguiente. Sin prorrateos. Con Stripe van en la propia suscripción (y ya en el primer pago del Checkout); con remesa SEPA o Redsys, en el mismo cargo; con pago a mano, en la bandeja «Hoy» el día del cobro.
+- **Segundo usuario** (10 €): solo en Basic, uno como mucho.
+- **Pro** pasa a tener hasta **1.000 trasteros** (los que ya tenían más no pierden nada: el límite solo frena altas nuevas). **Administrador** sigue sin límite.
+- El plan **gratis** deja de ofrecerse (se oculta de la web y del cambio de plan); quien lo tiene sigue igual hasta la siguiente PR.
+- Los extras pueden limitarse a ciertos planes y a una cantidad máxima (panel admin → Extras). Al cambiar de plan, el cliente pierde los extras que su nuevo plan ya incluye o no admite, con un aviso en su panel. Bajar de plan exige caber en sus límites (`plan_limits_exceeded`).
+- **Tras desplegar**: revisar en `/admin/plans` el precio de Basic y en `/admin/addons` el de los dos extras nuevos. Si se cobra por Stripe, los Price de los extras se crean solos la primera vez.

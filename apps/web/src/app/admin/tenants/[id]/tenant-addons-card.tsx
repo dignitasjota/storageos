@@ -97,7 +97,7 @@ export function TenantAddonsCard({
   const assigned = summary.data?.addons ?? [];
   const assignedIds = new Set(assigned.map((a) => a.addonId));
   const available = (catalog.data ?? []).filter(
-    (a: SaasAddonDto) => a.isActive && !assignedIds.has(a.id),
+    (a: SaasAddonDto) => a.isActive && !a.isSystem && !assignedIds.has(a.id),
   );
 
   const selectedAddon = available.find((a) => a.id === selected);
@@ -174,6 +174,11 @@ export function TenantAddonsCard({
                           {a.feature}
                         </Badge>
                       )}
+                      {a.isSystem && (
+                        <Badge variant="outline" className="ml-2 text-[10px]">
+                          Según sus trasteros
+                        </Badge>
+                      )}
                       {a.suspended && (
                         <Badge className="ml-2 bg-amber-500 text-[10px] text-white hover:bg-amber-500">
                           Suspendido
@@ -201,6 +206,7 @@ export function TenantAddonsCard({
                         {eur(a.lineTotal)}/mes
                       </span>
                       {canEdit &&
+                        !a.isSystem &&
                         !a.suspended &&
                         (a.billingMode === 'stripe' ? (
                           <Button
@@ -223,7 +229,7 @@ export function TenantAddonsCard({
                             Cobrar por Stripe
                           </Button>
                         ))}
-                      {!canEdit ? null : a.suspended ? (
+                      {!canEdit || (a.isSystem && !a.suspended) ? null : a.suspended ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -247,7 +253,7 @@ export function TenantAddonsCard({
                       <Button
                         variant="ghost"
                         size="icon"
-                        hidden={!canEdit}
+                        hidden={!canEdit || a.isSystem}
                         className="size-7 text-muted-foreground hover:text-red-600"
                         aria-label="Quitar"
                         onClick={() => doRemove(a.id)}

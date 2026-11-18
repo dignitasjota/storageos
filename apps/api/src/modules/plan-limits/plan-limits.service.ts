@@ -27,6 +27,30 @@ interface EffectiveLimits {
  * `null`). Se consulta con `PrismaAdminService` (subscription + add-ons son
  * globales); el conteo actual lo pasa el caller (que ya está en su tenant).
  */
+const RESOURCE_NAMES: Record<LimitResource, string> = {
+  units: 'trasteros',
+  facilities: 'locales',
+  users: 'usuarios',
+};
+
+/** Qué decirle a quien llega al límite de su plan. */
+export function limitMessage(
+  planSlug: string | null,
+  resource: LimitResource,
+  limit: number,
+): string {
+  const what = `${limit.toLocaleString('es-ES')} ${RESOURCE_NAMES[resource]}`;
+  if (planSlug === 'basic') {
+    return resource === 'users'
+      ? `Tu plan Basic incluye ${what}. Añade el segundo usuario en Suscripción o pasa a Starter.`
+      : `Tu plan Basic llega hasta ${what}. Pasa a Starter para seguir creciendo.`;
+  }
+  if (planSlug === 'pro' || planSlug === 'administrador') {
+    return `Has llegado a ${what}, el máximo de tu plan. Escríbenos y lo ampliamos.`;
+  }
+  return 'Has alcanzado el límite de tu plan. Amplíalo con un extra o sube de plan.';
+}
+
 @Injectable()
 export class PlanLimitsService {
   constructor(private readonly admin: PrismaAdminService) {}
@@ -36,7 +60,9 @@ export class PlanLimitsService {
     const [subscription, addons] = await Promise.all([
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
-        include: { plan: { select: { maxUnits: true, maxFacilities: true, maxUsers: true } } },
+        include: {
+          plan: { select: { slug: true, maxUnits: true, maxFacilities: true, maxUsers: true } },
+        },
       }),
       this.admin.tenantSubscriptionAddon.findMany({
         // Los add-ons suspendidos por impago no amplían el límite.
@@ -86,9 +112,13 @@ export class PlanLimitsService {
     const limits = await this.resolveLimits(tenantId);
     const limit = limits[resource];
     if (limit !== null && currentCount >= limit) {
+      const sub = await this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        select: { plan: { select: { slug: true } } },
+      });
       throw new ForbiddenException({
         code: `${resource}_limit_reached`,
-        message: 'Has alcanzado el límite de tu plan. Amplíalo con un add-on o sube de plan.',
+        message: limitMessage(sub?.plan.slug ?? null, resource, limit),
         details: { resource, limit, current: currentCount },
       });
     }
