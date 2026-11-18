@@ -778,7 +778,7 @@ function EndTrialDialog({
   async function onSubmit(values: AdminTenantActionInput) {
     try {
       await endTrial.mutateAsync({ id: tenantId, input: values });
-      toast.success('Prueba finalizada. El tenant baja al plan Free (gratis).');
+      toast.success('Prueba finalizada. La cuenta queda en solo lectura hasta que pague.');
       form.reset();
       onClose();
     } catch (err) {
@@ -793,9 +793,10 @@ function EndTrialDialog({
         <DialogHeader>
           <DialogTitle>Finalizar periodo de prueba</DialogTitle>
           <DialogDescription>
-            Al no haber conversión, el tenant baja al <strong>plan Free</strong> (gratis, sin
-            módulos premium) y queda activo. Si el cliente va a pagar, registra antes el pago (eso
-            lo activa en su plan). El trial también se cierra solo al pagar.
+            Sin pago, la cuenta conserva su plan pero queda en <strong>solo lectura</strong> hasta
+            que pague (sus inquilinos y su web siguen funcionando). Si el cliente va a pagar,
+            registra antes el pago (eso lo activa en su plan). La prueba también se cierra sola al
+            pagar.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

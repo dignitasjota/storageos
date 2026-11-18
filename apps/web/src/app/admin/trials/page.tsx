@@ -203,7 +203,7 @@ function TrialRow({
   async function onEnd() {
     const res = await ask({
       title: `Finalizar la prueba de ${trial.name}`,
-      description: 'Baja al plan Free (gratis, sin funciones de pago) y queda activo.',
+      description: 'Conserva su plan, pero queda en solo lectura hasta que pague.',
       input: { label: 'Motivo', placeholder: 'No ha convertido' },
       confirmLabel: 'Finalizar prueba',
     });
@@ -327,7 +327,7 @@ function TrialRow({
                   className="text-destructive focus:text-destructive"
                   onSelect={() => void onEnd()}
                 >
-                  Finalizar prueba (a Free)
+                  Finalizar prueba (solo lectura)
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

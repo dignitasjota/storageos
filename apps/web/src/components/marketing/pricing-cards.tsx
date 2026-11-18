@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 
 export interface PricingPlanView {
+  /** Slug del plan: el botón lleva al registro con ese plan elegido. */
+  slug?: string;
   name: string;
   tagline: string;
   cta: string;
@@ -145,7 +147,9 @@ export function PricingCards({
                   ))}
                 </ul>
                 <Button asChild className="w-full" variant={plan.highlight ? 'default' : 'outline'}>
-                  <Link href="/register">{plan.cta}</Link>
+                  <Link href={plan.slug ? `/register?plan=${plan.slug}` : '/register'}>
+                    {plan.cta}
+                  </Link>
                 </Button>
               </CardContent>
             </Card>

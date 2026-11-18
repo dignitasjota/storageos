@@ -2,8 +2,10 @@
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
+  DEFAULT_TRIAL_PLAN_SLUG,
   normalizeSalesCode,
   type RegisterInput,
+  type RegisterPlanSlug,
   RegisterSchema,
   type SalesCodeCheckDto,
 } from '@storageos/shared';
@@ -41,6 +43,16 @@ export interface RegisterDefaults {
   fullName?: string;
   /** Código del comercial del enlace o el QR (`?team=`). */
   salesCode?: string;
+  /** Plan con el que empieza la prueba (`?plan=` desde la tabla de precios). */
+  planSlug?: string;
+}
+
+/** Plan que se puede elegir al registrarse, con su precio ya escrito. */
+export interface RegisterPlanOption {
+  slug: string;
+  name: string;
+  price: string;
+  limits: string;
 }
 
 /** Comprueba un código de comercial (nombre de quien atiende y días de más). */
@@ -159,13 +171,25 @@ function SalesCodeField({
   );
 }
 
-export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults }) {
+export function RegisterForm({
+  defaults = {},
+  plans = [],
+}: {
+  defaults?: RegisterDefaults;
+  plans?: RegisterPlanOption[];
+}) {
   const t = useTranslations('auth.register');
   const tCommon = useTranslations('common');
   const router = useRouter();
   const register = useRegister();
   const [salesCode, setSalesCode] = useState(defaults.salesCode ?? '');
   const [salesCodeFromLink, setSalesCodeFromLink] = useState(!!defaults.salesCode);
+  const [planSlug, setPlanSlug] = useState(
+    plans.find((p) => p.slug === defaults.planSlug)?.slug ??
+      plans.find((p) => p.slug === DEFAULT_TRIAL_PLAN_SLUG)?.slug ??
+      plans[0]?.slug ??
+      '',
+  );
 
   // El código del enlace del comercial: el de la URL o el que guardó la web.
   useEffect(() => {
@@ -201,6 +225,7 @@ export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults })
       tenantSlug: values.tenantSlug?.trim() || undefined,
       ...platformTrafficFields(),
       ...(code ? { salesCode: code, salesCodeFrom: salesCodeFromLink ? 'link' : 'typed' } : {}),
+      ...(planSlug ? { planSlug: planSlug as RegisterPlanSlug } : {}),
     };
     try {
       const res = await register.mutateAsync(payload);
@@ -228,6 +253,39 @@ export function RegisterForm({ defaults = {} }: { defaults?: RegisterDefaults })
   return (
     <Form {...form}>
       <form method="post" className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+        {plans.length > 1 && (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Plan para la prueba de 30 días</legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {plans.map((p) => (
+                <label
+                  key={p.slug}
+                  className={`flex cursor-pointer flex-col rounded-md border p-3 text-sm transition-colors ${
+                    planSlug === p.slug ? 'border-primary ring-2 ring-primary/30' : 'hover:bg-muted'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="planSlug"
+                      value={p.slug}
+                      checked={planSlug === p.slug}
+                      onChange={() => setPlanSlug(p.slug)}
+                      className="accent-primary"
+                    />
+                    <span className="font-medium">{p.name}</span>
+                    <span className="ml-auto text-muted-foreground">{p.price}</span>
+                  </span>
+                  <span className="mt-1 text-xs text-muted-foreground">{p.limits}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Sin tarjeta. Durante la prueba tienes los límites de ese plan y puedes cambiarlo
+              cuando quieras.
+            </p>
+          </fieldset>
+        )}
         <FormField
           control={form.control}
           name="tenantName"

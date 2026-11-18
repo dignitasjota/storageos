@@ -53,7 +53,7 @@ export function TrialFunnelCard({ months }: { months: number }) {
               {(
                 [
                   ['Pagan un plan', d.totals.converted],
-                  ['Pasaron a Free', d.totals.toFree],
+                  ['Sin pagar', d.totals.toFree],
                   ['Se dieron de baja', d.totals.churned],
                   ['Siguen en prueba', d.totals.inTrial],
                 ] as const
@@ -81,7 +81,7 @@ export function TrialFunnelCard({ months }: { months: number }) {
                     <th className="px-2 py-1 text-right font-medium">Altas</th>
                     <th className="px-2 py-1 text-right font-medium">Contrato</th>
                     <th className="px-2 py-1 text-right font-medium">Pagan</th>
-                    <th className="px-2 py-1 text-right font-medium">Free</th>
+                    <th className="px-2 py-1 text-right font-medium">Sin pagar</th>
                     <th className="px-2 py-1 text-right font-medium">Baja</th>
                     <th className="px-2 py-1 text-right font-medium">En prueba</th>
                     <th className="px-2 py-1 text-right font-medium">Conversión</th>

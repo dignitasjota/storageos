@@ -19,7 +19,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const SUSPENDED_WRITABLE_PATHS =
   /^\/(?:v\d+\/)?(?:settings\/saas-billing(?:\/|$)|support\/(?:tickets|platform-messages)(?:\/|$)|me(?:\/|$)|auth\/|notifications(?:\/|$)|product-updates\/seen)/;
 
-type TenantState = 'alive' | 'suspended' | 'gone';
+type TenantState = 'alive' | 'suspended' | 'expired' | 'gone';
 
 /**
  * Revalida por request el estado del tenant del token de staff:
@@ -27,6 +27,9 @@ type TenantState = 'alive' | 'suspended' | 'gone';
  *   - borrado/anonimizado (`deletedAt`) → 403 `tenant_unavailable` (lo mismo
  *     que bloquean el login y el refresh); sin esto el access token seguía
  *     operando hasta 15 min;
+ *   - suscripción vencida (`expired`: prueba o plan gratuito terminados sin
+ *     pagar) → solo lectura igual que el suspendido, pero sus inquilinos y su
+ *     web siguen funcionando; 403 `subscription_expired_read_only`;
  *   - suspendido (impago de la suscripción o a mano) → **solo lectura**: puede
  *     verlo todo, pagar y reactivarse (pay-to-reactivate), pero cualquier otra
  *     escritura da 403 `tenant_suspended_read_only`. Sus inquilinos tampoco
@@ -60,14 +63,22 @@ export class TenantStatusGuard implements CanActivate {
         message: 'La cuenta ya no está disponible',
       });
     }
-    if (state === 'suspended' && !SAFE_METHODS.has(request.method)) {
+    if ((state === 'suspended' || state === 'expired') && !SAFE_METHODS.has(request.method)) {
       const path = (request.originalUrl ?? request.url ?? '').split('?')[0] ?? '';
       if (!SUSPENDED_WRITABLE_PATHS.test(path)) {
-        throw new ForbiddenException({
-          code: 'tenant_suspended_read_only',
-          message:
-            'Tu cuenta está suspendida por un pago pendiente: solo puedes consultar. Regulariza el pago en Configuración → Suscripción para volver a trabajar.',
-        });
+        throw new ForbiddenException(
+          state === 'expired'
+            ? {
+                code: 'subscription_expired_read_only',
+                message:
+                  'Tu prueba ha terminado: puedes consultar todo, pero para seguir trabajando elige cómo pagar en Configuración → Suscripción.',
+              }
+            : {
+                code: 'tenant_suspended_read_only',
+                message:
+                  'Tu cuenta está suspendida por un pago pendiente: solo puedes consultar. Regulariza el pago en Configuración → Suscripción para volver a trabajar.',
+              },
+        );
       }
     }
     return true;
@@ -76,10 +87,22 @@ export class TenantStatusGuard implements CanActivate {
   private async refresh(tenantId: string, now: number): Promise<TenantState> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { deletedAt: true, status: true },
+      select: {
+        deletedAt: true,
+        status: true,
+        billingExempt: true,
+        subscription: { select: { status: true } },
+      },
     });
     const state: TenantState =
-      !tenant || tenant.deletedAt ? 'gone' : tenant.status === 'suspended' ? 'suspended' : 'alive';
+      !tenant || tenant.deletedAt
+        ? 'gone'
+        : tenant.status === 'suspended'
+          ? 'suspended'
+          : // Prueba (o plan gratuito) terminada sin pagar: solo lectura hasta que pague.
+            tenant.subscription?.status === 'expired' && !tenant.billingExempt
+            ? 'expired'
+            : 'alive';
     this.cache.set(tenantId, { state, exp: now + TENANT_STATUS_TTL_MS });
     return state;
   }

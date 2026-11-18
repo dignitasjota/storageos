@@ -3,16 +3,22 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import {
+  BASIC_PLAN_SLUG,
+  EXTRA_UNITS_ADDON_SLUG,
+  extraUnitsFor,
   SUSPENSION_NOTICE_DAYS,
   SUSPENSION_WEB_OFFLINE_DAYS,
   suspensionDays,
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { formatDateLong, formatEur } from '../../common/format';
 import { tenantReadiness } from '../../common/tenant-readiness';
 import { AuditService } from '../auth/audit.service';
 import { AuthService, TENANT_OWNER_VERIFIED } from '../auth/auth.service';
+import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
 import { PlatformEmailTemplatesService } from './platform-email-templates.service';
@@ -21,6 +27,9 @@ import type { Env } from '../../config/env.schema';
 import type { AdminQuoteDto, TenantLifecycleRunResultDto } from '@storageos/shared';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Días de aviso antes de pasar del plan gratuito a Basic. */
+const FREE_PLAN_NOTICE_DAYS = 30;
 
 /** Días tras el registro a los que se borra una cuenta que nunca se activó. */
 const UNVERIFIED_PURGE_DAYS = 30;
@@ -81,6 +90,7 @@ export class TenantLifecycleEmailsService {
     private readonly audit: AuditService,
     private readonly templates: PlatformEmailTemplatesService,
     private readonly auth: AuthService,
+    private readonly notifications: NotificationsService,
   ) {
     this.billingUrl = `${config.get('WEB_BASE_URL', { infer: true })}/settings/saas-billing`;
   }
@@ -100,6 +110,8 @@ export class TenantLifecycleEmailsService {
       pastDue: 0,
       // La prueba vence aunque los correos estén apagados.
       trialsEnded: await this.expireTrials(emailsOn && !!settings?.sendTrialReminders),
+      // El paso del plan gratuito a Basic va siempre (el aviso es lo que da el plazo).
+      freePlanMoves: await this.runFreePlanTransition(),
       suspensionNotices: 0,
       activationNudges: 0,
     };
@@ -122,10 +134,10 @@ export class TenantLifecycleEmailsService {
   }
 
   /**
-   * Pruebas vencidas sin pagar: pasan al plan Free (como «Finalizar prueba» del
-   * panel admin). El tenant sigue entrando y conserva sus datos, pero pierde las
-   * funciones de pago hasta que contrate un plan. Una prueba que ya pagó (su
-   * suscripción está activa) solo sale de `trial`.
+   * Pruebas vencidas sin pagar: la cuenta pasa a solo lectura (suscripción
+   * `expired`, mismo plan) hasta que elija cómo pagar; sus inquilinos y su web
+   * siguen funcionando. Una prueba que ya pagó (su suscripción está activa) solo
+   * sale de `trial`.
    */
   async expireTrials(sendEmail: boolean, now = new Date()): Promise<number> {
     const tenants = await this.admin.tenant.findMany({
@@ -138,12 +150,10 @@ export class TenantLifecycleEmailsService {
       select: {
         id: true,
         name: true,
-        subscription: { select: { status: true, plan: { select: { slug: true } } } },
+        subscription: { select: { status: true, plan: { select: { slug: true, name: true } } } },
       },
       take: 500,
     });
-    if (tenants.length === 0) return 0;
-    const freePlan = await this.admin.subscriptionPlan.findFirst({ where: { slug: 'free' } });
     let ended = 0;
     for (const t of tenants) {
       const paid = t.subscription?.status === 'active';
@@ -153,10 +163,10 @@ export class TenantLifecycleEmailsService {
         data: { status: 'active', trialEndsAt: null },
       });
       if (count === 0) continue;
-      if (!paid && freePlan) {
+      if (!paid) {
         await this.admin.tenantSubscription.updateMany({
-          where: { tenantId: t.id },
-          data: { planId: freePlan.id, status: 'active' },
+          where: { tenantId: t.id, status: { not: 'active' } },
+          data: { status: 'expired' },
         });
       }
       ended += 1;
@@ -167,25 +177,198 @@ export class TenantLifecycleEmailsService {
           action: 'tenant.trial_expired',
           entityType: 'Tenant',
           entityId: t.id,
-          changes: {
-            previousPlan: t.subscription?.plan.slug ?? null,
-            newPlan: paid ? (t.subscription?.plan.slug ?? null) : 'free',
-          },
+          changes: { plan: t.subscription?.plan.slug ?? null, readOnly: !paid },
           ipAddress: null,
           userAgent: null,
         })
         .catch(() => undefined);
+      if (!paid) {
+        await this.notifications
+          .create(t.id, {
+            type: 'billing.trial_ended',
+            title: 'Tu prueba ha terminado',
+            body: 'Tu cuenta está en solo lectura hasta que elijas cómo pagar.',
+            link: '/settings/saas-billing',
+          })
+          .catch(() => undefined);
+      }
       if (sendEmail && !paid) {
-        const limits = await this.freePlanLimitsNote(t.id, 'ended').catch(() => []);
+        const quote = await this.monthlyQuote(t.id).catch(() => null);
         await this.dispatch(
           t.id,
           'trial_ended',
-          await this.trialEndedTemplate(t.name, limits),
+          await this.templates.render('trial_ended', {
+            empresa: t.name,
+            plan: t.subscription?.plan.name ?? '',
+            importe: quote?.label ?? '',
+            enlace_pago: this.billingUrl,
+          }),
         ).catch(() => false);
       }
     }
-    if (ended > 0) this.logger.log(`tenant-lifecycle: ${ended} pruebas vencidas pasan a Free`);
+    if (ended > 0) this.logger.log(`tenant-lifecycle: ${ended} pruebas vencidas`);
     return ended;
+  }
+
+  /**
+   * Fin del plan gratuito: a cada cuenta se le avisa una vez con 30 días y ese
+   * día pasa a Basic. Si para entonces no ha elegido cómo pagar, queda en solo
+   * lectura (como una prueba vencida) hasta que pague.
+   */
+  async runFreePlanTransition(now = new Date()): Promise<number> {
+    const [free, basic] = await Promise.all([
+      this.admin.subscriptionPlan.findUnique({ where: { slug: 'free' }, select: { id: true } }),
+      this.admin.subscriptionPlan.findUnique({
+        where: { slug: BASIC_PLAN_SLUG },
+        select: { id: true, name: true },
+      }),
+    ]);
+    if (!free || !basic) return 0;
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        billingExempt: false,
+        status: { in: ['active', 'trial'] },
+        subscription: { planId: free.id },
+      },
+      select: { id: true, name: true, freePlanEndsAt: true },
+      take: 500,
+    });
+    let moved = 0;
+    for (const t of tenants) {
+      try {
+        if (!t.freePlanEndsAt) {
+          const endsAt = new Date(now.getTime() + FREE_PLAN_NOTICE_DAYS * DAY_MS);
+          const { count } = await this.admin.tenant.updateMany({
+            where: { id: t.id, freePlanEndsAt: null },
+            data: { freePlanEndsAt: endsAt },
+          });
+          if (count === 0) continue;
+          const [units, quote] = await Promise.all([
+            this.admin.unit.count({ where: { tenantId: t.id } }),
+            this.monthlyQuote(t.id, BASIC_PLAN_SLUG),
+          ]);
+          const fecha = formatDateLong(endsAt);
+          await this.notifications
+            .create(t.id, {
+              type: 'billing.free_plan_ending',
+              title: `El ${fecha} tu cuenta pasa al plan Basic`,
+              body: `Serán ${quote.label} al mes, IVA incluido. Elige cómo pagar antes para seguir sin cortes.`,
+              link: '/settings/saas-billing',
+            })
+            .catch(() => undefined);
+          await this.dispatch(
+            t.id,
+            'free_plan_notice',
+            await this.templates.render('free_plan_notice', {
+              empresa: t.name,
+              fecha,
+              trasteros: String(units),
+              importe: quote.label,
+              enlace_pago: this.billingUrl,
+            }),
+          ).catch(() => false);
+          moved += 1;
+          continue;
+        }
+        if (t.freePlanEndsAt > now) continue;
+        // Ya toca: pasa a Basic y, sin pagar, queda en solo lectura.
+        const { count } = await this.admin.tenantSubscription.updateMany({
+          where: { tenantId: t.id, planId: free.id },
+          data: {
+            planId: basic.id,
+            status: 'expired',
+            currentPeriodStart: now,
+            currentPeriodEnd: now,
+          },
+        });
+        if (count === 0) continue;
+        await this.admin.tenant.update({
+          where: { id: t.id },
+          data: { freePlanEndsAt: null, status: 'active', trialEndsAt: null },
+        });
+        const quote = await this.monthlyQuote(t.id);
+        await this.audit
+          .write({
+            tenantId: t.id,
+            userId: null,
+            action: 'tenant.free_plan_ended',
+            entityType: 'Tenant',
+            entityId: t.id,
+            changes: { previousPlan: 'free', newPlan: BASIC_PLAN_SLUG },
+            ipAddress: null,
+            userAgent: null,
+          })
+          .catch(() => undefined);
+        await this.notifications
+          .create(t.id, {
+            type: 'billing.free_plan_ended',
+            title: 'Tu cuenta ha pasado al plan Basic',
+            body: 'Está en solo lectura hasta que elijas cómo pagar.',
+            link: '/settings/saas-billing',
+          })
+          .catch(() => undefined);
+        await this.dispatch(
+          t.id,
+          'free_plan_ended',
+          await this.templates.render('free_plan_ended', {
+            empresa: t.name,
+            importe: quote.label,
+            enlace_pago: this.billingUrl,
+          }),
+        ).catch(() => false);
+        moved += 1;
+      } catch (err) {
+        this.logger.warn(`tenant-lifecycle: fin del plan gratuito de ${t.id}: ${String(err)}`);
+      }
+    }
+    return moved;
+  }
+
+  /**
+   * Lo que pagaría al mes con lo que tiene hoy: el plan (el suyo u otro), los
+   * trasteros de más si el plan va por trastero y sus extras. Con el IVA como
+   * se cobra.
+   */
+  async monthlyQuote(
+    tenantId: string,
+    planSlug?: string,
+  ): Promise<{ amount: number; label: string }> {
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { plan: { select: { slug: true } } },
+    });
+    const slug = planSlug ?? sub?.plan.slug;
+    const [plan, units, addons, unitAddon, pricing] = await Promise.all([
+      slug
+        ? this.admin.subscriptionPlan.findUnique({
+            where: { slug },
+            select: { priceMonthly: true, includedUnits: true },
+          })
+        : null,
+      this.admin.unit.count({ where: { tenantId } }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { tenantId, suspendedAt: null, addon: { isSystem: false } },
+        select: { priceMonthly: true, quantity: true, addon: { select: { planSlugs: true } } },
+      }),
+      this.admin.subscriptionAddon.findUnique({
+        where: { slug: EXTRA_UNITS_ADDON_SLUG },
+        select: { priceMonthly: true },
+      }),
+      platformPricing(this.admin),
+    ]);
+    let list = Number(plan?.priceMonthly ?? 0);
+    if (plan?.includedUnits != null && unitAddon) {
+      list += extraUnitsFor(units, plan.includedUnits) * Number(unitAddon.priceMonthly);
+    }
+    for (const a of addons) {
+      // Los que el plan nuevo no admite se dan de baja al cambiar.
+      if (a.addon.planSlugs.length > 0 && !(slug && a.addon.planSlugs.includes(slug))) continue;
+      list += Number(a.priceMonthly) * a.quantity;
+    }
+    // Lo que se cobra de verdad: con IVA incluido o sumándolo.
+    const amount = amountToCharge(list, pricing);
+    return { amount, label: formatEur(amount) };
   }
 
   /**
@@ -683,14 +866,25 @@ export class TenantLifecycleEmailsService {
           trialEndsAt: { gte: lower, lte: upper },
           tenantLifecycleEmails: { none: { type: milestone.type } },
         },
-        select: { id: true, name: true, trialEndsAt: true },
+        select: {
+          id: true,
+          name: true,
+          trialEndsAt: true,
+          subscription: { select: { plan: { select: { name: true } } } },
+        },
       });
       for (const t of tenants) {
-        const limits = [
-          ...(await this.trialPendingNote(t.id).catch(() => [])),
-          ...(await this.freePlanLimitsNote(t.id, 'ending').catch(() => [])),
-        ];
-        const tmpl = await this.trialTemplate(t.name, milestone.days, limits);
+        const limits = await this.trialPendingNote(t.id).catch(() => []);
+        const quote = await this.monthlyQuote(t.id).catch(() => null);
+        const tmpl = await this.templates.render('trial_ending', {
+          empresa: t.name,
+          dias: milestone.days === 1 ? '1 día' : `${milestone.days} días`,
+          fecha: t.trialEndsAt ? formatDateLong(t.trialEndsAt) : '',
+          plan: t.subscription?.plan.name ?? '',
+          importe: quote?.label ?? '',
+          enlace_pago: this.billingUrl,
+          limites: limits.join('\n'),
+        });
         if (await this.dispatch(t.id, milestone.type, tmpl)) count += 1;
       }
     }
@@ -823,38 +1017,6 @@ export class TenantLifecycleEmailsService {
     return [`Antes de que termine te falta: ${pending.join(', ')}.`];
   }
 
-  /**
-   * Qué pasa con lo que ya tiene al pasar al plan Gratis: si supera alguno de
-   * sus límites, lo conserva todo pero no puede crear más. Vacío si cabe.
-   */
-  private async freePlanLimitsNote(tenantId: string, when: 'ending' | 'ended'): Promise<string[]> {
-    const [plan, units, facilities, users] = await Promise.all([
-      this.admin.subscriptionPlan.findUnique({
-        where: { slug: 'free' },
-        select: { maxUnits: true, maxFacilities: true, maxUsers: true },
-      }),
-      this.admin.unit.count({ where: { tenantId } }),
-      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
-      this.admin.user.count({ where: { tenantId, isActive: true } }),
-    ]);
-    if (!plan) return [];
-    const over = [
-      { have: units, max: plan.maxUnits, one: 'trastero', many: 'trasteros' },
-      { have: facilities, max: plan.maxFacilities, one: 'local', many: 'locales' },
-      { have: users, max: plan.maxUsers, one: 'usuario', many: 'usuarios' },
-    ].filter((x) => x.max != null && x.have > x.max);
-    if (over.length === 0) return [];
-    const n = (v: number, one: string, many: string) => `${v} ${v === 1 ? one : many}`;
-    const have = over.map((x) => n(x.have, x.one, x.many)).join(', ');
-    const allowed = over.map((x) => n(x.max!, x.one, x.many)).join(', ');
-    return [
-      `${when === 'ending' ? 'Ahora tienes' : 'Tienes'} ${have}, y el plan Gratis permite ${allowed}.`,
-      when === 'ending'
-        ? 'Si no eliges un plan, lo conservarás todo, pero no podrás dar de alta más hasta contratarlo.'
-        : 'Lo conservas todo, pero no podrás dar de alta más hasta que contrates un plan.',
-    ];
-  }
-
   // Textos editables desde el panel admin (Comunicación → Correos automáticos).
 
   private welcomeTemplate(tenantName: string, slug: string): Promise<EmailTemplate> {
@@ -864,27 +1026,6 @@ export class TenantLifecycleEmailsService {
       identificador: slug,
       enlace_panel: `${base}/dashboard`,
       enlace_web: `${base}/s/${slug}`,
-    });
-  }
-
-  private trialTemplate(
-    tenantName: string,
-    days: number,
-    limits: string[] = [],
-  ): Promise<EmailTemplate> {
-    return this.templates.render('trial_ending', {
-      empresa: tenantName,
-      dias: days === 1 ? '1 día' : `${days} días`,
-      enlace_pago: this.billingUrl,
-      limites: limits.join('\n'),
-    });
-  }
-
-  private trialEndedTemplate(tenantName: string, limits: string[] = []): Promise<EmailTemplate> {
-    return this.templates.render('trial_ended', {
-      empresa: tenantName,
-      enlace_pago: this.billingUrl,
-      limites: limits.join('\n'),
     });
   }
 

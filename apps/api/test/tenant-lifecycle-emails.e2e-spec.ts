@@ -4,7 +4,6 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
-import { createFacilityWithUnits } from './helpers/facility-fixtures';
 import { deleteAllMessages } from './helpers/mailpit';
 import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
@@ -119,6 +118,9 @@ describe('Tenant lifecycle emails (e2e)', () => {
     const queued = await emailQueue.getJobs(['waiting', 'paused']);
     const reminder = queued.find((j) => j.data.to === owner.email);
     expect(reminder?.data.text).toContain('te falta: crear tu primer local');
+    // Con el plan, el día y lo que pagaría.
+    expect(reminder?.data.text).toContain('Tu prueba del plan Starter termina el');
+    expect(reminder?.data.text).toMatch(/serían 79,00\s€ al mes \(IVA incluido\)/);
 
     // Idempotencia: una segunda ejecución NO vuelve a contar/registrar este tenant.
     const run2 = await request(app.getHttpServer()).post('/admin/tenant-lifecycle/run').set(auth);
@@ -133,7 +135,7 @@ describe('Tenant lifecycle emails (e2e)', () => {
     expect(noAuth.status).toBe(401);
   });
 
-  it('una prueba vencida sin pagar pasa al plan Free (y una pagada solo sale de prueba)', async () => {
+  it('una prueba vencida sin pagar pasa a solo lectura (y una pagada solo sale de prueba)', async () => {
     const auth = { Authorization: `Bearer ${token}` };
     const unpaid = await registerVerifiedUser(app, 'lifecycle-expired');
     const paid = await registerVerifiedUser(app, 'lifecycle-paid');
@@ -148,8 +150,6 @@ describe('Tenant lifecycle emails (e2e)', () => {
       where: { tenantId: paid.tenantId },
       data: { status: 'active' },
     });
-    // Más trasteros de los que permite el plan Gratis: el correo lo avisa.
-    await createFacilityWithUnits(app, unpaid.accessToken, { unitsCount: 12 });
 
     const run = await request(app.getHttpServer()).post('/admin/tenant-lifecycle/run').set(auth);
     expect(run.status).toBe(200);
@@ -161,8 +161,20 @@ describe('Tenant lifecycle emails (e2e)', () => {
     });
     expect(a.status).toBe('active');
     expect(a.trialEndsAt).toBeNull();
-    expect(a.subscription?.plan.slug).toBe('free');
-    expect(a.subscription?.status).toBe('active');
+    // Conserva su plan, pero en solo lectura hasta que pague.
+    expect(a.subscription?.plan.slug).toBe('starter');
+    expect(a.subscription?.status).toBe('expired');
+    await request(app.getHttpServer())
+      .post('/facilities')
+      .set({ Authorization: `Bearer ${unpaid.accessToken}` })
+      .send({ name: 'Local', city: 'Madrid', country: 'ES', timezone: 'Europe/Madrid' })
+      .expect(403)
+      .expect((r) => expect(r.body.code).toBe('subscription_expired_read_only'));
+    const status = await request(app.getHttpServer())
+      .get('/settings/billing-status')
+      .set({ Authorization: `Bearer ${unpaid.accessToken}` })
+      .expect(200);
+    expect(status.body).toMatchObject({ expired: true, hasIssue: true });
     expect(
       await adminClient.tenantLifecycleEmail.count({
         where: { tenantId: unpaid.tenantId, type: 'trial_ended' },
@@ -172,9 +184,8 @@ describe('Tenant lifecycle emails (e2e)', () => {
     const ended = jobs.find(
       (j) => j.data.to === unpaid.email && /ha terminado/.test(String(j.data.subject)),
     );
-    expect(ended?.data.text).toContain(
-      'Tienes 12 trasteros, y el plan Gratis permite 10 trasteros',
-    );
+    expect(ended?.data.text).toContain('tu cuenta está en solo lectura');
+    expect(ended?.data.text).toMatch(/plan Starter \(79,00\s€ al mes, IVA incluido\)/);
 
     const b = await adminClient.tenant.findUniqueOrThrow({
       where: { id: paid.tenantId },

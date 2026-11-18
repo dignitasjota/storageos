@@ -23,6 +23,12 @@ const passwordSchema = z
  * `tenantSlug` es opcional: si se omite, el backend lo deriva de `tenantName`
  * y le aplica un sufijo numerico si colisiona.
  */
+/** Planes que se pueden elegir al darse de alta. */
+export const REGISTER_PLAN_SLUGS = ['basic', 'starter', 'pro', 'administrador'] as const;
+export type RegisterPlanSlug = (typeof REGISTER_PLAN_SLUGS)[number];
+/** Plan de la prueba si no se elige otro. */
+export const DEFAULT_TRIAL_PLAN_SLUG: RegisterPlanSlug = 'starter';
+
 export const RegisterSchema = z.object({
   tenantName: z
     .string()
@@ -55,6 +61,8 @@ export const RegisterSchema = z.object({
   salesCode: z.string().trim().max(40).optional(),
   /** `link` si lo puso el enlace del comercial; `typed` si lo escribió el cliente. */
   salesCodeFrom: z.enum(['link', 'typed']).optional(),
+  /** Plan con el que empieza la prueba (sus límites valen desde el primer día). */
+  planSlug: z.enum(REGISTER_PLAN_SLUGS).optional(),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 

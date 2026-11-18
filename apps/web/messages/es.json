@@ -495,8 +495,8 @@
     "trialBanner": {
       "remaining": "Prueba gratuita — quedan {days, plural, =0 {hoy es el último día} =1 {1 día} other {# días}}",
       "ended": "Tu prueba ha terminado.",
-      "endingSoon": "Después pasarás al plan Gratis, con menos trasteros, locales y usuarios.",
-      "choosePlan": "Elegir plan"
+      "endingSoon": "Después, si no eliges cómo pagar, el panel quedará en solo lectura hasta que lo hagas.",
+      "choosePlan": "Elegir cómo pagar"
     },
     "theme": {
       "light": "Claro",
