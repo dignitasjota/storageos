@@ -25,6 +25,7 @@ export async function PricingSection() {
   const t = await getTranslations('landing');
   const { plans, includesVat } = await loadLandingPlans();
   const views: PricingPlanView[] = plans.map((p) => ({
+    ...(p.slug ? { slug: p.slug } : {}),
     name: p.name,
     tagline: p.tagline,
     cta: p.cta,

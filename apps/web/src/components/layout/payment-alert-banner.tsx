@@ -30,6 +30,27 @@ export function PaymentAlertBanner() {
   const data = status.data;
   if (!data?.hasIssue) return null;
 
+  // Prueba (o plan gratuito) terminada sin pagar: solo lectura hasta que pague.
+  if (data.expired && !data.pastDue && data.suspendedAddons.length === 0) {
+    return (
+      <div className="border-b border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+        <div className="container flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-xs font-medium">
+          <span className="flex items-center gap-2">
+            <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+            Tu prueba ha terminado: el panel está en solo lectura. Tus inquilinos siguen funcionando
+            con normalidad.
+          </span>
+          <Link
+            href="/settings/saas-billing"
+            className="underline underline-offset-2 hover:opacity-80"
+          >
+            Elegir cómo pagar
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const hasSuspendedAddons = data.suspendedAddons.length > 0;
   // Regularización por soporte cuando no hay pago online: add-ons manuales o
   // plan de pago manual impagado.

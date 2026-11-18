@@ -974,8 +974,10 @@ export interface TenantLifecycleRunResultDto {
   welcome: number;
   trialReminders: number;
   pastDue: number;
-  /** Pruebas vencidas que han pasado al plan Free en esta ejecución. */
+  /** Pruebas vencidas sin pagar (pasan a solo lectura) en esta ejecución. */
   trialsEnded: number;
+  /** Cuentas del plan gratuito avisadas (30 días antes) o pasadas a Basic. */
+  freePlanMoves: number;
   /** Correos de ayuda para arrancar enviados (prueba sin local, inquilinos o facturas). */
   activationNudges: number;
   /** Avisos de cuenta suspendida enviados (días 0, 7 y 14). */
@@ -1551,6 +1553,8 @@ export interface TenantBillingStatusDto {
   suspended: boolean;
   /** Con la cuenta suspendida: lo que sus inquilinos deben y no se les cobra hasta que pague (€). */
   heldAmount: number;
+  /** Prueba o plan gratuito terminados sin pagar: el panel queda en solo lectura. */
+  expired: boolean;
   /** Hay algo pendiente de pagar (plan o algún add-on). */
   hasIssue: boolean;
 }

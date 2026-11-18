@@ -76,8 +76,11 @@ export function LifecycleSettingsCard() {
         res.pastDue +
         res.activationNudges +
         res.suspensionNotices;
+      if (res.freePlanMoves > 0) {
+        toast.info(`${res.freePlanMoves} cuentas del plan gratuito avisadas o pasadas a Basic.`);
+      }
       if (res.trialsEnded > 0) {
-        toast.info(`${res.trialsEnded} pruebas vencidas han pasado al plan Free.`);
+        toast.info(`${res.trialsEnded} pruebas vencidas sin pagar han pasado a solo lectura.`);
       }
       if (total > 0) {
         toast.success(

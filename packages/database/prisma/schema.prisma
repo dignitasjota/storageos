@@ -339,6 +339,8 @@ model Tenant {
   /// Con qué se cobra la tarjeta a los inquilinos: redsys | stripe (null = Redsys si está activo).
   cardProvider                 String?               @map("card_provider")
   trialEndsAt                  DateTime?             @map("trial_ends_at") @db.Timestamptz(6)
+  /// Día en que la cuenta del plan gratuito pasa a Basic (se fija al avisar).
+  freePlanEndsAt               DateTime?             @map("free_plan_ends_at") @db.Timestamptz(6)
   billingEmail                 String?               @map("billing_email")
   country                      String                @default("ES") @db.Char(2)
   locale                       String                @default("es-ES")

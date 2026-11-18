@@ -183,13 +183,13 @@ describe('Fase 8: super admin + impersonation + support tickets (e2e)', () => {
     expect(t!.status).toBe('active');
     expect(t!.trialEndsAt).toBeNull();
 
-    // La suscripción baja al plan FREE y queda activa (no en un plan de pago sin pagar).
+    // Conserva su plan, pero sin pagar queda en solo lectura (suscripción vencida).
     const sub = await adminClient.tenantSubscription.findFirst({
       where: { tenantId: owner.tenantId },
       include: { plan: true },
     });
-    expect(sub!.plan.slug).toBe('free');
-    expect(sub!.status).toBe('active');
+    expect(sub!.plan.slug).toBe('starter');
+    expect(sub!.status).toBe('expired');
 
     // Repetir sobre un tenant que ya NO está en trial → 400.
     const again = await request(app.getHttpServer())

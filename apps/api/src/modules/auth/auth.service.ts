@@ -14,6 +14,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import {
   DEFAULT_INVOICE_SERIES,
+  DEFAULT_TRIAL_PLAN_SLUG,
   DEFAULT_LEGAL_DOCUMENTS,
   effectiveFeaturesFromList,
   permissionsForRole,
@@ -82,7 +83,7 @@ export interface AuthFlowResult<TBody> {
 export const TENANT_OWNER_VERIFIED = 'tenant.owner_verified';
 
 const TRIAL_DAYS = 30;
-const TRIAL_PLAN_SLUG = 'starter';
+const TRIAL_PLAN_SLUG = DEFAULT_TRIAL_PLAN_SLUG;
 
 @Injectable()
 export class AuthService {
@@ -112,13 +113,20 @@ export class AuthService {
   // ============================ register ===================================
 
   async register(input: RegisterInput, meta: RequestMeta): Promise<RegisterPendingResponse> {
+    // El plan elegido, si se ofrece; si no (oculto o desactivado), el de siempre.
+    const chosen = input.planSlug
+      ? await this.admin.subscriptionPlan.findFirst({
+          where: { slug: input.planSlug, isActive: true, isPublic: true },
+          select: { slug: true },
+        })
+      : null;
     const { tenant, user, subscription, plan } = await this.createTenantAccount({
       tenantName: input.tenantName,
       ...(input.tenantSlug ? { tenantSlug: input.tenantSlug } : {}),
       email: input.email,
       fullName: input.fullName,
       passwordHash: await argonHash(input.password),
-      planSlug: TRIAL_PLAN_SLUG,
+      planSlug: chosen?.slug ?? TRIAL_PLAN_SLUG,
       trialDays: TRIAL_DAYS,
       emailVerified: false,
     });

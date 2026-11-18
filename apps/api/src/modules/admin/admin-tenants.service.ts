@@ -1633,22 +1633,17 @@ export class AdminTenantsService {
         message: 'El tenant no está en periodo de prueba.',
       });
     }
-    // Un trial finalizado sin conversión baja al plan FREE (0 features premium):
-    // el tenant sigue operando lo básico gratis, pero no queda como "activo de
-    // pago" en un plan que no ha pagado. Si ya hubiera pagado, el propio pago lo
-    // habría pasado a `active` (no llegaría aquí en `trial`).
-    const freePlan = await this.admin.subscriptionPlan.findFirst({ where: { slug: 'free' } });
+    // Como al vencer sola: sin pagar, la cuenta queda en solo lectura con su
+    // plan hasta que elija cómo pagar (si ya hubiera pagado, el propio pago la
+    // habría pasado a `active` y no llegaría aquí en `trial`).
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: { status: 'active', trialEndsAt: null },
     });
-    if (freePlan) {
-      // Baja la suscripción al plan free y la marca activa (sale de `trial`).
-      await this.admin.tenantSubscription.updateMany({
-        where: { tenantId },
-        data: { planId: freePlan.id, status: 'active' },
-      });
-    }
+    await this.admin.tenantSubscription.updateMany({
+      where: { tenantId, status: { not: 'active' } },
+      data: { status: 'expired' },
+    });
     await this.audit.write({
       tenantId,
       userId: null,
@@ -1699,9 +1694,12 @@ export class AdminTenantsService {
     // Un tenant que ya paga no vuelve a prueba (perdería su estado de cliente
     // de pago y saldría en «pruebas por expirar»).
     const onFree = !sub || sub.plan.slug === 'free';
+    // Prueba vencida sin pagar (solo lectura): tampoco paga.
+    const expired = sub?.status === 'expired';
     const paying =
       tenant.status !== 'trial' &&
       sub?.status !== 'trial' &&
+      !expired &&
       (!!sub?.stripeSubscriptionId || (!onFree && Number(sub?.plan.priceMonthly ?? 0) > 0));
     if (paying) {
       throw new BadRequestException({
@@ -1717,8 +1715,14 @@ export class AdminTenantsService {
         ...(tenant.status === 'cancelled' ? {} : { status: 'trial' }),
       },
     });
-    // Prueba ya vencida (pasó al plan Free): vuelve a probar con el plan de la
-    // prueba, como al registrarse.
+    // Prueba vencida sin pagar: vuelve a probar con su mismo plan.
+    if (expired && !onFree && tenant.status !== 'cancelled') {
+      await this.admin.tenantSubscription.update({
+        where: { tenantId },
+        data: { status: 'trial', currentPeriodEnd: newTrialEndsAt },
+      });
+    }
+    // En el plan gratuito: vuelve a probar con el plan de la prueba, como al registrarse.
     if (onFree && sub && tenant.status !== 'cancelled') {
       const trialPlan = await this.admin.subscriptionPlan.findFirst({
         where: { slug: 'starter', isActive: true },

@@ -2708,3 +2708,14 @@ Migración `20270207100000_plan_basic` (se aplica sola al arrancar el API). Sin 
 - El plan **gratis** deja de ofrecerse (se oculta de la web y del cambio de plan); quien lo tiene sigue igual hasta la siguiente PR.
 - Los extras pueden limitarse a ciertos planes y a una cantidad máxima (panel admin → Extras). Al cambiar de plan, el cliente pierde los extras que su nuevo plan ya incluye o no admite, con un aviso en su panel. Bajar de plan exige caber en sus límites (`plan_limits_exceeded`).
 - **Tras desplegar**: revisar en `/admin/plans` el precio de Basic y en `/admin/addons` el de los dos extras nuevos. Si se cobra por Stripe, los Price de los extras se crean solos la primera vez.
+
+## 156. Prueba con el plan elegido, solo lectura al acabar y fin del plan gratuito (2026-11-18)
+
+Migración `20270208100000_plan_trial` (`tenants.free_plan_ends_at`; se aplica sola). Sin variables nuevas.
+
+- **Registro**: se elige el plan de la prueba (Basic, Starter, Pro o Administrador; Starter por defecto). Los botones de la tabla de precios llevan a `/register?plan=…`. La prueba dura 30 días, sin tarjeta, con los límites del plan elegido.
+- **Fin de la prueba sin pagar**: la cuenta conserva su plan y pasa a **solo lectura** (suscripción `expired`): puede consultarlo todo, pagar, escribir a soporte y gestionar su perfil; cualquier otro cambio da 403 `subscription_expired_read_only`. Sus inquilinos, su web y los cobros siguen funcionando. Al pagar vuelve a la normalidad sola. «Finalizar prueba» del panel admin hace lo mismo y «Ampliar prueba» la reabre con su plan.
+- **Avisos**: los correos de 7, 3 y 1 día antes dicen el plan, el día y lo que pagaría al mes (IVA incluido); el del fin y un aviso en el panel explican el solo lectura.
+- **Plan gratuito**: la tarea diaria del ciclo de vida avisa una vez a cada cuenta (correo y aviso en el panel) con lo que pagará en Basic y, a los 30 días, la pasa a Basic; si no ha pagado, queda en solo lectura. Corre siempre, aunque los correos automáticos estén apagados.
+- **Correos editados**: si en Comunicación → Correos automáticos se editaron «La prueba termina pronto» o «La prueba ha terminado», se mantiene ese texto: conviene revisarlo (ya no se pasa al plan gratuito) y usar las variables nuevas `{plan}`, `{fecha}` e `{importe}`. Hay dos correos nuevos: «El plan gratuito se acaba» y «Ha pasado al plan Basic».
+- **Tras desplegar**: la primera ejecución diaria avisa a todas las cuentas del plan gratuito a la vez (pasan a Basic 30 días después).

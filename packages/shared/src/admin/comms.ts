@@ -246,6 +246,8 @@ export const LIFECYCLE_EMAIL_CODES = [
   'trial_ending',
   'trial_ended',
   'past_due',
+  'free_plan_notice',
+  'free_plan_ended',
 ] as const;
 export type LifecycleEmailCode = (typeof LIFECYCLE_EMAIL_CODES)[number];
 
@@ -286,34 +288,39 @@ export const LIFECYCLE_EMAIL_DEFAULTS: Record<LifecycleEmailCode, LifecycleEmail
     subject: 'Tu prueba de TrasterOS termina en {dias}',
     body:
       'Hola, {empresa}:\n\n' +
-      'Tu periodo de prueba termina en {dias}. Para no perder el acceso a tu cuenta ni a tus datos, suscríbete a un plan antes de que finalice:\n\n' +
+      'Tu prueba del plan {plan} termina el {fecha}. Para seguir trabajando sin cortes, elige cómo pagar antes de esa fecha: con lo que tienes hoy serían {importe} al mes (IVA incluido).\n\n' +
       '{enlace_pago}\n\n' +
-      'Elige el plan que mejor se ajuste a tu operativa; puedes cambiarlo en cualquier momento.\n\n' +
+      'Si no lo haces, tu cuenta pasará a solo lectura: verás todos tus datos, pero no podrás cambiar nada hasta que pagues. Puedes cambiar de plan cuando quieras.\n\n' +
       '{limites}\n\n' +
       '¿Dudas sobre qué plan te conviene? Escríbenos desde Soporte en tu panel.' +
       SIGN,
     variables: [
       { key: '{empresa}', label: 'Nombre del tenant' },
       { key: '{dias}', label: 'Días que quedan («3 días»)' },
+      { key: '{fecha}', label: 'Día en que termina («18 de diciembre de 2026»)' },
+      { key: '{plan}', label: 'Plan de la prueba' },
+      { key: '{importe}', label: 'Lo que pagaría al mes con lo que tiene hoy' },
       { key: '{enlace_pago}', label: 'Enlace a la suscripción' },
-      { key: '{limites}', label: 'Lo que supera del plan gratuito (si algo)' },
+      { key: '{limites}', label: 'Lo que le falta por hacer (si algo)' },
     ],
   },
   trial_ended: {
     label: 'La prueba ha terminado',
-    description: 'Al pasar al plan gratuito por fin de la prueba.',
+    description:
+      'Al terminar la prueba sin haber elegido cómo pagar (la cuenta pasa a solo lectura).',
     subject: 'Tu prueba de TrasterOS ha terminado',
     body:
       'Hola, {empresa}:\n\n' +
-      'Tu periodo de prueba de TrasterOS ha terminado y tu cuenta ha pasado al plan gratuito. Tus datos siguen ahí y puedes seguir entrando, pero las funciones de pago quedan desactivadas hasta que contrates un plan.\n\n' +
-      '{limites}\n\n' +
+      'Tu prueba de TrasterOS ha terminado y tu cuenta está en solo lectura: tus datos siguen ahí y puedes consultarlos, pero no cambiar nada. Tus inquilinos siguen funcionando con normalidad.\n\n' +
+      'Para volver a trabajar, elige cómo pagar el plan {plan} ({importe} al mes, IVA incluido) u otro plan:\n\n' +
       '{enlace_pago}\n\n' +
       '¿Necesitas más tiempo para probar? Escríbenos desde Soporte en tu panel.' +
       SIGN,
     variables: [
       { key: '{empresa}', label: 'Nombre del tenant' },
+      { key: '{plan}', label: 'Plan de la prueba' },
+      { key: '{importe}', label: 'Lo que pagaría al mes' },
       { key: '{enlace_pago}', label: 'Enlace a la suscripción' },
-      { key: '{limites}', label: 'Lo que supera del plan gratuito (si algo)' },
     ],
   },
   past_due: {
@@ -329,6 +336,42 @@ export const LIFECYCLE_EMAIL_DEFAULTS: Record<LifecycleEmailCode, LifecycleEmail
       SIGN,
     variables: [
       { key: '{empresa}', label: 'Nombre del tenant' },
+      { key: '{enlace_pago}', label: 'Enlace a la suscripción' },
+    ],
+  },
+  free_plan_notice: {
+    label: 'El plan gratuito se acaba',
+    description: 'Una vez, 30 días antes de pasar a Basic a quien tiene el plan gratuito.',
+    subject: 'Tu cuenta de TrasterOS pasa al plan Basic el {fecha}',
+    body:
+      'Hola, {empresa}:\n\n' +
+      'Dejamos de ofrecer el plan gratuito. El {fecha} tu cuenta pasará al plan Basic: 1 € por trastero, con un mínimo de 19 € al mes. Con tus {trasteros} trasteros serían {importe} al mes (IVA incluido).\n\n' +
+      'Para seguir trabajando sin cortes, elige cómo pagar antes de esa fecha (o elige otro plan):\n\n' +
+      '{enlace_pago}\n\n' +
+      'Si no lo haces, ese día tu cuenta quedará en solo lectura hasta que pagues. Tus datos no se pierden.\n\n' +
+      '¿Dudas? Escríbenos desde Soporte en tu panel.' +
+      SIGN,
+    variables: [
+      { key: '{empresa}', label: 'Nombre del tenant' },
+      { key: '{fecha}', label: 'Día del cambio' },
+      { key: '{trasteros}', label: 'Trasteros que tiene hoy' },
+      { key: '{importe}', label: 'Lo que pagaría al mes' },
+      { key: '{enlace_pago}', label: 'Enlace a la suscripción' },
+    ],
+  },
+  free_plan_ended: {
+    label: 'Ha pasado al plan Basic',
+    description: 'El día en que la cuenta del plan gratuito pasa a Basic sin haber pagado.',
+    subject: 'Tu cuenta de TrasterOS ha pasado al plan Basic',
+    body:
+      'Hola, {empresa}:\n\n' +
+      'Como te avisamos, tu cuenta ha pasado al plan Basic ({importe} al mes, IVA incluido). Mientras no elijas cómo pagar, está en solo lectura: puedes consultar tus datos, pero no cambiar nada. Tus inquilinos siguen funcionando con normalidad.\n\n' +
+      '{enlace_pago}\n\n' +
+      '¿Dudas? Escríbenos desde Soporte en tu panel.' +
+      SIGN,
+    variables: [
+      { key: '{empresa}', label: 'Nombre del tenant' },
+      { key: '{importe}', label: 'Lo que pagaría al mes' },
       { key: '{enlace_pago}', label: 'Enlace a la suscripción' },
     ],
   },

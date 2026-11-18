@@ -140,6 +140,8 @@ export class SaasAddonsService {
     // Plan impagado sin Stripe = pago manual: no hay portal de pago online, el
     // tenant regulariza avisando a soporte («He realizado el pago»).
     const planManual = pastDue && !subscription?.stripeSubscriptionId;
+    // Prueba o plan gratuito terminados sin pagar: solo lectura hasta que pague.
+    const expired = !exempt && !suspendedAccount && subscription?.status === 'expired';
     const suspendedAddons = suspended.map((s) => ({
       name: s.addon.name,
       feature: s.addon.feature,
@@ -174,7 +176,8 @@ export class SaasAddonsService {
       suspendedFeatures,
       suspended: suspendedAccount,
       heldAmount,
-      hasIssue: pastDue || suspendedAccount || suspendedAddons.length > 0,
+      expired,
+      hasIssue: pastDue || suspendedAccount || expired || suspendedAddons.length > 0,
     };
   }
 

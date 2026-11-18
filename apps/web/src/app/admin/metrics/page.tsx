@@ -205,7 +205,7 @@ export default function AdminMetricsPage() {
             value={m.trialsEndedThisMonth.ended}
             hint={
               m.trialsEndedThisMonth.ended > 0
-                ? `${m.trialsEndedThisMonth.converted} pagan · ${m.trialsEndedThisMonth.toFree} a Free · ${m.trialsEndedThisMonth.churned} de baja`
+                ? `${m.trialsEndedThisMonth.converted} pagan · ${m.trialsEndedThisMonth.toFree} sin pagar · ${m.trialsEndedThisMonth.churned} de baja`
                 : 'ninguna este mes'
             }
           />

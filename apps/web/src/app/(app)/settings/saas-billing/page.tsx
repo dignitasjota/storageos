@@ -391,7 +391,7 @@ export default function SaasBillingPage() {
                         <p className="text-xs text-muted-foreground">
                           {[
                             p.maxUnits != null
-                              ? `Hasta ${p.maxUnits.toLocaleString('es-ES')} trasteros`
+                              ? `Hasta ${String(p.maxUnits).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} trasteros`
                               : 'Trasteros sin límite',
                             p.maxFacilities != null
                               ? `${p.maxFacilities} ${p.maxFacilities === 1 ? 'local' : 'locales'}`
