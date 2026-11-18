@@ -55,7 +55,7 @@ const PRICING_FAQ = [
   },
   {
     q: '¿Cómo funciona la prueba gratuita?',
-    a: 'Tienes 30 días con todas las funciones del plan, sin poner tarjeta. Al terminar, eliges un plan o sigues en el gratuito.',
+    a: 'Eliges el plan al registrarte y lo pruebas 30 días con sus funciones y sus límites, sin poner tarjeta. Al terminar, eliges cómo pagar; si no, tu cuenta queda en solo lectura: no se pierde nada y vuelve a funcionar en cuanto pagas.',
   },
   {
     q: '¿Qué pasa si supero los trasteros de mi plan?',
