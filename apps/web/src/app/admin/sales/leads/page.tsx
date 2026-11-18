@@ -300,7 +300,17 @@ export default function SalesLeadsPage() {
                     </Link>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                       {l.contactName && l.companyName && <span>{l.contactName}</span>}
-                      {l.city && <span>· {l.city}</span>}
+                      {l.phone && (
+                        <span>
+                          ·{' '}
+                          <a
+                            href={`tel:${l.phone.replace(/\s+/g, '')}`}
+                            className="hover:text-foreground hover:underline"
+                          >
+                            {l.phone}
+                          </a>
+                        </span>
+                      )}
                       <TemperatureBadge value={l.salesProfile?.temperature} />
                     </div>
                     <ProfileGlance profile={l.salesProfile} />
