@@ -81,8 +81,6 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
     description: 'Cobro por adeudo directo SEPA sin comisión de pasarela.',
     priceMonthly: 9,
     feature: 'sepa',
-    // No se vende en Basic (allí se cobra con tarjeta).
-    planSlugs: ['free', 'starter'],
   },
   {
     slug: 'addon-bank-reconciliation',

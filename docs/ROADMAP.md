@@ -1197,7 +1197,7 @@ Fuera de esta PR: el pago de las comisiones (las liquidaciones solo dejan consta
 
 ### Nuevos planes: Basic por trastero y Pro hasta 1.000 (2026-11-18, 2 PR)
 
-Tras revisar los precios de la competencia (decisiones de Jota: prueba sin método de pago, Basic por trastero exacto, SEPA solo en Pro, Pro hasta 1.000 trasteros, al acabar la prueba sin pagar solo lectura, y los del plan gratis pasan a Basic con aviso).
+Tras revisar los precios de la competencia (decisiones de Jota: prueba sin método de pago, Basic por trastero exacto, SEPA incluida solo en Pro y Administrador (en Basic y Starter, como extra), Pro hasta 1.000 trasteros, al acabar la prueba sin pagar solo lectura, y los del plan gratis pasan a Basic con aviso).
 
 | Plan          | Precio                        | Trasteros  | Locales    | Usuarios        |
 | ------------- | ----------------------------- | ---------- | ---------- | --------------- |

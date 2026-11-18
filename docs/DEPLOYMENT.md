@@ -2701,7 +2701,7 @@ Migración `20270206100000_sales_features` (se aplica sola al arrancar el API). 
 
 Migración `20270207100000_plan_basic` (se aplica sola al arrancar el API). Sin variables nuevas. El `bootstrap` crea el plan **Basic** y los extras **«Trasteros de más»** y **«Segundo usuario»**.
 
-- **Basic**: 1 € por trastero con un mínimo de 19 € (incluye 19), hasta 50 trasteros, 1 local y 1 usuario. Solo pago mensual. Sin funciones de pago; cobro a los inquilinos con tarjeta y Bizum (la domiciliación SEPA no se vende en Basic).
+- **Basic**: 1 € por trastero con un mínimo de 19 € (incluye 19), hasta 50 trasteros, 1 local y 1 usuario. Solo pago mensual. Sin funciones de pago; la domiciliación SEPA se puede contratar como extra (como en Starter; en Pro y Administrador va incluida).
 - Los trasteros que pasan de los incluidos van en el extra interno «Trasteros de más» (1 €). La tarea `extra-units.daily` (06:15, hora de España) los fija **7 días antes de cada cobro** con los trasteros dados de alta ese día; lo que se dé de alta después cuenta en el siguiente. Sin prorrateos. Con Stripe van en la propia suscripción (y ya en el primer pago del Checkout); con remesa SEPA o Redsys, en el mismo cargo; con pago a mano, en la bandeja «Hoy» el día del cobro.
 - **Segundo usuario** (10 €): solo en Basic, uno como mucho.
 - **Pro** pasa a tener hasta **1.000 trasteros** (los que ya tenían más no pierden nada: el límite solo frena altas nuevas). **Administrador** sigue sin límite.

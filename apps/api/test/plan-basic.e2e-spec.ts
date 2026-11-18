@@ -132,7 +132,8 @@ describe('Plan Basic (e2e)', () => {
 
     // En el autoservicio: ni el extra interno ni lo que no es de su plan.
     expect(view.available.some((a) => a.slug === EXTRA_UNITS_ADDON_SLUG)).toBe(false);
-    expect(view.available.some((a) => a.slug === 'addon-sepa')).toBe(false);
+    // La domiciliación SEPA sí se puede contratar aparte en Basic.
+    expect(view.available.some((a) => a.slug === 'addon-sepa')).toBe(true);
     const second = view.available.find((a) => a.slug === BASIC_USER_ADDON_SLUG);
     expect(second).toBeDefined();
     await http()

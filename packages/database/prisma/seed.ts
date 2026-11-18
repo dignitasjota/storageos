@@ -282,8 +282,6 @@ async function seedAddons() {
       name: 'Domiciliación SEPA / GoCardless',
       priceMonthly: 9,
       feature: 'sepa',
-      // No se vende en Basic (allí se cobra con tarjeta).
-      planSlugs: ['free', 'starter'],
     },
     {
       slug: 'addon-bank-reconciliation',

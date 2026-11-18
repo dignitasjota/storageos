@@ -19,7 +19,3 @@ UPDATE "subscription_plans" SET "max_units" = 1000 WHERE "slug" = 'pro' AND "max
 
 -- El plan gratis deja de ofrecerse (sigue para quien lo tiene hasta pasar a Basic).
 UPDATE "subscription_plans" SET "is_public" = false WHERE "slug" = 'free';
-
--- La domiciliación SEPA no se vende en Basic (allí se cobra con tarjeta).
-UPDATE "subscription_addons" SET "plan_slugs" = ARRAY['free', 'starter']
-  WHERE "slug" = 'addon-sepa' AND "plan_slugs" = '{}';
