@@ -412,6 +412,8 @@ export const SALES_COMMISSION_KINDS = [
   'addon_sale',
   'concept',
   'adjustment',
+  'tier',
+  'bonus',
 ] as const;
 export type SalesCommissionKind = (typeof SALES_COMMISSION_KINDS)[number];
 export const SALES_COMMISSION_KIND_LABELS: Record<SalesCommissionKind, string> = {
@@ -420,6 +422,8 @@ export const SALES_COMMISSION_KIND_LABELS: Record<SalesCommissionKind, string> =
   addon_sale: 'Extra vendido',
   concept: 'Concepto',
   adjustment: 'Ajuste',
+  tier: 'Tramo del mes',
+  bonus: 'Bonus por objetivo',
 };
 export const SALES_COMMISSION_STATUSES = ['pending', 'approved', 'rejected'] as const;
 export type SalesCommissionStatus = (typeof SALES_COMMISSION_STATUSES)[number];
@@ -431,6 +435,27 @@ export const SALES_COMMISSION_STATUS_LABELS: Record<SalesCommissionStatus, strin
 
 const money = z.number().min(0).max(100_000);
 
+export const SalesSaleTierSchema = z.object({
+  /** Ventas en el mes a partir de las que vale este fijo. */
+  fromSales: z.number().int().min(2).max(500),
+  /** Fijo por cada venta del mes al llegar al tramo. */
+  amount: money,
+});
+export type SalesSaleTier = z.infer<typeof SalesSaleTierSchema>;
+
+/** Fijo por venta del mes según los tramos (el más alto alcanzado o el normal). */
+export function saleTierAmount(tiers: SalesSaleTier[], base: number, sales: number): number {
+  let out = base;
+  for (const t of tiers) if (sales >= t.fromSales && t.amount > out) out = t.amount;
+  return out;
+}
+
+/** Lo que suma el tramo sobre el fijo normal: (fijo del tramo − normal) × ventas. */
+export function saleTierExtra(tiers: SalesSaleTier[], base: number, sales: number): number {
+  const amount = saleTierAmount(tiers, base, sales);
+  return Math.round((amount - base) * sales * 100) / 100;
+}
+
 export const UpdateSalesCommissionPlanSchema = z.object({
   /** % de lo que pagan sus clientes (sin IVA). */
   revenuePct: z.number().min(0).max(100),
@@ -441,6 +466,12 @@ export const UpdateSalesCommissionPlanSchema = z.object({
   /** Fijo por cada extra aprobado tras la venta. */
   perAddonAmount: money,
   notes: z.string().trim().max(2000).nullable().optional(),
+  /** Meses que el cliente tiene que seguir para que cuente el fijo de la venta (null = sin garantía). */
+  guaranteeMonths: z.number().int().min(1).max(24).nullable().optional(),
+  /** Tramos: a partir de N ventas en el mes, cada venta de ese mes paga este fijo. */
+  saleTiers: z.array(SalesSaleTierSchema).max(5).optional(),
+  /** Bonus por cumplir el objetivo del mes (clientes y cuotas). */
+  targetBonus: money.optional(),
 });
 export type UpdateSalesCommissionPlanInput = z.infer<typeof UpdateSalesCommissionPlanSchema>;
 
@@ -464,6 +495,9 @@ export interface SalesCommissionPlanDto {
   perSaleAmount: number;
   perAddonAmount: number;
   notes: string | null;
+  guaranteeMonths: number | null;
+  saleTiers: SalesSaleTier[];
+  targetBonus: number;
   concepts: SalesCommissionConceptDto[];
   updatedAt: string | null;
 }
@@ -472,8 +506,9 @@ export interface SalesCommissionItemDto {
   id: string;
   repId: string;
   repName: string;
-  tenantId: string;
-  tenantName: string;
+  /** null = del mes (tramo o bonus), no de un cliente. */
+  tenantId: string | null;
+  tenantName: string | null;
   kind: SalesCommissionKind;
   description: string;
   month: string;
@@ -578,7 +613,97 @@ export interface SalesSettlementDto {
   status: 'pending_payment' | 'paid';
   paidAt: string | null;
   note: string | null;
+  /** Cuándo confirmó el comercial que lo ha recibido. */
+  receivedAt: string | null;
+  receivedNote: string | null;
   createdAt: string;
+}
+
+/** El comercial confirma que ha recibido la liquidación (en efectivo). */
+export const AcknowledgeSalesSettlementSchema = z.object({
+  note: z.string().trim().max(500).optional(),
+});
+export type AcknowledgeSalesSettlementInput = z.infer<typeof AcknowledgeSalesSettlementSchema>;
+
+// --------------------------------------------------------------- previsión
+
+export interface SalesForecastMonthDto {
+  month: string;
+  amount: number;
+}
+
+/** Lo que cobrará el comercial por el % de sus clientes de pago los próximos meses. */
+export interface SalesForecastDto {
+  months: SalesForecastMonthDto[];
+  total: number;
+  /** Clientes de pago que cuentan. */
+  clients: number;
+  revenuePct: number;
+}
+
+export interface SalesTeamForecastDto {
+  months: string[];
+  reps: { repId: string; repName: string; amounts: number[]; total: number }[];
+  totals: number[];
+  total: number;
+}
+
+/**
+ * Previsión del % de un comercial: por cada cliente, lo que paga al mes (sin
+ * IVA) por el % mientras dure su plazo desde el primer pago.
+ */
+export function forecastRevenueCommission(args: {
+  clients: { monthlyNet: number; firstPaidMonth: string }[];
+  revenuePct: number;
+  /** Meses que cuenta el % desde el primer pago (null = siempre). */
+  revenueMonths: number | null;
+  months: string[];
+}): number[] {
+  const index = (m: string) => {
+    const [y, mo] = m.split('-').map(Number) as [number, number];
+    return y * 12 + (mo - 1);
+  };
+  return args.months.map((m) => {
+    let sum = 0;
+    for (const c of args.clients) {
+      const since = index(m) - index(c.firstPaidMonth);
+      if (since < 0) continue;
+      if (args.revenueMonths != null && since >= args.revenueMonths) continue;
+      sum += revenueCommission(c.monthlyNet, args.revenuePct);
+    }
+    return Math.round(sum * 100) / 100;
+  });
+}
+
+// -------------------------------------------------------------- comparativa
+
+export interface SalesTeamComparisonRowDto {
+  repId: string;
+  repName: string;
+  isActive: boolean;
+  /** Prospectos que se le asignaron en el periodo. */
+  leads: number;
+  /** Cuentas suyas que empezaron la prueba en el periodo. */
+  trials: number;
+  /** Clientes que pagaron por primera vez en el periodo. */
+  wins: number;
+  /** Ventas sobre pruebas del periodo (%). */
+  conversionPct: number | null;
+  /** Días de media desde el alta hasta el primer pago. */
+  avgDaysToClose: number | null;
+  /** Clientes suyos que se dieron de baja en el periodo. */
+  churned: number;
+  /** Lo que aportan al mes sus clientes de pago hoy. */
+  mrr: number;
+  /** Comisiones aprobadas del periodo. */
+  commission: number;
+}
+
+export interface SalesTeamComparisonDto {
+  months: number;
+  from: string;
+  to: string;
+  rows: SalesTeamComparisonRowDto[];
 }
 
 export const CreateSalesSettlementSchema = z.object({

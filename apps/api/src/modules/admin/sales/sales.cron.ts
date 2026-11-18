@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { salesMonth } from '@storageos/shared';
 
 import { claimDailyCronRun } from '../../../common/cron-claim';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
@@ -33,6 +34,10 @@ export class SalesCron {
     try {
       const claims = await this.commissions.syncClaims();
       const items = await this.commissions.computeAll();
+      // El mes anterior, ya cerrado: tramos y bonus por objetivo (una vez).
+      const prev = new Date(`${salesMonth()}-15T12:00:00Z`);
+      prev.setUTCMonth(prev.getUTCMonth() - 1);
+      await this.commissions.closeMonth(salesMonth(prev));
       const alerts = await this.alerts.run();
       if (claims || items.created) {
         this.logger.log(

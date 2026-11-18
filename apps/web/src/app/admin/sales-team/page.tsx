@@ -13,6 +13,7 @@ import {
   Field,
   PageHeader,
   QueryError,
+  QueryState,
   relativeDays,
   SalesPage,
   Stat,
@@ -30,6 +31,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -44,9 +52,12 @@ import {
   useSalesSettings,
   useSalesTeam,
   useSaveSalesSettings,
+  useTeamComparison,
+  useTeamForecast,
 } from '@/lib/admin/sales-team-hooks';
 import { openImpersonationTab } from '@/lib/auth/impersonation';
 import { formatDateTime, formatEur } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 function NewRepDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateSalesRep();
@@ -349,6 +360,170 @@ function DemoCard({ settings }: { settings: PlatformSalesSettingsDto }) {
   );
 }
 
+const PERIODS = [
+  { value: '1', label: 'Este mes' },
+  { value: '3', label: 'Últimos 3 meses' },
+  { value: '6', label: 'Últimos 6 meses' },
+  { value: '12', label: 'Último año' },
+];
+
+/** Cómo va cada comercial en el periodo. */
+function ComparisonCard() {
+  const [months, setMonths] = useState('3');
+  const data = useTeamComparison(Number(months));
+  const rows = data.data?.rows ?? [];
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-2 pb-3">
+        <div>
+          <CardTitle className="text-base">Comparativa del equipo</CardTitle>
+          <CardDescription>
+            Prospectos, pruebas, ventas y bajas de cada comercial en el periodo; las cuotas, las de
+            hoy.
+          </CardDescription>
+        </div>
+        <Select value={months} onValueChange={setMonths}>
+          <SelectTrigger className="w-44">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIODS.map((p) => (
+              <SelectItem key={p.value} value={p.value}>
+                {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </CardHeader>
+      <CardContent>
+        {data.isLoading || data.isError ? (
+          <QueryState query={data} />
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aún no tienes comerciales.</p>
+        ) : (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Comercial</TableHead>
+                  <TableHead className="text-right">Prospectos</TableHead>
+                  <TableHead className="text-right">Pruebas</TableHead>
+                  <TableHead className="text-right">Ventas</TableHead>
+                  <TableHead className="text-right">Conversión</TableHead>
+                  <TableHead className="text-right">Días hasta pagar</TableHead>
+                  <TableHead className="text-right">Bajas</TableHead>
+                  <TableHead className="text-right">Cuotas al mes</TableHead>
+                  <TableHead className="text-right">Comisiones</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={r.repId} className={cn(!r.isActive && 'opacity-60')}>
+                    <TableCell className="text-sm">
+                      <Link href={`/admin/sales-team/${r.repId}`} className="hover:underline">
+                        {r.repName}
+                      </Link>
+                      {!r.isActive && (
+                        <span className="block text-xs text-muted-foreground">Desactivado</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{r.leads}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.trials}</TableCell>
+                    <TableCell className="text-right tabular-nums">{r.wins}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.conversionPct === null ? '—' : `${r.conversionPct} %`}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.avgDaysToClose ?? '—'}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        'text-right tabular-nums',
+                        r.churned > 0 && 'text-rose-600 dark:text-rose-400',
+                      )}
+                    >
+                      {r.churned}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{formatEur(r.mrr)}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatEur(r.commission)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Lo que costarán las comisiones del % los próximos meses (con la cartera de hoy). */
+function TeamForecastCard() {
+  const data = useTeamForecast();
+  const f = data.data;
+  if (!f || f.reps.length === 0 || f.total <= 0) return null;
+  const monthName = (m: string) => {
+    const [y, mo] = m.split('-').map(Number) as [number, number];
+    return new Date(y, mo - 1, 1).toLocaleDateString('es-ES', { month: 'short' });
+  };
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Comisiones previstas</CardTitle>
+        <CardDescription>
+          El % de cada comercial sobre lo que pagan hoy sus clientes, los próximos {f.months.length}{' '}
+          meses. Sin ventas nuevas, fijos ni bonus.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Comercial</TableHead>
+                {f.months.map((m) => (
+                  <TableHead key={m} className="text-right capitalize">
+                    {monthName(m)}
+                  </TableHead>
+                ))}
+                <TableHead className="text-right">Total</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {f.reps.map((r) => (
+                <TableRow key={r.repId}>
+                  <TableCell className="text-sm">{r.repName}</TableCell>
+                  {r.amounts.map((a, i) => (
+                    <TableCell key={i} className="text-right tabular-nums">
+                      {formatEur(a)}
+                    </TableCell>
+                  ))}
+                  <TableCell className="text-right font-medium tabular-nums">
+                    {formatEur(r.total)}
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow>
+                <TableCell className="text-sm font-medium">Equipo</TableCell>
+                {f.totals.map((a, i) => (
+                  <TableCell key={i} className="text-right font-medium tabular-nums">
+                    {formatEur(a)}
+                  </TableCell>
+                ))}
+                <TableCell className="text-right font-semibold tabular-nums">
+                  {formatEur(f.total)}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SalesTeamPage() {
   const team = useSalesTeam();
   const settings = useSalesSettings();
@@ -470,6 +645,9 @@ export default function SalesTeamPage() {
           </Table>
         </div>
       )}
+
+      <ComparisonCard />
+      <TeamForecastCard />
 
       {settings.data && (
         <div className="grid gap-4 lg:grid-cols-2">

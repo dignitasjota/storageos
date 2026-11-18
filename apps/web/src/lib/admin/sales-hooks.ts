@@ -2,7 +2,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { adminApiFetch } from './api';
+import { adminApiFetch, adminApiFetchBlob } from './api';
 
 import type {
   AdminAddonOpportunityDto,
@@ -28,6 +28,7 @@ import type {
   SalesCreateTenantInput,
   SalesDemoStatusDto,
   SalesExtendTrialInput,
+  SalesForecastDto,
   SalesImportResultDto,
   SalesLeadListDto,
   SalesMaterialDto,
@@ -180,6 +181,37 @@ export function useSalesSettlements() {
     queryKey: [...ROOT, 'settlements'] as const,
     queryFn: () => adminApiFetch<SalesSettlementDto[]>('/admin/sales/settlements'),
   });
+}
+
+export function useSalesForecast() {
+  return useQuery({
+    queryKey: [...ROOT, 'forecast'] as const,
+    queryFn: () => adminApiFetch<SalesForecastDto>('/admin/sales/forecast'),
+  });
+}
+
+/** Confirma que ha recibido una liquidación. */
+export function useAcknowledgeSettlement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+      adminApiFetch<SalesSettlementDto>(`/admin/sales/settlements/${id}/received`, {
+        method: 'POST',
+        json: note ? { note } : {},
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: [...ROOT, 'settlements'] }),
+  });
+}
+
+/** Descarga un fichero (PDF) con la sesión del panel. */
+export async function downloadAdminFile(path: string, filename: string): Promise<void> {
+  const blob = await adminApiFetchBlob(path);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function useSalesTargets() {

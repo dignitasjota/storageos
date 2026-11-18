@@ -13,6 +13,8 @@ import {
   Put,
   Query,
   Req,
+  Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -58,9 +60,11 @@ import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesContentService } from './sales-content.service';
 import { SalesDemoService } from './sales-demo.service';
+import { SalesInsightsService } from './sales-insights.service';
 import { SalesTeamService } from './sales-team.service';
 
-import type { Request } from 'express';
+import type { SalesTeamComparisonDto, SalesTeamForecastDto } from '@storageos/shared';
+import type { Request, Response } from 'express';
 
 class CreateRepDto extends createZodDto(CreateSalesRepSchema) {}
 class UpdateRepDto extends createZodDto(UpdateSalesRepSchema) {}
@@ -97,6 +101,7 @@ export class SalesTeamController {
     private readonly commissions: SalesCommissionsService,
     private readonly content: SalesContentService,
     private readonly demo: SalesDemoService,
+    private readonly insights: SalesInsightsService,
   ) {}
 
   @Get()
@@ -317,6 +322,42 @@ export class SalesTeamController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SalesSettlementDto> {
     return this.commissions.markSettlementPaid(id, byId);
+  }
+
+  @Get('settlements/:id/receipt')
+  async settlementReceipt(
+    @Res({ passthrough: true }) res: Response,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<StreamableFile> {
+    const pdf = await this.commissions.settlementReceiptPdf(id);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="liquidacion-${id.slice(0, 8)}.pdf"`,
+    );
+    return new StreamableFile(pdf, { type: 'application/pdf' });
+  }
+
+  /** Cierra un mes terminado: tramos y bonus por objetivo (lo hace sola cada hora). */
+  @Post('commissions/close-month')
+  @HttpCode(HttpStatus.OK)
+  closeMonth(@Body() body: { month?: string }): Promise<{ tiers: number; bonuses: number }> {
+    const month = typeof body?.month === 'string' ? body.month : '';
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      throw new BadRequestException({ code: 'invalid_month', message: 'Mes AAAA-MM' });
+    }
+    return this.commissions.closeMonth(month);
+  }
+
+  // ------------------------------------------------------------- previsión
+
+  @Get('forecast')
+  forecast(): Promise<SalesTeamForecastDto> {
+    return this.insights.teamForecast();
+  }
+
+  @Get('comparison')
+  comparison(@Query('months') months?: string): Promise<SalesTeamComparisonDto> {
+    return this.insights.comparison(Number(months ?? 3));
   }
 
   // ----------------------------------------------------------------- ajustes

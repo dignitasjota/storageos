@@ -8673,6 +8673,12 @@ model SalesCommissionPlan {
   perSaleAmount  Decimal  @default(0) @map("per_sale_amount") @db.Decimal(10, 2)
   perAddonAmount Decimal  @default(0) @map("per_addon_amount") @db.Decimal(10, 2)
   notes          String?
+  /// Meses que el cliente tiene que seguir para que cuente el fijo de la venta.
+  guaranteeMonths Int?    @map("guarantee_months")
+  /// Tramos del fijo por venta: [{fromSales, amount}].
+  saleTiers      Json     @default("[]") @map("sale_tiers")
+  /// Bonus por cumplir el objetivo del mes.
+  targetBonus    Decimal  @default(0) @map("target_bonus") @db.Decimal(10, 2)
   updatedById    String?  @map("updated_by_id") @db.Uuid
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -8737,6 +8743,9 @@ model SalesSettlement {
   paidAt      DateTime? @map("paid_at") @db.Timestamptz(6)
   paidById    String?   @map("paid_by_id") @db.Uuid
   note        String?
+  /// Cuándo confirmó el comercial que la ha recibido, y su nota.
+  receivedAt   DateTime? @map("received_at") @db.Timestamptz(6)
+  receivedNote String?   @map("received_note")
   createdById String?   @map("created_by_id") @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -8751,7 +8760,8 @@ model SalesSettlement {
 model SalesCommissionItem {
   id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   repId         String    @map("rep_id") @db.Uuid
-  tenantId      String    @map("tenant_id") @db.Uuid
+  /// null = del mes, no de un cliente (tramo o bonus).
+  tenantId      String?   @map("tenant_id") @db.Uuid
   /// revenue · sale · addon_sale · concept · adjustment
   kind          String
   paymentId     String?   @map("payment_id") @db.Uuid
@@ -8765,6 +8775,8 @@ model SalesCommissionItem {
   /// Reparto del cobro entre el plan y los extras, sin IVA ni devoluciones,
   /// tal como era al cobrarse (solo en la primera partida de cada cobro).
   split         Json?
+  /// Partida que corrige (descuento o reintegro de una venta).
+  relatedItemId String?   @map("related_item_id") @db.Uuid
   rate          Decimal?  @db.Decimal(6, 3)
   amount        Decimal   @db.Decimal(12, 2)
   /// pending · approved · rejected
@@ -8777,11 +8789,13 @@ model SalesCommissionItem {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   rep        SuperAdmin                 @relation(fields: [repId], references: [id], onDelete: Cascade)
-  tenant     Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant     Tenant?                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   payment    TenantSubscriptionPayment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   claim      SalesAddonClaim?           @relation(fields: [claimId], references: [id], onDelete: SetNull)
   concept    SalesCommissionConcept?    @relation(fields: [conceptId], references: [id], onDelete: SetNull)
   settlement SalesSettlement?           @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  related    SalesCommissionItem?       @relation("SalesItemCorrection", fields: [relatedItemId], references: [id], onDelete: SetNull)
+  corrections SalesCommissionItem[]     @relation("SalesItemCorrection")
 
   @@index([repId, month], map: "sales_commission_items_rep_month_idx")
   @@index([paymentId], map: "sales_commission_items_payment_idx")

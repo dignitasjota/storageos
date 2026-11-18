@@ -7,7 +7,7 @@ import {
   type SalesCommissionConceptDto,
   type SalesRepDetailDto,
 } from '@storageos/shared';
-import { ArrowLeft, Loader2, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -55,6 +55,7 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { downloadAdminFile } from '@/lib/admin/sales-hooks';
 import {
   useCreateCommissionItem,
   useCreateSettlement,
@@ -216,7 +217,12 @@ function PlanCard({ rep }: { rep: SalesRepDetailDto }) {
     perSaleAmount: String(p.perSaleAmount),
     perAddonAmount: String(p.perAddonAmount),
     notes: p.notes ?? '',
+    guaranteeMonths: p.guaranteeMonths === null ? '' : String(p.guaranteeMonths),
+    targetBonus: String(p.targetBonus),
   });
+  const [tiers, setTiers] = useState(
+    p.saleTiers.map((t) => ({ fromSales: String(t.fromSales), amount: String(t.amount) })),
+  );
   useEffect(() => {
     setForm({
       revenuePct: String(p.revenuePct),
@@ -224,7 +230,12 @@ function PlanCard({ rep }: { rep: SalesRepDetailDto }) {
       perSaleAmount: String(p.perSaleAmount),
       perAddonAmount: String(p.perAddonAmount),
       notes: p.notes ?? '',
+      guaranteeMonths: p.guaranteeMonths === null ? '' : String(p.guaranteeMonths),
+      targetBonus: String(p.targetBonus),
     });
+    setTiers(
+      p.saleTiers.map((t) => ({ fromSales: String(t.fromSales), amount: String(t.amount) })),
+    );
   }, [p.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit() {
@@ -236,6 +247,16 @@ function PlanCard({ rep }: { rep: SalesRepDetailDto }) {
         perSaleAmount: Math.max(0, money(form.perSaleAmount)),
         perAddonAmount: Math.max(0, money(form.perAddonAmount)),
         notes: form.notes.trim() || null,
+        guaranteeMonths: form.guaranteeMonths.trim()
+          ? Math.min(24, Math.max(1, Math.floor(money(form.guaranteeMonths))))
+          : null,
+        targetBonus: Math.max(0, money(form.targetBonus)),
+        saleTiers: tiers
+          .filter((t) => t.fromSales.trim() && t.amount.trim())
+          .map((t) => ({
+            fromSales: Math.max(2, Math.floor(money(t.fromSales))),
+            amount: Math.max(0, money(t.amount)),
+          })),
       });
       toast.success('Condiciones guardadas. Valen para lo que se cobre a partir de ahora.');
     } catch (err) {
@@ -282,6 +303,78 @@ function PlanCard({ rep }: { rep: SalesRepDetailDto }) {
               onChange={(e) => setForm((f) => ({ ...f, perAddonAmount: e.target.value }))}
             />
           </Field>
+          <Field
+            label="Garantía de la venta (meses)"
+            hint="Si el cliente se va antes, el fijo por venta se descuenta. Vacío = sin garantía."
+          >
+            <Input
+              inputMode="numeric"
+              value={form.guaranteeMonths}
+              onChange={(e) => setForm((f) => ({ ...f, guaranteeMonths: e.target.value }))}
+            />
+          </Field>
+          <Field
+            label="Bonus por cumplir el objetivo (€)"
+            hint="Al cerrar el mes, si llega a los clientes y las cuotas de su objetivo."
+          >
+            <Input
+              inputMode="decimal"
+              value={form.targetBonus}
+              onChange={(e) => setForm((f) => ({ ...f, targetBonus: e.target.value }))}
+            />
+          </Field>
+          <div className="space-y-2 sm:col-span-2">
+            <p className="text-sm font-medium">Tramos del fijo por venta</p>
+            <p className="text-xs text-muted-foreground">
+              A partir de esas ventas en un mes, cada venta de ese mes paga el fijo del tramo. La
+              diferencia se suma al cerrar el mes.
+            </p>
+            {tiers.map((t, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
+                <span>Desde</span>
+                <Input
+                  className="h-8 w-20"
+                  inputMode="numeric"
+                  value={t.fromSales}
+                  onChange={(e) =>
+                    setTiers((list) =>
+                      list.map((x, j) => (j === i ? { ...x, fromSales: e.target.value } : x)),
+                    )
+                  }
+                />
+                <span>ventas, cada una</span>
+                <Input
+                  className="h-8 w-24"
+                  inputMode="decimal"
+                  value={t.amount}
+                  onChange={(e) =>
+                    setTiers((list) =>
+                      list.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)),
+                    )
+                  }
+                />
+                <span>€</span>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Quitar tramo"
+                  onClick={() => setTiers((list) => list.filter((_, j) => j !== i))}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+            {tiers.length < 5 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setTiers((list) => [...list, { fromSales: '', amount: '' }])}
+              >
+                <Plus className="mr-1 size-4" />
+                Añadir tramo
+              </Button>
+            )}
+          </div>
           <Field label="Notas (las ve el comercial)" className="sm:col-span-2">
             <Textarea
               rows={2}
@@ -678,9 +771,13 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
                 <TableRow key={i.id}>
                   <TableCell className="whitespace-nowrap text-xs">{monthLabel(i.month)}</TableCell>
                   <TableCell className="text-sm">
-                    <Link href={`/admin/tenants/${i.tenantId}`} className="hover:underline">
-                      {i.tenantName}
-                    </Link>
+                    {i.tenantId ? (
+                      <Link href={`/admin/tenants/${i.tenantId}`} className="hover:underline">
+                        {i.tenantName}
+                      </Link>
+                    ) : (
+                      '—'
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {SALES_COMMISSION_KIND_LABELS[i.kind]}
@@ -780,9 +877,30 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
                 >
                   <span>
                     {monthLabel(s.month)} · {s.itemsCount} movimientos
+                    <span className="block text-xs text-muted-foreground">
+                      {s.receivedAt
+                        ? `Recibida por el comercial el ${formatDate(s.receivedAt)}${
+                            s.receivedNote ? ` · ${s.receivedNote}` : ''
+                          }`
+                        : 'El comercial aún no ha confirmado que la ha recibido'}
+                    </span>
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="font-medium tabular-nums">{formatEur(s.total)}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Justificante en PDF"
+                      title="Justificante en PDF"
+                      onClick={() =>
+                        void downloadAdminFile(
+                          `/admin/sales-team/settlements/${s.id}/receipt`,
+                          `liquidacion-${rep.salesCode ?? 'comercial'}-${s.month}.pdf`,
+                        ).catch((e) => toast.error(errorText(e, 'No se ha podido descargar.')))
+                      }
+                    >
+                      <Download className="size-4" />
+                    </Button>
                     {s.status === 'paid' ? (
                       <Badge>Pagada en efectivo {formatDate(s.paidAt)}</Badge>
                     ) : (

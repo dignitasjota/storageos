@@ -1314,3 +1314,9 @@ Todas las tablas nuevas son de la plataforma (sin tenant ni RLS, con `REVOKE` a 
 - `sales_commission_items.split` (jsonb, opcional): reparto del cobro entre el plan y los extras, sin IVA ni devoluciones, tal como era al cobrarse. Lo lleva la primera partida de cada cobro; los recálculos lo escalan por lo que queda tras las devoluciones, así que contratar o quitar un extra después no cambia la comisión de cobros anteriores.
 - **`sales_wins`** (PK `tenant_id`, `REVOKE`): la venta de cada cliente de comercial (su primer pago): comercial, mes en hora de España, fecha y lo que aportaba al mes entonces. Es lo que cuentan los objetivos; se borra si se devuelve todo lo cobrado.
 - `platform_sales_settings.demo_resetting_at`: reinicio de la cuenta de demostración en marcha (uno a la vez; caduca a los 15 minutos).
+
+### Funcionalidades del equipo comercial (`20270206100000_sales_features`)
+
+- `sales_commission_plans.guarantee_months` (meses que el cliente tiene que seguir para que cuente el fijo de la venta; null = sin garantía), `sale_tiers` (jsonb `[{fromSales, amount}]`: a partir de esas ventas en un mes, cada venta del mes paga ese fijo) y `target_bonus` (bonus por cumplir el objetivo del mes).
+- `sales_commission_items`: `tenant_id` admite nulo (el tramo y el bonus son del mes, no de un cliente); tipos nuevos `tier` y `bonus`, únicos por comercial y mes (índices parciales); `related_item_id` (FK a sí misma) en los descuentos y reintegros de una venta.
+- `sales_settlements.received_at` / `received_note`: el comercial confirma que ha recibido la liquidación en efectivo.

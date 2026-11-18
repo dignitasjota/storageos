@@ -13,9 +13,12 @@ import {
   Put,
   Query,
   Req,
+  Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import {
+  AcknowledgeSalesSettlementSchema,
   CreatePlatformLeadActivitySchema,
   CreatePlatformLeadFollowupSchema,
   CreateSalesProspectSchema,
@@ -49,6 +52,7 @@ import {
   type SalesClientRowDto,
   type SalesCommissionsDto,
   type SalesDemoStatusDto,
+  type SalesForecastDto,
   type SalesImportResultDto,
   type SalesLeadListDto,
   type SalesMaterialDto,
@@ -72,11 +76,12 @@ import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesContentService } from './sales-content.service';
 import { SalesDemoService } from './sales-demo.service';
+import { SalesInsightsService } from './sales-insights.service';
 import { SalesNotifyService } from './sales-notify.service';
 import { SalesSellingService, type SalesCatalogDto } from './sales-selling.service';
 
 import type { SalesActor } from './sales-common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 class CreateProspectDto extends createZodDto(CreateSalesProspectSchema) {}
 class UpdateLeadDto extends createZodDto(UpdateSalesLeadSchema) {}
@@ -94,6 +99,7 @@ class SimulateDto extends createZodDto(SalesSimulateQuoteSchema) {}
 class CadenceDto extends createZodDto(EnrollSalesCadenceSchema) {}
 class AddonOfferDto extends createZodDto(SalesAddonOfferSchema) {}
 class ExtendTrialDto extends createZodDto(SalesExtendTrialSchema) {}
+class AcknowledgeDto extends createZodDto(AcknowledgeSalesSettlementSchema) {}
 class ApprovalDto extends createZodDto(SalesApprovalRequestSchema) {}
 class ClaimNoteDto extends createZodDto(SalesClaimNoteSchema) {}
 class ConceptRequestDto extends createZodDto(RequestSalesConceptSchema) {}
@@ -120,6 +126,7 @@ export class SalesController {
     private readonly content: SalesContentService,
     private readonly demo: SalesDemoService,
     private readonly assignment: SalesAssignmentService,
+    private readonly insights: SalesInsightsService,
   ) {}
 
   private actor(admin: AuthenticatedSuperAdmin, req: Request): SalesActor {
@@ -529,6 +536,43 @@ export class SalesController {
     @Req() req: Request,
   ): Promise<SalesSettlementDto[]> {
     return this.commissions.settlements(this.actor(admin, req).repId);
+  }
+
+  /** Confirma que ha recibido la liquidación (en efectivo). */
+  @Post('settlements/:id/received')
+  @HttpCode(HttpStatus.OK)
+  settlementReceived(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AcknowledgeDto,
+  ): Promise<SalesSettlementDto> {
+    return this.commissions.acknowledgeSettlement(this.actor(admin, req).repId, id, body.note);
+  }
+
+  /** Justificante en PDF de una liquidación suya. */
+  @Get('settlements/:id/receipt')
+  async settlementReceipt(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<StreamableFile> {
+    const pdf = await this.commissions.settlementReceiptPdf(id, this.actor(admin, req).repId);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="liquidacion-${id.slice(0, 8)}.pdf"`,
+    );
+    return new StreamableFile(pdf, { type: 'application/pdf' });
+  }
+
+  /** Lo que cobrará por el % de sus clientes los próximos meses. */
+  @Get('forecast')
+  forecast(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ): Promise<SalesForecastDto> {
+    return this.insights.forecast(this.actor(admin, req).repId);
   }
 
   @Get('targets')

@@ -3318,4 +3318,13 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 - `POST /admin/sales-team/demo/reset` con otro reinicio en marcha → 409 `demo_resetting`; el reinicio deja tipos, locales y trasteros de ejemplo como al crearla; si el de la noche falla, aviso `sales.demo_reset_failed`.
 - Avisos que llevaban a pestañas inexistentes ahora llevan a `/admin/sales-team/pending` y a `/admin/sales/results?tab=claims`.
 
+**Funcionalidades (2026-11-18)**:
+
+- Plan (`PUT /admin/sales-team/reps/:id/plan`): `guaranteeMonths` (1-24 o null), `saleTiers` (`[{fromSales ≥ 2, amount}]`, hasta 5) y `targetBonus`; si no se envían, no cambian. `SalesCommissionPlanDto` los devuelve.
+- **Garantía**: si el cliente se da de baja (suspendido, cancelado o borrado) antes de esos meses desde su primer pago, el fijo de la venta se rechaza o, si ya se liquidó, se descuenta con un ajuste (`related_item_id`); si se reactiva, vuelve (reintegro).
+- **Tramos y bonus**: al cerrar el mes (tarea `sales.hourly`, sobre el mes anterior; o `POST /admin/sales-team/commissions/close-month {month}`, 400 `month_not_closed` con el mes en curso) se crea una partida `tier` = (fijo del tramo − fijo normal) × ventas aprobadas del mes, y una `bonus` si consiguió los clientes y las cuotas de su objetivo. Una de cada por comercial y mes; aviso `sales.month_closed`. `SalesCommissionItemDto.tenantId/tenantName` pueden ser null.
+- **Liquidaciones**: `POST /admin/sales/settlements/:id/received {note?}` (el comercial confirma que la ha recibido; 404 si no es suya, 409 `settlement_already_received`); `GET /admin/sales/settlements/:id/receipt` y `GET /admin/sales-team/settlements/:id/receipt` → justificante en PDF. `SalesSettlementDto.receivedAt/receivedNote`.
+- **Previsión**: `GET /admin/sales/forecast` → `SalesForecastDto` (su % sobre lo que pagan hoy sus clientes de pago, sin IVA, los próximos 6 meses, respetando los meses de su plan); `GET /admin/sales-team/forecast` → `SalesTeamForecastDto` (por comercial activo y total).
+- **Comparativa**: `GET /admin/sales-team/comparison?months=1|3|6|12` → `SalesTeamComparisonDto` (por comercial: prospectos asignados, pruebas, ventas, conversión, días hasta pagar, bajas, cuotas al mes de hoy y comisiones del periodo).
+
 **Panel del cliente**: `GET /settings/sales-rep` → `{rep: TenantSalesRepDto | null}` (nombre, email, teléfono, WhatsApp y enlace de reservas de su comercial, si tiene uno activo).

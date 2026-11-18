@@ -2688,3 +2688,11 @@ Migración `20270205100000_sales_review` (se aplica sola al arrancar el API): `s
 - **Objetivos**: cuentan lo que aportaba cada cliente al pagar por primera vez (no lo que paga hoy).
 - **Demo**: el reinicio de cada noche deja también tipos, locales y trasteros como al crearla. Si falla, aviso en el panel («La cuenta de demostración no se ha podido poner a cero»).
 - **Leads**: no se puede descartar ni borrar el lead de un cliente que lleva un comercial sin quitarle antes el comercial.
+
+## 154. Funcionalidades del equipo comercial (2026-11-18)
+
+Migración `20270206100000_sales_features` (se aplica sola al arrancar el API). Sin variables nuevas. La tarea `sales.hourly` cierra además el mes anterior (tramos y bonus, una vez).
+
+- En la ficha de cada comercial («Equipo comercial → Comerciales»): **garantía de la venta** en meses, **bonus por cumplir el objetivo** y **tramos** del fijo por venta. Vacío o 0 = no se aplica.
+- **Liquidaciones**: el comercial pulsa «Recibido» en «Mis comisiones → Liquidaciones» y los dos pueden descargar el justificante en PDF.
+- «Equipo comercial» enseña la **comparativa del equipo** (con periodo) y las **comisiones previstas** de los próximos 6 meses; el comercial ve las suyas en «Mis comisiones».
