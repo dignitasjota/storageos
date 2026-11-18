@@ -19,6 +19,9 @@ import {
 } from '@nestjs/common';
 import {
   AcknowledgeSalesSettlementSchema,
+  CreateSalesAppointmentSchema,
+  UpdateSalesAppointmentSchema,
+  type SalesAppointmentDto,
   CreatePlatformLeadActivitySchema,
   CreatePlatformLeadFollowupSchema,
   CreateSalesProspectSchema,
@@ -72,6 +75,7 @@ import { CurrentSuperAdmin, type AuthenticatedSuperAdmin } from '../current-supe
 import { SalesAccess } from '../require-superadmin.decorator';
 
 import { SalesAccountsService } from './sales-accounts.service';
+import { type AppointmentScope, SalesAppointmentsService } from './sales-appointments.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesContentService } from './sales-content.service';
@@ -105,6 +109,8 @@ class ClaimNoteDto extends createZodDto(SalesClaimNoteSchema) {}
 class ConceptRequestDto extends createZodDto(RequestSalesConceptSchema) {}
 class ImportDto extends createZodDto(SalesImportSchema) {}
 class MeDto extends createZodDto(UpdateSalesMeSchema) {}
+class AppointmentDto extends createZodDto(CreateSalesAppointmentSchema) {}
+class UpdateAppointmentDto extends createZodDto(UpdateSalesAppointmentSchema) {}
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
@@ -127,6 +133,7 @@ export class SalesController {
     private readonly demo: SalesDemoService,
     private readonly assignment: SalesAssignmentService,
     private readonly insights: SalesInsightsService,
+    private readonly appointments: SalesAppointmentsService,
   ) {}
 
   private actor(admin: AuthenticatedSuperAdmin, req: Request): SalesActor {
@@ -327,6 +334,53 @@ export class SalesController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
     await this.accounts.deleteFollowup(this.actor(admin, req).repId, id);
+  }
+
+  // ------------------------------------------------------------------ citas
+
+  @Get('appointments')
+  listAppointments(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Query('leadId') leadId?: string,
+    @Query('scope') scope?: string,
+  ): Promise<SalesAppointmentDto[]> {
+    return this.appointments.listForRep(this.actor(admin, req).repId, {
+      ...(leadId && UUID_RE.test(leadId) ? { leadId } : {}),
+      ...(scope === 'upcoming' || scope === 'past' || scope === 'all'
+        ? { scope: scope as AppointmentScope }
+        : {}),
+    });
+  }
+
+  @Post('accounts/:leadId/appointments')
+  createAppointment(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Body() body: AppointmentDto,
+  ): Promise<SalesAppointmentDto> {
+    return this.appointments.createByRep(this.actor(admin, req).repId, leadId, body);
+  }
+
+  @Patch('appointments/:id')
+  updateAppointment(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateAppointmentDto,
+  ): Promise<SalesAppointmentDto> {
+    return this.appointments.updateByRep(this.actor(admin, req).repId, id, body);
+  }
+
+  @Delete('appointments/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAppointment(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    await this.appointments.deleteByRep(this.actor(admin, req).repId, id);
   }
 
   @Post('accounts/:leadId/email')

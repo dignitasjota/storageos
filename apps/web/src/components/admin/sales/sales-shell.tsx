@@ -5,6 +5,7 @@ import {
   BookOpen,
   Building2,
   CalendarCheck,
+  CalendarClock,
   ClipboardCheck,
   FileText,
   LogOut,
@@ -47,6 +48,7 @@ interface SalesNavItem {
 
 const SALES_NAV: SalesNavItem[] = [
   { href: '/admin/sales', label: 'Hoy', icon: CalendarCheck, exact: true },
+  { href: '/admin/sales/appointments', label: 'Mis citas', icon: CalendarClock },
   { href: '/admin/sales/leads', label: 'Prospectos', icon: Target },
   { href: '/admin/sales/clients', label: 'Clientes', icon: Building2 },
   { href: '/admin/sales/offers', label: 'Propuestas', icon: FileText },

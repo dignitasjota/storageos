@@ -4967,6 +4967,8 @@ model SuperAdmin {
   salesTenants            Tenant[]                 @relation("TenantSalesRep")
   salesLeads              PlatformLead[]           @relation("PlatformLeadSalesRep")
   salesAssignments        SalesAssignment[]
+  salesAppointments       SalesAppointment[]       @relation("SalesAppointmentRep")
+  createdSalesAppointments SalesAppointment[]     @relation("SalesAppointmentCreator")
   salesCommissionPlan     SalesCommissionPlan?
   salesCommissionConcepts SalesCommissionConcept[]
   salesAddonClaims        SalesAddonClaim[]
@@ -8427,6 +8429,7 @@ model PlatformLead {
   tenant      Tenant?                @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   activities  PlatformLeadActivity[]
   followups   PlatformLeadFollowup[]
+  appointments SalesAppointment[]
   quoteOffers PlatformQuoteOffer[]
 
   @@index([assignedToId], map: "platform_leads_assigned_idx")
@@ -8654,6 +8657,36 @@ model SalesAssignment {
   @@index([repId, startedAt], map: "sales_assignments_rep_idx")
   @@map("sales_assignments")
 }
+/// Cita del comercial con un prospecto o cliente: fecha y hora, con avisos.
+model SalesAppointment {
+  id                 String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  leadId             String    @map("lead_id") @db.Uuid
+  repId              String    @map("rep_id") @db.Uuid
+  /// in_person · call · video
+  kind               String
+  title              String
+  startsAt           DateTime  @map("starts_at") @db.Timestamptz(6)
+  durationMinutes    Int       @default(30) @map("duration_minutes")
+  location           String?
+  notes              String?
+  /// scheduled · done · cancelled · no_show
+  status             String    @default("scheduled")
+  createdById        String?   @map("created_by_id") @db.Uuid
+  dayReminderSentAt  DateTime? @map("day_reminder_sent_at") @db.Timestamptz(6)
+  hourReminderSentAt DateTime? @map("hour_reminder_sent_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lead      PlatformLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  rep       SuperAdmin   @relation("SalesAppointmentRep", fields: [repId], references: [id], onDelete: Cascade)
+  createdBy SuperAdmin?  @relation("SalesAppointmentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([repId, startsAt], map: "sales_appointments_rep_idx")
+  @@index([leadId, startsAt], map: "sales_appointments_lead_idx")
+  @@index([status, startsAt], map: "sales_appointments_due_idx")
+  @@map("sales_appointments")
+}
+
 
 /// Ficha de llamada de una cuenta (siempre por su lead).
 model SalesAccountProfile {

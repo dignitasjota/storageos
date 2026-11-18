@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
 import type { AdminAddonOpportunityDto, PlatformLeadDetailDto, PlatformLeadDto } from '../admin';
+import type { SalesAppointmentDto } from './appointments';
 import type { PlatformQuoteOfferDto } from '../admin/catalog';
+
+export * from './appointments';
 
 /**
  * Comerciales del panel de administración (rol `sales`): su código y enlace,
@@ -341,6 +344,8 @@ export interface SalesTodayDto {
   stuckOnboarding: SalesTodayRowDto[];
   offersPending: SalesTodayRowDto[];
   noContact: SalesTodayRowDto[];
+  /** Sus citas de hoy (pendientes), por hora. */
+  appointments: SalesAppointmentDto[];
   kpis: {
     prospects: number;
     trials: number;

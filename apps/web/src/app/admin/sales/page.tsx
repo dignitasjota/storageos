@@ -1,12 +1,12 @@
 'use client';
 
+import { SALES_APPOINTMENT_KIND_LABELS, type SalesTodayRowDto } from '@storageos/shared';
 import { CheckCircle2, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import type { SalesTodayRowDto } from '@storageos/shared';
-
+import { appointmentLabel } from '@/components/admin/sales/appointments';
 import {
   Empty,
   errorText,
@@ -146,6 +146,47 @@ export default function SalesTodayPage() {
               tone="good"
             />
           </div>
+
+          {data.appointments.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center justify-between text-sm">
+                  Citas de hoy
+                  <Link
+                    href="/admin/sales/appointments"
+                    className="text-xs font-normal text-primary hover:underline"
+                  >
+                    Ver todas
+                  </Link>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="divide-y">
+                  {data.appointments.map((a) => (
+                    <li key={a.id} className="flex items-start gap-3 py-2">
+                      <span className="w-24 shrink-0 text-sm font-medium tabular-nums">
+                        {appointmentLabel(a.startsAt).replace('Hoy · ', '')}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          href={`/admin/sales/accounts/${a.leadId}`}
+                          className="text-sm font-medium hover:underline"
+                        >
+                          {a.leadName}
+                        </Link>
+                        <p className="text-sm">
+                          {SALES_APPOINTMENT_KIND_LABELS[a.kind]} · {a.title}
+                        </p>
+                        {a.location && (
+                          <p className="truncate text-xs text-muted-foreground">{a.location}</p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-2">

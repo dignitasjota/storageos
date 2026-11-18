@@ -36,6 +36,7 @@ import {
   QuoteLeadDialog,
 } from './lead-dialogs';
 
+import { LeadAppointmentsPanel } from '@/components/admin/sales/appointments-views';
 import { useConfirm } from '@/components/confirm-provider';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
@@ -80,6 +81,7 @@ import {
   useUpdateLead,
   useUpdateLeadFollowup,
 } from '@/lib/admin/leads-hooks';
+import { useSalesTeam } from '@/lib/admin/sales-team-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
@@ -365,6 +367,7 @@ function LeadBody({ lead, onClose }: { lead: PlatformLeadDetailDto; onClose: () 
           <TabsTrigger value="conversation">Conversación ({conversation.length})</TabsTrigger>
           <TabsTrigger value="activity">Actividad ({lead.activities.length})</TabsTrigger>
           <TabsTrigger value="followups">Seguimientos ({pendingFollowups.length})</TabsTrigger>
+          <TabsTrigger value="appointments">Citas</TabsTrigger>
         </TabsList>
         <TabsContent value="data" className="pt-3">
           <DataTab lead={lead} />
@@ -377,6 +380,9 @@ function LeadBody({ lead, onClose }: { lead: PlatformLeadDetailDto; onClose: () 
         </TabsContent>
         <TabsContent value="followups" className="pt-3">
           <FollowupsTab lead={lead} />
+        </TabsContent>
+        <TabsContent value="appointments" className="pt-3">
+          <LeadAppointmentsTab lead={lead} />
         </TabsContent>
       </Tabs>
 
@@ -779,6 +785,24 @@ function ActivityTab({ lead }: { lead: PlatformLeadDetailDto }) {
 }
 
 // ---------------------------------------------------------- seguimientos
+
+/** Citas que la dirección le pone al comercial de este lead. */
+function LeadAppointmentsTab({ lead }: { lead: PlatformLeadDetailDto }) {
+  const isSuperadmin = useIsSuperadmin();
+  const team = useSalesTeam(isSuperadmin);
+  if (!isSuperadmin) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Las citas de los comerciales las gestiona la dirección.
+      </p>
+    );
+  }
+  const reps = (team.data?.reps ?? [])
+    .filter((r) => r.isActive)
+    .map((r) => ({ id: r.id, fullName: r.fullName }));
+  if (team.isLoading) return <p className="text-sm text-muted-foreground">Cargando…</p>;
+  return <LeadAppointmentsPanel leadId={lead.id} reps={reps} defaultRepId={lead.assignedToId} />;
+}
 
 function FollowupsTab({ lead }: { lead: PlatformLeadDetailDto }) {
   const create = useCreateLeadFollowup();

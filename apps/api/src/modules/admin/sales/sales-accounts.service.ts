@@ -58,6 +58,7 @@ import { AdminTenantsService } from '../admin-tenants.service';
 import { PlatformLeadsService, type LeadEmailSender } from '../leads/platform-leads.service';
 import { SuperAdminAuditService } from '../super-admin-audit.service';
 
+import { SalesAppointmentsService } from './sales-appointments.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import {
@@ -129,6 +130,7 @@ export class SalesAccountsService {
     private readonly audit: SuperAdminAuditService,
     private readonly config: ConfigService<Env, true>,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
+    private readonly appointments: SalesAppointmentsService,
   ) {}
 
   private actor(a: SalesActor) {
@@ -1548,8 +1550,10 @@ export class SalesAccountsService {
     const counts: Record<string, number> = {};
     for (const g of leadsCount) counts[g.status] = g._count._all;
     const mine = achieved.get(repId) ?? { newClients: 0, newMrr: 0 };
+    const appointments = await this.appointments.todayForRep(repId, now);
     return {
       date: today,
+      appointments,
       followups: followups.map((f) => ({
         id: f.id,
         leadId: f.leadId,

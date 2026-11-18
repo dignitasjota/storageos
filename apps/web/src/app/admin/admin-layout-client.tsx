@@ -147,6 +147,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
     children: [
       { href: '/admin/sales-team', label: 'Comerciales', icon: Handshake },
       { href: '/admin/sales-team/pending', label: 'Por decidir', icon: ClipboardCheck },
+      { href: '/admin/sales-team/appointments', label: 'Citas', icon: CalendarClock },
       { href: '/admin/sales-team/content', label: 'Materiales y plantillas', icon: BookOpen },
     ],
   },
