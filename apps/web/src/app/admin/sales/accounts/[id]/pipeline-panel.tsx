@@ -128,7 +128,7 @@ export function FollowupsCard({ account }: { account: SalesAccountDto }) {
                       }))
                     )
                       return;
-                    remove.mutate(f.id);
+                    remove.mutate(f.id, { onError: (e) => toast.error(errorText(e)) });
                   }}
                 >
                   <Trash2 className="size-4" />

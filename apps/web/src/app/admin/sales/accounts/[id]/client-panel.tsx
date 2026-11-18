@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type {
@@ -39,7 +39,7 @@ import {
   useSalesRequestConcept,
 } from '@/lib/admin/sales-hooks';
 import { ApiError } from '@/lib/auth/api';
-import { formatDate, formatEur } from '@/lib/format';
+import { formatDate, formatEur, parseAmount } from '@/lib/format';
 
 type Sheet = NonNullable<SalesAccountDto['client']>;
 
@@ -61,6 +61,11 @@ function ExtendTrialDialog({
   const [days, setDays] = useState(Math.min(7, Math.max(1, remaining)));
   const [reason, setReason] = useState('');
   const overLimit = days > remaining;
+  // Hasta saber su tope no se decide si lo amplía él o lo pide a la dirección.
+  const loaded = !!me;
+  useEffect(() => {
+    if (loaded) setDays(Math.min(7, Math.max(1, remaining)));
+  }, [loaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit() {
     try {
@@ -122,7 +127,7 @@ function ExtendTrialDialog({
             Cancelar
           </Button>
           <Button
-            disabled={reason.trim().length < 3 || extend.isPending || approval.isPending}
+            disabled={!loaded || reason.trim().length < 3 || extend.isPending || approval.isPending}
             onClick={() => void submit()}
           >
             {(extend.isPending || approval.isPending) && (
@@ -264,13 +269,15 @@ function ApprovalDialog({ client, onClose }: { client: Sheet; onClose: () => voi
       return planSlug ? { action, payload: { planSlug, reason } } : null;
     if (action === 'extend_trial') return { action, payload: { days, reason } };
     if (!addonId) return null;
-    const p = Number(price.replace(',', '.'));
+    // Un precio que no se entiende no se descarta en silencio: no se envía.
+    const p = price.trim() ? parseAmount(price) : null;
+    if (price.trim() && p === null) return null;
     return {
       action: 'assign_addon',
       payload: {
         addonId,
         quantity: 1,
-        ...(price.trim() && Number.isFinite(p) ? { priceMonthly: p } : {}),
+        ...(p !== null ? { priceMonthly: p } : {}),
         ...(reason.trim() ? { notes: reason.trim() } : {}),
       },
     };
@@ -346,7 +353,15 @@ function ApprovalDialog({ client, onClose }: { client: Sheet; onClose: () => voi
                   </SelectContent>
                 </Select>
               </Field>
-              <Field id="ap-price" label="Precio al mes (opcional)" hint="Vacío = el de la tarifa.">
+              <Field
+                id="ap-price"
+                label="Precio al mes (opcional)"
+                hint={
+                  price.trim() && parseAmount(price) === null
+                    ? 'No es un importe válido (por ejemplo, 25 o 24,90).'
+                    : 'Vacío = el de la tarifa.'
+                }
+              >
                 <Input
                   id="ap-price"
                   inputMode="decimal"

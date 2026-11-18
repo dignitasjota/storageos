@@ -117,7 +117,8 @@ export const SalesCallOutcomeSchema = z.object({
   channel: SalesContactChannelEnum.default('call'),
   note: z.string().trim().max(2000).optional(),
   /** Fecha del siguiente seguimiento (si no, la que toca por el resultado). */
-  followupDate: isoDate.optional(),
+  /** null = sin seguimiento; sin enviar = el de por defecto del resultado. */
+  followupDate: isoDate.nullable().optional(),
 });
 export type SalesCallOutcomeInput = z.infer<typeof SalesCallOutcomeSchema>;
 

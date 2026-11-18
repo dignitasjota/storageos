@@ -15,7 +15,14 @@ import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import { Empty, errorText, Field, PageHeader, SalesPage } from '@/components/admin/sales/common';
+import {
+  Empty,
+  errorText,
+  Field,
+  PageHeader,
+  QueryState,
+  SalesPage,
+} from '@/components/admin/sales/common';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -224,7 +231,9 @@ function MaterialsTab() {
           onClose={() => setEditing(null)}
         />
       )}
-      {(materials.data ?? []).length === 0 ? (
+      {materials.isLoading || materials.isError ? (
+        <QueryState query={materials} />
+      ) : (materials.data ?? []).length === 0 ? (
         <Empty>Sube el dossier, las tarifas o el guion de llamada para tus comerciales.</Empty>
       ) : (
         <ul className="divide-y rounded-md border">
@@ -257,7 +266,7 @@ function MaterialsTab() {
                     }))
                   )
                     return;
-                  remove.mutate(m.id);
+                  remove.mutate(m.id, { onError: (e) => toast.error(errorText(e)) });
                 }}
               >
                 <Trash2 className="size-4" />
@@ -398,7 +407,9 @@ function TemplatesTab() {
           onClose={() => setEditing(null)}
         />
       )}
-      {(templates.data ?? []).length === 0 ? (
+      {templates.isLoading || templates.isError ? (
+        <QueryState query={templates} />
+      ) : (templates.data ?? []).length === 0 ? (
         <Empty>Sin plantillas.</Empty>
       ) : (
         <ul className="divide-y rounded-md border">
@@ -428,7 +439,7 @@ function TemplatesTab() {
                     }))
                   )
                     return;
-                  remove.mutate(t.id);
+                  remove.mutate(t.id, { onError: (e) => toast.error(errorText(e)) });
                 }}
               >
                 <Trash2 className="size-4" />
@@ -607,7 +618,9 @@ function CadencesTab() {
           onClose={() => setEditing(null)}
         />
       )}
-      {(cadences.data ?? []).length === 0 ? (
+      {cadences.isLoading || cadences.isError ? (
+        <QueryState query={cadences} />
+      ) : (cadences.data ?? []).length === 0 ? (
         <Empty>Sin cadencias.</Empty>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -644,7 +657,7 @@ function CadencesTab() {
                         }))
                       )
                         return;
-                      remove.mutate(c.id);
+                      remove.mutate(c.id, { onError: (e) => toast.error(errorText(e)) });
                     }}
                   >
                     <Trash2 className="size-4" />

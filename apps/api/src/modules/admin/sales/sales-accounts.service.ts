@@ -223,6 +223,34 @@ export class SalesAccountsService {
         { city: contains },
       ];
     }
+    // Los filtros van en la consulta: con más de 500 leads no se quedan cortos.
+    const cutoffDate = new Date(now.getTime() - NO_CONTACT_DAYS * DAY);
+    if (q.filter === 'no_contact') {
+      where.AND = [
+        { status: { notIn: ['customer', 'lost'] } },
+        {
+          OR: [
+            { salesProfile: { is: { lastContactAt: { lt: cutoffDate } } } },
+            {
+              AND: [
+                {
+                  OR: [
+                    { salesProfile: { is: null } },
+                    { salesProfile: { is: { lastContactAt: null } } },
+                  ],
+                },
+                { activities: { none: { occurredAt: { gte: cutoffDate } } } },
+              ],
+            },
+          ],
+        },
+      ];
+    } else if (q.filter === 'trial_ending') {
+      where.tenant = { status: 'trial', trialEndsAt: { lte: new Date(now.getTime() + 7 * DAY) } };
+    } else if (q.filter === 'pending') {
+      where.tenantId = { not: null };
+      where.tenant = { OR: [{ salesRepId: null }, { salesRepId: { not: repId } }] };
+    }
     const [dtos, groups] = await Promise.all([
       this.leads.listDtos(where, 500),
       this.admin.platformLead.groupBy({
@@ -277,40 +305,61 @@ export class SalesAccountsService {
   ): Promise<SalesAccountDto> {
     const email = clean(input.email)?.toLowerCase() ?? null;
     const phone = clean(input.phone);
-    await this.assertNewContact(email, phone);
-    const detail = await this.leads.create(
-      {
-        source: 'admin',
-        companyName: input.companyName ?? '',
-        contactName: input.contactName ?? '',
-        email: email ?? '',
-        phone: phone ?? '',
-        city: input.city ?? '',
-        units: input.units ?? '',
-        facilities: input.facilities ?? '',
-        currentSoftware: input.currentSoftware ?? '',
-        profile: input.profile ?? '',
-        planSlug: '',
-        message: input.note ?? '',
-        assignedToId: repId,
-      },
-      this.actor(actor),
-    );
-    await this.assignment.assign({
-      leadId: detail.id,
-      repId,
-      source: 'lead',
-      byId: repId,
-      quiet: true,
+    const detail = await this.withContactLock(async () => {
+      await this.assertNewContact(email, phone);
+      const lead = await this.leads.create(
+        {
+          source: 'admin',
+          companyName: input.companyName ?? '',
+          contactName: input.contactName ?? '',
+          email: email ?? '',
+          phone: phone ?? '',
+          city: input.city ?? '',
+          units: input.units ?? '',
+          facilities: input.facilities ?? '',
+          currentSoftware: input.currentSoftware ?? '',
+          profile: input.profile ?? '',
+          planSlug: '',
+          message: input.note ?? '',
+          assignedToId: repId,
+        },
+        this.actor(actor),
+      );
+      await this.assignment.assign({
+        leadId: lead.id,
+        repId,
+        source: 'lead',
+        byId: repId,
+        quiet: true,
+      });
+      return lead;
     });
     return this.account(repId, detail.id, actor);
+  }
+
+  /**
+   * Las altas de contactos nuevos van de una en una: dos comerciales (o dos
+   * clics) con el mismo contacto a la vez no lo dan de alta dos veces.
+   */
+  private async withContactLock<T>(fn: () => Promise<T>): Promise<T> {
+    return this.admin.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('sales-new-contact'))`;
+        return fn();
+      },
+      { maxWait: 30_000, timeout: 180_000 },
+    );
   }
 
   /**
    * Un contacto que ya está en TrasterOS (lead o cuenta) no se puede dar de
    * alta otra vez. No se dice de quién es: lo decide la dirección.
    */
-  private async assertNewContact(email: string | null, phone: string | null): Promise<void> {
+  private async assertNewContact(
+    email: string | null,
+    phone: string | null,
+    exceptLeadId?: string,
+  ): Promise<void> {
     const conflict = () =>
       new ConflictException({
         code: 'lead_exists',
@@ -320,7 +369,11 @@ export class SalesAccountsService {
     if (email) {
       const [lead, owner] = await Promise.all([
         this.admin.platformLead.findFirst({
-          where: { discardedAt: null, email: { equals: email, mode: 'insensitive' } },
+          where: {
+            discardedAt: null,
+            email: { equals: email, mode: 'insensitive' },
+            ...(exceptLeadId ? { id: { not: exceptLeadId } } : {}),
+          },
           select: { id: true },
         }),
         this.admin.user.findFirst({
@@ -340,6 +393,7 @@ export class SalesAccountsService {
         SELECT id FROM platform_leads
          WHERE discarded_at IS NULL AND phone IS NOT NULL
            AND right(regexp_replace(phone, '\\D', '', 'g'), 9) = ${tail}
+           AND id <> ${exceptLeadId ?? '00000000-0000-0000-0000-000000000000'}::uuid
          LIMIT 1`;
       if (rows.length > 0) throw conflict();
     }
@@ -351,7 +405,31 @@ export class SalesAccountsService {
     input: UpdateSalesLeadInput,
     actor: SalesActor,
   ): Promise<SalesAccountDto> {
-    await this.assignment.leadOf(repId, leadId);
+    const current = await this.assignment.leadOf(repId, leadId);
+    const email =
+      input.email !== undefined ? (clean(input.email)?.toLowerCase() ?? null) : undefined;
+    const phone = input.phone !== undefined ? clean(input.phone) : undefined;
+    const emailChanged = email !== undefined && email !== (current.email?.toLowerCase() ?? null);
+    const phoneChanged =
+      phone !== undefined && phoneTail(phone) !== phoneTail(current.phone ?? null);
+    if (emailChanged || phoneChanged) {
+      // Con su cuenta ya creada, el email de su propietario sí es el suyo.
+      const ownEmail =
+        emailChanged && email && current.tenantId
+          ? await this.admin.user.findFirst({
+              where: {
+                tenantId: current.tenantId,
+                email: { equals: email, mode: 'insensitive' },
+              },
+              select: { id: true },
+            })
+          : null;
+      await this.assertNewContact(
+        emailChanged && !ownEmail ? (email ?? null) : null,
+        phoneChanged ? (phone ?? null) : null,
+        leadId,
+      );
+    }
     await this.leads.update(leadId, {
       ...(input.companyName !== undefined ? { companyName: input.companyName } : {}),
       ...(input.contactName !== undefined ? { contactName: input.contactName } : {}),
@@ -414,7 +492,8 @@ export class SalesAccountsService {
       });
     }
     return {
-      lead: detail,
+      // Pendiente de asignar: no ve las propuestas de la cuenta (pueden ser de otros).
+      lead: pendingAssignment ? { ...detail, quoteOffers: [] } : detail,
       profile: profileDto(profile),
       client,
       cadence,
@@ -496,7 +575,7 @@ export class SalesAccountsService {
         _max: { createdAt: true },
       }),
       this.commissions.firstPaidByTenant([tenantId]),
-      this.opportunities.opportunities(now).catch(() => []),
+      this.opportunities.opportunities(now, [tenantId]).catch(() => []),
       this.commissions.monthlyByTenant([tenantId]),
     ]);
     const owner = tenant.users[0];
@@ -591,12 +670,18 @@ export class SalesAccountsService {
     actor: SalesActor,
   ): Promise<SalesAccountDto> {
     await this.assignment.leadOf(repId, leadId);
+    if (input.occurredAt && new Date(input.occurredAt).getTime() > Date.now() + 5 * 60_000) {
+      throw new BadRequestException({
+        code: 'activity_in_future',
+        message: 'Lo que anotas ya ha pasado: para lo que vas a hacer, crea un seguimiento',
+      });
+    }
     await this.leads.createActivity(leadId, input, this.actor(actor));
     if (CONTACT_TYPES.has(input.type)) await this.touchContact(leadId, repId, null);
     return this.account(repId, leadId);
   }
 
-  private async touchContact(leadId: string, repId: string, outcome: string | null): Promise<void> {
+  async touchContact(leadId: string, repId: string, outcome: string | null): Promise<void> {
     const now = new Date();
     await this.admin.salesAccountProfile.upsert({
       where: { leadId },
@@ -643,12 +728,16 @@ export class SalesAccountsService {
       data: { status: 'done', completedAt: new Date() },
     });
     const days = SALES_OUTCOME_FOLLOWUP_DAYS[input.outcome];
-    const date = input.followupDate ?? (days != null ? addDaysIso(today, days) : null);
-    if (date && SALES_OUTCOME_FOLLOWUP_TITLES[input.outcome]) {
+    // null = «Ninguno»; sin fecha = la de por defecto del resultado.
+    const date =
+      input.followupDate === null
+        ? null
+        : (input.followupDate ?? (days != null ? addDaysIso(today, days) : null));
+    if (date) {
       await this.leads.createFollowup(
         leadId,
         {
-          title: SALES_OUTCOME_FOLLOWUP_TITLES[input.outcome],
+          title: SALES_OUTCOME_FOLLOWUP_TITLES[input.outcome] || 'Seguimiento',
           note: input.note ?? '',
           dueDate: date,
           assignedToId: repId,
@@ -737,8 +826,22 @@ export class SalesAccountsService {
     input: SendPlatformLeadEmailInput,
     actor: SalesActor,
   ): Promise<SalesAccountDto> {
-    await this.assignment.leadOf(repId, leadId);
-    await this.leads.sendEmail(leadId, input, this.actor(actor), await this.sender(repId));
+    const lead = await this.assignment.leadOf(repId, leadId);
+    // Con cuenta, al propietario (es la dirección que enseña la ficha).
+    const owner = lead.tenantId
+      ? await this.admin.user.findFirst({
+          where: { tenantId: lead.tenantId, role: 'owner', isActive: true },
+          orderBy: { createdAt: 'asc' },
+          select: { email: true, fullName: true },
+        })
+      : null;
+    await this.leads.sendEmail(
+      leadId,
+      input,
+      this.actor(actor),
+      await this.sender(repId),
+      owner ? { email: owner.email, name: owner.fullName } : undefined,
+    );
     await this.touchContact(leadId, repId, null);
     return this.account(repId, leadId);
   }
@@ -1025,24 +1128,42 @@ export class SalesAccountsService {
     }
     const steps = SalesCadenceStepSchema.array().parse(cadence.steps);
     const dates = cadenceDueDates(madridToday(), steps);
-    const ids: string[] = [];
-    for (const [i, step] of steps.entries()) {
-      const row = await this.admin.platformLeadFollowup.create({
-        data: {
-          leadId,
-          superAdminId: actor.repId,
-          assignedToId: repId,
-          title: `${SALES_CADENCE_CHANNEL_LABELS[step.channel]}: ${step.title}`.slice(0, 200),
-          note: `Cadencia «${cadence.name}»`,
-          dueDate: new Date(`${dates[i]}T00:00:00Z`),
-        },
-        select: { id: true },
+    // Alta y seguimientos juntos: un doble clic no deja seguimientos sueltos.
+    try {
+      await this.admin.$transaction(async (tx) => {
+        const enrollment = await tx.salesCadenceEnrollment.create({
+          data: { cadenceId, leadId, repId, followupIds: [] },
+          select: { id: true },
+        });
+        const ids: string[] = [];
+        for (const [i, step] of steps.entries()) {
+          const row = await tx.platformLeadFollowup.create({
+            data: {
+              leadId,
+              superAdminId: actor.repId,
+              assignedToId: repId,
+              title: `${SALES_CADENCE_CHANNEL_LABELS[step.channel]}: ${step.title}`.slice(0, 200),
+              note: `Cadencia «${cadence.name}»`,
+              dueDate: new Date(`${dates[i]}T00:00:00Z`),
+            },
+            select: { id: true },
+          });
+          ids.push(row.id);
+        }
+        await tx.salesCadenceEnrollment.update({
+          where: { id: enrollment.id },
+          data: { followupIds: ids },
+        });
       });
-      ids.push(row.id);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException({
+          code: 'cadence_active',
+          message: 'Ya tiene una cadencia en marcha: párala antes de empezar otra',
+        });
+      }
+      throw err;
     }
-    await this.admin.salesCadenceEnrollment.create({
-      data: { cadenceId, leadId, repId, followupIds: ids },
-    });
     return this.account(repId, leadId);
   }
 
@@ -1175,6 +1296,17 @@ export class SalesAccountsService {
 
   /** Lista de prospectos (CSV): revisa y, al confirmar, los da de alta en su cartera. */
   async importProspects(
+    repId: string,
+    input: SalesImportInput,
+    actor: SalesActor,
+  ): Promise<SalesImportResultDto> {
+    // Al confirmar, se revisa y se da de alta sin que otra alta se cuele en medio.
+    return input.commit
+      ? this.withContactLock(() => this.runImport(repId, input, actor))
+      : this.runImport(repId, input, actor);
+  }
+
+  private async runImport(
     repId: string,
     input: SalesImportInput,
     actor: SalesActor,
@@ -1317,7 +1449,16 @@ export class SalesAccountsService {
           _count: { _all: true },
         }),
         this.admin.platformQuoteOffer.findMany({
-          where: { superAdminId: repId, status: 'sent' },
+          where: {
+            superAdminId: repId,
+            status: 'sent',
+            // Las caducadas solo dos semanas; y solo de cuentas que siguen siendo suyas.
+            OR: [{ expiresAt: null }, { expiresAt: { gte: new Date(now.getTime() - 14 * DAY) } }],
+            AND: [
+              { OR: [{ tenantId: null }, { tenant: { salesRepId: repId, deletedAt: null } }] },
+              { OR: [{ leadId: null }, { lead: { salesRepId: repId, discardedAt: null } }] },
+            ],
+          },
           orderBy: { createdAt: 'desc' },
           take: 50,
           include: {

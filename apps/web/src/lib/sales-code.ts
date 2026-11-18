@@ -15,6 +15,16 @@ export function rememberSalesCode(raw: string | null | undefined): void {
   }
 }
 
+/** Olvida el código guardado (p. ej. si ya no existe). */
+export function forgetSalesCode(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(KEY);
+  } catch {
+    // Almacenamiento bloqueado: no hay nada que olvidar.
+  }
+}
+
 /** El código del comercial que trajo la visita (si no ha caducado). */
 export function storedSalesCode(): string | null {
   if (typeof window === 'undefined') return null;

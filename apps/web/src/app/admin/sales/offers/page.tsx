@@ -3,7 +3,14 @@
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-import { Empty, PageHeader, relativeDays, SalesPage, Stat } from '@/components/admin/sales/common';
+import {
+  Empty,
+  PageHeader,
+  QueryError,
+  relativeDays,
+  SalesPage,
+  Stat,
+} from '@/components/admin/sales/common';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -42,6 +49,8 @@ export default function SalesOffersPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Cargando…
         </div>
+      ) : offers.isError ? (
+        <QueryError query={offers} />
       ) : rows.length === 0 ? (
         <Empty>Aún no has enviado propuestas. Se envían desde la ficha de cada cuenta.</Empty>
       ) : (

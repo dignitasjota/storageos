@@ -77,7 +77,8 @@ export class SalesAlertsService {
           out.trialEnding += 1;
         }
       }
-      if (t.subscription?.status === 'past_due') {
+      // Suspendida o de baja: ya no es «para que no pierda el acceso».
+      if (t.subscription?.status === 'past_due' && t.status === 'active') {
         if (
           await this.notify.repOnce(repId, `past_due:${t.id}`, 60 * 24 * 7, {
             type: 'sales.past_due',
@@ -180,18 +181,29 @@ export class SalesAlertsService {
         reminderSentAt: null,
         expiresAt: { gt: now, lte: soon },
         superAdminId: { not: null },
+        // Ni a un lead perdido o descartado ni a una cuenta de baja.
+        AND: [
+          { OR: [{ leadId: null }, { lead: { discardedAt: null, status: { not: 'lost' } } }] },
+          {
+            OR: [
+              { tenantId: null },
+              { tenant: { deletedAt: null, status: { in: ['trial', 'active'] } } },
+            ],
+          },
+        ],
       },
       include: {
         tenant: {
           select: {
             name: true,
+            salesRepId: true,
             users: {
               where: { role: 'owner', isActive: true, emailVerifiedAt: { not: null } },
               select: { email: true },
             },
           },
         },
-        lead: { select: { email: true, contactName: true, companyName: true } },
+        lead: { select: { email: true, contactName: true, companyName: true, salesRepId: true } },
       },
       take: 200,
     });
@@ -202,6 +214,9 @@ export class SalesAlertsService {
         select: { role: true, isActive: true, fullName: true, email: true, phone: true },
       });
       if (rep?.role !== 'sales' || !rep.isActive) continue;
+      // Solo si la cuenta sigue siendo suya.
+      const owner = o.tenant ? o.tenant.salesRepId : (o.lead?.salesRepId ?? null);
+      if (owner !== o.superAdminId) continue;
       const claimed = await this.admin.platformQuoteOffer.updateMany({
         where: { id: o.id, reminderSentAt: null },
         data: { reminderSentAt: now },

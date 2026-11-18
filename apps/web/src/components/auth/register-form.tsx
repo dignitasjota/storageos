@@ -32,7 +32,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useRegister } from '@/lib/auth/hooks';
-import { rememberSalesCode, storedSalesCode } from '@/lib/sales-code';
+import { forgetSalesCode, rememberSalesCode, storedSalesCode } from '@/lib/sales-code';
 
 /** Datos que trae el enlace de una propuesta (email, empresa y nombre). */
 export interface RegisterDefaults {
@@ -86,17 +86,37 @@ function SalesCodeField({
     };
   }, [code]);
 
+  // Un código guardado de otra visita que ya no existe se olvida sin avisar:
+  // el cliente no lo ha escrito.
+  useEffect(() => {
+    if (fromLink && code && check && !check.valid) {
+      forgetSalesCode();
+      onChange('', false);
+    }
+  }, [fromLink, code, check, onChange]);
+
   if (fromLink && code && check?.valid) {
     return (
       <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
         <BadgeCheck className="mt-0.5 size-4 shrink-0" />
-        <div>
+        <div className="flex-1">
           Te atiende <strong>{check.repName}</strong> (código {code}).
           {check.extraTrialDays > 0 && <> Tienes {check.extraTrialDays} días más de prueba.</>}
         </div>
+        <button
+          type="button"
+          className="shrink-0 text-xs underline-offset-2 hover:underline"
+          onClick={() => {
+            setOpen(true);
+            onChange(code, false);
+          }}
+        >
+          Cambiar
+        </button>
       </div>
     );
   }
+  if (fromLink && code && !check) return null;
 
   if (!open && !value) {
     return (

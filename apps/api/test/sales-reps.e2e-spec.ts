@@ -3,6 +3,8 @@ import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { AdminQuoteService } from '../src/modules/admin/admin-quote.service';
+import { SalesAssignmentService } from '../src/modules/admin/sales/sales-assignment.service';
+import { BillingSaasService } from '../src/modules/billing-saas/billing-saas.service';
 
 import { extractToken, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants, uniqueTestIds } from './helpers/tenant-fixtures';
@@ -389,6 +391,77 @@ describe('Comerciales (e2e)', () => {
     await db.tenant.update({ where: { id: t.id }, data: { slug: `test-sales-sur-${STAMP}` } });
   });
 
+  it('cartera: duplicados al editar, «Ninguno», notas sin fecha futura y liberación', async () => {
+    const auth = (t: string) => ({ Authorization: `Bearer ${t}` });
+    const ofB = `de-beto-${STAMP}@e2e.local`;
+    await http()
+      .post('/admin/sales/leads')
+      .set(auth(repBToken))
+      .send({ companyName: 'De Beto', email: ofB })
+      .expect(201);
+    const mine = await http()
+      .post('/admin/sales/leads')
+      .set(auth(repAToken))
+      .send({ companyName: 'Solo teléfono', phone: '622111000' });
+    expect(mine.status).toBe(201);
+    const leadId = mine.body.lead.id as string;
+    // Ponerle el email de un prospecto de otro comercial no se puede.
+    const dup = await http()
+      .patch(`/admin/sales/accounts/${leadId}`)
+      .set(auth(repAToken))
+      .send({ email: ofB.toUpperCase() });
+    expect(dup.status).toBe(409);
+    expect(dup.body.code).toBe('lead_exists');
+    // Su propio teléfono sí (no cambia).
+    await http()
+      .patch(`/admin/sales/accounts/${leadId}`)
+      .set(auth(repAToken))
+      .send({ phone: '622 111 000', city: 'Sevilla' })
+      .expect(200);
+
+    // «Ninguno»: no se crea seguimiento.
+    await http()
+      .post(`/admin/sales/accounts/${leadId}/outcome`)
+      .set(auth(repAToken))
+      .send({ outcome: 'no_answer', followupDate: null })
+      .expect(201);
+    expect(await db.platformLeadFollowup.count({ where: { leadId, status: 'pending' } })).toBe(0);
+    // Con «No interesado», la fecha elegida sí cuenta.
+    const inAWeek = new Date(Date.now() + 7 * 86_400_000).toLocaleDateString('sv-SE', {
+      timeZone: 'Europe/Madrid',
+    });
+    await http()
+      .post(`/admin/sales/accounts/${leadId}/outcome`)
+      .set(auth(repAToken))
+      .send({ outcome: 'not_interested', followupDate: inAWeek })
+      .expect(201);
+    expect(await db.platformLeadFollowup.count({ where: { leadId, status: 'pending' } })).toBe(1);
+
+    // Una nota con fecha futura no se admite.
+    const future = await http()
+      .post(`/admin/sales/accounts/${leadId}/activities`)
+      .set(auth(repAToken))
+      .send({ type: 'note', content: 'Mañana le llamo', occurredAt: '2099-01-01T10:00:00Z' });
+    expect(future.status).toBe(400);
+    expect(future.body.code).toBe('activity_in_future');
+
+    // Liberación: sin actividad desde hace 90 días, pero con un seguimiento en
+    // la semana que viene, sigue siendo suyo; sin él, queda libre.
+    const old = new Date(Date.now() - 120 * 86_400_000);
+    await db.platformLead.update({ where: { id: leadId }, data: { salesAssignedAt: old } });
+    await db.platformLeadActivity.updateMany({ where: { leadId }, data: { occurredAt: old } });
+    await db.salesAccountProfile.updateMany({ where: { leadId }, data: { lastContactAt: old } });
+    await app.get(SalesAssignmentService).releaseStale();
+    expect((await db.platformLead.findUniqueOrThrow({ where: { id: leadId } })).salesRepId).toBe(
+      repAId,
+    );
+    await db.platformLeadFollowup.updateMany({ where: { leadId }, data: { status: 'done' } });
+    await app.get(SalesAssignmentService).releaseStale();
+    expect(
+      (await db.platformLead.findUniqueOrThrow({ where: { id: leadId } })).salesRepId,
+    ).toBeNull();
+  });
+
   it('un prospecto que se registra sin el código queda pendiente de la dirección', async () => {
     const email = `pendiente-${STAMP}@e2e.local`;
     const created = await http()
@@ -544,6 +617,35 @@ describe('Comerciales (e2e)', () => {
       .set('Authorization', `Bearer ${repBToken}`);
     expect(viewB.body.items).toHaveLength(0);
 
+    // Segundo cobro, por remesa SEPA (un solo cargo para el plan y sus extras).
+    const manualPayment = await db.tenantSubscriptionPayment.findFirstOrThrow({
+      where: { tenantId: paidTenantId, status: 'paid' },
+      orderBy: { createdAt: 'desc' },
+    });
+    const sepaPayment = await db.tenantSubscriptionPayment.create({
+      data: {
+        tenantId: paidTenantId,
+        provider: 'sepa',
+        status: 'paid',
+        amount: 121,
+        paidAt: new Date(),
+        description: 'Cuota de la suscripción',
+      },
+    });
+    const revenueSum = async () => {
+      await http()
+        .post('/admin/sales-team/commissions/recalculate')
+        .set('Authorization', `Bearer ${superToken}`)
+        .expect(200);
+      const v = await http()
+        .get('/admin/sales/commissions')
+        .set('Authorization', `Bearer ${repAToken}`);
+      return (v.body.items as { kind: string; amount: number }[])
+        .filter((i) => i.kind === 'revenue')
+        .reduce((s, i) => s + i.amount, 0);
+    };
+    expect(await revenueSum()).toBeCloseTo(20, 2);
+
     // Un extra contratado después de la venta espera a la dirección.
     await http()
       .post(`/admin/tenants/${paidTenantId}/addons`)
@@ -556,6 +658,8 @@ describe('Comerciales (e2e)', () => {
     const claim = claims.body.find((c: { addonId: string }) => c.addonId === addonId);
     expect(claim.status).toBe('pending');
     expect(claim.partOfSale).toBe(false);
+    // Contratarlo después no cambia lo que contaba el cobro anterior.
+    expect(await revenueSum()).toBeCloseTo(20, 2);
     await http()
       .put(`/admin/sales/claims/${claim.id}/note`)
       .set('Authorization', `Bearer ${repAToken}`)
@@ -570,24 +674,14 @@ describe('Comerciales (e2e)', () => {
     view = await http().get('/admin/sales/commissions').set('Authorization', `Bearer ${repAToken}`);
     expect(view.body.items.find((i: { kind: string }) => i.kind === 'addon_sale').amount).toBe(20);
 
-    // Devolución de la mitad: se descuenta del %.
-    const payment = await db.tenantSubscriptionPayment.findFirstOrThrow({
-      where: { tenantId: paidTenantId, status: 'paid' },
-      orderBy: { createdAt: 'desc' },
-    });
-    await db.tenantSubscriptionPayment.update({
-      where: { id: payment.id },
-      data: { refundedAmount: 60.5, refundedAt: new Date() },
-    });
-    await http()
-      .post('/admin/sales-team/commissions/recalculate')
-      .set('Authorization', `Bearer ${superToken}`)
-      .expect(200);
-    view = await http().get('/admin/sales/commissions').set('Authorization', `Bearer ${repAToken}`);
-    const revenueTotal = view.body.items
-      .filter((i: { kind: string }) => i.kind === 'revenue')
-      .reduce((s: number, i: { amount: number }) => s + i.amount, 0);
-    expect(revenueTotal).toBeCloseTo(5, 2);
+    // Devolución de la mitad del primer cobro, por la vía real (el cobro pasa
+    // a «devuelto en parte»): se descuenta del %.
+    await app.get(BillingSaasService).syncSubscriptionRefund(manualPayment.id, 60.5);
+    expect(
+      (await db.tenantSubscriptionPayment.findUniqueOrThrow({ where: { id: manualPayment.id } }))
+        .status,
+    ).toBe('partially_refunded');
+    expect(await revenueSum()).toBeCloseTo(15, 2);
 
     // Concepto pedido por el comercial: pendiente hasta que se aprueba.
     const asked = await http()
@@ -605,7 +699,7 @@ describe('Comerciales (e2e)', () => {
     // Liquidación del mes: todo lo aprobado y sin liquidar.
     view = await http().get('/admin/sales/commissions').set('Authorization', `Bearer ${repAToken}`);
     const expected = view.body.totals.approvedUnsettled as number;
-    expect(expected).toBeCloseTo(5 + 50 + 20 + 80, 2);
+    expect(expected).toBeCloseTo(15 + 50 + 20 + 80, 2);
     const month = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' }).slice(0, 7);
     const settlement = await http()
       .post('/admin/sales-team/settlements')
@@ -631,6 +725,40 @@ describe('Comerciales (e2e)', () => {
       .set('Authorization', `Bearer ${repAToken}`);
     expect(mine.body[0].status).toBe('paid');
 
+    // Una partida ya decidida no se vuelve a decidir (se corrige con un ajuste).
+    await http()
+      .post(`/admin/sales-team/commissions/items/${pendingItem.id}/reject`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({})
+      .expect(409);
+
+    // Cambiar la decisión de un extra ya liquidado: descuento y, al volver, reintegro.
+    await http()
+      .post(`/admin/sales-team/claims/${claim.id}/reject`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({ note: 'Me equivoqué' })
+      .expect(200);
+    const claimSum = async () =>
+      Number(
+        (
+          await db.salesCommissionItem.aggregate({
+            where: { claimId: claim.id, status: 'approved' },
+            _sum: { amount: true },
+          })
+        )._sum.amount ?? 0,
+      );
+    expect(await claimSum()).toBeCloseTo(0, 2);
+    await http()
+      .post(`/admin/sales-team/claims/${claim.id}/approve`)
+      .set('Authorization', `Bearer ${superToken}`)
+      .send({})
+      .expect(200);
+    expect(await claimSum()).toBeCloseTo(20, 2);
+
+    // Todo devuelto el cobro SEPA: su % se descuenta entero.
+    await app.get(BillingSaasService).syncSubscriptionRefund(sepaPayment.id, 121);
+    expect(await revenueSum()).toBeCloseTo(5, 2);
+
     // El equipo lo resume.
     const team = await http().get('/admin/sales-team').set('Authorization', `Bearer ${superToken}`);
     const a = team.body.reps.find((r: { id: string }) => r.id === repAId);
@@ -649,6 +777,21 @@ describe('Comerciales (e2e)', () => {
       expect(contracts).toBeGreaterThan(10);
       const tenant = await db.tenant.findUniqueOrThrow({ where: { id: demoId } });
       expect(tenant.billingExempt).toBe(true);
+      // Lo que el comercial toque de la estructura vuelve con el reinicio.
+      await db.unitType.updateMany({
+        where: { tenantId: demoId, name: 'Taquilla' },
+        data: { defaultPriceMonthly: 999 },
+      });
+      const facility = await db.facility.findFirstOrThrow({ where: { tenantId: demoId } });
+      await db.facility.update({ where: { id: facility.id }, data: { deletedAt: new Date() } });
+      // Un reinicio a la vez.
+      await db.platformSalesSettings.updateMany({ data: { demoResettingAt: new Date() } });
+      const busy = await http()
+        .post('/admin/sales-team/demo/reset')
+        .set('Authorization', `Bearer ${superToken}`);
+      expect(busy.status).toBe(409);
+      expect(busy.body.code).toBe('demo_resetting');
+      await db.platformSalesSettings.updateMany({ data: { demoResettingAt: null } });
       const reset = await http()
         .post('/admin/sales-team/demo/reset')
         .set('Authorization', `Bearer ${superToken}`);
@@ -656,6 +799,15 @@ describe('Comerciales (e2e)', () => {
       expect(
         await db.contract.count({ where: { tenantId: demoId, status: 'active' } }),
       ).toBeGreaterThan(10);
+      expect(
+        Number(
+          (await db.unitType.findFirstOrThrow({ where: { tenantId: demoId, name: 'Taquilla' } }))
+            .defaultPriceMonthly,
+        ),
+      ).toBe(29);
+      expect(
+        (await db.facility.findUniqueOrThrow({ where: { id: facility.id } })).deletedAt,
+      ).toBeNull();
       const open = await http()
         .post('/admin/sales/demo/open')
         .set('Authorization', `Bearer ${repAToken}`);

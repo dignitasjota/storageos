@@ -557,6 +557,7 @@ export class PlatformLeadsService {
   /** «No es un lead»: sale del tablero y de las cifras (spam, soporte, proveedores…). */
   async discard(id: string, actor: LeadActor): Promise<void> {
     await this.leadOrThrow(id);
+    await this.assertNotSalesClient(id);
     await this.admin.platformLead.update({ where: { id }, data: { discardedAt: new Date() } });
     await this.audit.record({
       superAdminId: actor.superAdminId,
@@ -569,6 +570,7 @@ export class PlatformLeadsService {
   async remove(id: string, actor: LeadActor): Promise<void> {
     const lead = await this.admin.platformLead.findUnique({ where: { id }, select: { id: true } });
     if (!lead) throw this.notFound();
+    await this.assertNotSalesClient(id);
     await this.admin.$transaction([
       // Sus propuestas que aún no son de ningún tenant se van con él.
       this.admin.platformQuoteOffer.deleteMany({ where: { leadId: id, tenantId: null } }),
@@ -582,6 +584,24 @@ export class PlatformLeadsService {
       ipAddress: actor.ipAddress ?? null,
       userAgent: actor.userAgent ?? null,
     });
+  }
+
+  /**
+   * El lead de la cuenta de un cliente que lleva un comercial es su ficha: sin
+   * él, el comercial pierde la cuenta y sus contadores. Antes hay que quitarle
+   * el comercial.
+   */
+  private async assertNotSalesClient(id: string): Promise<void> {
+    const lead = await this.admin.platformLead.findUnique({
+      where: { id },
+      select: { tenant: { select: { salesRepId: true, deletedAt: true } } },
+    });
+    if (lead?.tenant && lead.tenant.salesRepId && !lead.tenant.deletedAt) {
+      throw new ConflictException({
+        code: 'lead_is_sales_client',
+        message: 'Es la cuenta de un cliente de un comercial: quítale antes el comercial',
+      });
+    }
   }
 
   // ---------------------------------------------------------- actividad
@@ -743,15 +763,18 @@ export class PlatformLeadsService {
     input: SendPlatformLeadEmailInput,
     actor: LeadActor,
     sender?: LeadEmailSender,
+    /** Otra dirección (p. ej. la del propietario de su cuenta). */
+    to?: { email: string; name: string | null },
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
-    if (!lead.email) {
+    const email = to?.email ?? lead.email;
+    if (!email) {
       throw new BadRequestException({
         code: 'lead_without_email',
         message: 'Este lead no tiene email',
       });
     }
-    await this.deliver(lead.email, lead.contactName, input.subject, input.body, sender);
+    await this.deliver(email, to ? to.name : lead.contactName, input.subject, input.body, sender);
     await this.addActivity(id, 'email_out', input.body, actor.superAdminId, {
       subject: input.subject,
     });

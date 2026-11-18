@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { adminApiFetch } from './api';
 
@@ -117,13 +117,18 @@ export function useSalesAccount(leadId: string | null) {
 
 export function useSalesSummary(leadId: string, ai: boolean, enabled: boolean) {
   return useQuery({
-    queryKey: [...ROOT, 'summary', leadId, ai] as const,
+    // Con IA va fuera de la raíz: cada acción de la ficha la refresca, y cada
+    // petición al modelo cuesta. Se vuelve a pedir solo con «Actualizar».
+    queryKey: ai
+      ? (['admin', 'sales-ai-summary', leadId] as const)
+      : ([...ROOT, 'summary', leadId, ai] as const),
     queryFn: () =>
       adminApiFetch<SalesAccountSummaryDto>(
         `/admin/sales/accounts/${leadId}/summary${ai ? '?ai=1' : ''}`,
       ),
     enabled,
-    staleTime: 60_000,
+    staleTime: ai ? Infinity : 60_000,
+    refetchOnWindowFocus: !ai,
   });
 }
 
@@ -215,12 +220,14 @@ export function useSalesDemo() {
 }
 
 export function useSalesNotifications() {
-  return useQuery({
-    queryKey: [...ROOT, 'notifications'] as const,
-    queryFn: () =>
+  return useInfiniteQuery({
+    queryKey: [...ROOT, 'notifications', 'list'] as const,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
       adminApiFetch<{ items: SuperAdminNotificationDto[]; nextCursor: string | null }>(
-        '/admin/sales/notifications',
+        `/admin/sales/notifications${pageParam ? `?cursor=${pageParam}` : ''}`,
       ),
+    getNextPageParam: (last) => last.nextCursor,
   });
 }
 

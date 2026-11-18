@@ -426,7 +426,7 @@ export class SalesAssignmentService {
           body: codeRep
             ? `Era un prospecto de ${repName} y se ha registrado con el código de ${codeRep.fullName}.`
             : `Era un prospecto de ${repName} y se ha registrado sin su código.`,
-          link: '/admin/sales-team?tab=pending',
+          link: '/admin/sales-team/pending',
         });
         await this.notify.rep(leadRep, {
           type: 'sales.signup',
@@ -590,7 +590,17 @@ export class SalesAssignmentService {
         discardedAt: null,
         status: { in: ['new', 'contacted', 'interested', 'lost'] },
         salesAssignedAt: { lt: cutoff },
-        activities: { none: { occurredAt: { gte: cutoff }, superAdminId: { not: null } } },
+        // Una nota con fecha futura no cuenta como actividad.
+        activities: {
+          none: { occurredAt: { gte: cutoff, lte: now }, superAdminId: { not: null } },
+        },
+        // Un seguimiento programado (hasta un año vista) lo mantiene en su cartera.
+        followups: {
+          none: {
+            status: 'pending',
+            dueDate: { gte: cutoff, lte: new Date(now.getTime() + 365 * DAY) },
+          },
+        },
       },
       select: { id: true, salesRepId: true, companyName: true, contactName: true, email: true },
       take: 500,

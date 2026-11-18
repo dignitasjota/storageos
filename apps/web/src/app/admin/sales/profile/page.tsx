@@ -10,6 +10,7 @@ import {
   errorText,
   Field,
   PageHeader,
+  QueryState,
   SalesPage,
 } from '@/components/admin/sales/common';
 import { Button } from '@/components/ui/button';
@@ -54,21 +55,22 @@ export default function SalesProfilePage() {
   const openDemo = useOpenSalesDemo();
   const [form, setForm] = useState({ phone: '', whatsapp: '', bookingUrl: '' });
 
+  // Se rellena una vez: volver a la pestaña no borra lo que se está escribiendo.
+  const [filled, setFilled] = useState(false);
   useEffect(() => {
-    if (!me.data) return;
+    if (!me.data || filled) return;
+    setFilled(true);
     setForm({
       phone: me.data.phone ?? '',
       whatsapp: me.data.whatsapp ?? '',
       bookingUrl: me.data.bookingUrl ?? '',
     });
-  }, [me.data]);
+  }, [me.data, filled]);
 
   if (!me.data) {
     return (
       <SalesPage>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Cargando…
-        </div>
+        <QueryState query={me} />
       </SalesPage>
     );
   }

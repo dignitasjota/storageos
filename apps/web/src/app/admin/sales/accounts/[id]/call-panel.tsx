@@ -13,7 +13,7 @@ import {
   type SalesContactChannel,
 } from '@storageos/shared';
 import { Loader2, Sparkles } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { addDaysIso, errorText, Field, todayInSpain } from '@/components/admin/sales/common';
@@ -67,7 +67,8 @@ export function OutcomeCard({ account }: { account: SalesAccountDto }) {
         outcome,
         channel,
         ...(note.trim() ? { note: note.trim() } : {}),
-        ...(date ? { followupDate: date } : {}),
+        // Sin fecha = «Ninguno»: no se crea seguimiento.
+        followupDate: date || null,
       });
       toast.success('Anotado.');
       setOutcome(null);
@@ -191,14 +192,26 @@ export function ProfileCard({ account }: { account: SalesAccountDto }) {
     bestTime: p?.bestTime ?? '',
     nextAction: p?.nextAction ?? '',
   });
+  // Al cambiar la ficha en el servidor (p. ej. al anotar una llamada) solo se
+  // actualizan los campos que no se están editando: no se pierde lo escrito.
+  const base = useRef(form);
   useEffect(() => {
-    setForm({
+    const server = {
       pinnedNote: p?.pinnedNote ?? '',
       status: p?.status ?? '',
       temperature: p?.temperature ?? '',
       decisionMaker: p?.decisionMaker ?? '',
       bestTime: p?.bestTime ?? '',
       nextAction: p?.nextAction ?? '',
+    };
+    const prev = base.current;
+    base.current = server;
+    setForm((cur) => {
+      const next = { ...cur };
+      for (const k of Object.keys(server) as (keyof typeof server)[]) {
+        if (cur[k] === prev[k]) next[k] = server[k];
+      }
+      return next;
     });
   }, [p?.updatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -466,12 +479,21 @@ export function SummaryCard({ account }: { account: SalesAccountDto }) {
           </Button>
         ) : (
           summary.data?.aiAvailable &&
-          !ai && (
+          (!ai ? (
             <Button size="sm" variant="outline" onClick={() => setAi(true)}>
               <Sparkles className="mr-1.5 size-4" />
               Con IA
             </Button>
-          )
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={summary.isFetching}
+              onClick={() => void summary.refetch()}
+            >
+              Actualizar
+            </Button>
+          ))
         )}
       </CardHeader>
       {open && (

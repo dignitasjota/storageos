@@ -5,10 +5,11 @@ import {
   type SalesAccountProfileDto,
   type SalesTemperature,
 } from '@storageos/shared';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Loader2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -181,6 +182,29 @@ export function CopyButton({
       {size !== 'icon' && <span className="ml-1.5">{done ? 'Copiado' : label}</span>}
     </Button>
   );
+}
+
+interface QueryLike {
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => unknown;
+}
+
+/** Cargando o error con «Reintentar» (un fallo no se pinta como «no hay nada»). */
+export function QueryState({ query }: { query: QueryLike }) {
+  if (query.isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Cargando…
+      </div>
+    );
+  }
+  return <SectionError onRetry={() => void query.refetch()} />;
+}
+
+/** El error de una lista que ya tiene su propio «Cargando…». */
+export function QueryError({ query }: { query: QueryLike }) {
+  return <SectionError onRetry={() => void query.refetch()} />;
 }
 
 export function Empty({ children }: { children: ReactNode }) {

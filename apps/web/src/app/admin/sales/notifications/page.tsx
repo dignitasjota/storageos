@@ -4,7 +4,7 @@ import { SUPER_ADMIN_PUSH_TYPES } from '@storageos/shared';
 import { CheckCheck, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-import { Empty, PageHeader, SalesPage } from '@/components/admin/sales/common';
+import { Empty, PageHeader, QueryError, SalesPage } from '@/components/admin/sales/common';
 import { DevicePushCard } from '@/components/push/device-push-card';
 import { Button } from '@/components/ui/button';
 import { adminApiFetch } from '@/lib/admin/api';
@@ -27,7 +27,7 @@ export default function SalesNotificationsPage() {
   const list = useSalesNotifications();
   const count = useSalesUnreadCount().data?.count ?? 0;
   const mark = useSalesMarkRead();
-  const items = list.data?.items ?? [];
+  const items = list.data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
     <SalesPage>
@@ -50,6 +50,8 @@ export default function SalesNotificationsPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Cargando…
         </div>
+      ) : list.isError ? (
+        <QueryError query={list} />
       ) : items.length === 0 ? (
         <Empty>No tienes avisos.</Empty>
       ) : (
@@ -88,6 +90,19 @@ export default function SalesNotificationsPage() {
             );
           })}
         </ul>
+      )}
+      {list.hasNextPage && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={list.isFetchingNextPage}
+            onClick={() => void list.fetchNextPage()}
+          >
+            {list.isFetchingNextPage && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+            Cargar más
+          </Button>
+        </div>
       )}
     </SalesPage>
   );

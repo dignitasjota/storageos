@@ -3,7 +3,7 @@
 import { APPROVAL_ACTION_LABELS } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 
-import { Empty, PageHeader, SalesPage } from '@/components/admin/sales/common';
+import { Empty, PageHeader, QueryError, SalesPage } from '@/components/admin/sales/common';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -40,6 +40,8 @@ export default function SalesApprovalsPage() {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" /> Cargando…
         </div>
+      ) : approvals.isError ? (
+        <QueryError query={approvals} />
       ) : rows.length === 0 ? (
         <Empty>No has pedido nada todavía. Se pide desde la ficha de cada cliente.</Empty>
       ) : (

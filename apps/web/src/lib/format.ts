@@ -61,3 +61,25 @@ export function formatNumber(n: number | null | undefined, decimals = 2): string
     maximumFractionDigits: decimals,
   });
 }
+
+/**
+ * Importe escrito a mano en español: «1.500», «1.500,50», «12,5», «25 €» o
+ * «10 %». null si no es un número.
+ */
+export function parseAmount(value: string): number | null {
+  let v = value.replace(/[\s€%]/g, '');
+  if (!v) return null;
+  const comma = v.lastIndexOf(',');
+  const dot = v.lastIndexOf('.');
+  if (comma >= 0 && dot >= 0) {
+    // El último separador es el decimal; el otro, el de los miles.
+    v = comma > dot ? v.replace(/\./g, '').replace(',', '.') : v.replace(/,/g, '');
+  } else if (comma >= 0) {
+    v = v.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+  } else if (dot >= 0 && /^-?\d{1,3}(\.\d{3})+$/.test(v)) {
+    v = v.replace(/\./g, '');
+  }
+  if (!/^-?\d+(\.\d+)?$/.test(v)) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}

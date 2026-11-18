@@ -5,7 +5,14 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import { Empty, errorText, PageHeader, SalesPage } from '@/components/admin/sales/common';
+import {
+  Empty,
+  errorText,
+  PageHeader,
+  QueryError,
+  QueryState,
+  SalesPage,
+} from '@/components/admin/sales/common';
 import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -90,6 +97,11 @@ function AssignmentRow({
 export default function SalesPendingPage() {
   const assignments = usePendingAssignments();
   const claims = useTeamClaims('pending');
+  const allClaims = useTeamClaims();
+  const decided = (allClaims.data ?? [])
+    .filter((c) => c.status !== 'pending' && !c.partOfSale)
+    .sort((a, b) => (b.decidedAt ?? '').localeCompare(a.decidedAt ?? ''))
+    .slice(0, 30);
   const items = useTeamCommissions({ status: 'pending' });
   const team = useSalesTeam();
   const decideClaim = useDecideClaim();
@@ -132,6 +144,8 @@ export default function SalesPendingPage() {
         <CardContent>
           {assignments.isLoading ? (
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          ) : assignments.isError ? (
+            <QueryError query={assignments} />
           ) : (assignments.data ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">Ninguna.</p>
           ) : (
@@ -153,7 +167,9 @@ export default function SalesPendingPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {(claims.data ?? []).length === 0 ? (
+          {claims.isLoading || claims.isError ? (
+            <QueryState query={claims} />
+          ) : (claims.data ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">Ninguno.</p>
           ) : (
             <ul className="divide-y">
@@ -198,6 +214,59 @@ export default function SalesPendingPage() {
         </CardContent>
       </Card>
 
+      {decided.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Extras ya decididos</CardTitle>
+            <CardDescription>
+              Si te equivocaste, cambia la decisión: el fijo del extra se añade o se descuenta (si
+              ya se liquidó, con un ajuste).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y">
+              {decided.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p>
+                      <strong>{c.addonName}</strong> ·{' '}
+                      <Link href={`/admin/tenants/${c.tenantId}`} className="hover:underline">
+                        {c.tenantName}
+                      </Link>
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {c.repName} · {c.status === 'approved' ? 'cuenta' : 'no cuenta'}
+                      {c.decidedAt && ` desde el ${formatDate(c.decidedAt)}`}
+                    </p>
+                  </div>
+                  {c.status === 'approved' ? (
+                    <Button size="sm" variant="ghost" onClick={() => void reject('claim', c.id)}>
+                      Ya no cuenta
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={decideClaim.isPending}
+                      onClick={() =>
+                        void decideClaim
+                          .mutateAsync({ id: c.id, approve: true })
+                          .catch((e) => toast.error(errorText(e)))
+                      }
+                    >
+                      Sí cuenta
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Trabajos extra</CardTitle>
@@ -206,7 +275,9 @@ export default function SalesPendingPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {(items.data ?? []).length === 0 ? (
+          {items.isLoading || items.isError ? (
+            <QueryState query={items} />
+          ) : (items.data ?? []).length === 0 ? (
             <Empty>Ninguno.</Empty>
           ) : (
             <ul className="divide-y">

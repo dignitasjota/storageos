@@ -3301,4 +3301,21 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 
 **Comisiones**: por cada cobro de la suscripción de un cliente (sin IVA y menos lo devuelto) el % del plan del comercial que la tenía al cobrarse, durante los meses que marque su plan desde el primer pago; un fijo por venta al primer pago; un fijo por cada extra contratado **después** de la venta que apruebe la dirección (los contratados antes del primer pago, o antes de asignarse la cuenta, cuentan solos); conceptos (pedidos por el comercial o añadidos por la dirección) y ajustes. Una devolución posterior resta. Se calculan cada hora.
 
+**Revisión (2026-11-18)**:
+
+- Las comisiones cuentan también los cobros devueltos (`partially_refunded`, `refunded`) con lo que queda: el % y, si se devuelve todo lo cobrado, el fijo por la venta se descuentan. El reparto de cada cobro entre plan y extras se congela al cobrarse (`sales_commission_items.split`). Un comercial desactivado no genera comisiones nuevas; las devoluciones de lo ya cobrado se le siguen descontando.
+- `POST /admin/sales-team/claims/:id/approve|reject` se puede volver a decidir: el fijo del extra se aprueba o rechaza si aún no está liquidado; si ya se liquidó, va un ajuste (`Descuento: …` o `Reintegro: …`, con `claimId`). Repetir la misma decisión no hace nada. `POST /admin/sales-team/commissions/items/:id/approve|reject` solo sobre partidas pendientes (409 `item_not_pending`).
+- `DELETE /admin/sales-team/reps/:id/concepts/:conceptId` comprueba el comercial (404 `rep_not_found`/`concept_not_found`).
+- `PATCH /admin/sales/accounts/:leadId`: un email o teléfono que ya tiene otro contacto → 409 `lead_exists` (el email del propietario de su propia cuenta sí vale). Las altas (`POST /leads`) y la importación al confirmar van de una en una (no se dan de alta dos veces con un doble clic o dos comerciales a la vez).
+- `POST /admin/sales/accounts/:leadId/outcome`: `followupDate: null` = sin seguimiento; con fecha, se crea aunque el resultado no tenga uno por defecto. `POST …/activities` con `occurredAt` futuro → 400 `activity_in_future`.
+- Un prospecto con un seguimiento pendiente (hasta un año vista) no se libera; las notas con fecha futura no cuentan como actividad.
+- `POST /admin/sales/accounts/:leadId/email` va al propietario de la cuenta si ya la tiene (la dirección que enseña la ficha).
+- Propuestas: una caducada ya no se acepta sola al contratar el plan; «Hoy» solo enseña las caducadas en las dos últimas semanas y de cuentas que siguen siendo suyas; el recordatorio de caducidad no sale a un lead perdido o descartado, a una cuenta de baja ni a una que ya es de otro comercial. Enviar una propuesta (o la de un extra) cuenta como contacto.
+- Ampliar la prueba y dejar probar un extra reservan el tope antes de darlo (dos peticiones a la vez no se lo saltan).
+- `GET /admin/sales/accounts/:leadId` de una cuenta pendiente de asignar no trae sus propuestas.
+- La lista de leads aplica los filtros en la consulta (antes se cortaba en 500 y filtraba después).
+- Descartar o borrar el lead de la cuenta de un cliente que lleva un comercial → 409 `lead_is_sales_client` (hay que quitarle antes el comercial).
+- `POST /admin/sales-team/demo/reset` con otro reinicio en marcha → 409 `demo_resetting`; el reinicio deja tipos, locales y trasteros de ejemplo como al crearla; si el de la noche falla, aviso `sales.demo_reset_failed`.
+- Avisos que llevaban a pestañas inexistentes ahora llevan a `/admin/sales-team/pending` y a `/admin/sales/results?tab=claims`.
+
 **Panel del cliente**: `GET /settings/sales-rep` → `{rep: TenantSalesRepDto | null}` (nombre, email, teléfono, WhatsApp y enlace de reservas de su comercial, si tiene uno activo).

@@ -18,6 +18,7 @@ import {
   Empty,
   errorText,
   Field,
+  QueryState,
   relativeDays,
   SalesPage,
   Stat,
@@ -72,7 +73,8 @@ import {
   useTeamSettlements,
   useUpdateSalesRep,
 } from '@/lib/admin/sales-team-hooks';
-import { formatDate, formatEur } from '@/lib/format';
+import { ApiError } from '@/lib/auth/api';
+import { formatDate, formatEur, parseAmount } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const NONE = '-';
@@ -97,9 +99,24 @@ function monthOptions(back: number, ahead: number): string[] {
   return out;
 }
 
+/** Importe escrito («1.500,50»); vacío = 0. Si no es un número, avisa y no guarda. */
 function money(v: string): number {
-  const n = Number(v.replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
+  if (!v.trim()) return 0;
+  const n = parseAmount(v);
+  if (n === null) {
+    throw new ApiError({
+      statusCode: 400,
+      error: 'Bad Request',
+      code: 'invalid_amount',
+      message: `«${v}» no es un importe válido`,
+    });
+  }
+  return n;
+}
+
+/** Lo mismo sin avisar (para activar o desactivar botones). */
+function moneyOrNaN(v: string): number {
+  return v.trim() ? (parseAmount(v) ?? Number.NaN) : 0;
 }
 
 function EditRepDialog({ rep, onClose }: { rep: SalesRepDetailDto; onClose: () => void }) {
@@ -353,7 +370,7 @@ function ConceptsBlock({
                     }))
                   )
                     return;
-                  remove.mutate(c.id);
+                  remove.mutate(c.id, { onError: (e) => toast.error(errorText(e)) });
                 }}
               >
                 <Trash2 className="size-4" />
@@ -380,7 +397,7 @@ function ConceptsBlock({
         <Button
           size="sm"
           variant="outline"
-          disabled={name.trim().length < 2 || !(money(amount) > 0) || save.isPending}
+          disabled={name.trim().length < 2 || !(moneyOrNaN(amount) > 0) || save.isPending}
           onClick={() => void add()}
         >
           <Plus className="mr-1 size-4" />
@@ -575,7 +592,8 @@ function AdjustmentDialog({ rep, onClose }: { rep: SalesRepDetailDto; onClose: (
             disabled={
               !tenantId ||
               (kind === 'concept' && !conceptId) ||
-              (kind === 'adjustment' && (!money(amount) || !description.trim())) ||
+              (kind === 'adjustment' &&
+                (!moneyOrNaN(amount) || Number.isNaN(moneyOrNaN(amount)) || !description.trim())) ||
               create.isPending
             }
             onClick={() => void submit()}
@@ -639,7 +657,9 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
         </Button>
       </div>
       {adjOpen && <AdjustmentDialog rep={rep} onClose={() => setAdjOpen(false)} />}
-      {rows.length === 0 ? (
+      {items.isLoading || items.isError ? (
+        <QueryState query={items} />
+      ) : rows.length === 0 ? (
         <Empty>Sin movimientos.</Empty>
       ) : (
         <div className="rounded-md border">
@@ -747,7 +767,9 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
               Liquidar
             </Button>
           </div>
-          {(settlements.data ?? []).length === 0 ? (
+          {settlements.isLoading || settlements.isError ? (
+            <QueryState query={settlements} />
+          ) : (settlements.data ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">Sin liquidaciones.</p>
           ) : (
             <ul className="divide-y rounded-md border text-sm">

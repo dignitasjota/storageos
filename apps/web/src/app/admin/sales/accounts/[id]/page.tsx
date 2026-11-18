@@ -129,7 +129,7 @@ export default function SalesAccountPage() {
                 Correo
               </Button>
             )}
-            {(a.client || lead.email) && (
+            {!a.pendingAssignment && (a.client || lead.email) && (
               <Button size="sm" onClick={() => setDialog('quote')}>
                 <FileText className="mr-1.5 size-4" />
                 Propuesta

@@ -5,6 +5,8 @@ import {
   salesMonth,
 } from '@storageos/shared';
 
+import { zonedDayStart } from '../../../common/format';
+
 /** Quien actúa: un comercial (o un super admin desde sus pantallas). */
 export interface SalesActor {
   repId: string;
@@ -32,14 +34,11 @@ export function addDaysIso(iso: string, days: number): string {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
-/** Inicio (UTC) del mes AAAA-MM en hora de España (aprox.: día 1 a las 00:00 de Madrid). */
+/** Inicio y fin (excluido) del mes AAAA-MM en hora de España. */
 export function monthRange(month: string): { from: Date; to: Date } {
   const [y, m] = month.split('-').map(Number) as [number, number];
-  // Medianoche de Madrid = 22:00/23:00 UTC del día anterior: con un margen de
-  // dos horas se cubre el cambio de hora sin dejar fuera ningún cobro.
-  const from = new Date(Date.UTC(y, m - 1, 1) - 2 * 3_600_000);
-  const to = new Date(Date.UTC(y, m, 1) - 2 * 3_600_000);
-  return { from, to };
+  const next = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+  return { from: zonedDayStart(`${month}-01`), to: zonedDayStart(`${next}-01`) };
 }
 
 export const clean = (v: string | null | undefined): string | null =>
