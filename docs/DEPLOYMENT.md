@@ -2755,3 +2755,61 @@ Sin migración ni variables nuevas. El primer pago de un contrato (la factura de
 - **Un solo «Pago recibido»**: con Redsys llegaban «Pago recibido» y «Fianza recibida»; el correo de la transferencia, el recordatorio de reserva sin pagar, «Enviar por correo» y los recordatorios de una factura con fianza pendiente dicen el total.
 - **«Registrar cobro»** de una factura con fianza pendiente: casilla «Incluye la fianza», marcada por defecto, que registra las dos con la misma forma de pago.
 - **Panel**: filtro «Pendiente de pago» en Facturas (`?awaiting=1`), búsqueda por número de contrato, «Contrato …» y «+ fianza … en el mismo pago» bajo el número, lo pendiente cuenta el primer pago, el primer pago se ve en la ficha del contrato y en «Hoy» hay una tarjeta «Primeros pagos pendientes» con el total y el plazo.
+## 161. Revisión de Analítica (2026-11-19)
+
+Sin migración ni variables nuevas. Arreglos tras analizar Analítica entera; decisiones de Jota: aplicar el precio de un tipo cambia también sus trasteros libres, las facturas de los propietarios van aparte (como en Fiscalidad) y los locales por abrir no cuentan hasta que abren.
+
+- **Cambian cifras que ya se veían** (no es un error al desplegar):
+  - **Ocupación y cuotas con todo alquilado** de toda la empresa sin los locales por abrir.
+  - **Cobrado** sin la fianza aplicada a una factura (como la caja).
+  - **Cuotas al mes** con el descuento por prepago de los contratos semestrales y anuales.
+  - **Ingresos y deudas** solo de tu empresa si hay propietarios (selector «Facturas de…» para verlos o verlo todo).
+  - **Bajas**: cuenta también quien entra y se va el mismo mes; la tasa va sobre los activos al empezar más las altas.
+  - **Riesgo de baja** por inquilino (no por contrato); «sin método de pago» solo si el negocio cobra solo y «nunca ha entrado» solo con puertas conectadas.
+  - **Ocupación mes a mes** desde quién tuvo cada trastero (los meses de una cartera importada dejan de salir a 0 %).
+  - **Previsión** sin redondear mes a mes y con las medias de los meses que el negocio lleva funcionando.
+  - **Comparativa del sector**: mínimo 10 negocios, sin demos ni cuentas exentas (puede dejar de salir hasta que haya suficientes).
+- **Permisos**: Ingresos y Deudas solo para quien ve facturas y cobros; sin ese permiso el resto de Analítica y el Resumen no enseñan importes.
+- **Aplicar el precio de un tipo** cambia también el de sus trasteros libres en todos los locales (antes solo el de catálogo, que no usaba la reserva online).
+
+## 162. Mejoras de Analítica (2026-11-19)
+
+Sin migración ni variables nuevas. Lo que cambia en Analítica:
+
+- **Arriba, una línea con cómo va el mes** frente al pasado hasta el mismo día (facturado, ocupación, altas y bajas, contactos y lo vencido).
+- **Periodo**:
+  - comparar con el periodo anterior o con el mismo del año pasado;
+  - opción «Sin el mes en curso»;
+  - la pestaña y el periodo se recuerdan en el navegador.
+- **Deudas**: quién debe más, por local, días hasta cobrar y retraso medio, con enlace a Deudores.
+- **Riesgo de baja**: cuotas en juego y botones para llamar, escribir por WhatsApp u ofrecer retención.
+- **Precios**:
+  - «Aplicar todas» en la vista por trastero;
+  - columna de libres y lo que sumaría aplicar todo en la vista por tipo;
+  - pestaña «Inquilinos por debajo del precio» (candidatos a una subida).
+- **Previsión**: escenarios prudente, esperado y optimista, el mes en que te llenarías y cuándo se llena cada local y tamaño.
+- **Ocupación**: rendimiento por tipo de trastero (cuotas por m² y cuota media frente al precio de hoy).
+- **Bajas**: cuotas que entran y salen cada mes, y cuánto llevaban los que se van.
+- **Contactos**: tiempo hasta responder y hasta contratar, y coste por cliente de cada canal de Marketing.
+- **Resumen del mes en PDF**: botón en Analítica; el informe queda también en Informes.
+- **Tras desplegar**: los informes se generan en el worker, que debe tener esta versión para el «Resumen del mes».
+
+## 163. Revisión de Mercado: Competencia y Posiciones en Google (2026-11-19)
+
+Migración `20270210100000_search_console_days` (tabla `search_console_days` con RLS, totales de cada día de Search Console). Sin variables nuevas.
+
+- **Cambian cifras que ya se veían**:
+  - **Ocupación de mercado**: la tuya es la de Analítica (sin locales por abrir). La de la competencia solo cuenta inventarios completos comprobados en los últimos 180 días; la estimada con su total conocido sale aparte.
+  - **Posiciones en Google**: los totales son los del panel de Search Console (algo mayores que la suma de las búsquedas). Los primeros días tras desplegar, hasta la siguiente descarga diaria, siguen saliendo como antes; se puede pulsar «Actualizar ahora».
+- **«Sin revisar»**: cuenta cualquier comprobación de un trastero; los competidores fichados con trasteros recientes dejan de salir en el aviso.
+- **Precios de 0 €** ya no se aceptan. Los que hubiera guardados se quedan: conviene corregirlos.
+- La página de Competencia sigue el local de la cabecera.
+- El informe mensual de SEO no se envía vacío ni a negocios suspendidos. «Enviármelo ahora» va solo a quien lo pulsa.
+
+## 164. Mejoras de Mercado: Competencia y Posiciones en Google (2026-11-19)
+
+Migración `20270211100000_market_improvements`: `competitor_facilities.review_every_days` y `promo_ends_at`, tabla `competitor_promotions` (histórico; se rellena con la promoción que tenía cada competidor), `tenant_search_console.brand_terms`, `report_recipient_ids` y `last_drop_alert_at`, y tablas `seo_tracked_keywords` y `search_console_devices`, todas con RLS. Sin variables nuevas.
+
+- **Competencia**: tu precio frente al mercado por tipo de trastero (con gráfica), precio comparable y por m² en cada trastero suyo, evolución mensual de cada competidor, promociones con fecha de fin y su histórico, plazo de revisión por competidor, «Sin cambios» en un clic, pegar una tabla de trasteros, leer su página de tarifas con IA (necesita el asistente IA en el plan y gasta una consulta), tus características frente a las suyas, avisos de subidas de precio y de tamaños agotados y exportación a CSV.
+- **Posiciones en Google**: clics por semana, comparación con el año pasado, búsquedas con tu marca frente a las demás, dispositivos, búsquedas que sigues con su objetivo, detalle de cada búsqueda y página, de Google a reservas, páginas que salen pero casi nadie pulsa, buscar, ordenar y exportar las búsquedas, elegir quién recibe el informe y aviso de caídas de clics.
+- **Tras desplegar**: los negocios que ya tenían Search Console conectado no tienen los datos por dispositivo ni el año pasado hasta que se descarguen. Para traerlos, desconectar y volver a conectar (baja 16 meses de totales), o esperar: la descarga diaria va llenando los dispositivos desde el día del despliegue.

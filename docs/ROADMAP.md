@@ -1210,3 +1210,18 @@ Tras revisar los precios de la competencia (decisiones de Jota: prueba sin méto
 - **PR D** ✅ (2026-11-18): elegir plan al registrarse, prueba de 30 días sin método de pago con los límites del plan elegido, solo lectura al acabar sin pagar (403 `subscription_expired_read_only`; inquilinos, web y cobros siguen), avisos con plan, fecha e importe, y paso de los clientes del plan gratis a Basic con 30 días de aviso (también solo lectura si no pagan).
 - **Revisión** ✅ (2026-11-18, PR apilada sobre la D): trasteros de más contados al cobrar y siempre con la cuota (también Redsys suelto y pago a mano), suspensión a los 30 días de solo lectura, pago tardío desde el día en que paga, fin de Stripe en solo lectura con su plan, sin «Pasar a Free», pagar su propio plan aunque no quepa, reducir usuarios en solo lectura, SEPA desde el solo lectura, y pantallas del admin y de Suscripción al día.
 - **Citas de los comerciales** ✅ (2026-11-18): llamadas, videollamadas y visitas con fecha y hora en la ficha del comercial y desde la del lead del admin, con avisos al comercial al ponérsela, el día antes y una hora antes.
+- **Leads del admin con comercial** ✅ (2026-11-18, #977): asignar un lead a un comercial desde el panel admin lo pone en su cartera; y en el listado del comercial sale el teléfono del prospecto (#976).
+
+### Primer pago en un solo cobro ✅ (2026-11-18, #979)
+
+La factura del primer pago y su fianza se pagan juntas en el enlace de la firma, el área de clientes, Redsys y la transferencia; un solo «Pago recibido»; en el panel, filtro «Pendiente de pago», fianza bajo su factura y primer pago en la ficha del contrato y en «Hoy».
+
+### Analítica: revisión y mejoras (2026-11-19, #980–#981)
+
+- **Revisión**: propietarios aparte como en Fiscalidad, locales por abrir fuera hasta que abren, aplicar el precio de un tipo también a sus trasteros libres, dinero solo con permisos, bajas, contactos y web con los días del negocio, ocupación mes a mes desde las estancias reales.
+- **Mejoras**: resumen del mes frente al pasado, deuda por inquilino y local, cartera por debajo del precio, rendimiento por tipo, cuotas que entran y salen, escenarios de la previsión, aplicar varios precios a la vez, riesgo de baja con teléfono y acciones, tiempos de los contactos, coste por canal, comparar con el año pasado e informe del mes en PDF.
+
+### Mercado: revisión y mejoras (2026-11-19, #982–#983)
+
+- **Revisión**: tu ocupación como en Analítica y la de la competencia solo con inventario completo, cualquier comprobación cuenta como revisión, precios mayores que 0, alcance por local; en Posiciones en Google, totales de Google por día, sin comparar con un periodo incompleto, fallos pasajeros que no ocultan los datos e informe a quien lo pide.
+- **Mejoras**: tu precio frente al mercado, precio comparable y por m², evolución de cada competidor, promociones con fin e histórico, plazo de revisión, «Sin cambios», pegar una tabla, leer su web con IA, avisos de subidas y agotados, características y CSV; en Posiciones en Google, semanas, año pasado, marca, dispositivos, búsquedas que sigues, detalle, de Google a reservas, páginas con pocos clics, buscar y exportar, destinatarios del informe y aviso de caídas.

@@ -106,7 +106,7 @@ export class TenantMonthlyDigestService {
             ],
           ] as Array<[string, string]>)
         : []),
-      ['MRR (ingreso recurrente)', `${eur(occ.mrrActual)}/mes`],
+      ['Cuotas al mes (ingreso recurrente)', `${eur(occ.mrrActual ?? 0)}/mes`],
       [
         `Facturado en ${monthLabel}`,
         `${eur(rev.invoiced)}${delta(rev.invoiced, revBefore.invoiced)}`,

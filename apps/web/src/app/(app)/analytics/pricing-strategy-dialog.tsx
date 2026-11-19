@@ -1,7 +1,7 @@
 'use client';
 
 import { SlidersHorizontal } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { cloneElement, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { PricingStrategyDto } from '@storageos/shared';
@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { usePricingStrategy, useUpdatePricingStrategy } from '@/lib/analytics/hooks';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 
 type Draft = {
   targetOccupancy: string;
@@ -64,9 +64,13 @@ function PricingStrategyDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const { data } = usePricingStrategy();
+  // Solo se pide al abrir el diálogo.
+  const strategy = usePricingStrategy(open);
+  const data = strategy.data;
   const update = useUpdatePricingStrategy();
-  const canEdit = useHasPermission('units:manage');
+  // La estrategia es de toda la empresa: quien solo ve algunos locales la consulta.
+  const companyWide = useCompanyWide();
+  const canEdit = useHasPermission('units:manage') && companyWide;
   const [draft, setDraft] = useState<Draft | null>(null);
   useEffect(() => {
     if (open && data) setDraft(toDraft(data));
@@ -76,12 +80,12 @@ function PricingStrategyDialog({
     if (!data || !draft) return;
     try {
       await update.mutateAsync({
-        targetOccupancy: Number(draft.targetOccupancy),
-        maxStepPct: Number(draft.maxStepPct),
-        minDaysBetweenChanges: Number(draft.minDaysBetweenChanges),
+        targetOccupancy: num(draft.targetOccupancy) ?? data.targetOccupancy,
+        maxStepPct: num(draft.maxStepPct) ?? data.maxStepPct,
+        minDaysBetweenChanges: num(draft.minDaysBetweenChanges) ?? data.minDaysBetweenChanges,
         facilities: data.facilities.map((f) => ({
           id: f.id,
-          positioningPct: Number(draft.facilities[f.id] ?? 0),
+          positioningPct: Math.round(num(draft.facilities[f.id] ?? '0') ?? 0),
         })),
         unitTypes: data.unitTypes.map((t) => ({
           id: t.id,
@@ -107,10 +111,23 @@ function PricingStrategyDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {!draft || !data ? (
+        {strategy.isError ? (
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>No se ha podido cargar la estrategia.</p>
+            <Button size="sm" variant="outline" onClick={() => void strategy.refetch()}>
+              Reintentar
+            </Button>
+          </div>
+        ) : !draft || !data ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : (
           <fieldset disabled={!canEdit} className="space-y-5">
+            {!companyWide && (
+              <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                La estrategia es de toda la empresa: solo la puede cambiar quien ve todos los
+                locales.
+              </p>
+            )}
             <div className="grid gap-3 sm:grid-cols-3">
               <Field
                 label="Ocupación objetivo (%)"
@@ -146,10 +163,14 @@ function PricingStrategyDialog({
                 </p>
                 {data.facilities.map((f) => (
                   <div key={f.id} className="flex items-center justify-between gap-3">
-                    <span className="text-sm">{f.name}</span>
+                    <label htmlFor={`pos-${f.id}`} className="text-sm">
+                      {f.name}
+                    </label>
                     <Input
+                      id={`pos-${f.id}`}
                       className="w-24"
-                      inputMode="numeric"
+                      // Texto y no «numeric»: el teclado numérico del iPhone no tiene «−».
+                      inputMode="text"
                       aria-label={`Posicionamiento de ${f.name}`}
                       value={draft.facilities[f.id] ?? '0'}
                       onChange={(e) =>
@@ -225,12 +246,15 @@ function Field({
 }: {
   label: string;
   hint: string;
-  children: React.ReactNode;
+  children: React.ReactElement<{ id?: string }>;
 }) {
+  const id = `strategy-${label.replace(/[^a-z]/gi, '').toLowerCase()}`;
   return (
     <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
-      {children}
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
+      {cloneElement(children, { id })}
       <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
   );

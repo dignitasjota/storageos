@@ -10,13 +10,28 @@ import {
   RefreshCw,
   TriangleAlert,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
+
+import {
+  BrandDevicesCards,
+  GoogleFunnelCard,
+  LowCtrCard,
+  QueriesCard,
+  ReportRecipients,
+  SeoDetailDialog,
+  TrackedKeywordsCard,
+  WeeklyCard,
+  YearAgoLine,
+  type SeoTarget,
+} from './seo-panels';
 
 import type { SeoTotalsDto } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,11 +88,14 @@ function Kpi({
   label,
   value,
   previous,
+  change,
   better,
 }: {
   label: string;
   value: string;
-  previous: string;
+  /** null = no hay periodo anterior completo con el que comparar. */
+  previous: string | null;
+  change: string | null;
   better: boolean | null;
 }) {
   return (
@@ -94,40 +112,73 @@ function Kpi({
                 : 'text-red-600 dark:text-red-400'
           }`}
         >
-          Antes: {previous}
+          {previous === null
+            ? 'Antes: sin datos completos'
+            : `Antes: ${previous}${change ? ` (${change})` : ''}`}
         </p>
       </CardContent>
     </Card>
   );
 }
 
-function Kpis({ now, before }: { now: SeoTotalsDto; before: SeoTotalsDto }) {
+/** Variación en % (o en posiciones para la posición media). */
+function changeOf(a: number | null, b: number | null, kind: 'pct' | 'positions' | 'points') {
+  if (a == null || b == null || a === b) return null;
+  if (kind === 'positions') {
+    const d = Math.round((b - a) * 10) / 10;
+    return d === 0 ? null : `${d > 0 ? 'sube' : 'baja'} ${fmtPos(Math.abs(d))}`;
+  }
+  if (kind === 'points') {
+    const d = Math.round((a - b) * 1000) / 10;
+    return d === 0 ? null : `${d > 0 ? '+' : ''}${d.toLocaleString('es-ES')} puntos`;
+  }
+  if (b === 0) return null;
+  const p = Math.round(((a - b) / b) * 100);
+  return p === 0 ? null : `${p > 0 ? '+' : ''}${p} %`;
+}
+
+function Kpis({
+  now,
+  before,
+  comparable,
+}: {
+  now: SeoTotalsDto;
+  before: SeoTotalsDto;
+  comparable: boolean;
+}) {
   const cmp = (a: number | null, b: number | null, lowerIsBetter = false) =>
-    a == null || b == null || a === b ? null : lowerIsBetter ? a < b : a > b;
+    !comparable || a == null || b == null || a === b ? null : lowerIsBetter ? a < b : a > b;
+  const prev = (v: string) => (comparable ? v : null);
+  const change = (a: number | null, b: number | null, kind: 'pct' | 'positions' | 'points') =>
+    comparable ? changeOf(a, b, kind) : null;
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <Kpi
         label="Clics desde Google"
         value={nf.format(now.clicks)}
-        previous={nf.format(before.clicks)}
+        previous={prev(nf.format(before.clicks))}
+        change={change(now.clicks, before.clicks, 'pct')}
         better={cmp(now.clicks, before.clicks)}
       />
       <Kpi
         label="Veces que apareces"
         value={nf.format(now.impressions)}
-        previous={nf.format(before.impressions)}
+        previous={prev(nf.format(before.impressions))}
+        change={change(now.impressions, before.impressions, 'pct')}
         better={cmp(now.impressions, before.impressions)}
       />
       <Kpi
         label="Posición media"
         value={fmtPos(now.position)}
-        previous={fmtPos(before.position)}
+        previous={prev(fmtPos(before.position))}
+        change={change(now.position, before.position, 'positions')}
         better={cmp(now.position, before.position, true)}
       />
       <Kpi
         label="Porcentaje de clics"
         value={fmtPct(now.ctr)}
-        previous={fmtPct(before.ctr)}
+        previous={prev(fmtPct(before.ctr))}
+        change={change(now.ctr, before.ctr, 'points')}
         better={cmp(now.ctr, before.ctr)}
       />
     </div>
@@ -143,7 +194,14 @@ function ConnectCard() {
   const [siteUrl, setSiteUrl] = useState('');
   const s = settings.data;
 
-  if (!s) return null;
+  if (settings.isError && !s) return <SectionError onRetry={() => void settings.refetch()} />;
+  if (!s) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
   if (!s.available) {
     return (
       <Card>
@@ -177,7 +235,11 @@ function ConnectCard() {
             )}
           </div>
         )}
-        {s.lastError && <p className="text-sm text-amber-700 dark:text-amber-400">{s.lastError}</p>}
+        {s.lastError && (
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            {connected ? `${s.lastError} Mientras tanto ves los datos que ya había.` : s.lastError}
+          </p>
+        )}
 
         {!connected && (
           <ol className="list-decimal space-y-2 pl-5 text-sm">
@@ -221,6 +283,28 @@ function ConnectCard() {
         )}
 
         <Can permission="settings:manage">
+          {!connected && s.siteUrl && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  if (
+                    await ask({
+                      title: '¿Desconectar Search Console?',
+                      description: 'Se borran los datos descargados. Puedes volver a conectarlo.',
+                      confirmLabel: 'Desconectar',
+                      destructive: true,
+                    })
+                  ) {
+                    await disconnect.mutateAsync(undefined);
+                  }
+                }}
+              >
+                Desconectar
+              </Button>
+            </div>
+          )}
           {!connected ? (
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
               <div className="flex-1 space-y-1.5">
@@ -255,8 +339,14 @@ function ConnectCard() {
                 size="sm"
                 disabled={sync.isPending}
                 onClick={async () => {
-                  await sync.mutateAsync(undefined);
-                  toast.success('Datos actualizados');
+                  try {
+                    await sync.mutateAsync(undefined);
+                    toast.success('Datos actualizados');
+                  } catch (err) {
+                    toast.error(
+                      err instanceof ApiError ? err.body.message : 'No se pudieron actualizar.',
+                    );
+                  }
                 }}
               >
                 {sync.isPending ? (
@@ -324,41 +414,47 @@ function MonthlyReportCard() {
             <p className="text-sm text-muted-foreground">Nada urgente que mejorar este mes.</p>
           )
         )}
-        <Can permission="settings:manage">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+          <Can permission="settings:manage">
             <label className="flex items-center gap-2 text-sm">
               <Checkbox
                 checked={settings.data?.monthlyReport ?? true}
-                onCheckedChange={(v) => toggle.mutate(v === true)}
-              />
-              Enviarme este informe por correo cada mes (día 3)
-            </label>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={send.isPending}
-              onClick={async () => {
-                try {
-                  const res = await send.mutateAsync();
-                  toast.success(
-                    res.recipients > 0
-                      ? 'Informe enviado a los propietarios'
-                      : 'No hay propietarios con el email verificado',
-                  );
-                } catch (err) {
-                  toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar');
+                disabled={toggle.isPending}
+                onCheckedChange={(v) =>
+                  toggle.mutate(v === true, {
+                    onError: () => toast.error('No se pudo guardar. Inténtalo de nuevo.'),
+                  })
                 }
-              }}
-            >
-              {send.isPending ? (
-                <Loader2 className="mr-1 size-4 animate-spin" />
-              ) : (
-                <Mail className="mr-1 size-4" />
-              )}
-              Enviármelo ahora
-            </Button>
-          </div>
-        </Can>
+              />
+              Enviar este informe cada mes (día 3)
+            </label>
+          </Can>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={send.isPending}
+            onClick={async () => {
+              try {
+                const res = await send.mutateAsync();
+                toast.success(
+                  res.recipients > 0
+                    ? 'Te lo hemos enviado a tu correo'
+                    : 'Tu email no está verificado: verifícalo para recibirlo',
+                );
+              } catch (err) {
+                toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar');
+              }
+            }}
+          >
+            {send.isPending ? (
+              <Loader2 className="mr-1 size-4 animate-spin" />
+            ) : (
+              <Mail className="mr-1 size-4" />
+            )}
+            Enviármelo ahora
+          </Button>
+          <ReportRecipients />
+        </div>
       </CardContent>
     </Card>
   );
@@ -367,8 +463,12 @@ function MonthlyReportCard() {
 export default function SeoPage() {
   const settings = useSearchConsole();
   const connected = settings.data?.status === 'connected';
+  // Con la propiedad guardada se ven los datos ya descargados, aunque la última
+  // descarga haya fallado.
+  const hasSite = Boolean(settings.data?.siteUrl);
   const [days, setDays] = useState(28);
-  const positions = useSeoPositions(days, connected);
+  const [target, setTarget] = useState<SeoTarget | null>(null);
+  const positions = useSeoPositions(days, hasSite);
   const d = positions.data;
   const areaPages = d?.pages.filter((p) => p.areaSlug) ?? [];
   const otherPages = d?.pages.filter((p) => !p.areaSlug) ?? [];
@@ -382,7 +482,7 @@ export default function SeoPage() {
             Cómo te encuentra la gente en Google: búsquedas, posición y clics de cada página.
           </p>
         </div>
-        {connected && (
+        {hasSite && (
           <div className="flex gap-1">
             {[7, 28, 90].map((n) => (
               <Button
@@ -400,17 +500,23 @@ export default function SeoPage() {
 
       <ConnectCard />
 
-      {connected && positions.isLoading && (
+      {hasSite && positions.isLoading && (
         <div className="flex justify-center py-10">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
       )}
+      {hasSite && positions.isError && !d && (
+        <SectionError onRetry={() => void positions.refetch()} />
+      )}
 
-      {connected && d && (
+      {hasSite && d && (
         <>
           {d.lastDate ? (
             <p className="text-xs text-muted-foreground">
-              Del {fmtDate(d.from)} al {fmtDate(d.to)}, comparado con los {days} días anteriores.
+              Del {fmtDate(d.from)} al {fmtDate(d.to)}
+              {d.previousComplete
+                ? `, comparado con los ${days} días anteriores.`
+                : `. Aún no hay ${days} días anteriores descargados para comparar (desde el ${fmtDate(d.firstDate ?? d.from)}).`}
             </p>
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -418,9 +524,11 @@ export default function SeoPage() {
             </p>
           )}
 
-          <Kpis now={d.totals} before={d.previousTotals} />
+          <Kpis now={d.totals} before={d.previousTotals} comparable={d.previousComplete} />
+          <YearAgoLine d={d} />
+          <WeeklyCard d={d} />
 
-          <MonthlyReportCard />
+          {connected && <MonthlyReportCard />}
 
           {d.alerts.length > 0 && (
             <Card className="border-amber-300 dark:border-amber-800">
@@ -454,7 +562,13 @@ export default function SeoPage() {
                 <ul className="divide-y text-sm">
                   {d.opportunities.map((q) => (
                     <li key={q.query} className="flex items-center justify-between gap-3 py-2">
-                      <span className="truncate">{q.query}</span>
+                      <button
+                        type="button"
+                        className="truncate text-left hover:underline"
+                        onClick={() => setTarget({ kind: 'query', key: q.query, label: q.query })}
+                      >
+                        {q.query}
+                      </button>
                       <span className="shrink-0 text-muted-foreground">
                         posición {fmtPos(q.position)} · {nf.format(q.impressions)} apariciones
                       </span>
@@ -465,51 +579,11 @@ export default function SeoPage() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Búsquedas</CardTitle>
-              <CardDescription>Lo que escribe la gente en Google antes de verte.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Búsqueda</TableHead>
-                    <TableHead className="text-right">Clics</TableHead>
-                    <TableHead className="text-right">Apariciones</TableHead>
-                    <TableHead className="text-right">Posición</TableHead>
-                    <TableHead className="text-right">Cambio</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {d.queries.slice(0, 25).map((q) => (
-                    <TableRow key={q.query}>
-                      <TableCell className="max-w-[240px] truncate">{q.query}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {nf.format(q.clicks)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {nf.format(q.impressions)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtPos(q.position)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Change value={q.change} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {d.queries.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                        Sin búsquedas en este periodo.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+          <LowCtrCard d={d} onOpen={setTarget} />
+          <TrackedKeywordsCard days={days} onOpen={setTarget} />
+          <BrandDevicesCards d={d} />
+          <GoogleFunnelCard days={days} />
+          <QueriesCard d={d} onOpen={setTarget} />
 
           {[
             { title: 'Páginas de zona', rows: areaPages },
@@ -518,8 +592,16 @@ export default function SeoPage() {
             .filter((g) => g.rows.length > 0)
             .map((g) => (
               <Card key={g.title}>
-                <CardHeader>
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
                   <CardTitle className="text-base">{g.title}</CardTitle>
+                  {g.title === 'Páginas de zona' && (
+                    <Link
+                      href="/settings/area-pages"
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Editar las páginas de zona
+                    </Link>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -535,7 +617,17 @@ export default function SeoPage() {
                     <TableBody>
                       {g.rows.map((p) => (
                         <TableRow key={p.page}>
-                          <TableCell className="max-w-[220px] truncate">{p.path}</TableCell>
+                          <TableCell className="max-w-[220px]">
+                            <button
+                              type="button"
+                              className="max-w-full truncate text-left hover:underline"
+                              onClick={() =>
+                                setTarget({ kind: 'page', key: p.page, label: p.path })
+                              }
+                            >
+                              {p.path}
+                            </button>
+                          </TableCell>
                           <TableCell className="hidden max-w-[200px] truncate text-muted-foreground sm:table-cell">
                             {p.topQuery ?? '—'}
                           </TableCell>
@@ -546,11 +638,17 @@ export default function SeoPage() {
                             {fmtPos(p.position)}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Change
-                              value={
-                                p.previousPosition == null ? null : p.previousPosition - p.position
-                              }
-                            />
+                            {d.previousComplete ? (
+                              <Change
+                                value={
+                                  p.previousPosition == null
+                                    ? null
+                                    : p.previousPosition - p.position
+                                }
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -561,6 +659,12 @@ export default function SeoPage() {
             ))}
         </>
       )}
+      <SeoDetailDialog
+        target={target}
+        days={days}
+        onClose={() => setTarget(null)}
+        onOpen={setTarget}
+      />
     </div>
   );
 }

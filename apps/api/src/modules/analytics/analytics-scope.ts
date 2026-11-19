@@ -14,9 +14,21 @@ import type { Prisma } from '@storageos/database';
 export interface AnalyticsScope {
   ids: string[] | undefined;
   explicit: boolean;
+  /**
+   * Emisor de las facturas (plan Administrador): null = el propio negocio, un id =
+   * ese propietario, undefined = todos. Solo afecta a lo que sale de las facturas.
+   */
+  issuer?: string | null | undefined;
+  /**
+   * Los locales por abrir no cuentan en las cifras de toda la empresa hasta que
+   * abren; las pantallas de cada local los incluyen.
+   */
+  includePreOpening?: boolean;
 }
 
 export const ALL_FACILITIES: AnalyticsScope = { ids: undefined, explicit: false };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function resolveAnalyticsScope(
   userScope: FacilityScope,
@@ -24,21 +36,47 @@ export function resolveAnalyticsScope(
 ): AnalyticsScope {
   const requested = requestedFacilityId?.trim();
   if (requested) {
+    if (!UUID_RE.test(requested)) {
+      throw new BadRequestException({
+        code: 'invalid_facility_id',
+        message: 'El local indicado no es válido',
+      });
+    }
     // Un local fuera del alcance no da error: simplemente no hay datos.
     return { ids: isFacilityAllowed(userScope, requested) ? [requested] : [], explicit: true };
   }
   return { ids: userScope ?? undefined, explicit: false };
 }
 
-/** Clave estable para cachés por alcance. */
-export function scopeKey(scope: AnalyticsScope): string {
-  return scope.ids ? [...scope.ids].sort().join(',') : '*';
+/**
+ * Emisor pedido en la URL: vacío o `self` = el propio negocio, `all` = todos, un
+ * id = ese propietario.
+ */
+export function parseIssuer(value: string | undefined): string | null | undefined {
+  const v = value?.trim();
+  if (!v || v === 'self') return null;
+  if (v === 'all') return undefined;
+  if (!UUID_RE.test(v)) {
+    throw new BadRequestException({ code: 'invalid_owner', message: 'Propietario no válido' });
+  }
+  return v;
 }
 
-/** Trasteros del alcance (los de un local borrado no cuentan). */
+/** Clave estable para cachés por alcance. */
+export function scopeKey(scope: AnalyticsScope): string {
+  const ids = scope.ids ? [...scope.ids].sort().join(',') : '*';
+  const issuer = scope.issuer === undefined ? 'all' : (scope.issuer ?? 'self');
+  return `${ids}|${scope.explicit ? 'x' : ''}|${issuer}`;
+}
+
+/**
+ * Trasteros del alcance (los de un local borrado no cuentan; los de un local por
+ * abrir, solo si se mira ese local).
+ */
 export function unitWhere(scope: AnalyticsScope): Prisma.UnitWhereInput {
+  const openOnly = !scope.explicit && !scope.includePreOpening;
   return {
-    facility: { deletedAt: null },
+    facility: { deletedAt: null, ...(openOnly ? { preOpening: false } : {}) },
     ...(scope.ids ? { facilityId: { in: scope.ids } } : {}),
   };
 }
@@ -53,14 +91,16 @@ export function contractWhere(scope: AnalyticsScope): Prisma.ContractWhereInput 
  * las que no son de ningún local (F2 sueltas).
  */
 export function invoiceWhere(scope: AnalyticsScope): Prisma.InvoiceWhereInput {
-  if (!scope.ids) return {};
+  const issuer: Prisma.InvoiceWhereInput =
+    scope.issuer === undefined ? {} : { ownerId: scope.issuer };
+  if (!scope.ids) return issuer;
   const inScope: Prisma.InvoiceWhereInput[] = [
     { contract: { unit: { facilityId: { in: scope.ids } } } },
     { facilityId: { in: scope.ids } },
     { productSale: { facilityId: { in: scope.ids } } },
   ];
   if (!scope.explicit) inScope.push({ contractId: null, facilityId: null, productSale: null });
-  return { OR: inScope };
+  return { ...issuer, OR: inScope };
 }
 
 /** Contactos de un local; sin local elegido, también los que no indicaron ninguno. */
@@ -146,11 +186,30 @@ export async function liveMrr(
 ): Promise<{ mrr: number; contracts: number }> {
   const rows = await tx.contract.findMany({
     where: { ...LIVE_CONTRACT_WHERE, ...contractWhere(scope) },
-    select: { priceMonthly: true, discountAmount: true },
+    select: MONTHLY_FEE_SELECT,
   });
-  const mrr = rows.reduce(
-    (sum, c) => sum + Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount)),
-    0,
-  );
+  const mrr = rows.reduce((sum, c) => sum + monthlyFee(c), 0);
   return { mrr: Math.round(mrr * 100) / 100, contracts: rows.length };
+}
+
+export const MONTHLY_FEE_SELECT = {
+  priceMonthly: true,
+  discountAmount: true,
+  billingIntervalMonths: true,
+  prepayDiscountPct: true,
+} as const;
+
+/**
+ * Lo que paga un contrato al mes: la cuota menos su descuento y, si paga varios
+ * meses por adelantado, menos el descuento por prepago.
+ */
+export function monthlyFee(c: {
+  priceMonthly: Prisma.Decimal | number;
+  discountAmount: Prisma.Decimal | number;
+  billingIntervalMonths?: number | null;
+  prepayDiscountPct?: Prisma.Decimal | number | null;
+}): number {
+  const base = Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount));
+  const prepay = (c.billingIntervalMonths ?? 1) > 1 ? Number(c.prepayDiscountPct ?? 0) / 100 : 0;
+  return base * (1 - Math.min(1, Math.max(0, prepay)));
 }

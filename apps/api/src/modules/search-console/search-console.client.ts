@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { shiftDate, type SearchConsoleRowInput } from '@storageos/shared';
+import {
+  shiftDate,
+  type SearchConsoleDayInput,
+  type SearchConsoleDeviceInput,
+  type SearchConsoleRowInput,
+} from '@storageos/shared';
 
 import { GoogleServiceAccount } from '../../common/google/google-service-account';
 
@@ -95,6 +100,96 @@ export class SearchConsoleClient {
     return out;
   }
 
+  /**
+   * Totales de cada día (sin repartir por búsqueda): son los que da el panel de
+   * Search Console, con las búsquedas poco frecuentes que no salen por búsqueda.
+   */
+  async searchAnalyticsDays(
+    siteUrl: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<SearchConsoleDayInput[]> {
+    if (this.stub) {
+      // Lo de las búsquedas más un poco de búsquedas que Google no detalla.
+      const byDay = new Map<string, SearchConsoleDayInput>();
+      for (const r of stubRows(siteUrl, startDate, endDate)) {
+        const d = byDay.get(r.date) ?? { date: r.date, clicks: 1, impressions: 15, position: 0 };
+        d.position =
+          (d.position * d.impressions + r.position * r.impressions) /
+          (d.impressions + r.impressions);
+        d.clicks += r.clicks;
+        d.impressions += r.impressions;
+        byDay.set(r.date, d);
+      }
+      return [...byDay.values()];
+    }
+    const res = await this.request<{
+      rows?: { keys: [string]; clicks: number; impressions: number; position: number }[];
+    }>('POST', `${API}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
+      startDate,
+      endDate,
+      dimensions: ['date'],
+      rowLimit: 1000,
+    });
+    return (res.rows ?? []).map((r) => ({
+      date: r.keys[0],
+      clicks: Math.round(r.clicks),
+      impressions: Math.round(r.impressions),
+      position: r.position,
+    }));
+  }
+
+  /** Totales de cada día por dispositivo (MOBILE, DESKTOP, TABLET). */
+  async searchAnalyticsDevices(
+    siteUrl: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<SearchConsoleDeviceInput[]> {
+    if (this.stub) {
+      // Dos de cada tres clics desde el móvil.
+      return (await this.searchAnalyticsDays(siteUrl, startDate, endDate)).flatMap((d) => [
+        {
+          date: d.date,
+          device: 'MOBILE',
+          clicks: Math.round((d.clicks * 2) / 3),
+          impressions: Math.round((d.impressions * 2) / 3),
+          position: d.position + 0.5,
+        },
+        {
+          date: d.date,
+          device: 'DESKTOP',
+          clicks: d.clicks - Math.round((d.clicks * 2) / 3),
+          impressions: d.impressions - Math.round((d.impressions * 2) / 3),
+          position: d.position - 0.5,
+        },
+      ]);
+    }
+    const out: SearchConsoleDeviceInput[] = [];
+    for (let startRow = 0; startRow < MAX_ROWS; startRow += PAGE_SIZE) {
+      const res = await this.request<{
+        rows?: { keys: [string, string]; clicks: number; impressions: number; position: number }[];
+      }>('POST', `${API}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
+        startDate,
+        endDate,
+        dimensions: ['date', 'device'],
+        rowLimit: PAGE_SIZE,
+        startRow,
+      });
+      const rows = res.rows ?? [];
+      for (const r of rows) {
+        out.push({
+          date: r.keys[0],
+          device: r.keys[1],
+          clicks: Math.round(r.clicks),
+          impressions: Math.round(r.impressions),
+          position: r.position,
+        });
+      }
+      if (rows.length < PAGE_SIZE) break;
+    }
+    return out;
+  }
+
   private request<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
     return this.account.request<T>(SCOPE, method, url, body);
   }
@@ -108,7 +203,7 @@ function stubRows(siteUrl: string, startDate: string, endDate: string): SearchCo
     .replace(/\/.*$/, '');
   const base = `https://${host}`;
   const out: SearchConsoleRowInput[] = [];
-  for (let d = startDate, i = 0; d <= endDate && i < 400; d = shiftDate(d, 1), i++) {
+  for (let d = startDate, i = 0; d <= endDate && i < 500; d = shiftDate(d, 1), i++) {
     out.push(
       {
         date: d,

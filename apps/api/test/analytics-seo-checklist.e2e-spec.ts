@@ -138,8 +138,14 @@ describe('Analytics — checklist de SEO on-page (e2e)', () => {
     const token = (reviewReq.body.reviewUrl as string).split('/review/')[1] ?? '';
     await request(app.getHttpServer())
       .post(`/public/reviews/${token}`)
-      .send({ npsScore: 10, rating: 5, comment: 'Excelente servicio' })
+      .send({ npsScore: 10, rating: 5, comment: 'Excelente servicio', publishConsent: true })
       .expect(201);
+    // Solo cuentan las opiniones que se publican en la web.
+    await request(app.getHttpServer())
+      .patch(`/reviews/${reviewReq.body.id}/web`)
+      .set(auth)
+      .send({ published: true })
+      .expect(200);
 
     // Entrada de blog publicada.
     await request(app.getHttpServer())

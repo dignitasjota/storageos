@@ -29,6 +29,13 @@ import type {
   OccupancyHistoryDto,
   PreOpeningAnalyticsDto,
   RevenueBreakdownDto,
+  AnalyticsHeadlineDto,
+  ArrearsBreakdownDto,
+  ApplyUnitPricingManyResultDto,
+  ChurnBreakdownDto,
+  ForecastScenariosDto,
+  PortfolioGapDto,
+  UnitEconomicsDto,
 } from '@storageos/shared';
 
 export const analyticsKey = (
@@ -55,7 +62,13 @@ export const analyticsKey = (
     | 'revenue-breakdown'
     | 'cohorts'
     | 'exit-reasons'
-    | 'competition-alerts',
+    | 'competition-alerts'
+    | 'headline'
+    | 'arrears-breakdown'
+    | 'portfolio-gap'
+    | 'unit-economics'
+    | 'churn-breakdown'
+    | 'forecast-scenarios',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
@@ -67,6 +80,70 @@ function query(params: Record<string, string | undefined>): string {
   return str ? `?${str}` : '';
 }
 
+/** Una línea con cómo va el mes en curso. */
+export function useAnalyticsHeadline(params: { facilityId?: string; ownerId?: string }) {
+  return useQuery({
+    queryKey: analyticsKey('headline', params),
+    queryFn: () => apiFetch<AnalyticsHeadlineDto>(`/analytics/headline${query(params)}`),
+  });
+}
+
+/** Deuda vencida por inquilino y por local, y días que se tarda en cobrar. */
+export function useArrearsBreakdown(params: { facilityId?: string; ownerId?: string }) {
+  return useQuery({
+    queryKey: analyticsKey('arrears-breakdown', params),
+    queryFn: () => apiFetch<ArrearsBreakdownDto>(`/analytics/arrears-breakdown${query(params)}`),
+  });
+}
+
+/** Contratos que pagan menos que el precio de hoy de su trastero. */
+export function usePortfolioGap(facilityId?: string, enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: analyticsKey('portfolio-gap', { facilityId }),
+    queryFn: () => apiFetch<PortfolioGapDto>(`/analytics/portfolio-gap${query({ facilityId })}`),
+  });
+}
+
+/** Cuotas por m² de cada tipo de trastero y frente a su precio de hoy. */
+export function useUnitEconomics(facilityId?: string, enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: analyticsKey('unit-economics', { facilityId }),
+    queryFn: () => apiFetch<UnitEconomicsDto>(`/analytics/unit-economics${query({ facilityId })}`),
+  });
+}
+
+/** Cuotas que entran y salen cada mes y antigüedad de las bajas. */
+export function useChurnBreakdown(params: Range = {}) {
+  return useQuery({
+    queryKey: analyticsKey('churn-breakdown', params),
+    queryFn: () => apiFetch<ChurnBreakdownDto>(`/analytics/churn-breakdown${query(params)}`),
+  });
+}
+
+/** Escenarios de la previsión y cuándo se llenaría cada local y tipo. */
+export function useForecastScenarios(facilityId?: string) {
+  return useQuery({
+    queryKey: analyticsKey('forecast-scenarios', { facilityId }),
+    queryFn: () =>
+      apiFetch<ForecastScenariosDto>(`/analytics/forecast-scenarios${query({ facilityId })}`),
+  });
+}
+
+/** Aplica de una vez el precio sugerido de varios trasteros. */
+export function useApplyUnitPricingMany() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (items: { unitId: string; price: number }[]) =>
+      apiFetch<ApplyUnitPricingManyResultDto>('/analytics/unit-pricing-suggestions/apply-many', {
+        method: 'POST',
+        json: { items },
+      }),
+    onSuccess: () => invalidatePrices(qc),
+  });
+}
+
 export function useBenchmark() {
   return useQuery({
     queryKey: analyticsKey('benchmark'),
@@ -75,7 +152,10 @@ export function useBenchmark() {
 }
 
 export function useMonthlyRevenue(
-  arg: number | { months?: number; from?: string; to?: string; facilityId?: string } = 12,
+  arg:
+    | number
+    | { months?: number; from?: string; to?: string; facilityId?: string; ownerId?: string } = 12,
+  enabled = true,
 ) {
   const params = typeof arg === 'number' ? { months: arg } : arg;
   const ranged = !!(params.from && params.to);
@@ -84,8 +164,10 @@ export function useMonthlyRevenue(
     to: ranged ? params.to : undefined,
     months: !ranged && params.months ? String(params.months) : undefined,
     facilityId: 'facilityId' in params ? params.facilityId : undefined,
+    ownerId: 'ownerId' in params ? params.ownerId : undefined,
   };
   return useQuery({
+    enabled,
     queryKey: analyticsKey('monthly-revenue', p),
     queryFn: () => apiFetch<MonthlyRevenueKpiDto>(`/analytics/monthly-revenue${query(p)}`),
   });
@@ -124,7 +206,7 @@ export function useChurn(params: Range = {}) {
   });
 }
 
-export function useAging(params: { atDate?: string; facilityId?: string } = {}) {
+export function useAging(params: { atDate?: string; facilityId?: string; ownerId?: string } = {}) {
   return useQuery({
     queryKey: analyticsKey('aging', params),
     queryFn: () => apiFetch<AgingKpiDto>(`/analytics/aging${query(params)}`),
@@ -177,6 +259,23 @@ export function useSuggestedActions(facilityId?: string) {
   });
 }
 
+/** Lo que cambia al aplicar un precio: sugerencias, efectos, ocupación y trasteros. */
+function invalidatePrices(qc: ReturnType<typeof useQueryClient>) {
+  for (const scope of [
+    'pricing-suggestions',
+    'unit-pricing-suggestions',
+    'price-change-effects',
+    'occupancy',
+    'suggested-actions',
+    'portfolio-gap',
+    'unit-economics',
+  ] as const) {
+    void qc.invalidateQueries({ queryKey: analyticsKey(scope) });
+  }
+  void qc.invalidateQueries({ queryKey: ['unit-types'] });
+  void qc.invalidateQueries({ queryKey: ['units'] });
+}
+
 export function useApplyPricing() {
   const qc = useQueryClient();
   return useMutation({
@@ -185,10 +284,7 @@ export function useApplyPricing() {
         method: 'POST',
         json: args,
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: analyticsKey('pricing-suggestions') });
-      void qc.invalidateQueries({ queryKey: ['unit-types'] });
-    },
+    onSuccess: () => invalidatePrices(qc),
   });
 }
 
@@ -220,16 +316,14 @@ export function useApplyUnitPricing() {
         method: 'POST',
         json: args,
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: analyticsKey('unit-pricing-suggestions') });
-      void qc.invalidateQueries({ queryKey: ['units'] });
-    },
+    onSuccess: () => invalidatePrices(qc),
   });
 }
 
 /** Estrategia de precios: ocupación objetivo, límites y posicionamiento por local. */
-export function usePricingStrategy() {
+export function usePricingStrategy(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: analyticsKey('pricing-strategy'),
     queryFn: () => apiFetch<PricingStrategyDto>('/analytics/pricing-strategy'),
   });
@@ -289,17 +383,20 @@ export function useOccupancyHistory(params: { months?: number; facilityId?: stri
   });
 }
 
-export function useRevenueBreakdown(params: Range = {}) {
+export function useRevenueBreakdown(params: Range & { ownerId?: string } = {}) {
   return useQuery({
     queryKey: analyticsKey('revenue-breakdown', params),
     queryFn: () => apiFetch<RevenueBreakdownDto>(`/analytics/revenue-breakdown${query(params)}`),
   });
 }
 
-export function useCohorts(params: { months?: number; facilityId?: string } = {}) {
+export function useCohorts(
+  params: { months?: number; facilityId?: string; ownerId?: string } = {},
+) {
   const p = {
     months: params.months ? String(params.months) : undefined,
     facilityId: params.facilityId,
+    ownerId: params.ownerId,
   };
   return useQuery({
     queryKey: analyticsKey('cohorts', p),
@@ -308,11 +405,8 @@ export function useCohorts(params: { months?: number; facilityId?: string } = {}
 }
 
 /** Motivos de baja de la encuesta de salida. */
-export function useExitReasons(params: { months?: number; facilityId?: string } = {}) {
-  const p = {
-    months: params.months ? String(params.months) : undefined,
-    facilityId: params.facilityId,
-  };
+export function useExitReasons(params: Range = {}) {
+  const p = { from: params.from, to: params.to, facilityId: params.facilityId };
   return useQuery({
     queryKey: analyticsKey('exit-reasons', p),
     queryFn: () => apiFetch<ExitReasonsDto>(`/analytics/exit-reasons${query(p)}`),

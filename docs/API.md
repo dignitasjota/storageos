@@ -3342,3 +3342,81 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 - **Comparativa**: `GET /admin/sales-team/comparison?months=1|3|6|12` → `SalesTeamComparisonDto` (por comercial: prospectos asignados, pruebas, ventas, conversión, días hasta pagar, bajas, cuotas al mes de hoy y comisiones del periodo).
 
 **Panel del cliente**: `GET /settings/sales-rep` → `{rep: TenantSalesRepDto | null}` (nombre, email, teléfono, WhatsApp y enlace de reservas de su comercial, si tiene uno activo).
+
+### Analítica: segunda revisión (2026-11-19)
+
+- **Dinero solo con permiso**: `GET /analytics/monthly-revenue`, `/revenue`, `/revenue-breakdown` y `/aging` exigen además `invoices:read` y `payments:read` (403 `insufficient_permission`). Sin ellos, `occupancy` devuelve `mrrActual`, `mrrPotential` y `economicOccupancy` a `null`; `occupancy-history` las cuotas a `null`; `forecast` `current.mrr`, `avgContractValue` y `projectedMrr` a `null`; `cohorts` `revenuePerContract` a `null`; `churn-risk` `priceMonthly` a `null`; `suggested-actions` sin importes. El Resumen (`/dashboard/overview`) igual: `revenue`, `receivables` y `monthlyRevenue` a `null`.
+- **Emisor de las facturas** (plan Administrador): `monthly-revenue`, `revenue`, `revenue-breakdown`, `aging` y `cohorts` aceptan `?ownerId=` — vacío o `self` = tu empresa (por defecto), un id = ese propietario, `all` = todas. Id no válido → 400 `invalid_owner`.
+- `?facilityId=` mal escrito → 400 `invalid_facility_id` (antes, 500).
+- **Locales por abrir**: no cuentan en las cifras de toda la empresa (ocupación, cuotas con todo alquilado, previsión, comparativa, precios por tipo) hasta que abren; con `?facilityId=` de ese local sí.
+- `POST /analytics/pricing-suggestions/apply` cambia el precio del tipo **y el de sus trasteros libres** en todos los locales (con su rastro en el historial de precios); la respuesta lleva `unitsUpdated`. `PricingSuggestionItemDto.availableUnitsAll` dice cuántos son antes de aplicar.
+- `POST /analytics/unit-pricing-suggestions/apply` exige un precio mayor que 0.
+- `GET /analytics/churn` lleva `started` (altas del mes) en cada mes: una baja de quien entró ese mes cuenta, y la tasa va sobre los activos al empezar más las altas.
+- `GET /analytics/exit-reasons?from=&to=` (meses `YYYY-MM`) para el periodo elegido; `months` sigue valiendo.
+- `GET /analytics/occupancy-history` sale de quién tuvo cada trastero (un traslado no mueve la historia; una cartera importada cuenta sus trasteros desde el primer inquilino) y añade `yearAgo` (el mismo mes del año pasado).
+- `GET /analytics/churn-risk` es **por inquilino** (`contractCount`, trasteros y cuota de todos sus contratos).
+- `CompetitionPriceDropDto.comparablePrice`: el precio nuevo del competidor comparable con el tuyo (sin IVA, con seguro, alta y promoción).
+- `RevenueForecastDto`: `assumptions.historyMonths` (meses cerrados con actividad) y `current.totalUnits` = trasteros que se pueden alquilar.
+- `GET /analytics/pricing-strategy` solo lista los locales que ve el usuario.
+- `GET /analytics/benchmark`: mínimo 10 negocios (sin demos ni cuentas exentas) y se reutiliza una hora.
+
+### Analítica: mejoras (2026-11-19)
+
+| Método | Ruta                                                | Permiso                             | Qué devuelve                                                                                                                                                                                                               |
+| ------ | --------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/analytics/headline?facilityId=&ownerId=`          | `analytics:read`                    | El mes en curso frente al pasado hasta el mismo día: facturado (null sin permiso de dinero), ocupación de hoy y al cerrar el mes pasado, altas, bajas, contactos y vencido sin cobrar                                      |
+| GET    | `/analytics/arrears-breakdown?facilityId=&ownerId=` | + `invoices:read` y `payments:read` | Deuda vencida de los 10 inquilinos que más deben (y cuántos son), por local, y media de días hasta cobrar y de retraso sobre el vencimiento (facturas cobradas en 90 días)                                                 |
+| GET    | `/analytics/portfolio-gap?facilityId=`              | + dinero                            | Contratos en vigor que pagan menos que el precio de hoy de su trastero (hasta 200, de mayor a menor diferencia), con la fecha del último cambio de cuota y lo que sumaría al mes                                           |
+| GET    | `/analytics/unit-economics?facilityId=`             | + dinero                            | Por tipo de trastero: alquilados, m², cuotas al mes, cuotas por m² alquilado y total, cuota media y precio medio de hoy de esos trasteros                                                                                  |
+| GET    | `/analytics/churn-breakdown?from=&to=&facilityId=`  | `analytics:read`                    | Cuotas al mes que entran (altas) y salen (bajas) cada mes (null sin permiso de dinero) y bajas del periodo según lo que llevaban (`lt3`, `3to6`, `6to12`, `12to24`, `gt24` meses)                                          |
+| GET    | `/analytics/forecast-scenarios?facilityId=`         | `analytics:read`                    | Tres escenarios (`low`: la mitad de altas y 1,5× bajas; `expected`; `high`) con 12 meses y el mes en que se llenaría (hasta 5 años), y cuándo se llena cada local y tamaño con sus altas menos bajas de los meses cerrados |
+| POST   | `/analytics/unit-pricing-suggestions/apply-many`    | `units:manage`                      | `{ items: [{ unitId, price }] }` (1-500): aplica cada precio por separado → `{ applied, failed: [{ unitId, message }] }`                                                                                                   |
+
+- `GET /analytics/leads-funnel` añade `timing`: mediana de horas hasta contactar (`firstResponseHours`, `responded`) y de días hasta ganar (`daysToWin`).
+- `GET /analytics/churn-risk` añade el teléfono de cada inquilino (`phone`) y `summary.atStakeMonthly` (cuotas de los de riesgo alto y medio; null sin permiso de dinero).
+- Informe nuevo `analytics_month` («Resumen del mes», PDF o Excel, parámetro `month` AAAA-MM): facturado, cobrado, ocupación y cuotas al cerrar, altas, bajas, tasa de bajas y contactos frente al mes anterior. Las facturas son las del propio negocio.
+
+### Mercado: revisión (2026-11-19)
+
+**Competencia**
+
+- `GET /competitors` y `GET /competitors/occupancy` aceptan `?facilityId=` (sus competidores y los que no van ligados a ningún local; mal escrito → 400 `invalid_facility_id`). Quien solo ve algunos locales ve los competidores de esos locales y los sin ligar, y no puede tocar los demás (404).
+- Ligar un competidor a un local que no es del negocio o que el usuario no ve → 400 `invalid_facility`.
+- `MarketOccupancyDto`: `myOccupancyPct` es la de Analítica (sin locales por abrir ni inquilino de prueba); la media de la competencia solo cuenta inventarios completos comprobados en 180 días. Cada competidor lleva `estimatedOccupancyPct` (con su total conocido; no cuenta en la media) y `stale`; el DTO lleva `facilityId`.
+- `CompetitorFacilityDto.lastReviewedAt` es la última comprobación de cualquier trastero suyo o la revisión completa (antes solo «Revisar»). El aviso «sin revisar» usa lo mismo y no avisa de competidores sin trasteros.
+- Precios: mayores que 0 en el alta, la edición y la revisión (400).
+- `PATCH /competitors/units/:id`: solo cambiar el precio o el estado, o `checked: true` («lo he comprobado hoy»), cuenta como comprobación; corregir la referencia, las notas o las medidas no. `widthM: null` / `depthM: null` quita las medidas.
+- Cada cambio queda en el registro de actividad (`competitor.created|updated|deleted|unit_created|unit_updated|unit_deleted|reviewed`).
+
+**Posiciones en Google**
+
+- `GET /seo/search-console` se lee con `analytics:read`.
+- Un fallo pasajero de Google deja `status: 'connected'` con `lastError` (los datos siguen a la vista); solo un 401/403/404 de Google lo pasa a `error`.
+- `POST /seo/search-console/sync` → 502 `search_console_sync_failed` si la descarga falla.
+- Cada descarga repasa desde la última buena (más 6 días) para no dejar huecos. Al conectar se bajan 190 días.
+- Se guardan también los totales de cada día de Google (tabla `search_console_days`): los totales de `GET /seo/positions`, el informe y el Resumen de marketing cuadran con el panel de Search Console. `SeoPositionsDto` añade `firstDate` y `previousComplete` (sin el periodo anterior completo no hay avisos ni comparación) y hasta 200 búsquedas.
+- `POST /seo/report/send` (`analytics:read`) envía el informe solo a quien lo pide; sin Search Console → 400 `search_console_not_connected`; sin datos del mes → 400 `seo_report_empty`. El envío mensual no va a negocios suspendidos ni se manda vacío.
+
+### Mercado: mejoras (2026-11-19)
+
+**Competencia** (lectura `analytics:read`, cambios `units:manage`)
+
+- `CompetitorUnitDto.comparablePrice` y `comparablePerM2`: lo que paga de media un cliente al mes el primer año, sin IVA, con su seguro obligatorio, su alta y su promoción vigente.
+- Competidor: `reviewEveryDays` (cada cuántos días revisarlo; 30 si no tiene) y `promoEndsAt` (`AAAA-MM-DD`; después la promoción no cuenta en el precio comparable ni en la sugerencia de precio). El DTO añade `promotionActive` y `nextReviewOn`. El aviso «toca revisarlo» usa el plazo de cada competidor.
+- `GET /competitors/:id/promotions`: histórico de sus promociones (cada cambio cierra la anterior).
+- `GET /competitors/price-map?facilityId=` → `MarketPriceMapDto`: por cada tipo de trastero tuyo, tu precio medio frente a la mediana, mínimo y máximo comparables de la competencia en ±25 % de m² (comprobados en 180 días), con la diferencia en %, y los puntos (m², precio) para la gráfica.
+- `GET /competitors/:id/trend?months=` (3-24, 12 por defecto): precio comparable medio y ocupación (solo con inventario completo) al cerrar cada mes.
+- `POST /competitors/:id/units/bulk {units}` (hasta 200): varios trasteros de una vez.
+- `POST /competitors/:id/ai-parse {text}`: la IA lee el texto de su página de tarifas y propone sus trasteros (`matchUnitId` si ya está fichado con esa referencia o esos m²). No guarda nada; gasta una consulta del mes; sin el asistente IA en el plan → 403 `feature_not_in_plan`; respuesta ilegible → 400 `competitor_parse_failed`.
+- `GET /competitors/export?facilityId=`: una fila por trastero de la competencia (para el CSV).
+- `GET /analytics/competition-alerts` añade `priceRises` (subidas en 30 días donde eres más barato) y `soldOut` (competidores con el inventario completo y comprobado este mes sin libres de un tamaño que tú tienes libre).
+
+**Posiciones en Google** (extra «SEO local»)
+
+- Al conectar se bajan 190 días de búsquedas y 16 meses de totales por día y por dispositivo (tabla `search_console_devices`).
+- `SeoPositionsDto` añade `weekly` (clics, apariciones y posición por semana), `brand` (búsquedas con tu marca frente a las demás), `devices`, `yearAgoTotals` (mismas semanas del año pasado, si están descargadas) y `lowCtrPages` (páginas que salen entre los 10 primeros con menos de la mitad de los clics habituales para su posición).
+- `PATCH /seo/search-console/settings {brandTerms?, reportRecipientIds?}` (`settings:manage`): palabras de la marca y quién recibe el informe mensual (personas activas del negocio; si no, 400 `invalid_recipient`; vacío = los propietarios).
+- `GET /seo/keywords?days=`, `POST /seo/keywords {keyword, targetPosition?}` (204; repetida → 409 `keyword_exists`; hasta 50 → 400 `too_many_keywords`) y `DELETE /seo/keywords/:id`: búsquedas que se siguen con su posición, la anterior y si se ha llegado al objetivo.
+- `GET /seo/detail?query=…` o `?page=…&days=`: una búsqueda o una página día a día con sus páginas o sus búsquedas (sin ninguna de las dos → 400 `detail_required`).
+- `GET /seo/google-funnel?days=`: clics en Google, visitantes desde Google sin anuncios, contactos y reservas con ese origen, y la página por la que entran.
+- Aviso al equipo `seo.clicks_drop` cuando los clics de los últimos 7 días caen un 30 % o más (con al menos 20 la semana anterior), como mucho uno por semana, tras la descarga diaria.

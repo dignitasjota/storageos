@@ -21,6 +21,7 @@ export const ReportGeneratorCodeEnum = z.enum([
   'collections_month',
   'move_outs_period',
   'owner_statement',
+  'analytics_month',
 ]);
 export type ReportGeneratorCode = z.infer<typeof ReportGeneratorCodeEnum>;
 
@@ -41,7 +42,7 @@ export type ApplyPricingInput = z.infer<typeof ApplyPricingSchema>;
 /** Aplicar la sugerencia de precio a un trastero individual (fija basePriceMonthly). */
 export const ApplyUnitPricingSchema = z.object({
   unitId: z.string().uuid(),
-  price: z.number().nonnegative().max(1_000_000),
+  price: z.number().positive().max(999_999),
 });
 export type ApplyUnitPricingInput = z.infer<typeof ApplyUnitPricingSchema>;
 
@@ -70,3 +71,17 @@ export const UpdatePricingStrategySchema = z.object({
     .optional(),
 });
 export type UpdatePricingStrategyInput = z.infer<typeof UpdatePricingStrategySchema>;
+
+/** Aplicar de una vez las sugerencias de precio de varios trasteros. */
+export const ApplyUnitPricingManySchema = z.object({
+  items: z
+    .array(
+      z.object({
+        unitId: z.string().uuid(),
+        price: z.number().positive().max(999_999),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+export type ApplyUnitPricingManyInput = z.infer<typeof ApplyUnitPricingManySchema>;

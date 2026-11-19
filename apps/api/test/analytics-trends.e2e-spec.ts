@@ -278,7 +278,8 @@ describe('Tendencias de Analítica (e2e)', () => {
       ],
     });
     const alerts = await http().get('/analytics/competition-alerts').set(auth).expect(200);
-    expect(alerts.body.stale).toHaveLength(1);
+    // Tiene una comprobación de hace 2 días (no hace falta pulsar «Revisar»): no sale.
+    expect(alerts.body.stale).toHaveLength(0);
     expect(alerts.body.priceDrops[0]).toMatchObject({
       competitorName: 'TrasterPlus',
       previousPrice: 90,

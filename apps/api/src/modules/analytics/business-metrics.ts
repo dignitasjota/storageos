@@ -195,13 +195,20 @@ export async function invoicedBetween(
   return round2(rows.reduce((sum, r) => sum + invoicedAmount(r), 0));
 }
 
-/** Cobros reales: sin fianzas ni compensaciones con abonos. */
+/**
+ * Cobros reales: sin fianzas ni compensaciones con abonos. La fianza aplicada a
+ * una factura no es dinero nuevo (entró al cobrar la fianza), como en la caja.
+ */
+export const CASH_METHOD_WHERE = {
+  notIn: [...NON_CASH_PAYMENT_METHODS, 'deposit' as const],
+};
+
 export function collectedWhere(scope: AnalyticsScope, from: Date, to: Date) {
   return {
     status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
     paidAt: { gte: from, lt: to },
     invoice: { kind: 'invoice', ...invoiceWhere(scope) },
-    methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+    methodType: CASH_METHOD_WHERE,
   } satisfies Prisma.PaymentWhereInput;
 }
 

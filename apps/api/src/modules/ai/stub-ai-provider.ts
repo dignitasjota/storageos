@@ -34,6 +34,39 @@ const AREA_PAGE_DRAFT_STUB: AiCompletion = {
   ],
 };
 
+/** Marca del prompt de lectura de la web de un competidor (el simulador responde un JSON). */
+export const COMPETITOR_PARSE_MARKER = 'Lees páginas de tarifas';
+
+const COMPETITOR_PARSE_STUB: AiCompletion = {
+  stopReason: 'end_turn',
+  content: [
+    {
+      type: 'text',
+      text: JSON.stringify({
+        units: [
+          {
+            areaM2: null,
+            widthM: 2,
+            depthM: 2,
+            priceMonthly: 59,
+            status: 'available',
+            externalRef: null,
+          },
+          {
+            areaM2: 9,
+            widthM: null,
+            depthM: null,
+            priceMonthly: 119,
+            status: 'occupied',
+            externalRef: 'XL',
+          },
+        ],
+        notes: 'Primer mes gratis y fianza de un mes (demo).',
+      }),
+    },
+  ],
+};
+
 /** Marca del prompt de lectura de justificantes de gastos (el simulador responde un JSON). */
 export const EXPENSE_RECEIPT_MARKER = 'Lees facturas de proveedores';
 
@@ -77,11 +110,13 @@ export class StubAiProvider extends AiProvider {
     const system = args.system ? systemText(args.system) : '';
     const completion = system.includes(AREA_PAGE_DRAFT_MARKER)
       ? AREA_PAGE_DRAFT_STUB
-      : system.includes(EXPENSE_RECEIPT_MARKER)
-        ? EXPENSE_RECEIPT_STUB
-        : system.startsWith(WEB_CHAT_PROMPT_MARKER)
-          ? this.webChat(args.messages)
-          : await this.respond(args);
+      : system.includes(COMPETITOR_PARSE_MARKER)
+        ? COMPETITOR_PARSE_STUB
+        : system.includes(EXPENSE_RECEIPT_MARKER)
+          ? EXPENSE_RECEIPT_STUB
+          : system.startsWith(WEB_CHAT_PROMPT_MARKER)
+            ? this.webChat(args.messages)
+            : await this.respond(args);
     const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
     const inputTokens = tokens(JSON.stringify(args.messages));
     const outputTokens = tokens(JSON.stringify(completion.content));

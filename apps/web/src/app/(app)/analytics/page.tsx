@@ -1,7 +1,7 @@
 'use client';
 
-import { LEAD_LOST_REASON_LABELS, type LeadLostReason } from '@storageos/shared';
-import { CheckCircle2, CircleDashed, Loader2 } from 'lucide-react';
+import { LEAD_LOST_REASON_LABELS, leadSourceLabel, type LeadLostReason } from '@storageos/shared';
+import { CheckCircle2, CircleDashed } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
@@ -22,25 +22,56 @@ import {
 import { toast } from 'sonner';
 
 import {
+  ArrearsBreakdownCard,
+  ChannelCostCard,
+  ChurnBreakdownCards,
+  ChurnRiskActions,
+  ForecastScenariosCards,
+  HeadlineLine,
+  LeadsTimingCards,
+  MonthPdfButton,
+  PortfolioGapPanel,
+  UnitEconomicsCard,
+} from './extras-panels';
+import {
+  compareLabel,
+  type CompareMode,
   CsvButton,
   Delta,
+  includesCurrentMonth,
   type Period,
   PeriodSelector,
   periodDays,
   periodPresets,
   periodText,
   previousPeriod,
+  previousPeriodDays,
+  withoutCurrentMonth,
 } from './period';
 import { PreOpeningCard } from './pre-opening-card';
 import { PriceChangeEffectsPanel } from './price-change-effects-panel';
 import { PricingStrategyButton } from './pricing-strategy-dialog';
 import { CohortsPanel, OccupancyHistoryCard, RevenueBreakdownCard } from './trends-panels';
+import {
+  ChartData,
+  currentYearMonth,
+  eur,
+  formatPct,
+  IssuerSelect,
+  KpiCard,
+  monthName,
+  QueryState,
+  shortMonth,
+} from './ui';
 import { CONFIDENCE, TrendNote, UnitPricingPanel } from './unit-pricing-panel';
 
 import type {
   BenchmarkMetricDto,
+  ChurnKpiDto,
   ChurnRiskLevel,
+  MonthlyRevenuePointDto,
   PricingAction,
+  PricingSuggestionItemDto,
   SeoChecklistItemDto,
 } from '@storageos/shared';
 
@@ -70,8 +101,8 @@ import {
   useApplyPricing,
   useBenchmark,
   useChurn,
-  useExitReasons,
   useChurnRisk,
+  useExitReasons,
   useLeadsFunnel,
   useLeadsUtm,
   useMonthlyRevenue,
@@ -81,17 +112,10 @@ import {
   useSeoChecklist,
 } from '@/lib/analytics/hooks';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useCompanyWide, useHasPermission } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 import { useFacilityFilterState } from '@/lib/facilities/store';
-
-function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function formatCurrency(value: number): string {
-  return value.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-}
+import { formatDate } from '@/lib/format';
 
 const ANALYTICS_TABS = [
   'revenue',
@@ -108,18 +132,105 @@ const ANALYTICS_TABS = [
 ] as const;
 type AnalyticsTab = (typeof ANALYTICS_TABS)[number];
 
+/** Pestañas que enseñan el dinero facturado y cobrado. */
+const MONEY_TABS: AnalyticsTab[] = ['revenue', 'aging'];
+/** Pestañas donde el local elegido no filtra nada. */
+const COMPANY_TABS: AnalyticsTab[] = ['market', 'seo'];
+/** Pestañas que separan las facturas de cada emisor (plan Administrador). */
+const ISSUER_TABS: AnalyticsTab[] = ['revenue', 'aging', 'cohorts'];
+
+type PricingSubTab = 'by-type' | 'by-unit' | 'effects' | 'portfolio';
+
+const VIEW_KEY = 'storageos.analytics.view';
+
+interface SavedView {
+  tab?: string;
+  period?: Period;
+  compare?: CompareMode;
+  closedOnly?: boolean;
+}
+
+/** La pestaña y el periodo que se miraron la última vez (en este navegador). */
+function readSavedView(): SavedView {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as {
+      tab?: string;
+      periodKey?: string;
+      from?: string;
+      to?: string;
+      compare?: string;
+      closedOnly?: boolean;
+    };
+    // Un periodo fijo («últimos 12 meses») se recalcula con la fecha de hoy.
+    const preset = periodPresets().find((p) => p.key === raw.periodKey);
+    const period =
+      preset ??
+      (raw.periodKey === 'custom' &&
+      raw.from &&
+      raw.to &&
+      /^\d{4}-\d{2}$/.test(raw.from) &&
+      /^\d{4}-\d{2}$/.test(raw.to)
+        ? { key: 'custom', label: 'Personalizado', from: raw.from, to: raw.to }
+        : undefined);
+    return {
+      ...(raw.tab ? { tab: raw.tab } : {}),
+      ...(period ? { period } : {}),
+      ...(raw.compare === 'lastYear' || raw.compare === 'previous' ? { compare: raw.compare } : {}),
+      ...(raw.closedOnly ? { closedOnly: true } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function saveView(v: { tab: string; period: Period; compare: CompareMode; closedOnly: boolean }) {
+  try {
+    localStorage.setItem(
+      VIEW_KEY,
+      JSON.stringify({
+        tab: v.tab,
+        periodKey: v.period.key,
+        from: v.period.from,
+        to: v.period.to,
+        compare: v.compare,
+        closedOnly: v.closedOnly,
+      }),
+    );
+  } catch {
+    // Solo es una comodidad.
+  }
+}
+
 export default function AnalyticsPage() {
-  // Pestaña inicial desde `?tab=` (p. ej. el nudge de SEO del Resumen enlaza
-  // directo a `/analytics?tab=seo`) — se lee de `window.location` en un
-  // efecto, no con `useSearchParams` (evita el requisito de Suspense de Next
-  // para un caso tan simple; mismo patrón ya usado en book-shared.tsx).
-  const [tab, setTab] = useState<AnalyticsTab>('revenue');
+  // Permiso para ver el dinero (facturas y cobros), como en el Resumen.
+  const canInvoices = useHasPermission('invoices:read');
+  const canPayments = useHasPermission('payments:read');
+  const moneyVisible = canInvoices && canPayments;
+
+  // Pestaña inicial desde `?tab=`: hasta leerla no se monta ninguna (si no, la
+  // primera pediría sus datos para nada).
+  // Si no viene en la URL, la última que se miró (y su periodo).
+  const [tab, setTab] = useState<AnalyticsTab | null>(null);
+  const [period, setPeriod] = useState<Period>(() => periodPresets()[0]!);
+  const [compare, setCompare] = useState<CompareMode>('previous');
+  const [closedOnly, setClosedOnly] = useState(false);
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('tab');
-    if (requested && (ANALYTICS_TABS as readonly string[]).includes(requested)) {
-      setTab(requested as AnalyticsTab);
-    }
+    const saved = readSavedView();
+    const requested = new URLSearchParams(window.location.search).get('tab') ?? saved.tab;
+    const valid =
+      requested && (ANALYTICS_TABS as readonly string[]).includes(requested)
+        ? (requested as AnalyticsTab)
+        : null;
+    setTab(valid ?? 'revenue');
+    if (saved.period) setPeriod(saved.period);
+    if (saved.compare) setCompare(saved.compare);
+    if (saved.closedOnly) setClosedOnly(true);
   }, []);
+  useEffect(() => {
+    if (!tab) return;
+    saveView({ tab, period, compare, closedOnly });
+  }, [tab, period, compare, closedOnly]);
+  const shownTab = tab && !moneyVisible && MONEY_TABS.includes(tab) ? ('occupancy' as const) : tab;
 
   function handleTabChange(value: string) {
     setTab(value as AnalyticsTab);
@@ -130,111 +241,337 @@ export default function AnalyticsPage() {
   const [facilityId, setFacilityId] = useFacilityFilterState();
   const facilities = useFacilities();
   const facilityList = facilities.data ?? [];
-  // Periodo común de Ingresos, Bajas y Contactos.
-  const [period, setPeriod] = useState<Period>(() => periodPresets()[0]!);
-  const usesPeriod = tab === 'revenue' || tab === 'churn' || tab === 'leads';
+  // Periodo común de Ingresos, Bajas y Contactos (sin el mes en curso si se pide).
+  const shownPeriod = closedOnly ? withoutCurrentMonth(period) : period;
+  // Lo que se elige dentro de cada pestaña no se pierde al cambiar de pestaña.
+  const [issuer, setIssuer] = useState('self');
+  const [pricingTab, setPricingTab] = useState<PricingSubTab>('by-type');
+  const [includeCompetition, setIncludeCompetition] = useState(true);
+  const [occupancyMonths, setOccupancyMonths] = useState(12);
+  const [cohortMonths, setCohortMonths] = useState(24);
+  const ownerId = issuer === 'self' ? undefined : issuer;
+
+  const usesPeriod = shownTab === 'revenue' || shownTab === 'churn' || shownTab === 'leads';
 
   return (
-    <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+    <div className="min-w-0 space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Analítica</h1>
           <p className="text-sm text-muted-foreground">
-            KPIs clave del negocio: ingresos, ocupación, bajas, morosidad, contactos, riesgo de baja
-            y precios.
+            Cómo va el negocio: ingresos, ocupación, bajas, deudas, contactos y precios.
           </p>
         </div>
-        {facilityList.length > 1 && (
-          <Select
-            value={facilityId ?? 'all'}
-            onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
-          >
-            <SelectTrigger className="w-56" aria-label="Local">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los locales</SelectItem>
-              {facilityList.map((f) => (
-                <SelectItem key={f.id} value={f.id}>
-                  {f.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <MonthPdfButton />
+          {shownTab && ISSUER_TABS.includes(shownTab) && (
+            <IssuerSelect value={issuer} onChange={setIssuer} />
+          )}
+          {facilityList.length > 1 && shownTab && !COMPANY_TABS.includes(shownTab) && (
+            <Select
+              value={facilityId ?? 'all'}
+              onValueChange={(v) => setFacilityId(v === 'all' ? undefined : v)}
+            >
+              <SelectTrigger className="w-56" aria-label="Local">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los locales</SelectItem>
+                {facilityList.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
 
-      {usesPeriod && <PeriodSelector value={period} onChange={setPeriod} />}
+      <HeadlineLine facilityId={facilityId} ownerId={ownerId} />
 
-      <Tabs value={tab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="revenue">Ingresos</TabsTrigger>
-          <TabsTrigger value="occupancy">Ocupación</TabsTrigger>
-          <TabsTrigger value="churn">Bajas</TabsTrigger>
-          <TabsTrigger value="cohorts">Cohortes</TabsTrigger>
-          <TabsTrigger value="aging">Morosidad</TabsTrigger>
-          <TabsTrigger value="leads">Leads</TabsTrigger>
-          <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
-          <TabsTrigger value="pricing">Precios</TabsTrigger>
-          <TabsTrigger value="forecast">Previsión</TabsTrigger>
-          <TabsTrigger value="market">Comparativa del sector</TabsTrigger>
-          <TabsTrigger value="seo">SEO</TabsTrigger>
-        </TabsList>
-        <TabsContent value="revenue" className="mt-4">
-          <MonthlyRevenuePanel facilityId={facilityId} period={period} />
-        </TabsContent>
-        <TabsContent value="occupancy" className="mt-4">
-          <OccupancyPanel facilityId={facilityId} />
-        </TabsContent>
-        <TabsContent value="churn" className="mt-4">
-          <ChurnPanel facilityId={facilityId} period={period} />
-        </TabsContent>
-        <TabsContent value="cohorts" className="mt-4">
-          <CohortsPanel facilityId={facilityId} />
-        </TabsContent>
-        <TabsContent value="aging" className="mt-4">
-          <AgingPanel facilityId={facilityId} />
-        </TabsContent>
-        <TabsContent value="leads" className="mt-4">
-          <LeadsPanel facilityId={facilityId} period={period} />
-        </TabsContent>
-        <TabsContent value="churn-risk" className="mt-4">
-          <ChurnRiskPanel facilityId={facilityId} />
-        </TabsContent>
-        <TabsContent value="pricing" className="mt-4">
-          <Tabs defaultValue="by-type" className="w-full">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <TabsList>
-                <TabsTrigger value="by-type">Por tipo de trastero</TabsTrigger>
-                <TabsTrigger value="by-unit">Por trastero individual</TabsTrigger>
-                <TabsTrigger value="effects">Efecto de tus cambios</TabsTrigger>
-              </TabsList>
-              <PricingStrategyButton />
+      {usesPeriod && (
+        <PeriodSelector
+          value={period}
+          onChange={setPeriod}
+          compare={compare}
+          onCompareChange={setCompare}
+          closedOnly={closedOnly}
+          onClosedOnlyChange={setClosedOnly}
+        />
+      )}
+
+      {shownTab && (
+        <Tabs value={shownTab} onValueChange={handleTabChange} className="w-full">
+          {/* Varias filas si no caben: ninguna pestaña queda escondida. */}
+          <TabsList className="h-auto flex-wrap justify-start">
+            {moneyVisible && <TabsTrigger value="revenue">Ingresos</TabsTrigger>}
+            <TabsTrigger value="occupancy">Ocupación</TabsTrigger>
+            <TabsTrigger value="churn">Bajas</TabsTrigger>
+            <TabsTrigger value="cohorts">Permanencia</TabsTrigger>
+            {moneyVisible && <TabsTrigger value="aging">Deudas</TabsTrigger>}
+            <TabsTrigger value="leads">Contactos</TabsTrigger>
+            <TabsTrigger value="churn-risk">Riesgo de baja</TabsTrigger>
+            <TabsTrigger value="pricing">Precios</TabsTrigger>
+            <TabsTrigger value="forecast">Previsión</TabsTrigger>
+            <TabsTrigger value="market">Comparativa del sector</TabsTrigger>
+            <TabsTrigger value="seo">SEO</TabsTrigger>
+          </TabsList>
+          {moneyVisible && (
+            <TabsContent value="revenue" className="mt-4">
+              <MonthlyRevenuePanel
+                facilityId={facilityId}
+                period={shownPeriod}
+                ownerId={ownerId}
+                compare={compare}
+              />
+            </TabsContent>
+          )}
+          <TabsContent value="occupancy" className="mt-4">
+            <OccupancyPanel
+              facilityId={facilityId}
+              months={occupancyMonths}
+              onMonthsChange={setOccupancyMonths}
+              moneyVisible={moneyVisible}
+            />
+          </TabsContent>
+          <TabsContent value="churn" className="mt-4">
+            <ChurnPanel facilityId={facilityId} period={shownPeriod} compare={compare} />
+          </TabsContent>
+          <TabsContent value="cohorts" className="mt-4">
+            <CohortsPanel
+              facilityId={facilityId}
+              ownerId={ownerId}
+              months={cohortMonths}
+              onMonthsChange={setCohortMonths}
+            />
+          </TabsContent>
+          {moneyVisible && (
+            <TabsContent value="aging" className="mt-4">
+              <AgingPanel facilityId={facilityId} ownerId={ownerId} />
+            </TabsContent>
+          )}
+          <TabsContent value="leads" className="mt-4">
+            <LeadsPanel facilityId={facilityId} period={shownPeriod} compare={compare} />
+          </TabsContent>
+          <TabsContent value="churn-risk" className="mt-4">
+            <ChurnRiskPanel facilityId={facilityId} />
+          </TabsContent>
+          <TabsContent value="pricing" className="mt-4">
+            <Tabs
+              value={pricingTab}
+              onValueChange={(v) => setPricingTab(v as PricingSubTab)}
+              className="w-full"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <TabsList className="h-auto flex-wrap justify-start">
+                  <TabsTrigger value="by-type">Por tipo de trastero</TabsTrigger>
+                  <TabsTrigger value="by-unit">Por trastero</TabsTrigger>
+                  <TabsTrigger value="effects">Efecto de tus cambios</TabsTrigger>
+                  {moneyVisible && (
+                    <TabsTrigger value="portfolio">Inquilinos por debajo del precio</TabsTrigger>
+                  )}
+                </TabsList>
+                <PricingStrategyButton />
+              </div>
+              <TabsContent value="by-type" className="mt-4">
+                <PricingSuggestionsPanel facilityId={facilityId} />
+              </TabsContent>
+              <TabsContent value="by-unit" className="mt-4">
+                <UnitPricingPanel
+                  facilityId={facilityId}
+                  includeCompetition={includeCompetition}
+                  onIncludeCompetitionChange={setIncludeCompetition}
+                />
+              </TabsContent>
+              <TabsContent value="effects" className="mt-4">
+                <PriceChangeEffectsPanel facilityId={facilityId} />
+              </TabsContent>
+              {moneyVisible && (
+                <TabsContent value="portfolio" className="mt-4">
+                  <PortfolioGapPanel facilityId={facilityId} />
+                </TabsContent>
+              )}
+            </Tabs>
+          </TabsContent>
+          <TabsContent value="forecast" className="mt-4">
+            <ForecastPanel facilityId={facilityId} />
+            <div className="mt-4">
+              <ForecastScenariosCards facilityId={facilityId} />
             </div>
-            <TabsContent value="by-type" className="mt-4">
-              <PricingSuggestionsPanel facilityId={facilityId} />
-            </TabsContent>
-            <TabsContent value="by-unit" className="mt-4">
-              <UnitPricingPanel facilityId={facilityId} />
-            </TabsContent>
-            <TabsContent value="effects" className="mt-4">
-              <PriceChangeEffectsPanel facilityId={facilityId} />
-            </TabsContent>
-          </Tabs>
-        </TabsContent>
-        <TabsContent value="forecast" className="mt-4">
-          <ForecastPanel facilityId={facilityId} />
-        </TabsContent>
-        <TabsContent value="market" className="mt-4">
-          <BenchmarkPanel />
-        </TabsContent>
-        <TabsContent value="seo" className="mt-4">
-          <FeatureGate feature="local_seo">
-            <SeoChecklistPanel />
-          </FeatureGate>
-        </TabsContent>
-      </Tabs>
+          </TabsContent>
+          <TabsContent value="market" className="mt-4">
+            <BenchmarkPanel />
+          </TabsContent>
+          <TabsContent value="seo" className="mt-4">
+            <FeatureGate feature="local_seo">
+              <SeoChecklistPanel />
+            </FeatureGate>
+          </TabsContent>
+        </Tabs>
+      )}
     </div>
+  );
+}
+
+// ============================================================================
+// Ingresos
+// ============================================================================
+
+/**
+ * Totales que se pueden comparar: si el periodo llega al mes en curso (que va
+ * a medias), se comparan solo los meses cerrados de los dos periodos.
+ */
+function comparableTotals(
+  points: MonthlyRevenuePointDto[],
+  prevPoints: MonthlyRevenuePointDto[] | undefined,
+  partial: boolean,
+) {
+  const sum = (list: MonthlyRevenuePointDto[], key: 'invoiced' | 'collected') =>
+    list.reduce((acc, p) => acc + p[key], 0);
+  if (!prevPoints) return null;
+  const cur = partial ? points.slice(0, -1) : points;
+  const prev = partial ? prevPoints.slice(0, -1) : prevPoints;
+  if (cur.length === 0) return null;
+  return {
+    invoiced: [sum(cur, 'invoiced'), sum(prev, 'invoiced')] as const,
+    collected: [sum(cur, 'collected'), sum(prev, 'collected')] as const,
+  };
+}
+
+function MonthlyRevenuePanel({
+  facilityId,
+  period,
+  ownerId,
+  compare,
+}: {
+  facilityId?: string;
+  period: Period;
+  ownerId?: string;
+  compare: CompareMode;
+}) {
+  const revenue = useMonthlyRevenue({ from: period.from, to: period.to, facilityId, ownerId });
+  const prev = previousPeriod(period, compare);
+  const previous = useMonthlyRevenue({ from: prev.from, to: prev.to, facilityId, ownerId });
+  const partial = includesCurrentMonth(period);
+  const suffix = compareLabel(compare, { closed: partial });
+
+  return (
+    <QueryState query={revenue}>
+      {(data) => {
+        const points = data.points;
+        const totalInvoiced = points.reduce((acc, p) => acc + p.invoiced, 0);
+        const totalCollected = points.reduce((acc, p) => acc + p.collected, 0);
+        const totals = comparableTotals(points, previous.data?.points, partial);
+        const chartData = points.map((p) => ({
+          mes: p.label,
+          Facturado: p.invoiced,
+          Cobrado: p.collected,
+        }));
+        const periodLabel = periodText(period);
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <KpiCard title={`Facturado (${periodLabel}, con IVA)`} value={eur(totalInvoiced)}>
+                {totals && (
+                  <Delta
+                    current={totals.invoiced[0]}
+                    previous={totals.invoiced[1]}
+                    suffix={suffix}
+                  />
+                )}
+              </KpiCard>
+              <KpiCard title={`Cobrado (${periodLabel})`} value={eur(totalCollected)}>
+                {totals && (
+                  <Delta
+                    current={totals.collected[0]}
+                    previous={totals.collected[1]}
+                    suffix={suffix}
+                  />
+                )}
+              </KpiCard>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Ingresos por mes</CardTitle>
+                <CardDescription>
+                  Facturado (emitido, con IVA) y cobrado · {periodLabel}.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="h-80">
+                {totalInvoiced === 0 && totalCollected === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay ingresos registrados en el periodo seleccionado.
+                  </p>
+                ) : (
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    initialDimension={{ width: 300, height: 256 }}
+                  >
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="mes" />
+                      <YAxis tickFormatter={(v) => compactEuros(Number(v) || 0)} />
+                      <Tooltip formatter={(v) => eur(Number(v) || 0)} />
+                      <Legend />
+                      <Bar dataKey="Facturado" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Cobrado" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            <RevenueBreakdownCard
+              facilityId={facilityId}
+              period={period}
+              ownerId={ownerId}
+              compare={compare}
+            />
+
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+                <CardTitle className="text-base">Detalle mensual</CardTitle>
+                <CsvButton
+                  filename={`ingresos-${period.from}-${period.to}.csv`}
+                  rows={() => [
+                    ['Mes', 'Facturado (con IVA)', 'Cobrado'],
+                    ...points.map((p) => [p.label, p.invoiced, p.collected]),
+                  ]}
+                />
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Mes</TableHead>
+                      <TableHead className="text-right">Facturado</TableHead>
+                      <TableHead className="text-right">Cobrado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {points
+                      .slice()
+                      .reverse()
+                      .map((p) => (
+                        <TableRow key={p.yearMonth}>
+                          <TableCell>{p.label}</TableCell>
+                          <TableCell className="text-right">{eur(p.invoiced)}</TableCell>
+                          <TableCell className="text-right font-medium">
+                            {eur(p.collected)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      }}
+    </QueryState>
   );
 }
 
@@ -242,432 +579,605 @@ export default function AnalyticsPage() {
 // Ocupación
 // ============================================================================
 
-function OccupancyPanel({ facilityId }: { facilityId?: string }) {
+function OccupancyPanel({
+  facilityId,
+  months,
+  onMonthsChange,
+  moneyVisible,
+}: {
+  facilityId?: string;
+  months: number;
+  onMonthsChange: (n: number) => void;
+  moneyVisible: boolean;
+}) {
   const occupancy = useOccupancy({ facilityId });
-
-  if (occupancy.isLoading || !occupancy.data) {
-    return <PanelLoader />;
-  }
-
-  const d = occupancy.data;
-  const chartData = d.perFacility.map((f) => ({
-    name: f.facilityName,
-    Ocupados: f.occupied,
-    Reservados: f.reserved,
-    Libres: f.available,
-    'Fuera de servicio': f.outOfService,
-  }));
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Ocupación física" value={formatPercent(d.physicalOccupancy)}>
-          {d.occupiedUnits} de {d.totalUnits} trasteros
-        </KpiCard>
-        <KpiCard title="Ocupación económica" value={formatPercent(d.economicOccupancy)}>
-          Lo que ingresas frente a lo que ingresarías con todo alquilado
-        </KpiCard>
-        <KpiCard title="MRR actual" value={formatCurrency(d.mrrActual)}>
-          Cuotas de los contratos vivos, menos sus descuentos
-        </KpiCard>
-        <KpiCard title="MRR potencial" value={formatCurrency(d.mrrPotential)}>
-          Precio de cada trastero que se puede alquilar
-          {d.outOfServiceUnits > 0 ? ` (sin los ${d.outOfServiceUnits} fuera de servicio)` : ''}
-        </KpiCard>
-      </div>
+      <QueryState query={occupancy}>
+        {(d) => {
+          const chartData = d.perFacility.map((f) => ({
+            name: f.facilityName,
+            Ocupados: f.occupied,
+            Reservados: f.reserved,
+            Libres: f.available,
+            'Fuera de servicio': f.outOfService,
+          }));
+          return (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <KpiCard title="Ocupación física" value={formatPct(d.physicalOccupancy)}>
+                  {d.occupiedUnits} de {d.totalUnits} trasteros
+                </KpiCard>
+                {d.economicOccupancy !== null && (
+                  <KpiCard title="Ocupación económica" value={formatPct(d.economicOccupancy)}>
+                    Lo que ingresas frente a lo que ingresarías con todo alquilado
+                  </KpiCard>
+                )}
+                {d.mrrActual !== null && (
+                  <KpiCard title="Cuotas al mes" value={eur(d.mrrActual)}>
+                    Lo que pagan al mes los inquilinos de hoy, sin IVA y con sus descuentos
+                  </KpiCard>
+                )}
+                {d.mrrPotential !== null && (
+                  <KpiCard title="Cuotas con todo alquilado" value={eur(d.mrrPotential)}>
+                    El precio de cada trastero que se puede alquilar
+                    {d.outOfServiceUnits > 0
+                      ? ` (sin los ${d.outOfServiceUnits} fuera de servicio)`
+                      : ''}
+                  </KpiCard>
+                )}
+              </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Ocupación por local</CardTitle>
-          <CardDescription>
-            Trasteros ocupados, reservados, libres y fuera de servicio (mantenimiento o bloqueados)
-            de cada local.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="h-80">
-          {chartData.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay locales todavía.</p>
-          ) : (
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              initialDimension={{ width: 300, height: 256 }}
-            >
-              <BarChart data={chartData} layout="vertical" margin={{ left: 24 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis dataKey="name" type="category" width={96} tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="Ocupados" stackId="a" fill="#16a34a" />
-                <Bar dataKey="Reservados" stackId="a" fill="#0ea5e9" />
-                <Bar dataKey="Libres" stackId="a" fill="#94a3b8" />
-                <Bar dataKey="Fuera de servicio" stackId="a" fill="#f59e0b" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Ocupación por local</CardTitle>
+                  <CardDescription>
+                    Trasteros ocupados, reservados, libres y fuera de servicio (mantenimiento o
+                    bloqueados) de cada local. Los locales por abrir no cuentan hasta que abren.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {chartData.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No hay locales todavía.</p>
+                  ) : (
+                    <>
+                      <div className="h-80">
+                        <ResponsiveContainer
+                          width="100%"
+                          height="100%"
+                          initialDimension={{ width: 300, height: 256 }}
+                        >
+                          <BarChart data={chartData} layout="vertical" margin={{ left: 24 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                            <YAxis
+                              dataKey="name"
+                              type="category"
+                              width={96}
+                              tick={{ fontSize: 11 }}
+                            />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="Ocupados" stackId="a" fill="#16a34a" />
+                            <Bar dataKey="Reservados" stackId="a" fill="#0ea5e9" />
+                            <Bar dataKey="Libres" stackId="a" fill="#94a3b8" />
+                            <Bar dataKey="Fuera de servicio" stackId="a" fill="#f59e0b" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <ChartData
+                        headers={['Local', 'Ocupados', 'Reservados', 'Libres', 'Fuera de servicio']}
+                        rows={d.perFacility.map((f) => [
+                          f.facilityName,
+                          f.occupied,
+                          f.reserved,
+                          f.available,
+                          f.outOfService,
+                        ])}
+                      />
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          );
+        }}
+      </QueryState>
+      {moneyVisible && <UnitEconomicsCard facilityId={facilityId} />}
       <PreOpeningCard facilityId={facilityId} />
-      <OccupancyHistoryCard facilityId={facilityId} />
+      <OccupancyHistoryCard
+        facilityId={facilityId}
+        months={months}
+        onMonthsChange={onMonthsChange}
+      />
     </div>
   );
 }
 
 // ============================================================================
-// Churn
+// Bajas
 // ============================================================================
 
-function ChurnPanel({ facilityId, period }: { facilityId?: string; period: Period }) {
+function ChurnPanel({
+  facilityId,
+  period,
+  compare,
+}: {
+  facilityId?: string;
+  period: Period;
+  compare: CompareMode;
+}) {
   const churn = useChurn({ from: period.from, to: period.to, facilityId });
-  const prev = previousPeriod(period);
+  const prev = previousPeriod(period, compare);
   const previous = useChurn({ from: prev.from, to: prev.to, facilityId });
 
-  if (churn.isLoading || !churn.data) {
-    return <PanelLoader />;
-  }
+  return (
+    <div className="space-y-4">
+      <QueryState query={churn}>
+        {(data) => (
+          <ChurnBody
+            months={data.months}
+            previous={previous.data?.months}
+            period={period}
+            compare={compare}
+          />
+        )}
+      </QueryState>
+      <ChurnBreakdownCards facilityId={facilityId} period={period} />
+      <ExitReasonsCard facilityId={facilityId} period={period} />
+    </div>
+  );
+}
 
-  const months = churn.data.months;
-  const ended = months.reduce((acc, m) => acc + m.ended, 0);
-  const prevEnded = previous.data?.months.reduce((acc, m) => acc + m.ended, 0);
-  const avgRate = months.length
-    ? months.reduce((acc, m) => acc + m.churnRate, 0) / months.length
-    : 0;
-  const chartData = months.map((m) => ({
-    month: m.yearMonth,
-    Churn: Number((m.churnRate * 100).toFixed(2)),
-  }));
-
-  // El mes en curso aún no ha terminado: el dato que vale es el del último cerrado.
-  const currentYm = new Date().toISOString().slice(0, 7);
+function ChurnBody({
+  months,
+  previous,
+  period,
+  compare,
+}: {
+  months: ChurnKpiDto['months'];
+  previous: ChurnKpiDto['months'] | undefined;
+  period: Period;
+  compare: CompareMode;
+}) {
+  // El mes en curso aún no ha terminado: las medias y la comparación van con
+  // los meses cerrados.
+  const currentYm = currentYearMonth();
   const closed = months.filter((m) => m.yearMonth < currentYm);
+  const partial = closed.length < months.length;
+  const ended = months.reduce((acc, m) => acc + m.ended, 0);
+  const closedEnded = closed.reduce((acc, m) => acc + m.ended, 0);
+  const prevClosed = previous ? (partial ? previous.slice(0, -1) : previous) : undefined;
+  const prevEnded = prevClosed?.reduce((acc, m) => acc + m.ended, 0);
+  const avgRate = closed.length
+    ? closed.reduce((acc, m) => acc + m.churnRate, 0) / closed.length
+    : null;
   const last = closed[closed.length - 1];
   const beforeLast = closed[closed.length - 2];
+  const chartData = months.map((m) => ({
+    mes: shortMonth(m.yearMonth),
+    Bajas: Math.round(m.churnRate * 1000) / 10,
+  }));
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard
-          title={`Churn de ${last ? monthName(last.yearMonth) : 'último mes cerrado'}`}
-          value={last ? `${(last.churnRate * 100).toFixed(2)}%` : '—'}
+          title={`Bajas de ${last ? monthName(last.yearMonth) : 'último mes cerrado'}`}
+          value={last ? formatPct(last.churnRate) : '—'}
         >
-          {last ? `${last.ended} bajas de ${last.activeAtStart} activos al inicio. ` : '—'}
+          {last
+            ? `${last.ended} ${last.ended === 1 ? 'baja' : 'bajas'} de ${last.activeAtStart + last.started} contratos (${last.activeAtStart} al empezar y ${last.started} ${last.started === 1 ? 'alta' : 'altas'}). `
+            : '—'}
           {last && beforeLast && (
             <Delta
               current={last.churnRate}
               previous={beforeLast.churnRate}
               goodWhenUp={false}
               suffix="vs mes anterior"
+              kind="rate"
             />
           )}
         </KpiCard>
         <KpiCard title={`Bajas (${periodText(period)})`} value={String(ended)}>
-          <Delta current={ended} previous={prevEnded} goodWhenUp={false} />
+          <Delta
+            current={closedEnded}
+            previous={prevEnded}
+            goodWhenUp={false}
+            kind="count"
+            suffix={compareLabel(compare, { closed: partial })}
+          />
         </KpiCard>
-        <KpiCard title="Churn medio mensual" value={`${(avgRate * 100).toFixed(2)}%`}>
-          {months.length} meses analizados
+        <KpiCard
+          title="Tasa de bajas media al mes"
+          value={avgRate === null ? '—' : formatPct(avgRate, 2)}
+        >
+          {closed.length} {closed.length === 1 ? 'mes cerrado' : 'meses cerrados'}
         </KpiCard>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Evolución del churn</CardTitle>
+          <CardTitle className="text-base">Tasa de bajas por mes</CardTitle>
           <CardDescription>
-            Contratos dados de baja (finalizados o cancelados tras firmarse) sobre los activos a
-            inicio de cada mes. Las reservas online que no se llegaron a pagar no cuentan.
+            Contratos que se dieron de baja (terminados o cancelados tras firmarse) sobre los que
+            había al empezar el mes más las altas del mes. Las reservas online que no se llegaron a
+            pagar no cuentan.
           </CardDescription>
         </CardHeader>
-        <CardContent className="h-80">
+        <CardContent>
           {chartData.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay datos suficientes todavía.</p>
           ) : (
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              initialDimension={{ width: 300, height: 256 }}
-            >
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" />
-                <YAxis unit="%" />
-                <Tooltip formatter={(v) => `${Number(v) || 0}%`} />
-                <Line type="monotone" dataKey="Churn" stroke="#dc2626" strokeWidth={2} dot />
-              </LineChart>
-            </ResponsiveContainer>
+            <>
+              <div className="h-80">
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                  initialDimension={{ width: 300, height: 256 }}
+                >
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                    <YAxis unit=" %" tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v) => `${(Number(v) || 0).toLocaleString('es-ES')} %`} />
+                    <Line type="monotone" dataKey="Bajas" stroke="#dc2626" strokeWidth={2} dot />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <ChartData
+                headers={['Mes', 'Al empezar', 'Altas', 'Bajas', 'Tasa']}
+                rows={months.map((m) => [
+                  shortMonth(m.yearMonth),
+                  m.activeAtStart,
+                  m.started,
+                  m.ended,
+                  formatPct(m.churnRate),
+                ])}
+              />
+            </>
           )}
         </CardContent>
       </Card>
-
-      <ExitReasonsCard facilityId={facilityId} period={period} />
     </div>
   );
 }
 
-/** Por qué se van: lo que marcan en la encuesta de salida. */
+/** Por qué se van: lo que marcan en la encuesta de salida, en el periodo elegido. */
 function ExitReasonsCard({ facilityId, period }: { facilityId?: string; period: Period }) {
-  const [fy, fm] = period.from.split('-').map(Number);
-  const [ty, tm] = period.to.split('-').map(Number);
-  const months = Math.max(1, Math.min(36, (ty! - fy!) * 12 + (tm! - fm!) + 1));
-  const reasons = useExitReasons({ months, facilityId });
-  const d = reasons.data;
-  if (!d) return null;
+  const reasons = useExitReasons({ from: period.from, to: period.to, facilityId });
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">Por qué se van</CardTitle>
         <CardDescription>
           Lo que responden en la encuesta de salida, que se envía sola a quien pide la baja.
-          {d.sent > 0
-            ? ` ${d.answered} de ${d.sent} respondidas${d.nps !== null ? ` · NPS de quienes se van: ${d.nps}` : ''}.`
+          {reasons.data && reasons.data.sent > 0
+            ? ` ${reasons.data.answered} de ${reasons.data.sent} respondidas${
+                reasons.data.nps !== null
+                  ? ` · recomendarían el negocio (de −100 a 100): ${reasons.data.nps}`
+                  : ''
+              }.`
             : ''}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {d.reasons.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {d.sent === 0
-              ? 'Todavía no se ha enviado ninguna encuesta de salida en este periodo.'
-              : 'Aún no ha respondido nadie en este periodo.'}
-          </p>
-        ) : (
-          <ul className="space-y-2.5">
-            {d.reasons.map((r) => (
-              <li key={r.reason} className="text-sm">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span>{r.label}</span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {r.count} · {r.pct} %
-                  </span>
-                </div>
-                <div className="mt-1 h-2 rounded bg-muted">
-                  <div
-                    className="h-2 rounded"
-                    style={{ width: `${Math.max(2, r.pct)}%`, backgroundColor: '#2a78d6' }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <QueryState query={reasons} height="h-24">
+          {(d) =>
+            d.reasons.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {d.sent === 0
+                  ? 'No se ha enviado ninguna encuesta de salida en este periodo.'
+                  : 'Aún no ha respondido nadie en este periodo.'}
+              </p>
+            ) : (
+              <ul className="space-y-2.5">
+                {d.reasons.map((r) => (
+                  <li key={r.reason} className="text-sm">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span>{r.label}</span>
+                      <span className="tabular-nums text-muted-foreground">
+                        {r.count} · {r.pct} %
+                      </span>
+                    </div>
+                    <div className="mt-1 h-2 rounded bg-muted">
+                      <div
+                        className="h-2 rounded"
+                        style={{ width: `${Math.max(2, r.pct)}%`, backgroundColor: '#2a78d6' }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </QueryState>
       </CardContent>
     </Card>
   );
 }
 
 // ============================================================================
-// Morosidad (Aging)
+// Deudas
 // ============================================================================
 
 const BUCKET_COLORS = ['#16a34a', '#eab308', '#f97316', '#dc2626'];
+const BUCKET_LABELS: Record<string, string> = {
+  '0-30': 'Menos de 30 días',
+  '30-60': '30 a 60 días',
+  '60-90': '60 a 90 días',
+  '+90': 'Más de 90 días',
+};
 
-function AgingPanel({ facilityId }: { facilityId?: string }) {
-  const aging = useAging({ facilityId });
-
-  if (aging.isLoading || !aging.data) {
-    return <PanelLoader />;
-  }
-
-  const d = aging.data;
-  const chartData = d.buckets.map((b, i) => ({
-    range: b.range,
-    Importe: Number(b.amount.toFixed(2)),
-    invoices: b.invoiceCount,
-    color: BUCKET_COLORS[i % BUCKET_COLORS.length],
-  }));
+function AgingPanel({ facilityId, ownerId }: { facilityId?: string; ownerId?: string }) {
+  const aging = useAging({ facilityId, ownerId });
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <KpiCard title="Total pendiente" value={formatCurrency(d.totalOutstanding)}>
-          Facturas vencidas sin cobrar (sin las fianzas)
-        </KpiCard>
-        <KpiCard
-          title="Facturas afectadas"
-          value={String(d.buckets.reduce((acc, b) => acc + b.invoiceCount, 0))}
-        >
-          Distribuidas por antigüedad
-        </KpiCard>
-      </div>
+    <QueryState query={aging}>
+      {(d) => {
+        const chartData = d.buckets.map((b, i) => ({
+          range: BUCKET_LABELS[b.range] ?? b.range,
+          Importe: Number(b.amount.toFixed(2)),
+          color: BUCKET_COLORS[i % BUCKET_COLORS.length],
+        }));
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <KpiCard title="Vencido sin cobrar" value={eur(d.totalOutstanding)}>
+                Facturas vencidas sin cobrar (sin las fianzas).{' '}
+                <Link href="/arrears" className="text-primary underline">
+                  Ver quién debe
+                </Link>
+              </KpiCard>
+              <KpiCard
+                title="Facturas vencidas"
+                value={String(d.buckets.reduce((acc, b) => acc + b.invoiceCount, 0))}
+              >
+                Repartidas por el tiempo que llevan vencidas
+              </KpiCard>
+            </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Antigüedad de la deuda</CardTitle>
-          <CardDescription>
-            Importe pendiente agrupado por días desde el vencimiento.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="h-80">
-          {d.totalOutstanding === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay deuda pendiente. ¡Todo al día!</p>
-          ) : (
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              initialDimension={{ width: 300, height: 256 }}
-            >
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="range" />
-                <YAxis />
-                <Tooltip formatter={(v) => formatCurrency(Number(v) || 0)} />
-                <Bar dataKey="Importe">
-                  {chartData.map((entry, idx) => (
-                    <Cell key={`cell-${idx}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Antigüedad de la deuda</CardTitle>
+                <CardDescription>
+                  Lo pendiente según los días que han pasado desde el vencimiento.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {d.totalOutstanding === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay deuda vencida. ¡Todo al día!
+                  </p>
+                ) : (
+                  <>
+                    <div className="h-80">
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                        initialDimension={{ width: 300, height: 256 }}
+                      >
+                        <BarChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="range" tick={{ fontSize: 11 }} />
+                          <YAxis tickFormatter={(v) => compactEuros(Number(v) || 0)} />
+                          <Tooltip formatter={(v) => eur(Number(v) || 0)} />
+                          <Bar dataKey="Importe">
+                            {chartData.map((entry, idx) => (
+                              <Cell key={`cell-${idx}`} fill={entry.color} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <ChartData
+                      headers={['Vencida hace', 'Facturas', 'Importe']}
+                      rows={d.buckets.map((b) => [
+                        BUCKET_LABELS[b.range] ?? b.range,
+                        b.invoiceCount,
+                        eur(b.amount),
+                      ])}
+                    />
+                  </>
+                )}
+              </CardContent>
+            </Card>
+            <ArrearsBreakdownCard facilityId={facilityId} ownerId={ownerId} />
+          </div>
+        );
+      }}
+    </QueryState>
   );
 }
 
 // ============================================================================
-// Leads funnel
+// Contactos
 // ============================================================================
 
-function LeadsPanel({ facilityId, period }: { facilityId?: string; period: Period }) {
+function LeadsPanel({
+  facilityId,
+  period,
+  compare,
+}: {
+  facilityId?: string;
+  period: Period;
+  compare: CompareMode;
+}) {
   const range = { ...periodDays(period), facilityId };
   const funnel = useLeadsFunnel(range);
-  const previous = useLeadsFunnel({ ...periodDays(previousPeriod(period)), facilityId });
-
-  if (funnel.isLoading || !funnel.data) return <PanelLoader />;
-
-  const d = funnel.data;
-  // Embudo acumulado: cuántos llegaron al menos a cada fase.
-  const funnelData = [
-    { stage: 'Recibidos', count: d.total },
-    { stage: 'Contactados', count: d.reached.contacted },
-    { stage: 'Cualificados', count: d.reached.qualified },
-    { stage: 'Ganados', count: d.reached.won },
-  ];
-  const sourceData = d.bySource.map((s) => ({
-    source: s.source || '(sin origen)',
-    count: s.count,
-  }));
+  // El de comparación, hasta el mismo día: el mes en curso va a medias.
+  const previous = useLeadsFunnel({ ...previousPeriodDays(period, compare), facilityId });
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <KpiCard title={`Contactos recibidos (${periodText(period)})`} value={String(d.total)}>
-          <Delta current={d.total} previous={previous.data?.total} />
-        </KpiCard>
-        <KpiCard title="Ganados" value={String(d.reached.won)}>
-          <Delta current={d.reached.won} previous={previous.data?.reached.won} />
-        </KpiCard>
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <KpiCard title="Nuevo → Contactado" value={formatPercent(d.conversion.newToContacted)}>
-          Tasa de respuesta
-        </KpiCard>
-        <KpiCard
-          title="Contactado → Cualificado"
-          value={formatPercent(d.conversion.contactedToQualified)}
-        >
-          Calidad del lead
-        </KpiCard>
-        <KpiCard title="Cualificado → Ganado" value={formatPercent(d.conversion.qualifiedToWon)}>
-          Cierre efectivo
-        </KpiCard>
-      </div>
+    <QueryState query={funnel}>
+      {(d) => {
+        // Embudo acumulado: cuántos llegaron al menos a cada fase.
+        const funnelData = [
+          { stage: 'Recibidos', Contactos: d.total },
+          { stage: 'Contactados', Contactos: d.reached.contacted },
+          { stage: 'Cualificados', Contactos: d.reached.qualified },
+          { stage: 'Ganados', Contactos: d.reached.won },
+        ];
+        const sourceData = d.bySource.map((s) => ({
+          source: s.source ? leadSourceLabel(s.source) : 'Sin origen',
+          Contactos: s.count,
+        }));
+        const suffix = compareLabel(compare, { sameDay: true });
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <KpiCard
+                title={`Contactos recibidos (${periodText(period)})`}
+                value={String(d.total)}
+              >
+                <Delta
+                  current={d.total}
+                  previous={previous.data?.total}
+                  kind="count"
+                  suffix={suffix}
+                />
+              </KpiCard>
+              <KpiCard title="Ganados" value={String(d.reached.won)}>
+                <Delta
+                  current={d.reached.won}
+                  previous={previous.data?.reached.won}
+                  kind="count"
+                  suffix={suffix}
+                />
+              </KpiCard>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <KpiCard title="Nuevo → Contactado" value={formatPct(d.conversion.newToContacted)}>
+                A cuántos se les ha respondido
+              </KpiCard>
+              <KpiCard
+                title="Contactado → Cualificado"
+                value={formatPct(d.conversion.contactedToQualified)}
+              >
+                Cuántos tenían interés de verdad
+              </KpiCard>
+              <KpiCard title="Cualificado → Ganado" value={formatPct(d.conversion.qualifiedToWon)}>
+                Cuántos acabaron contratando
+              </KpiCard>
+            </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Embudo</CardTitle>
-          <CardDescription>
-            {d.total} contactos recibidos del {formatDay(d.from)} al {formatDay(d.to)}: cuántos
-            llegaron a cada fase. Ahora mismo: {d.totals.new} nuevos, {d.totals.contacted}{' '}
-            contactados, {d.totals.qualified} cualificados, {d.totals.won} ganados y {d.totals.lost}{' '}
-            perdidos.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="h-80">
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-            initialDimension={{ width: 300, height: 256 }}
-          >
-            <BarChart data={funnelData} layout="vertical" margin={{ left: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" tick={{ fontSize: 11 }} />
-              <YAxis dataKey="stage" type="category" width={96} tick={{ fontSize: 11 }} />
-              <Tooltip />
-              <Bar dataKey="count" fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Embudo</CardTitle>
+                <CardDescription>
+                  {d.total} contactos recibidos del {formatDate(d.from)} al {formatDate(d.to)}:
+                  cuántos llegaron a cada fase. Ahora mismo: {d.totals.new} nuevos,{' '}
+                  {d.totals.contacted} contactados, {d.totals.qualified} cualificados,{' '}
+                  {d.totals.won} ganados y {d.totals.lost} perdidos.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    initialDimension={{ width: 300, height: 256 }}
+                  >
+                    <BarChart data={funnelData} layout="vertical" margin={{ left: 24 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                      <YAxis dataKey="stage" type="category" width={96} tick={{ fontSize: 11 }} />
+                      <Tooltip />
+                      <Bar dataKey="Contactos" fill="#3b82f6" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <ChartData
+                  headers={['Fase', 'Contactos']}
+                  rows={funnelData.map((f) => [f.stage, f.Contactos])}
+                />
+              </CardContent>
+            </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Por origen</CardTitle>
-          <CardDescription>De dónde llegan los leads.</CardDescription>
-        </CardHeader>
-        <CardContent className="h-64">
-          {sourceData.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay leads todavía.</p>
-          ) : (
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              initialDimension={{ width: 300, height: 256 }}
-            >
-              <BarChart data={sourceData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="source" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="count" fill="#8b5cf6" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Por qué se pierden</CardTitle>
-          <CardDescription>
-            Motivo de los leads perdidos del periodo (se pide al pasarlos a «Perdidos»).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {d.lostReasons.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay leads perdidos en el periodo.</p>
-          ) : (
-            <ul className="space-y-2">
-              {d.lostReasons.map((r) => {
-                const pct = d.totals.lost > 0 ? (r.count / d.totals.lost) * 100 : 0;
-                return (
-                  <li key={r.reason} className="space-y-1">
-                    <div className="flex justify-between text-sm">
-                      <span>
-                        {r.reason in LEAD_LOST_REASON_LABELS
-                          ? LEAD_LOST_REASON_LABELS[r.reason as LeadLostReason]
-                          : 'Sin motivo indicado'}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {r.count} · {Math.round(pct)} %
-                      </span>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Por origen</CardTitle>
+                <CardDescription>De dónde llegan los contactos.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {sourceData.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No hay contactos en el periodo.</p>
+                ) : (
+                  <>
+                    <div className="h-64">
+                      <ResponsiveContainer
+                        width="100%"
+                        height="100%"
+                        initialDimension={{ width: 300, height: 256 }}
+                      >
+                        <BarChart data={sourceData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="source" tick={{ fontSize: 11 }} />
+                          <YAxis allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="Contactos" fill="#8b5cf6" />
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-rose-500"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                    <ChartData
+                      headers={['Origen', 'Contactos']}
+                      rows={sourceData.map((s) => [s.source, s.Contactos])}
+                    />
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
-      <LeadsUtmCard range={range} />
-    </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Por qué se pierden</CardTitle>
+                <CardDescription>
+                  Motivo de los contactos perdidos del periodo (se pide al pasarlos a «Perdidos»).
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {d.lostReasons.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay contactos perdidos en el periodo.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {d.lostReasons.map((r) => {
+                      const pct = d.totals.lost > 0 ? (r.count / d.totals.lost) * 100 : 0;
+                      return (
+                        <li key={r.reason} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span>
+                              {r.reason in LEAD_LOST_REASON_LABELS
+                                ? LEAD_LOST_REASON_LABELS[r.reason as LeadLostReason]
+                                : 'Sin motivo indicado'}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {r.count} · {Math.round(pct)} %
+                            </span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-rose-500"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+
+            <LeadsTimingCards timing={d.timing} />
+            <ChannelCostCard from={range.from} to={range.to} facilityId={facilityId} />
+            <LeadsUtmCard range={range} />
+          </div>
+        );
+      }}
+    </QueryState>
   );
 }
 
@@ -678,18 +1188,18 @@ function LeadsUtmCard({ range }: { range: { from: string; to: string; facilityId
     <Card>
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0">
         <div className="space-y-1.5">
-          <CardTitle className="text-base">Campañas (UTM)</CardTitle>
+          <CardTitle className="text-base">Campañas</CardTitle>
           <CardDescription>
-            Conversión por origen y campaña de los leads que llegan con parámetros{' '}
-            <code className="text-xs">utm_*</code> en la URL (widget / booking), en el mismo
-            periodo.
+            Cuántos contactos trae cada campaña y cuántos acaban contratando. Cuenta los que llegan
+            con un enlace marcado con su origen y campaña (los enlaces de Marketing → Canales ya lo
+            llevan).
           </CardDescription>
         </div>
         <CsvButton
           disabled={!utm.data?.rows.length}
-          filename="campanas-utm.csv"
+          filename="campanas.csv"
           rows={() => [
-            ['Origen', 'Campaña', 'Contactos', 'Ganados', 'Conversión'],
+            ['Origen', 'Campaña', 'Contactos', 'Ganados', 'Conversión (%)'],
             ...(utm.data?.rows ?? []).map((u) => [
               u.source,
               u.campaign,
@@ -700,47 +1210,50 @@ function LeadsUtmCard({ range }: { range: { from: string; to: string; facilityId
           ]}
         />
       </CardHeader>
-      <CardContent>
-        {utm.isLoading || !utm.data ? (
-          <PanelLoader />
-        ) : utm.data.rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Aún no hay leads con tracking UTM. Comparte el enlace del widget con parámetros, p. ej.{' '}
-            <code className="text-xs">?utm_source=google&utm_campaign=verano</code>.
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Origen</TableHead>
-                <TableHead>Campaña</TableHead>
-                <TableHead className="text-right">Leads</TableHead>
-                <TableHead className="text-right">Ganados</TableHead>
-                <TableHead className="text-right">Conversión</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {utm.data.rows.map((r) => (
-                <TableRow key={`${r.source}|${r.campaign}`}>
-                  <TableCell className="font-medium">{r.source}</TableCell>
-                  <TableCell>{r.campaign}</TableCell>
-                  <TableCell className="text-right">{r.total}</TableCell>
-                  <TableCell className="text-right">{r.won}</TableCell>
-                  <TableCell className="text-right font-medium">
-                    {formatPercent(r.conversionRate)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+      <CardContent className="overflow-x-auto">
+        <QueryState query={utm} height="h-24">
+          {(data) =>
+            data.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Aún no hay contactos que lleguen con una campaña. Usa los enlaces de Marketing →
+                Canales o añade al enlace, por ejemplo,{' '}
+                <code className="text-xs">?utm_source=google&utm_campaign=verano</code>.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Origen</TableHead>
+                    <TableHead>Campaña</TableHead>
+                    <TableHead className="text-right">Contactos</TableHead>
+                    <TableHead className="text-right">Ganados</TableHead>
+                    <TableHead className="text-right">Conversión</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.rows.map((r) => (
+                    <TableRow key={`${r.source}|${r.campaign}`}>
+                      <TableCell className="font-medium">{r.source}</TableCell>
+                      <TableCell>{r.campaign}</TableCell>
+                      <TableCell className="text-right">{r.total}</TableCell>
+                      <TableCell className="text-right">{r.won}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatPct(r.conversionRate)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )
+          }
+        </QueryState>
       </CardContent>
     </Card>
   );
 }
 
 // ============================================================================
-// Riesgo de baja (churn risk heurístico)
+// Riesgo de baja
 // ============================================================================
 
 const RISK_BADGE: Record<ChurnRiskLevel, { label: string; className: string }> = {
@@ -751,162 +1264,164 @@ const RISK_BADGE: Record<ChurnRiskLevel, { label: string; className: string }> =
   medium: {
     label: 'Medio',
     className:
-      'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-950',
+      'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-950',
   },
   low: {
     label: 'Bajo',
     className:
-      'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950',
+      'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950',
   },
 };
 
 function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
   const risk = useChurnRisk(facilityId);
 
-  if (risk.isLoading || !risk.data) {
-    return <PanelLoader />;
-  }
-
-  const d = risk.data;
-
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <KpiCard title="Riesgo alto" value={String(d.summary.high)}>
-          Contratos que requieren acción inmediata
-        </KpiCard>
-        <KpiCard title="Riesgo medio" value={String(d.summary.medium)}>
-          Vigilar de cerca
-        </KpiCard>
-        <KpiCard title="Contratos activos" value={String(d.summary.total)}>
-          Analizados en total
-        </KpiCard>
-      </div>
+    <QueryState query={risk}>
+      {(d) => {
+        const showFee = d.items.some((i) => i.priceMonthly !== null);
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard title="Riesgo alto" value={String(d.summary.high)}>
+                Inquilinos con los que conviene hablar ya
+              </KpiCard>
+              <KpiCard title="Riesgo medio" value={String(d.summary.medium)}>
+                Vigilar de cerca
+              </KpiCard>
+              <KpiCard title="Inquilinos con contrato" value={String(d.summary.total)}>
+                Analizados en total
+              </KpiCard>
+              {d.summary.atStakeMonthly !== null && (
+                <KpiCard title="Cuotas en juego" value={eur(d.summary.atStakeMonthly)}>
+                  Lo que pagan al mes los de riesgo alto y medio
+                </KpiCard>
+              )}
+            </div>
 
-      <Card>
-        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0">
-          <div className="space-y-1.5">
-            <CardTitle className="text-base">Contratos en riesgo</CardTitle>
-            <CardDescription>
-              Puntuación (0-100) según facturas vencidas, cobros fallidos y reclamaciones (lo de los
-              últimos 90 días pesa más), vencimiento sin renovación, no tener cómo pagar solo
-              (tarjeta, cuenta o mandato SEPA) y no haber entrado al local en 90 días.
-            </CardDescription>
+            <Card>
+              <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0">
+                <div className="space-y-1.5">
+                  <CardTitle className="text-base">Inquilinos en riesgo</CardTitle>
+                  <CardDescription>
+                    Puntuación de 0 a 100 por inquilino (con todos sus trasteros) según facturas
+                    vencidas, cobros fallidos y reclamaciones (lo de los últimos 90 días pesa más),
+                    un contrato que vence sin renovación, no tener cómo pagar solo (si tu negocio
+                    cobra con tarjeta o domiciliación) y no entrar al local en 90 días (si tienes
+                    puertas conectadas).
+                  </CardDescription>
+                </div>
+                <CsvButton
+                  disabled={d.items.length === 0}
+                  filename="riesgo-de-baja.csv"
+                  rows={() => [
+                    [
+                      'Inquilino',
+                      'Trasteros',
+                      'Local',
+                      ...(showFee ? ['Cuota al mes'] : []),
+                      'Puntuación',
+                      'Último acceso',
+                      'Señales',
+                    ],
+                    ...d.items.map((i) => [
+                      i.customerName,
+                      i.unitCode,
+                      i.facilityName,
+                      ...(showFee ? [i.priceMonthly ?? ''] : []),
+                      i.score,
+                      i.lastAccessAt ? formatDate(i.lastAccessAt) : '',
+                      i.factors.join(' · '),
+                    ]),
+                  ]}
+                />
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                {d.items.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay inquilinos con señales de riesgo. ¡Buena retención!
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Inquilino</TableHead>
+                        <TableHead>Trasteros</TableHead>
+                        {showFee && <TableHead className="text-right">Cuota al mes</TableHead>}
+                        <TableHead>Riesgo</TableHead>
+                        <TableHead>Señales</TableHead>
+                        <TableHead />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {d.items.map((item) => (
+                        <TableRow key={item.customerId}>
+                          <TableCell className="font-medium">
+                            <Link
+                              href={`/customers/${item.customerId}`}
+                              className="hover:underline"
+                            >
+                              {item.customerName}
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            {item.unitCode}
+                            <span className="block text-xs text-muted-foreground">
+                              {item.facilityName}
+                            </span>
+                          </TableCell>
+                          {showFee && (
+                            <TableCell className="text-right">
+                              {item.priceMonthly === null ? '—' : eur(item.priceMonthly)}
+                            </TableCell>
+                          )}
+                          <TableCell>
+                            <Badge
+                              className={`whitespace-nowrap ${RISK_BADGE[item.level].className}`}
+                              variant="secondary"
+                            >
+                              {RISK_BADGE[item.level].label} · {item.score}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {item.factors.join(' · ')}
+                            {item.lastAccessAt && (
+                              <span className="block">
+                                Último acceso: {formatDate(item.lastAccessAt)}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <ChurnRiskActions item={item} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </div>
-          <CsvButton
-            disabled={d.items.length === 0}
-            filename="riesgo-de-baja.csv"
-            rows={() => [
-              [
-                'Contrato',
-                'Inquilino',
-                'Trastero',
-                'Local',
-                'Cuota',
-                'Puntuación',
-                'Último acceso',
-                'Señales',
-              ],
-              ...d.items.map((i) => [
-                i.contractNumber,
-                i.customerName,
-                i.unitCode,
-                i.facilityName,
-                i.priceMonthly,
-                i.score,
-                i.lastAccessAt ? new Date(i.lastAccessAt).toLocaleDateString('es-ES') : '',
-                i.factors.join(' · '),
-              ]),
-            ]}
-          />
-        </CardHeader>
-        <CardContent>
-          {d.items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No hay contratos con señales de riesgo. ¡Buena retención!
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Contrato</TableHead>
-                  <TableHead>Inquilino</TableHead>
-                  <TableHead>Trastero</TableHead>
-                  <TableHead className="text-right">Cuota</TableHead>
-                  <TableHead>Riesgo</TableHead>
-                  <TableHead>Señales</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {d.items.map((item) => (
-                  <TableRow key={item.contractId}>
-                    <TableCell className="font-medium">
-                      <Link href={`/contracts/${item.contractId}`} className="hover:underline">
-                        {item.contractNumber}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/customers/${item.customerId}`} className="hover:underline">
-                        {item.customerName}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      {item.unitCode}
-                      <span className="block text-xs text-muted-foreground">
-                        {item.facilityName}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {formatCurrency(item.priceMonthly)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={RISK_BADGE[item.level].className} variant="secondary">
-                        {RISK_BADGE[item.level].label} · {item.score}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {item.factors.join(' · ')}
-                      {item.lastAccessAt && (
-                        <span className="block">
-                          Último acceso: {new Date(item.lastAccessAt).toLocaleDateString('es-ES')}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button asChild size="sm" variant="outline">
-                        {item.contractStatus === 'ending' ? (
-                          <Link href={`/contracts/${item.contractId}`}>Ofrecer retención</Link>
-                        ) : (
-                          <Link href={`/customers/${item.customerId}`}>Ver ficha</Link>
-                        )}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+        );
+      }}
+    </QueryState>
   );
 }
 
 // ============================================================================
-// Precio dinámico (sugerencias por ocupación)
+// Precio por tipo
 // ============================================================================
 
 const PRICING_BADGE: Record<PricingAction, { label: string; className: string }> = {
   raise: {
     label: 'Subir',
     className:
-      'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950',
+      'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:hover:bg-emerald-950',
   },
   lower: {
     label: 'Bajar',
     className:
-      'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-950',
+      'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-950',
   },
   hold: {
     label: 'Mantener',
@@ -919,25 +1434,39 @@ function PricingSuggestionsPanel({ facilityId }: { facilityId?: string }) {
   const ask = useConfirm();
   const pricing = usePricingSuggestions(facilityId);
   const apply = useApplyPricing();
-  const canApply = useHasPermission('units:manage');
+  // El precio de un tipo vale para todos los locales: solo quien los ve todos.
+  const canManage = useHasPermission('units:manage');
+  const companyWide = useCompanyWide();
+  const canApply = canManage && companyWide;
 
-  if (pricing.isLoading || !pricing.data) {
-    return <PanelLoader />;
-  }
-
-  const items = pricing.data.items;
-
-  async function applySuggestion(unitTypeId: string, name: string, price: number) {
+  async function applySuggestion(
+    unitTypeId: string,
+    name: string,
+    price: number,
+    freeUnits: number,
+  ) {
+    const units =
+      freeUnits === 0
+        ? 'Ahora no hay ningún trastero libre de este tipo.'
+        : freeUnits === 1
+          ? 'También cambia el precio del trastero libre de este tipo.'
+          : `También cambia el precio de los ${freeUnits} trasteros libres de este tipo.`;
     if (
       !(await ask({
-        title: '¿Seguro?',
-        description: `¿Fijar el precio de catálogo de "${name}" en ${formatCurrency(price)}? Afecta a los nuevos contratos; los activos no cambian.`,
+        title: `¿Poner «${name}» a ${eur(price)} al mes?`,
+        description: `Es el precio sin IVA para quien lo alquile a partir de ahora, en todos los locales${
+          facilityId ? ' (no solo en el que estás mirando)' : ''
+        }. ${units} Los contratos en vigor no cambian: para subir a quien ya tienes, usa las subidas de precio.`,
       }))
     )
       return;
     try {
-      await apply.mutateAsync({ unitTypeId, price });
-      toast.success('Precio actualizado.');
+      const res = await apply.mutateAsync({ unitTypeId, price });
+      toast.success(
+        res.unitsUpdated > 0
+          ? `Precio actualizado (y en ${res.unitsUpdated} ${res.unitsUpdated === 1 ? 'trastero libre' : 'trasteros libres'}).`
+          : 'Precio actualizado.',
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo aplicar.');
     }
@@ -950,17 +1479,22 @@ function PricingSuggestionsPanel({ facilityId }: { facilityId?: string }) {
           <CardTitle className="text-base">Sugerencias de precio</CardTitle>
           <CardDescription>
             Precio de mercado del tamaño medio de cada tipo ajustado por la demanda (ocupación y
-            lista de espera). Aplicar fija el <strong>precio de catálogo</strong> del tipo (nuevos
-            contratos); los contratos activos no cambian — para subir la cartera usa{' '}
-            <em>Subidas de precio</em>.
+            lista de espera). Precios sin IVA. Aplicar cambia el precio del tipo y el de sus
+            trasteros libres en todos los locales; los contratos en vigor no cambian — para subir a
+            quien ya tienes usa <em>Subidas de precio</em>.
+            {canManage && !companyWide && (
+              <span className="mt-1 block">
+                Solo puede aplicarlo quien ve todos los locales: afecta a todos.
+              </span>
+            )}
           </CardDescription>
         </div>
         <CsvButton
-          disabled={items.length === 0}
+          disabled={!pricing.data?.items.length}
           filename="precios-por-tipo.csv"
           rows={() => [
-            ['Tipo', 'Ocupación', 'Mercado', 'Precio actual', 'Sugerido'],
-            ...items.map((i) => [
+            ['Tipo', 'Ocupación (%)', 'Mercado', 'Precio actual', 'Sugerido'],
+            ...(pricing.data?.items ?? []).map((i) => [
               i.unitTypeName,
               Math.round(i.occupancy),
               i.marketPrice ?? '',
@@ -970,199 +1504,292 @@ function PricingSuggestionsPanel({ facilityId }: { facilityId?: string }) {
           ]}
         />
       </CardHeader>
-      <CardContent>
-        {items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Aún no hay tipos de trastero con datos suficientes.
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Tipo</TableHead>
-                <TableHead className="text-right">Ocupación</TableHead>
-                <TableHead className="text-right">Mercado</TableHead>
-                <TableHead className="text-right">Precio actual</TableHead>
-                <TableHead className="text-right">Sugerido</TableHead>
-                <TableHead>Acción</TableHead>
-                <TableHead>Motivo</TableHead>
-                {canApply && <TableHead className="text-right">Aplicar</TableHead>}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.map((item) => (
-                <TableRow key={item.unitTypeId}>
-                  <TableCell className="font-medium">
-                    {item.unitTypeName}
-                    <span className="block text-xs text-muted-foreground">
-                      {item.occupiedUnits}/{item.totalUnits} ocupados
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">{item.occupancy.toFixed(0)}%</TableCell>
-                  <TableCell className="text-right">
-                    {item.marketPrice != null ? formatCurrency(item.marketPrice) : '—'}
-                    {item.marketTrend && <TrendNote trend={item.marketTrend} />}
-                    <span
-                      className="block text-xs text-muted-foreground"
-                      title={CONFIDENCE[item.confidence].title}
-                    >
-                      {CONFIDENCE[item.confidence].label}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-right">{formatCurrency(item.currentPrice)}</TableCell>
-                  <TableCell className="text-right font-medium">
-                    {formatCurrency(item.suggestedPrice)}
-                    {item.changePct !== 0 && (
-                      <span
-                        className={`ml-1 text-xs ${
-                          item.changePct > 0 ? 'text-emerald-600' : 'text-amber-600'
-                        }`}
-                      >
-                        ({item.changePct > 0 ? '+' : ''}
-                        {item.changePct}%)
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={PRICING_BADGE[item.action].className} variant="secondary">
-                      {PRICING_BADGE[item.action].label}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{item.rationale}</TableCell>
-                  {canApply && (
-                    <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={apply.isPending || item.action === 'hold'}
-                        onClick={() =>
-                          void applySuggestion(
-                            item.unitTypeId,
-                            item.unitTypeName,
-                            item.suggestedPrice,
-                          )
-                        }
-                      >
-                        Aplicar
-                      </Button>
-                    </TableCell>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+      <CardContent className="overflow-x-auto">
+        <QueryState query={pricing}>
+          {(data) =>
+            data.items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Aún no hay tipos de trastero con datos suficientes.
+              </p>
+            ) : (
+              <>
+                <TypePricingSummary items={data.items} />
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead className="text-right">Ocupación</TableHead>
+                      <TableHead className="text-right">Mercado</TableHead>
+                      <TableHead className="text-right">Precio actual</TableHead>
+                      <TableHead className="text-right">Sugerido</TableHead>
+                      <TableHead className="text-right">Libres</TableHead>
+                      <TableHead>Acción</TableHead>
+                      <TableHead>Motivo</TableHead>
+                      {canApply && <TableHead className="text-right">Aplicar</TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.items.map((item) => (
+                      <TableRow key={item.unitTypeId}>
+                        <TableCell className="font-medium">
+                          {item.unitTypeName}
+                          <span className="block text-xs text-muted-foreground">
+                            {item.occupiedUnits} de {item.totalUnits} ocupados
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPct(item.occupancy / 100, 0)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.marketPrice != null ? eur(item.marketPrice) : '—'}
+                          {item.marketTrend && <TrendNote trend={item.marketTrend} />}
+                          <span
+                            className="block text-xs text-muted-foreground"
+                            title={CONFIDENCE[item.confidence].title}
+                          >
+                            {CONFIDENCE[item.confidence].label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{eur(item.currentPrice)}</TableCell>
+                        <TableCell className="text-right font-medium">
+                          {eur(item.suggestedPrice)}
+                          {item.changePct !== 0 && (
+                            <span
+                              className={`ml-1 text-xs ${
+                                item.changePct > 0 ? 'text-emerald-600' : 'text-amber-600'
+                              }`}
+                            >
+                              ({item.changePct > 0 ? '+' : ''}
+                              {item.changePct.toLocaleString('es-ES')} %)
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">{item.availableUnitsAll}</TableCell>
+                        <TableCell>
+                          <Badge
+                            className={PRICING_BADGE[item.action].className}
+                            variant="secondary"
+                          >
+                            {PRICING_BADGE[item.action].label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {item.rationale}
+                        </TableCell>
+                        {canApply && (
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={apply.isPending || item.action === 'hold'}
+                              onClick={() =>
+                                void applySuggestion(
+                                  item.unitTypeId,
+                                  item.unitTypeName,
+                                  item.suggestedPrice,
+                                  item.availableUnitsAll,
+                                )
+                              }
+                            >
+                              Aplicar
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </>
+            )
+          }
+        </QueryState>
       </CardContent>
     </Card>
   );
 }
 
+/** Lo que cambiaría si se aplican todas las sugerencias por tipo. */
+function TypePricingSummary({ items }: { items: PricingSuggestionItemDto[] }) {
+  const actionable = items.filter((i) => i.action !== 'hold');
+  if (actionable.length === 0) return null;
+  const free = actionable.reduce((s, i) => s + i.availableUnitsAll, 0);
+  const delta = actionable.reduce(
+    (s, i) => s + (i.suggestedPrice - i.currentPrice) * i.availableUnitsAll,
+    0,
+  );
+  return (
+    <p className="mb-3 rounded-lg border bg-muted/40 p-3 text-sm">
+      {actionable.length} {actionable.length === 1 ? 'tipo con cambio' : 'tipos con cambio'}{' '}
+      sugerido. Si los aplicas todos, cambia el precio de {free}{' '}
+      {free === 1 ? 'trastero libre' : 'trasteros libres'}
+      {free > 0 && (
+        <>
+          : si se alquilan a ese precio,{' '}
+          <strong
+            className={
+              delta >= 0
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-amber-700 dark:text-amber-400'
+            }
+          >
+            {delta >= 0 ? '+' : '−'}
+            {eur(Math.abs(delta))} al mes
+          </strong>{' '}
+          frente a su precio de hoy
+        </>
+      )}
+      .
+    </p>
+  );
+}
+
 // ============================================================================
-// Previsión (forecasting de ocupación e ingresos)
+// Previsión
 // ============================================================================
 
 function ForecastPanel({ facilityId }: { facilityId?: string }) {
   const forecast = useRevenueForecast({ months: 6, facilityId });
 
-  if (forecast.isLoading || !forecast.data) {
-    return <PanelLoader />;
-  }
-
-  const d = forecast.data;
-  const chartData = [
-    {
-      month: 'Actual',
-      MRR: Number(d.current.mrr.toFixed(2)),
-      Ocupación: Number((d.current.occupancy * 100).toFixed(1)),
-    },
-    ...d.points.map((p) => ({
-      month: p.yearMonth,
-      MRR: Number(p.projectedMrr.toFixed(2)),
-      Ocupación: Number((p.projectedOccupancy * 100).toFixed(1)),
-    })),
-  ];
-  const lastPoint = d.points[d.points.length - 1];
-
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="MRR actual" value={formatCurrency(d.current.mrr)}>
-          {d.current.activeContracts} contratos activos
-        </KpiCard>
-        <KpiCard
-          title={`MRR previsto (+${d.points.length}m)`}
-          value={lastPoint ? formatCurrency(lastPoint.projectedMrr) : '—'}
-        >
-          {lastPoint ? `${lastPoint.projectedActiveContracts} contratos proyectados` : '—'}
-        </KpiCard>
-        <KpiCard
-          title="Churn medio mensual"
-          value={`${(d.assumptions.monthlyChurnRate * 100).toFixed(1)}%`}
-        >
-          Media de los últimos {d.assumptions.trailingMonths} meses
-        </KpiCard>
-        <KpiCard title="Altas medias / mes" value={d.assumptions.avgMonthlyNewContracts.toFixed(1)}>
-          Valor medio {formatCurrency(d.assumptions.avgContractValue)}/contrato
-        </KpiCard>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Proyección a {d.points.length} meses</CardTitle>
-          <CardDescription>
-            Estimación heurística basada en la tendencia reciente (churn y altas medias). No es una
-            garantía: cuanto más histórico, más fiable.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="h-80">
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-            initialDimension={{ width: 300, height: 256 }}
-          >
-            <AreaChart data={chartData} margin={{ left: 8, right: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis yAxisId="mrr" tickFormatter={(v) => compactEuros(Number(v) || 0)} />
-              <YAxis yAxisId="occ" orientation="right" unit="%" domain={[0, 100]} />
-              <Tooltip
-                formatter={(value, name) =>
-                  name === 'MRR' ? formatCurrency(Number(value) || 0) : `${Number(value) || 0}%`
+    <QueryState query={forecast}>
+      {(d) => {
+        const money = d.current.mrr !== null;
+        const chartData = [
+          {
+            mes: 'Hoy',
+            'Cuotas al mes': d.current.mrr ?? 0,
+            Ocupación: Math.round(d.current.occupancy * 1000) / 10,
+          },
+          ...d.points.map((p) => ({
+            mes: shortMonth(p.yearMonth),
+            'Cuotas al mes': p.projectedMrr ?? 0,
+            Ocupación: Math.round(p.projectedOccupancy * 1000) / 10,
+          })),
+        ];
+        const lastPoint = d.points[d.points.length - 1];
+        const history = d.assumptions.historyMonths;
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard
+                title={money ? 'Cuotas al mes hoy' : 'Contratos hoy'}
+                value={money ? eur(d.current.mrr ?? 0) : String(d.current.activeContracts)}
+              >
+                {d.current.activeContracts} contratos activos
+              </KpiCard>
+              <KpiCard
+                title={`Dentro de ${d.points.length} meses`}
+                value={
+                  lastPoint
+                    ? money
+                      ? eur(lastPoint.projectedMrr ?? 0)
+                      : String(lastPoint.projectedActiveContracts)
+                    : '—'
                 }
-              />
-              <Legend />
-              <Area
-                yAxisId="mrr"
-                type="monotone"
-                dataKey="MRR"
-                stroke="#2563eb"
-                fill="#2563eb"
-                fillOpacity={0.15}
-                strokeWidth={2}
-              />
-              <Area
-                yAxisId="occ"
-                type="monotone"
-                dataKey="Ocupación"
-                stroke="#16a34a"
-                fill="#16a34a"
-                fillOpacity={0.1}
-                strokeWidth={2}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-    </div>
+              >
+                {lastPoint ? `${lastPoint.projectedActiveContracts} contratos previstos` : '—'}
+              </KpiCard>
+              <KpiCard
+                title="Tasa de bajas media al mes"
+                value={formatPct(d.assumptions.monthlyChurnRate, 2)}
+              >
+                Media de{' '}
+                {history === 1 ? 'el último mes cerrado' : `los últimos ${history} meses cerrados`}
+              </KpiCard>
+              <KpiCard
+                title="Altas al mes (media)"
+                value={d.assumptions.avgMonthlyNewContracts.toLocaleString('es-ES', {
+                  maximumFractionDigits: 1,
+                })}
+              >
+                {d.assumptions.avgContractValue !== null
+                  ? `Cada contrato paga de media ${eur(d.assumptions.avgContractValue)} al mes`
+                  : 'Contratos nuevos de media cada mes'}
+              </KpiCard>
+            </div>
+
+            {d.assumptions.cappedAtCapacity && (
+              <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                A este ritmo te quedas sin trasteros libres: la previsión se para en los{' '}
+                {d.current.totalUnits} que se pueden alquilar.
+              </p>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Previsión a {d.points.length} meses</CardTitle>
+                <CardDescription>
+                  Estimación con la tendencia de los meses cerrados (bajas y altas medias). No es
+                  una garantía: cuanto más histórico, más fiable.
+                  {history < d.assumptions.trailingMonths &&
+                    ` Tu negocio lleva ${history} ${history === 1 ? 'mes' : 'meses'} con contratos: las medias son de ese tiempo.`}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    initialDimension={{ width: 300, height: 256 }}
+                  >
+                    <AreaChart data={chartData} margin={{ left: 8, right: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                      {money && (
+                        <YAxis yAxisId="mrr" tickFormatter={(v) => compactEuros(Number(v) || 0)} />
+                      )}
+                      <YAxis yAxisId="occ" orientation="right" unit=" %" domain={[0, 100]} />
+                      <Tooltip
+                        formatter={(value, name) =>
+                          name === 'Cuotas al mes'
+                            ? eur(Number(value) || 0)
+                            : `${(Number(value) || 0).toLocaleString('es-ES')} %`
+                        }
+                      />
+                      <Legend />
+                      {money && (
+                        <Area
+                          yAxisId="mrr"
+                          type="monotone"
+                          dataKey="Cuotas al mes"
+                          stroke="#2563eb"
+                          fill="#2563eb"
+                          fillOpacity={0.15}
+                          strokeWidth={2}
+                        />
+                      )}
+                      <Area
+                        yAxisId="occ"
+                        type="monotone"
+                        dataKey="Ocupación"
+                        stroke="#16a34a"
+                        fill="#16a34a"
+                        fillOpacity={0.1}
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <ChartData
+                  headers={['Mes', 'Contratos', 'Ocupación', ...(money ? ['Cuotas al mes'] : [])]}
+                  rows={d.points.map((p) => [
+                    shortMonth(p.yearMonth),
+                    p.projectedActiveContracts,
+                    formatPct(p.projectedOccupancy, 0),
+                    ...(money ? [eur(p.projectedMrr ?? 0)] : []),
+                  ])}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        );
+      }}
+    </QueryState>
   );
 }
 
 // ============================================================================
-// Helpers
-// ============================================================================
-
-// ============================================================================
-// Comparativa de mercado (benchmarking anónimo)
+// Comparativa del sector
 // ============================================================================
 
 function BenchmarkMetricRow({
@@ -1176,7 +1803,7 @@ function BenchmarkMetricRow({
   format: (value: number) => string;
   hint?: string;
 }) {
-  // Posición de "tú" y de la mediana en la barra p25→p75 (acotado a [0,100]).
+  // Posición de «tú» y de la mediana en la barra (del 25 % más bajo al 25 % más alto).
   const span = metric.p75 - metric.p25;
   const pos = (value: number) =>
     span <= 0 ? 50 : Math.max(0, Math.min(100, ((value - metric.p25) / span) * 100));
@@ -1186,24 +1813,25 @@ function BenchmarkMetricRow({
 
   return (
     <div className="space-y-2 rounded-lg border p-4">
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-sm font-medium">{label}</span>
         <Badge variant={aboveMedian ? 'default' : 'secondary'}>
-          Percentil {metric.myPercentile}
+          Por encima del {metric.myPercentile} % de los operadores
         </Badge>
       </div>
-      <div className="flex items-baseline justify-between text-sm">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
         <span>
           Tú: <span className="font-semibold">{format(metric.mine)}</span>
         </span>
-        <span className="text-muted-foreground">Mediana del sector: {format(metric.median)}</span>
+        <span className="text-muted-foreground">
+          Lo normal en el sector: {format(metric.median)}
+        </span>
       </div>
-      {/* Barra p25 → p75 con marcadores de mediana (gris) y del tenant (azul). */}
-      <div className="relative h-2 rounded-full bg-muted">
+      <div className="relative h-2 rounded-full bg-muted" aria-hidden>
         <div
           className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-400"
           style={{ left: `${medianPos}%` }}
-          title={`Mediana: ${format(metric.median)}`}
+          title={`Lo normal: ${format(metric.median)}`}
         />
         <div
           className="absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow"
@@ -1212,8 +1840,8 @@ function BenchmarkMetricRow({
         />
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
-        <span>p25: {format(metric.p25)}</span>
-        <span>p75: {format(metric.p75)}</span>
+        <span>Uno de cada cuatro, menos de {format(metric.p25)}</span>
+        <span>Uno de cada cuatro, más de {format(metric.p75)}</span>
       </div>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
@@ -1223,73 +1851,69 @@ function BenchmarkMetricRow({
 function BenchmarkPanel() {
   const benchmark = useBenchmark();
 
-  if (benchmark.isLoading || !benchmark.data) {
-    return <PanelLoader />;
-  }
-
-  const d = benchmark.data;
-
-  if (!d.available) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Comparativa del sector</CardTitle>
-          <CardDescription>
-            Compara tu ocupación y precios con la media anónima del sector.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Datos insuficientes para comparar (se necesitan al menos 5 operadores con contratos). La
-            comparativa se activará automáticamente a medida que crezca la red.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Comparativa del sector</CardTitle>
-        <CardDescription>
-          Tu posición frente a la media anónima de {d.sampleSize} operadores de self-storage. Los
-          datos del sector son agregados y anónimos: nunca se muestran valores individuales de otros
-          operadores.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {d.occupancy && (
-          <BenchmarkMetricRow
-            label="Ocupación física"
-            metric={d.occupancy}
-            format={(v) => `${v.toFixed(1)}%`}
-            hint="Trasteros ocupados sobre el total."
-          />
-        )}
-        {d.price && (
-          <BenchmarkMetricRow
-            label="Precio medio por trastero"
-            metric={d.price}
-            format={formatCurrency}
-            hint="Cuota mensual media de tus trasteros."
-          />
-        )}
-        {d.pricePerSqm && (
-          <BenchmarkMetricRow
-            label="Precio por m²"
-            metric={d.pricePerSqm}
-            format={(v) => `${formatCurrency(v)}/m²`}
-            hint="Cuota mensual media por metro cuadrado."
-          />
-        )}
-      </CardContent>
-    </Card>
+    <QueryState query={benchmark}>
+      {(d) =>
+        !d.available ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Comparativa del sector</CardTitle>
+              <CardDescription>
+                Compara tu ocupación y tus precios con los de otros negocios de trasteros.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Aún no hay datos suficientes para comparar: hacen falta al menos 10 negocios con
+                contratos, para que nadie pueda reconocer los datos de otro. Se activará sola cuando
+                los haya.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Comparativa del sector</CardTitle>
+              <CardDescription>
+                Tu posición frente a {d.sampleSize} negocios de trasteros. Son datos de conjunto y
+                anónimos: nunca se enseña lo de un negocio concreto. Precios sin IVA.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {d.occupancy && (
+                <BenchmarkMetricRow
+                  label="Ocupación"
+                  metric={d.occupancy}
+                  format={(v) => formatPct(v / 100)}
+                  hint="Trasteros ocupados sobre los que se pueden alquilar."
+                />
+              )}
+              {d.price && (
+                <BenchmarkMetricRow
+                  label="Precio medio por trastero"
+                  metric={d.price}
+                  format={eur}
+                  hint="Cuota de catálogo al mes, de media."
+                />
+              )}
+              {d.pricePerSqm && (
+                <BenchmarkMetricRow
+                  label="Precio por m²"
+                  metric={d.pricePerSqm}
+                  format={(v) => `${eur(v)}/m²`}
+                  hint="Cuota al mes por metro cuadrado, de media."
+                />
+              )}
+            </CardContent>
+          </Card>
+        )
+      }
+    </QueryState>
   );
 }
 
 // ============================================================================
-// Checklist de SEO on-page
+// SEO
 // ============================================================================
 
 function ScoreBadge({ done, total }: { done: number; total: number }) {
@@ -1302,7 +1926,7 @@ function ScoreBadge({ done, total }: { done: number; total: number }) {
         : 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300 hover:bg-red-100';
   return (
     <Badge className={className} variant="secondary">
-      {done}/{total}
+      {done} de {total}
     </Badge>
   );
 }
@@ -1311,9 +1935,12 @@ function ChecklistRow({ item }: { item: SeoChecklistItemDto }) {
   return (
     <div className="flex items-start gap-3 border-b py-3 last:border-0">
       {item.done ? (
-        <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" />
+        <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" aria-label="Hecho" />
       ) : (
-        <CircleDashed className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+        <CircleDashed
+          className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+          aria-label="Pendiente"
+        />
       )}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{item.label}</p>
@@ -1332,229 +1959,74 @@ function ChecklistRow({ item }: { item: SeoChecklistItemDto }) {
 function SeoChecklistPanel() {
   const checklist = useSeoChecklist();
 
-  if (checklist.isLoading || !checklist.data) {
-    return <PanelLoader />;
-  }
-
-  const d = checklist.data;
-
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-normal text-muted-foreground">
-              Básico (todos los planes)
-            </CardTitle>
-            <ScoreBadge done={d.baseScore.done} total={d.baseScore.total} />
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-normal text-muted-foreground">
-              Web Premium {!d.hasWebPremium && '(no activada)'}
-            </CardTitle>
-            <ScoreBadge done={d.premiumScore.done} total={d.premiumScore.total} />
-          </CardHeader>
-        </Card>
-      </div>
+    <QueryState query={checklist}>
+      {(d) => (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-normal text-muted-foreground">
+                  Lo básico
+                </CardTitle>
+                <ScoreBadge done={d.baseScore.done} total={d.baseScore.total} />
+              </CardHeader>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-normal text-muted-foreground">
+                  Web Premium {!d.hasWebPremium && '(no activada)'}
+                </CardTitle>
+                <ScoreBadge done={d.premiumScore.done} total={d.premiumScore.total} />
+              </CardHeader>
+            </Card>
+          </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Checklist básico</CardTitle>
-          <CardDescription>
-            Aplica a cualquier plan: refuerza el SEO local y la confianza de tu web pública.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {d.base.map((item) => (
-            <ChecklistRow key={item.id} item={item} />
-          ))}
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Lo básico</CardTitle>
+              <CardDescription>
+                Datos de tus locales que Google usa para enseñarte en las búsquedas de tu zona.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {d.base.map((item) => (
+                <ChecklistRow key={item.id} item={item} />
+              ))}
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Checklist Web Premium</CardTitle>
-          <CardDescription>
-            Plantilla personalizada, FAQ, testimonios, formulario de contacto y blog.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {!d.hasWebPremium ? (
-            <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-              Activa <strong>Web Premium</strong> para desbloquear plantillas de diseño, textos
-              propios, FAQ, testimonios, formulario de contacto y blog — el resto de la palanca de
-              SEO de contenido.{' '}
-              <Link href="/settings/saas-billing" className="text-primary underline">
-                Ver planes
-              </Link>
-              .
-            </div>
-          ) : (
-            d.premium.map((item) => <ChecklistRow key={item.id} item={item} />)
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Con Web Premium</CardTitle>
+              <CardDescription>
+                Textos propios, preguntas frecuentes, opiniones, formulario de contacto y blog.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!d.hasWebPremium ? (
+                <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  Activa <strong>Web Premium</strong> para tener plantillas de diseño, textos
+                  propios, preguntas frecuentes, opiniones, formulario de contacto y blog: lo que
+                  más ayuda a aparecer en Google con el tiempo.{' '}
+                  <Link href="/settings/saas-billing" className="text-primary underline">
+                    Ver planes
+                  </Link>
+                  .
+                </div>
+              ) : (
+                d.premium.map((item) => <ChecklistRow key={item.id} item={item} />)
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </QueryState>
   );
 }
 
-function KpiCard({
-  title,
-  value,
-  children,
-}: {
-  title: string;
-  value: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-normal text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
-        {children && <div className="mt-1 text-xs text-muted-foreground">{children}</div>}
-      </CardContent>
-    </Card>
-  );
-}
-
-/** «sep 26» → «septiembre 2026» a partir de YYYY-MM. */
-function monthName(yearMonth: string): string {
-  const [y, m] = yearMonth.split('-').map(Number);
-  return new Date(Date.UTC(y!, (m ?? 1) - 1, 1)).toLocaleDateString('es-ES', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-function formatDay(isoDate: string): string {
-  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-/** Eje de importes: «850 €», «12,5k €». */
+/** Eje de importes: «850 €», «12,5 mil €». */
 function compactEuros(v: number): string {
   if (Math.abs(v) < 1000) return `${Math.round(v)} €`;
-  return `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })}k €`;
-}
-
-function PanelLoader() {
-  return (
-    <div className="flex h-64 items-center justify-center">
-      <Loader2 className="size-6 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
-
-function MonthlyRevenuePanel({ facilityId, period }: { facilityId?: string; period: Period }) {
-  const revenue = useMonthlyRevenue({ from: period.from, to: period.to, facilityId });
-  const prev = previousPeriod(period);
-  const previous = useMonthlyRevenue({ from: prev.from, to: prev.to, facilityId });
-
-  if (revenue.isLoading || !revenue.data) return <PanelLoader />;
-
-  const points = revenue.data.points;
-  const totalInvoiced = points.reduce((acc, p) => acc + p.invoiced, 0);
-  const totalCollected = points.reduce((acc, p) => acc + p.collected, 0);
-  const prevPoints = previous.data?.points;
-  const prevInvoiced = prevPoints?.reduce((acc, p) => acc + p.invoiced, 0);
-  const prevCollected = prevPoints?.reduce((acc, p) => acc + p.collected, 0);
-  const chartData = points.map((p) => ({
-    mes: p.label,
-    Facturado: p.invoiced,
-    Cobrado: p.collected,
-  }));
-  const periodLabel = periodText(period);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <KpiCard title={`Facturado (${periodLabel})`} value={formatCurrency(totalInvoiced)}>
-          <Delta current={totalInvoiced} previous={prevInvoiced} />
-        </KpiCard>
-        <KpiCard title={`Cobrado (${periodLabel})`} value={formatCurrency(totalCollected)}>
-          <Delta current={totalCollected} previous={prevCollected} />
-        </KpiCard>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Ingresos por mes</CardTitle>
-          <CardDescription>Facturado (emitido) y cobrado · {periodLabel}.</CardDescription>
-        </CardHeader>
-        <CardContent className="h-80">
-          {totalInvoiced === 0 && totalCollected === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No hay ingresos registrados en el periodo seleccionado.
-            </p>
-          ) : (
-            <ResponsiveContainer
-              width="100%"
-              height="100%"
-              initialDimension={{ width: 300, height: 256 }}
-            >
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="mes" />
-                <YAxis tickFormatter={(v) => compactEuros(Number(v) || 0)} />
-                <Tooltip formatter={(v) => formatCurrency(Number(v) || 0)} />
-                <Legend />
-                <Bar dataKey="Facturado" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Cobrado" fill="#2563eb" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
-
-      <RevenueBreakdownCard facilityId={facilityId} period={period} />
-
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
-          <CardTitle className="text-base">Detalle mensual</CardTitle>
-          <CsvButton
-            filename={`ingresos-${period.from}-${period.to}.csv`}
-            rows={() => [
-              ['Mes', 'Facturado', 'Cobrado'],
-              ...points.map((p) => [p.yearMonth, p.invoiced, p.collected]),
-            ]}
-          />
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Mes</TableHead>
-                <TableHead className="text-right">Facturado</TableHead>
-                <TableHead className="text-right">Cobrado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {points
-                .slice()
-                .reverse()
-                .map((p) => (
-                  <TableRow key={p.yearMonth}>
-                    <TableCell>{p.label}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(p.invoiced)}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {formatCurrency(p.collected)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} mil €`;
 }

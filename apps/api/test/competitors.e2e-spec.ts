@@ -218,14 +218,18 @@ describe('Competencia + precio por competencia (e2e)', () => {
     expect(unknown.body.competitionOccupancyPct).toBeNull();
     expect(unknown.body.competitors[0].occupancyPct).toBeNull();
 
-    // Con un total conocido (10, 1 libre) → 90%.
+    // Con un total conocido (10, 1 libre) → 90 % estimado, que no cuenta en la media.
     await request(app.getHttpServer())
       .patch(`/competitors/${comp.body.id}`)
       .set(auth)
       .send({ knownTotalUnits: 10 })
       .expect(200);
     const known = await request(app.getHttpServer()).get('/competitors/occupancy').set(auth);
-    expect(known.body.competitors[0]).toMatchObject({ unitCount: 10, occupancyPct: 0.9 });
+    expect(known.body.competitors[0]).toMatchObject({
+      occupancyPct: null,
+      estimatedOccupancyPct: 0.9,
+    });
+    expect(known.body.competitionOccupancyPct).toBeNull();
 
     // Inventario completo → se usan los 4 fichados.
     const done = await request(app.getHttpServer())

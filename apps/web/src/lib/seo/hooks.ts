@@ -3,6 +3,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type {
+  CreateTrackedKeywordInput,
+  SeoDetailDto,
+  SeoGoogleFunnelDto,
+  TrackedKeywordDto,
+  UpdateSeoSettingsInput,
   SearchConsoleSettingsDto,
   SeoMonthlyReportDto,
   SeoPositionsDto,
@@ -84,5 +89,66 @@ export function useSendSeoReport() {
   return useMutation({
     mutationFn: () =>
       apiFetch<{ recipients: number; month: string }>('/seo/report/send', { method: 'POST' }),
+  });
+}
+
+// --- Mejoras (2026-11-19) ---
+
+export function useUpdateSeoSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: UpdateSeoSettingsInput) =>
+      apiFetch<SearchConsoleSettingsDto>('/seo/search-console/settings', {
+        method: 'PATCH',
+        json: input,
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(settingsKey, data);
+      void qc.invalidateQueries({ queryKey: ['seo', 'positions'] });
+    },
+  });
+}
+
+export function useTrackedKeywords(days: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['seo', 'keywords', days],
+    queryFn: () => apiFetch<TrackedKeywordDto[]>(`/seo/keywords?days=${days}`),
+    enabled,
+  });
+}
+
+export function useAddTrackedKeyword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateTrackedKeywordInput) =>
+      apiFetch<void>('/seo/keywords', { method: 'POST', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['seo', 'keywords'] }),
+  });
+}
+
+export function useRemoveTrackedKeyword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/seo/keywords/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['seo', 'keywords'] }),
+  });
+}
+
+export function useSeoDetail(target: { kind: 'query' | 'page'; key: string } | null, days: number) {
+  return useQuery({
+    queryKey: ['seo', 'detail', target?.kind, target?.key, days],
+    queryFn: () =>
+      apiFetch<SeoDetailDto>(
+        `/seo/detail?${target!.kind}=${encodeURIComponent(target!.key)}&days=${days}`,
+      ),
+    enabled: !!target,
+  });
+}
+
+export function useSeoGoogleFunnel(days: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['seo', 'google-funnel', days],
+    queryFn: () => apiFetch<SeoGoogleFunnelDto>(`/seo/google-funnel?days=${days}`),
+    enabled,
   });
 }

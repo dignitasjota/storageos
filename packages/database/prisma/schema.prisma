@@ -716,6 +716,10 @@ model Tenant {
   webAreaPages            WebAreaPage[]
   searchConsole           TenantSearchConsole?
   searchConsoleRows       SearchConsoleRow[]
+  searchConsoleDays       SearchConsoleDay[]
+  searchConsoleDevices    SearchConsoleDevice[]
+  seoTrackedKeywords      SeoTrackedKeyword[]
+  competitorPromotions    CompetitorPromotion[]
   promoLandingVisits      PromoLandingVisit[]
   webEvents               WebEvent[]
   ga4                     TenantGa4?
@@ -3687,12 +3691,17 @@ model CompetitorFacility {
   /// 24h | climate | vehicle_access | cctv | ground_floor | online_booking
   features                  String[]  @default([])
   lastReviewedAt            DateTime? @map("last_reviewed_at") @db.Timestamptz(6)
+  /// Cada cuántos días conviene revisarlo (null = 30).
+  reviewEveryDays           Int?      @map("review_every_days")
+  /// Hasta cuándo dura su promoción (después no cuenta en el precio comparable).
+  promoEndsAt               DateTime? @map("promo_ends_at") @db.Date
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   facility Facility?        @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   units    CompetitorUnit[]
+  promotions CompetitorPromotion[]
 
   @@index([tenantId])
   @@map("competitor_facilities")
@@ -6033,6 +6042,12 @@ model TenantSearchConsole {
   monthlyReport   Boolean   @default(true) @map("monthly_report")
   /// `YYYY-MM` del último informe enviado (no se repite).
   lastReportMonth String?   @map("last_report_month")
+  /// Palabras de la marca (búsquedas de quien ya te conoce).
+  brandTerms         String[]  @default([]) @map("brand_terms")
+  /// Quién recibe el informe mensual (vacío = los propietarios).
+  reportRecipientIds String[]  @default([]) @map("report_recipient_ids") @db.Uuid
+  /// Último aviso de una caída en Google (uno por semana como mucho).
+  lastDropAlertAt    DateTime? @map("last_drop_alert_at") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -6189,6 +6204,71 @@ model SearchConsoleRow {
   @@unique([tenantId, date, query, page], map: "search_console_rows_key")
   @@index([tenantId, date], map: "search_console_rows_tenant_date_idx")
   @@map("search_console_rows")
+}
+
+/// Totales de cada día como los da Search Console (sin repartir): cuadran con su panel.
+model SearchConsoleDay {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  date        DateTime @db.Date
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  position    Decimal  @db.Decimal(7, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date], map: "search_console_days_key")
+  @@map("search_console_days")
+}
+
+/// Totales de cada día por dispositivo (MOBILE, DESKTOP, TABLET).
+model SearchConsoleDevice {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  date        DateTime @db.Date
+  device      String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  position    Decimal  @db.Decimal(7, 2)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, device], map: "search_console_devices_key")
+  @@map("search_console_devices")
+}
+
+/// Búsqueda que el negocio sigue en Posiciones en Google.
+model SeoTrackedKeyword {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  keyword        String
+  targetPosition Int?     @map("target_position")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("seo_tracked_keywords")
+}
+
+/// Histórico de las promociones de un competidor.
+model CompetitorPromotion {
+  id                   String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  competitorFacilityId String    @map("competitor_facility_id") @db.Uuid
+  description          String?
+  freeMonths           Int?      @map("free_months")
+  discountPct          Int?      @map("discount_pct")
+  discountMonths       Int?      @map("discount_months")
+  endsAt               DateTime? @map("ends_at") @db.Date
+  startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt              DateTime? @map("ended_at") @db.Timestamptz(6)
+
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  competitorFacility CompetitorFacility @relation(fields: [competitorFacilityId], references: [id], onDelete: Cascade)
+
+  @@index([competitorFacilityId, startedAt], map: "competitor_promotions_facility_idx")
+  @@map("competitor_promotions")
 }
 
 /// Visita a una landing de promoción (sin datos personales: id aleatorio del navegador + UTM).

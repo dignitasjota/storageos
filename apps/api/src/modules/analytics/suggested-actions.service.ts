@@ -34,9 +34,14 @@ export class SuggestedActionsService {
   async get(
     tenantId: string,
     scope: AnalyticsScope = ALL_FACILITIES,
+    opts: { moneyVisible?: boolean } = {},
   ): Promise<SuggestedActionsDto> {
-    const base = await this.baseCache.get(`${tenantId}:${scopeKey(scope)}`, () =>
-      this.insights.getSuggestedActions(tenantId, scope),
+    const money = opts.moneyVisible ?? true;
+    // La clave lleva el alcance entero y si se ve el dinero: dos usuarios con
+    // distintos permisos no comparten la misma respuesta.
+    const base = await this.baseCache.get(
+      `${tenantId}:${scopeKey(scope)}:${money ? 'money' : 'nomoney'}`,
+      () => this.insights.getSuggestedActions(tenantId, scope, { moneyVisible: money }),
     );
     if (base.actions.length < 2) return base;
     const fingerprint = createHash('sha256')

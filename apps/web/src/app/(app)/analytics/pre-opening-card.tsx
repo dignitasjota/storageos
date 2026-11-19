@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { usePreOpeningAnalytics } from '@/lib/analytics/hooks';
@@ -14,6 +15,18 @@ import { formatDate, formatEur } from '@/lib/format';
 export function PreOpeningCard({ facilityId }: { facilityId?: string }) {
   const query = usePreOpeningAnalytics({ ...(facilityId ? { facilityId } : {}) });
   const facilities = query.data?.facilities ?? [];
+  if (query.isError && !query.data) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Preventa de locales por abrir</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SectionError onRetry={() => void query.refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (facilities.length === 0) return null;
   return (
     <Card>

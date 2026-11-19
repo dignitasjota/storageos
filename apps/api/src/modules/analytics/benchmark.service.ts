@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { TtlCache } from '../../common/cache/ttl-cache';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { computeMetric } from './benchmark.util';
@@ -12,7 +13,10 @@ import type { BenchmarkDto } from '@storageos/shared';
  * garantizar el anonimato: con pocos operadores, una mediana/percentil podría
  * revelar el dato de un competidor concreto.
  */
-const MIN_SAMPLE = 5;
+const MIN_SAMPLE = 10;
+
+/** Recorre todos los trasteros de la plataforma: se reutiliza una hora. */
+const CACHE_TTL_MS = process.env.NODE_ENV === 'test' ? 0 : 60 * 60 * 1000;
 
 interface TenantAgg {
   total: number;
@@ -34,9 +38,15 @@ interface TenantAgg {
  */
 @Injectable()
 export class BenchmarkService {
+  private readonly cache = new TtlCache<BenchmarkDto>(CACHE_TTL_MS);
+
   constructor(private readonly admin: PrismaAdminService) {}
 
-  async getBenchmark(tenantId: string): Promise<BenchmarkDto> {
+  getBenchmark(tenantId: string): Promise<BenchmarkDto> {
+    return this.cache.get(tenantId, () => this.compute(tenantId));
+  }
+
+  private async compute(tenantId: string): Promise<BenchmarkDto> {
     // Cargamos las units de operadores activos (no borrados) con un `select`
     // MÍNIMO (4 columnas) y agregamos en JS por tenant. A escala de cientos de
     // operadores × units es asumible; si la plataforma creciera mucho, esto se
@@ -46,13 +56,21 @@ export class BenchmarkService {
       // cuentas de prueba recién creadas o con datos de demostración). El propio
       // tenant entra siempre para poder situarlo.
       where: {
+        // Los trasteros que se pueden alquilar de locales abiertos (sin los de un
+        // local borrado o por abrir, ni los que están fuera de servicio).
+        facility: { deletedAt: null, preOpening: false },
+        status: { in: ['available', 'reserved', 'occupied'] },
         OR: [
           { tenantId },
           {
             tenant: {
               deletedAt: null,
               status: { in: ['active', 'trial'] },
-              contracts: { some: { signedAt: { not: null }, deletedAt: null } },
+              // Ni las demos de los comerciales ni las cuentas de la casa.
+              billingExempt: false,
+              contracts: {
+                some: { signedAt: { not: null }, deletedAt: null, customer: { isTest: false } },
+              },
             },
           },
         ],

@@ -6,3 +6,4 @@ export * from './occupancy-snapshot.generator';
 export * from './collections-month.generator';
 export * from './move-outs-period.generator';
 export * from './owner-statement.generator';
+export * from './analytics-month.generator';

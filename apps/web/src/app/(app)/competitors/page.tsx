@@ -6,13 +6,37 @@ import {
   type CompetitorFacilityDto,
   type CompetitorUnitDto,
 } from '@storageos/shared';
-import { ClipboardCheck, Globe, History, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
+import {
+  ClipboardCheck,
+  ClipboardPaste,
+  Globe,
+  History,
+  LineChart as LineChartIcon,
+  Loader2,
+  Pencil,
+  Phone,
+  Plus,
+  Sparkles,
+  Tag,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CompetitorFormDialog } from './competitor-form-dialog';
+import {
+  AiParseDialog,
+  BulkUnitsDialog,
+  CompetitorPromotionsDialog,
+  CompetitorTrendDialog,
+  ExportCompetitorsButton,
+  FeatureComparison,
+  MarketPriceCard,
+  NoChangesButton,
+} from './market-panels';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,15 +80,27 @@ import {
   useReviewCompetitor,
 } from '@/lib/competitors/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
-import { formatDate } from '@/lib/format';
+import { useHeaderFacilityId } from '@/lib/facilities/store';
+import { formatDate, formatEur as eur } from '@/lib/format';
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const pct = (fraction: number) => `${Math.round(fraction * 100)} %`;
+const km = (n: number) => `${n.toLocaleString('es-ES', { maximumFractionDigits: 1 })} km`;
+
+/** Lee un precio escrito a mano: con coma o punto; null si no es un número mayor que 0. */
+function parsePrice(value: string): number | null {
+  const n = Number(value.trim().replace(',', '.'));
+  return value.trim() !== '' && Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
 
 export default function CompetitorsPage() {
   const ask = useConfirm();
   const canManage = useHasPermission('units:manage');
-  const { data: facilities } = useCompetitorFacilities();
+  // Sigue el local de la cabecera: sus competidores y los que no van ligados a ninguno.
+  const facilityId = useHeaderFacilityId();
+  const facilitiesQ = useCompetitorFacilities(facilityId);
+  const facilities = facilitiesQ.data;
   const myFacilities = useFacilities();
+  const facilityName = (myFacilities.data ?? []).find((f) => f.id === facilityId)?.name;
   const deleteFacility = useDeleteCompetitorFacility();
   const [selected, setSelected] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
@@ -99,36 +135,50 @@ export default function CompetitorsPage() {
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-[16rem] flex-1">
           <h1 className="text-2xl font-semibold tracking-tight">Competencia</h1>
           <p className="text-sm text-muted-foreground">
-            Ficha los locales de la competencia y sus trasteros (m² + precio + disponibilidad). Se
-            usa como referencia en la sugerencia de precio por trastero (activa «Incluir
-            competencia» en Analítica → Precio por trastero).
+            Ficha los locales de la competencia y sus trasteros (m², precio y si están libres). La
+            sugerencia de precio de Analítica → Precios los usa como referencia.
+            {facilityName &&
+              ` Ves los competidores de ${facilityName} y los que no van ligados a ningún local.`}
           </p>
         </div>
-        {canManage && <Button onClick={openNewFacility}>Añadir competidor</Button>}
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {(facilities ?? []).length > 0 && <ExportCompetitorsButton facilityId={facilityId} />}
+          {canManage && <Button onClick={openNewFacility}>Añadir competidor</Button>}
+        </div>
       </div>
 
-      <CompetitionAlertsCard />
-      <MarketOccupancyCard />
+      <CompetitionAlertsCard facilityId={facilityId} />
+      <MarketPriceCard facilityId={facilityId} />
+      <MarketOccupancyCard facilityId={facilityId} />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {(facilities ?? []).map((f) => (
-          <CompetitorCard
-            key={f.id}
-            facility={f}
-            active={selected === f.id}
-            onSelect={() => setSelected(f.id)}
-            onEdit={canManage ? () => openEditFacility(f) : undefined}
-            onDelete={canManage ? () => onDeleteFacility(f.id, f.name) : undefined}
-          />
-        ))}
-        {(facilities ?? []).length === 0 && (
-          <p className="text-sm text-muted-foreground">Aún no has fichado ningún competidor.</p>
-        )}
-      </div>
+      {facilitiesQ.isError && !facilities ? (
+        <SectionError onRetry={() => void facilitiesQ.refetch()} />
+      ) : !facilities ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {(facilities ?? []).map((f) => (
+            <CompetitorCard
+              key={f.id}
+              facility={f}
+              mine={myFacilities.data?.find((m) => m.id === (f.facilityId ?? facilityId))}
+              active={selected === f.id}
+              onSelect={() => setSelected(f.id)}
+              onEdit={canManage ? () => openEditFacility(f) : undefined}
+              onDelete={canManage ? () => onDeleteFacility(f.id, f.name) : undefined}
+            />
+          ))}
+          {(facilities ?? []).length === 0 && (
+            <p className="text-sm text-muted-foreground">Aún no has fichado ningún competidor.</p>
+          )}
+        </div>
+      )}
 
       {current && <CompetitorUnits facility={current} canManage={canManage} />}
 
@@ -145,31 +195,50 @@ export default function CompetitorsPage() {
 
 function CompetitorCard({
   facility,
+  mine,
   active,
   onSelect,
   onEdit,
   onDelete,
 }: {
   facility: CompetitorFacilityDto;
+  /** Tu local con el que se compara (el suyo o el de la cabecera). */
+  mine?: { name: string; features: string[] } | undefined;
   active: boolean;
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
   const occupancy = competitorOccupancy(facility);
+  const every = facility.reviewEveryDays ?? 30;
   const reviewStale =
-    facility.lastReviewedAt != null &&
-    Date.now() - new Date(facility.lastReviewedAt).getTime() > 30 * 86_400_000;
+    facility.unitCount > 0 &&
+    (facility.lastReviewedAt == null ||
+      Date.now() - new Date(facility.lastReviewedAt).getTime() > every * 86_400_000);
   return (
     <Card className={active ? 'border-primary' : 'cursor-pointer hover:border-muted-foreground/40'}>
-      <CardContent className="p-4" onClick={onSelect}>
+      <CardContent
+        className="p-4"
+        role="button"
+        tabIndex={0}
+        aria-pressed={active}
+        aria-label={`Ver los trasteros de ${facility.name}`}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect();
+          }
+        }}
+      >
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="font-medium">{facility.name}</p>
             <p className="text-xs text-muted-foreground">
               {[
                 facility.zone,
-                facility.distanceKm != null ? `${facility.distanceKm} km` : null,
+                facility.distanceKm != null ? km(facility.distanceKm) : null,
                 facility.facilityName ? `vs ${facility.facilityName}` : null,
                 facility.priceIncludesVat ? 'precios con IVA' : 'precios sin IVA',
               ]
@@ -212,8 +281,19 @@ function CompetitorCard({
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
           <Badge variant="outline">{facility.unitCount} fichados</Badge>
           <Badge variant="outline">{facility.availableCount} disponibles</Badge>
-          {occupancy != null ? (
-            <Badge variant="outline">{occupancy}% ocupación</Badge>
+          {occupancy ? (
+            <Badge
+              variant="outline"
+              title={
+                occupancy.estimated
+                  ? 'Estimada con el total que sabes que tiene: los no fichados se dan por ocupados. No cuenta en la media del mercado.'
+                  : undefined
+              }
+            >
+              {occupancy.estimated
+                ? `~${occupancy.value} % ocupación (estimada)`
+                : `${occupancy.value} % ocupación`}
+            </Badge>
           ) : (
             facility.unitCount > 0 && (
               <Badge variant="outline" title="Marca el inventario como completo o indica su total">
@@ -223,33 +303,62 @@ function CompetitorCard({
           )}
           {facility.inventoryComplete && <Badge variant="secondary">Inventario completo</Badge>}
           {facility.currentPromotion && (
-            <Badge variant="secondary">Promo: {facility.currentPromotion}</Badge>
+            <Badge variant={facility.promotionActive ? 'secondary' : 'outline'}>
+              Promo: {facility.currentPromotion}
+              {facility.promoEndsAt &&
+                (facility.promotionActive
+                  ? ` (hasta el ${formatDate(facility.promoEndsAt)})`
+                  : ' (terminada)')}
+            </Badge>
           )}
         </div>
-        {facility.features.length > 0 && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            {facility.features.map((f) => COMPETITOR_FEATURE_LABELS[f]).join(' · ')}
-          </p>
+        {mine ? (
+          <FeatureComparison mine={mine.features} theirs={facility.features} myName={mine.name} />
+        ) : (
+          facility.features.length > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {facility.features.map((f) => COMPETITOR_FEATURE_LABELS[f]).join(' · ')}
+            </p>
+          )
         )}
         <p
           className={`mt-2 text-xs ${reviewStale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
         >
-          {facility.lastReviewedAt
-            ? `Última revisión: ${formatDate(facility.lastReviewedAt)}${reviewStale ? ' · conviene revisarlo' : ''}`
-            : 'Sin revisar todavía'}
+          {facility.unitCount === 0
+            ? 'Sin trasteros fichados todavía'
+            : facility.lastReviewedAt
+              ? `Última comprobación: ${formatDate(facility.lastReviewedAt)}${
+                  reviewStale
+                    ? ' · conviene revisarlo'
+                    : facility.nextReviewOn
+                      ? ` · próxima: ${formatDate(facility.nextReviewOn)}`
+                      : ''
+                }`
+              : 'Sin comprobar todavía'}
         </p>
       </CardContent>
     </Card>
   );
 }
 
-/** Ocupación fiable (%): con inventario completo o total conocido; si no, null. */
-function competitorOccupancy(f: CompetitorFacilityDto): number | null {
+/**
+ * Ocupación (%): fiable con el inventario completo; estimada con su total
+ * conocido (los no fichados se dan por ocupados); si no, null.
+ */
+function competitorOccupancy(
+  f: CompetitorFacilityDto,
+): { value: number; estimated: boolean } | null {
   if (f.inventoryComplete && f.unitCount > 0) {
-    return Math.round(((f.unitCount - f.availableCount) / f.unitCount) * 100);
+    return {
+      value: Math.round(((f.unitCount - f.availableCount) / f.unitCount) * 100),
+      estimated: false,
+    };
   }
   if (f.knownTotalUnits && f.knownTotalUnits >= f.availableCount) {
-    return Math.round(((f.knownTotalUnits - f.availableCount) / f.knownTotalUnits) * 100);
+    return {
+      value: Math.round(((f.knownTotalUnits - f.availableCount) / f.knownTotalUnits) * 100),
+      estimated: true,
+    };
   }
   return null;
 }
@@ -312,20 +421,25 @@ function CompetitorUnits({
   const { data: units } = useCompetitorUnits(facility.id);
   const create = useCreateCompetitorUnit(facility.id);
   const update = useUpdateCompetitorUnit(facility.id);
-  const del = useDeleteCompetitorUnit(facility.id);
+  const del = useDeleteCompetitorUnit();
   const [edit, setEdit] = useState<CompetitorUnitDto | null>(null);
   const [open, setOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [trendOpen, setTrendOpen] = useState(false);
+  const [promosOpen, setPromosOpen] = useState(false);
   const [historyUnit, setHistoryUnit] = useState<CompetitorUnitDto | null>(null);
   const emptyForm = {
     areaM2: 0,
     widthM: 0,
     depthM: 0,
     heightM: 0,
-    priceMonthly: 0,
+    price: '',
     status: 'available',
     notes: '',
     externalRef: '',
+    checked: false,
   };
   const [form, setForm] = useState(emptyForm);
   const hasDims = form.widthM > 0 && form.depthM > 0;
@@ -343,10 +457,11 @@ function CompetitorUnits({
       widthM: u.widthM ?? 0,
       depthM: u.depthM ?? 0,
       heightM: u.heightM ?? 0,
-      priceMonthly: u.priceMonthly,
+      price: String(u.priceMonthly).replace('.', ','),
       status: u.status,
       notes: u.notes ?? '',
       externalRef: u.externalRef ?? '',
+      checked: false,
     });
     setOpen(true);
   }
@@ -358,19 +473,39 @@ function CompetitorUnits({
       toast.error('Indica el área (m²) o bien el ancho y el fondo.');
       return;
     }
-    const input = {
+    const price = parsePrice(form.price);
+    if (price === null) {
+      toast.error('Indica su precio al mes (mayor que 0).');
+      return;
+    }
+    const base = {
       ...(hasDims ? {} : { areaM2: form.areaM2 }),
-      ...(form.widthM > 0 ? { widthM: form.widthM } : {}),
-      ...(form.depthM > 0 ? { depthM: form.depthM } : {}),
-      ...(form.heightM > 0 ? { heightM: form.heightM } : {}),
-      priceMonthly: form.priceMonthly,
+      priceMonthly: price,
       status: form.status as 'available' | 'occupied',
       notes: form.notes.trim() || '',
       externalRef: form.externalRef.trim(),
     };
     try {
-      if (edit) await update.mutateAsync({ unitId: edit.id, input });
-      else await create.mutateAsync(input);
+      if (edit) {
+        // Al editar, una medida borrada se quita (null); si no, se conservaría.
+        await update.mutateAsync({
+          unitId: edit.id,
+          input: {
+            ...base,
+            widthM: form.widthM > 0 ? form.widthM : null,
+            depthM: form.depthM > 0 ? form.depthM : null,
+            heightM: form.heightM > 0 ? form.heightM : null,
+            ...(form.checked ? { checked: true } : {}),
+          },
+        });
+      } else {
+        await create.mutateAsync({
+          ...base,
+          ...(form.widthM > 0 ? { widthM: form.widthM } : {}),
+          ...(form.depthM > 0 ? { depthM: form.depthM } : {}),
+          ...(form.heightM > 0 ? { heightM: form.heightM } : {}),
+        });
+      }
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
@@ -390,28 +525,53 @@ function CompetitorUnits({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-base">Trasteros de {facility.name}</CardTitle>
-        {canManage && (
-          <div className="flex gap-2">
-            {(units ?? []).length > 0 && (
-              <Button size="sm" variant="outline" onClick={() => setReviewOpen(true)}>
-                <ClipboardCheck className="mr-1 size-4" /> Revisar
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setTrendOpen(true)}>
+            <LineChartIcon className="mr-1 size-4" /> Evolución
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setPromosOpen(true)}>
+            <Tag className="mr-1 size-4" /> Promociones
+          </Button>
+          {canManage && (
+            <>
+              {(units ?? []).length > 0 && (
+                <>
+                  <NoChangesButton facilityId={facility.id} units={units ?? []} />
+                  <Button size="sm" variant="outline" onClick={() => setReviewOpen(true)}>
+                    <ClipboardCheck className="mr-1 size-4" /> Revisar
+                  </Button>
+                </>
+              )}
+              <Button size="sm" variant="outline" onClick={() => setAiOpen(true)}>
+                <Sparkles className="mr-1 size-4" /> Leer su web con IA
               </Button>
-            )}
-            <Button size="sm" onClick={openNew}>
-              <Plus className="mr-1 size-4" /> Añadir trastero
-            </Button>
-          </div>
-        )}
+              <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
+                <ClipboardPaste className="mr-1 size-4" /> Pegar tabla
+              </Button>
+              <Button size="sm" onClick={openNew}>
+                <Plus className="mr-1 size-4" /> Añadir trastero
+              </Button>
+            </>
+          )}
+        </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>m²</TableHead>
               <TableHead>Medidas</TableHead>
-              <TableHead>Precio/mes</TableHead>
+              <TableHead className="whitespace-nowrap">
+                Precio al mes ({facility.priceIncludesVat ? 'con IVA' : 'sin IVA'})
+              </TableHead>
+              <TableHead
+                className="whitespace-nowrap"
+                title="Lo que paga de media un cliente al mes el primer año: sin IVA, con su seguro obligatorio, alta y promoción vigente"
+              >
+                Comparable (sin IVA)
+              </TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>Histórico</TableHead>
               <TableHead>Comprobado</TableHead>
@@ -421,25 +581,36 @@ function CompetitorUnits({
           <TableBody>
             {(units ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
                   Sin trasteros fichados todavía.
                 </TableCell>
               </TableRow>
             ) : (
               (units ?? []).map((u) => (
                 <TableRow key={u.id}>
-                  <TableCell>
-                    {u.areaM2} m²
+                  <TableCell className="whitespace-nowrap">
+                    {u.areaM2.toLocaleString('es-ES')} m²
                     {u.externalRef && (
                       <span className="block text-xs text-muted-foreground">{u.externalRef}</span>
                     )}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {u.widthM && u.depthM
-                      ? `${u.widthM}×${u.depthM}${u.heightM ? `×${u.heightM}` : ''} m`
+                      ? `${[u.widthM, u.depthM, u.heightM]
+                          .filter((v): v is number => v != null)
+                          .map((v) => v.toLocaleString('es-ES'))
+                          .join(' × ')} m`
                       : '—'}
                   </TableCell>
                   <TableCell>{eur(u.priceMonthly)}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {eur(u.comparablePrice)}
+                    {u.comparablePerM2 > 0 && (
+                      <span className="block text-xs text-muted-foreground">
+                        {eur(u.comparablePerM2)}/m²
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <button
                       type="button"
@@ -486,11 +657,18 @@ function CompetitorUnits({
                           onClick={async () => {
                             if (
                               await ask({
-                                title: `¿Borrar el trastero de ${u.areaM2} m² y su histórico?`,
+                                title: `¿Borrar el trastero de ${u.areaM2.toLocaleString('es-ES')} m² y su histórico?`,
                                 destructive: true,
                               })
                             ) {
-                              del.mutate(u.id);
+                              del.mutate(u.id, {
+                                onError: (err) =>
+                                  toast.error(
+                                    err instanceof ApiError
+                                      ? err.body.message
+                                      : 'No se pudo borrar.',
+                                  ),
+                              });
                             }
                           }}
                           aria-label="Eliminar"
@@ -562,13 +740,15 @@ function CompetitorUnits({
               )}
             </div>
             <div className="space-y-1">
-              <Label>Precio mensual (€)</Label>
+              <Label htmlFor="competitor-unit-price">
+                Precio al mes ({facility.priceIncludesVat ? 'con IVA' : 'sin IVA'})
+              </Label>
               <Input
-                type="number"
-                value={form.priceMonthly}
-                onChange={(e) =>
-                  setForm((s) => ({ ...s, priceMonthly: e.target.valueAsNumber || 0 }))
-                }
+                id="competitor-unit-price"
+                inputMode="decimal"
+                value={form.price}
+                placeholder="p. ej. 59,90"
+                onChange={(e) => setForm((s) => ({ ...s, price: e.target.value }))}
               />
             </div>
             <div className="space-y-1">
@@ -594,6 +774,21 @@ function CompetitorUnits({
                 </SelectContent>
               </Select>
             </div>
+            {edit && (
+              <label className="col-span-2 flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={form.checked}
+                  onCheckedChange={(v) => setForm((s) => ({ ...s, checked: v === true }))}
+                />
+                <span>
+                  Lo he comprobado hoy
+                  <span className="block text-xs text-muted-foreground">
+                    Cambiar el precio o el estado ya cuenta como comprobado. Corregir la referencia
+                    o las medidas, no.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
           <DialogFooter>
             <Button onClick={onSubmit} disabled={create.isPending || update.isPending}>
@@ -610,6 +805,16 @@ function CompetitorUnits({
         units={units ?? []}
       />
       <UnitHistoryDialog unit={historyUnit} onClose={() => setHistoryUnit(null)} />
+      <BulkUnitsDialog facility={facility} open={bulkOpen} onOpenChange={setBulkOpen} />
+      <AiParseDialog facility={facility} open={aiOpen} onOpenChange={setAiOpen} />
+      <CompetitorTrendDialog
+        facility={trendOpen ? facility : null}
+        onClose={() => setTrendOpen(false)}
+      />
+      <CompetitorPromotionsDialog
+        facility={promosOpen ? facility : null}
+        onClose={() => setPromosOpen(false)}
+      />
     </Card>
   );
 }
@@ -622,7 +827,9 @@ function HistorySummary({ unit }: { unit: CompetitorUnitDto }) {
   if (h.observations <= 1) return <span>1 comprobación</span>;
   const parts: string[] = [];
   if (h.priceChangePct != null && h.priceChangePct !== 0) {
-    parts.push(`${h.priceChangePct > 0 ? '▲' : '▼'} ${Math.abs(h.priceChangePct)}%`);
+    parts.push(
+      `${h.priceChangePct > 0 ? '▲' : '▼'} ${Math.abs(h.priceChangePct).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`,
+    );
   }
   if (h.inCurrentStatusSince) {
     const d = daysSince(h.inCurrentStatusSince);
@@ -646,7 +853,8 @@ function UnitHistoryDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            Histórico · {unit?.areaM2} m²{unit?.externalRef ? ` (${unit.externalRef})` : ''}
+            Histórico · {unit?.areaM2.toLocaleString('es-ES')} m²
+            {unit?.externalRef ? ` (${unit.externalRef})` : ''}
           </DialogTitle>
         </DialogHeader>
         <Table>
@@ -717,24 +925,34 @@ function ReviewDialog({
       Object.fromEntries(
         unitsRef.current.map((u) => [
           u.id,
-          { price: String(u.priceMonthly), available: u.status === 'available' },
+          {
+            price: String(u.priceMonthly).replace('.', ','),
+            available: u.status === 'available',
+          },
         ]),
       ),
     );
   }, [open]);
 
   async function onSave() {
+    const payload = units.map((u) => {
+      const r = rows[u.id];
+      return {
+        unit: u,
+        price: parsePrice(r?.price ?? String(u.priceMonthly)),
+        status: (r?.available ?? u.status === 'available') ? 'available' : 'occupied',
+      } as const;
+    });
+    const wrong = payload.find((p) => p.price === null);
+    if (wrong) {
+      toast.error(
+        `El precio del trastero de ${wrong.unit.areaM2.toLocaleString('es-ES')} m² no es válido (tiene que ser mayor que 0).`,
+      );
+      return;
+    }
     try {
       await review.mutateAsync({
-        units: units.map((u) => {
-          const r = rows[u.id];
-          const price = Number((r?.price ?? String(u.priceMonthly)).replace(',', '.'));
-          return {
-            id: u.id,
-            priceMonthly: Number.isFinite(price) && price >= 0 ? price : u.priceMonthly,
-            status: (r?.available ?? u.status === 'available') ? 'available' : 'occupied',
-          };
-        }),
+        units: payload.map((p) => ({ id: p.unit.id, priceMonthly: p.price!, status: p.status })),
       });
       toast.success('Revisión guardada');
       onOpenChange(false);
@@ -776,7 +994,7 @@ function ReviewDialog({
             return (
               <div key={u.id} className="flex items-center gap-3">
                 <span className="w-24 shrink-0 text-sm">
-                  {u.areaM2} m²
+                  {u.areaM2.toLocaleString('es-ES')} m²
                   {u.externalRef && (
                     <span className="block text-xs text-muted-foreground">{u.externalRef}</span>
                   )}
@@ -784,6 +1002,7 @@ function ReviewDialog({
                 <Input
                   inputMode="decimal"
                   className="w-28"
+                  aria-invalid={r ? parsePrice(r.price) === null : false}
                   value={r?.price ?? ''}
                   onChange={(e) =>
                     setRows((s) => ({
@@ -821,30 +1040,27 @@ function ReviewDialog({
 }
 
 /** Comparativa de ocupación: la mía vs la de la competencia fichada. */
-function MarketOccupancyCard() {
-  const { data } = useMarketOccupancy();
+function MarketOccupancyCard({ facilityId }: { facilityId?: string | undefined }) {
+  const { data } = useMarketOccupancy(facilityId ?? null);
   if (!data || data.competitors.length === 0) return null;
-  if (data.competitionTotalUnits === 0) {
-    return (
-      <Card>
-        <CardContent className="p-4 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Ocupación de mercado:</span> aún no se puede
-          calcular. Marca un competidor con el inventario completo (o indica su total de trasteros)
-          para saber qué parte de sus trasteros está ocupada.
-        </CardContent>
-      </Card>
-    );
-  }
+  const reliable = data.competitors.filter((c) => c.occupancyPct !== null);
+  const estimated = data.competitors.filter(
+    (c) => c.occupancyPct === null && c.estimatedOccupancyPct !== null,
+  );
+  const stale = data.competitors.filter((c) => c.stale && c.unitCount > 0);
 
-  const mine = Math.round(data.myOccupancyPct * 100);
-  const comp = Math.round((data.competitionOccupancyPct ?? 0) * 100);
-  const delta = mine - comp;
-
-  const Bar = ({ pct, tint }: { pct: number; tint: string }) => (
+  const Bar = ({ value, tint }: { value: number; tint: string }) => (
     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-      <div className={`h-full rounded-full ${tint}`} style={{ width: `${Math.min(100, pct)}%` }} />
+      <div
+        className={`h-full rounded-full ${tint}`}
+        style={{ width: `${Math.min(100, value * 100)}%` }}
+      />
     </div>
   );
+
+  const mine = data.myOccupancyPct;
+  const comp = data.competitionOccupancyPct;
+  const delta = comp === null ? null : Math.round((mine - comp) * 100);
 
   return (
     <Card>
@@ -854,44 +1070,66 @@ function MarketOccupancyCard() {
       <CardContent className="space-y-3">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <div className="flex items-baseline justify-between">
+            <div className="flex items-baseline justify-between gap-2">
               <span className="text-sm font-medium">Tú</span>
               <span className="text-sm text-muted-foreground">
-                {mine}% · {data.myOccupiedUnits}/{data.myTotalUnits}
+                {pct(mine)} · {data.myOccupiedUnits} de {data.myTotalUnits}
               </span>
             </div>
-            <Bar pct={mine} tint="bg-blue-500" />
+            <Bar value={mine} tint="bg-blue-500" />
           </div>
           <div className="space-y-1">
-            <div className="flex items-baseline justify-between">
+            <div className="flex items-baseline justify-between gap-2">
               <span className="text-sm font-medium">Competencia</span>
               <span className="text-sm text-muted-foreground">
-                {comp}% · {data.competitionOccupiedUnits}/{data.competitionTotalUnits}
+                {comp === null
+                  ? 'sin datos fiables'
+                  : `${pct(comp)} · ${data.competitionOccupiedUnits} de ${data.competitionTotalUnits}`}
               </span>
             </div>
-            <Bar pct={comp} tint="bg-slate-400" />
+            <Bar value={comp ?? 0} tint="bg-slate-400" />
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          {delta > 3
-            ? `Tu ocupación va ${delta} puntos por encima del mercado local: hay margen para subir precio en las dimensiones más demandadas.`
-            : delta < -3
-              ? `Tu ocupación va ${Math.abs(delta)} puntos por debajo del mercado local: revisa precio y captación.`
-              : 'Tu ocupación está en línea con el mercado local.'}{' '}
-          Solo cuentan los competidores con el inventario completo o con su total de trasteros
-          indicado ({data.competitors.filter((c) => c.occupancyPct !== null).length} de{' '}
-          {data.competitors.length}).
+          {delta === null
+            ? 'Aún no se puede comparar: marca como completo el inventario de algún competidor (y revísalo) para saber qué parte de sus trasteros está ocupada.'
+            : delta > 3
+              ? `Tu ocupación va ${delta} puntos por encima del mercado: hay margen para subir precio en los tamaños más pedidos.`
+              : delta < -3
+                ? `Tu ocupación va ${Math.abs(delta)} puntos por debajo del mercado: revisa precio y captación.`
+                : 'Tu ocupación está en línea con el mercado.'}{' '}
+          Tu ocupación es la misma que en Analítica (sin locales por abrir). De la competencia solo
+          cuentan los que tienen el inventario completo y revisado en los últimos 180 días (
+          {reliable.length} de {data.competitors.length}), como en la sugerencia de precio.
         </p>
+        {estimated.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Estimadas con su total de trasteros (no cuentan en la media):{' '}
+            {estimated.map((c) => `${c.name} ~${pct(c.estimatedOccupancyPct ?? 0)}`).join(' · ')}.
+            Los que no has fichado se dan por ocupados, así que pueden salir más altas de lo real.
+          </p>
+        )}
+        {stale.length > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Sin comprobar en más de 180 días (no cuentan): {stale.map((c) => c.name).join(' · ')}.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
 /** Lo que conviene mirar: fichas sin revisar y bajadas de precio donde eres más caro. */
-function CompetitionAlertsCard() {
-  const { data } = useCompetitionAlerts();
-  if (!data || (data.stale.length === 0 && data.priceDrops.length === 0)) return null;
-  const eur = (v: number) => v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+function CompetitionAlertsCard({ facilityId }: { facilityId?: string | undefined }) {
+  const { data } = useCompetitionAlerts(facilityId);
+  if (
+    !data ||
+    (data.stale.length === 0 &&
+      data.priceDrops.length === 0 &&
+      data.priceRises.length === 0 &&
+      data.soldOut.length === 0)
+  )
+    return null;
   return (
     <Card className="border-amber-300 dark:border-amber-800">
       <CardHeader className="pb-2">
@@ -905,9 +1143,44 @@ function CompetitionAlertsCard() {
               {data.priceDrops.slice(0, 6).map((d) => (
                 <li key={d.competitorUnitId} className="text-muted-foreground">
                   <span className="font-medium text-foreground">{d.competitorName}</span>:{' '}
-                  {d.areaM2} m² de {eur(d.previousPrice)} a {eur(d.newPrice)} el{' '}
-                  {new Date(d.observedAt).toLocaleDateString('es-ES')} · tus trasteros parecidos,{' '}
-                  {eur(d.myPrice)} de media.
+                  {d.areaM2.toLocaleString('es-ES')} m² de {eur(d.previousPrice)} a{' '}
+                  {eur(d.newPrice)} el {formatDate(d.observedAt)}. Comparable con el tuyo (sin IVA,
+                  con su seguro, alta y promoción):{' '}
+                  <span className="font-medium text-foreground">{eur(d.comparablePrice)}</span>; tus
+                  trasteros parecidos, {eur(d.myPrice)} sin IVA de media.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {data.priceRises.length > 0 && (
+          <div className="space-y-1">
+            <p className="font-medium">Han subido precios donde tú eres más barato (30 días)</p>
+            <ul className="space-y-1">
+              {data.priceRises.slice(0, 6).map((d) => (
+                <li key={d.competitorUnitId} className="text-muted-foreground">
+                  <span className="font-medium text-foreground">{d.competitorName}</span>:{' '}
+                  {d.areaM2.toLocaleString('es-ES')} m² de {eur(d.previousPrice)} a{' '}
+                  {eur(d.newPrice)} el {formatDate(d.observedAt)} (comparable{' '}
+                  {eur(d.comparablePrice)}); los tuyos parecidos, {eur(d.myPrice)} sin IVA. Tienes
+                  margen para subir.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {data.soldOut.length > 0 && (
+          <div className="space-y-1">
+            <p className="font-medium">Se les ha agotado un tamaño que tú tienes libre</p>
+            <ul className="space-y-1">
+              {data.soldOut.slice(0, 6).map((d) => (
+                <li
+                  key={`${d.competitorFacilityId}-${d.unitTypeName}`}
+                  className="text-muted-foreground"
+                >
+                  <span className="font-medium text-foreground">{d.competitorName}</span> no tiene
+                  libres de unos {d.areaM2.toLocaleString('es-ES')} m²; tú tienes {d.myAvailable}{' '}
+                  {d.unitTypeName} libres. Buen momento para darlos a conocer o mantener el precio.
                 </li>
               ))}
             </ul>
@@ -915,16 +1188,15 @@ function CompetitionAlertsCard() {
         )}
         {data.stale.length > 0 && (
           <div className="space-y-1">
-            <p className="font-medium">Sin revisar en más de 30 días</p>
+            <p className="font-medium">Toca revisarlos</p>
             <p className="text-muted-foreground">
               {data.stale
                 .map(
-                  (c) =>
-                    `${c.name} (${c.lastReviewedAt ? new Date(c.lastReviewedAt).toLocaleDateString('es-ES') : 'nunca'})`,
+                  (c) => `${c.name} (${c.lastReviewedAt ? formatDate(c.lastReviewedAt) : 'nunca'})`,
                 )
                 .join(' · ')}
               . Sus precios pesan menos en la sugerencia de precio cuanto más antiguos son: usa
-              «Revisar» en cada uno.
+              «Revisar» (o «Sin cambios» si todo sigue igual) en cada uno.
             </p>
           </div>
         )}

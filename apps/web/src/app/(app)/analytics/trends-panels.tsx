@@ -1,6 +1,5 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import {
   CartesianGrid,
@@ -13,7 +12,17 @@ import {
   YAxis,
 } from 'recharts';
 
-import { CsvButton, Delta, type Period, periodDays, periodText, previousPeriod } from './period';
+import {
+  CsvButton,
+  Delta,
+  type Period,
+  periodDays,
+  periodText,
+  previousPeriodDays,
+  compareLabel,
+  type CompareMode,
+} from './period';
+import { QueryState, shortMonth } from './ui';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,19 +51,6 @@ const MAX_LINES = SERIES.length;
 
 const pct = (v: number) => `${Math.round(v * 100)} %`;
 const eur = (v: number) => v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-
-function shortMonth(yearMonth: string): string {
-  const [y, m] = yearMonth.split('-').map(Number);
-  return new Date(y!, m! - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
-}
-
-function Loader() {
-  return (
-    <div className="flex h-40 items-center justify-center">
-      <Loader2 className="size-5 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
 
 function RangeButtons({
   value,
@@ -85,8 +81,15 @@ function RangeButtons({
 // Ocupación mes a mes
 // ---------------------------------------------------------------------------
 
-export function OccupancyHistoryCard({ facilityId }: { facilityId?: string }) {
-  const [months, setMonths] = useState(12);
+export function OccupancyHistoryCard({
+  facilityId,
+  months,
+  onMonthsChange,
+}: {
+  facilityId?: string;
+  months: number;
+  onMonthsChange: (n: number) => void;
+}) {
   const [split, setSplit] = useState<'total' | 'facility' | 'type'>('total');
   const history = useOccupancyHistory({ months, facilityId });
 
@@ -97,27 +100,28 @@ export function OccupancyHistoryCard({ facilityId }: { facilityId?: string }) {
           <div>
             <CardTitle className="text-base">Ocupación mes a mes</CardTitle>
             <CardDescription>
-              Trasteros con contrato al cerrar cada mes (el actual, hoy).
+              Trasteros con inquilino al cerrar cada mes (el actual, hoy). Un traslado no mueve la
+              historia: cada trastero cuenta con quien lo tuvo.
             </CardDescription>
           </div>
           {history.data && (
             <CsvButton
               filename="ocupacion-historica.csv"
               rows={() => [
-                ['Mes', 'Trasteros', 'Ocupados', 'Ocupación', 'Cuotas/mes'],
+                ['Mes', 'Trasteros', 'Ocupados', 'Ocupación (%)', 'Cuotas al mes'],
                 ...history.data!.points.map((p) => [
-                  p.yearMonth,
+                  shortMonth(p.yearMonth),
                   p.totalUnits,
                   p.occupiedUnits,
                   Math.round(p.occupancy * 1000) / 10,
-                  p.mrr,
+                  p.mrr ?? '',
                 ]),
               ]}
             />
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <RangeButtons value={months} onChange={setMonths} options={[6, 12, 24, 36]} />
+          <RangeButtons value={months} onChange={onMonthsChange} options={[6, 12, 24, 36]} />
           <span className="mx-1 hidden h-5 w-px bg-border sm:block" />
           {(
             [
@@ -138,11 +142,9 @@ export function OccupancyHistoryCard({ facilityId }: { facilityId?: string }) {
         </div>
       </CardHeader>
       <CardContent>
-        {history.isLoading || !history.data ? (
-          <Loader />
-        ) : (
-          <OccupancyHistoryBody data={history.data} split={split} />
-        )}
+        <QueryState query={history} height="h-40">
+          {(data) => <OccupancyHistoryBody data={data} split={split} />}
+        </QueryState>
       </CardContent>
     </Card>
   );
@@ -158,7 +160,8 @@ function OccupancyHistoryBody({
   const points = data.points;
   const last = points[points.length - 1];
   const prev = points[points.length - 2];
-  const yearAgo = points.length >= 13 ? points[points.length - 13] : undefined;
+  // Lo da el servidor aparte: no depende de cuántos meses se vean.
+  const yearAgo = data.yearAgo;
   const groups = split === 'facility' ? data.byFacility : split === 'type' ? data.byUnitType : [];
   const shown = groups.slice(0, MAX_LINES);
 
@@ -182,6 +185,7 @@ function OccupancyHistoryBody({
                   current={last.occupancy}
                   previous={prev.occupancy}
                   suffix="vs mes anterior"
+                  kind="rate"
                 />
               )}
             </div>
@@ -189,14 +193,23 @@ function OccupancyHistoryBody({
           <div>
             <div className="text-xs text-muted-foreground">Hace un año</div>
             <div className="text-2xl font-semibold">{yearAgo ? pct(yearAgo.occupancy) : '—'}</div>
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">Cuotas al mes hoy</div>
-            <div className="text-2xl font-semibold">{eur(last.mrr)}</div>
-            <div className="text-xs">
-              {prev && <Delta current={last.mrr} previous={prev.mrr} suffix="vs mes anterior" />}
+            <div className="text-xs text-muted-foreground">
+              {yearAgo
+                ? `${yearAgo.occupiedUnits} de ${yearAgo.totalUnits} trasteros`
+                : 'Aún no había trasteros'}
             </div>
           </div>
+          {last.mrr !== null && (
+            <div>
+              <div className="text-xs text-muted-foreground">Cuotas al mes hoy</div>
+              <div className="text-2xl font-semibold">{eur(last.mrr)}</div>
+              <div className="text-xs">
+                {prev && prev.mrr !== null && (
+                  <Delta current={last.mrr} previous={prev.mrr} suffix="vs mes anterior" />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
       <div className="h-72">
@@ -273,15 +286,27 @@ function OccupancyHistoryBody({
 // De dónde sale lo facturado
 // ---------------------------------------------------------------------------
 
+const VIEW_FILE = { concept: 'concepto', facility: 'local', type: 'tipo' } as const;
+const VIEW_HEADER = { concept: 'Concepto', facility: 'Local', type: 'Tipo de trastero' } as const;
+
 export function RevenueBreakdownCard({
   facilityId,
   period,
+  ownerId,
+  compare = 'previous',
 }: {
   facilityId?: string;
   period: Period;
+  ownerId?: string;
+  compare?: CompareMode;
 }) {
-  const breakdown = useRevenueBreakdown({ ...periodDays(period), facilityId });
-  const previous = useRevenueBreakdown({ ...periodDays(previousPeriod(period)), facilityId });
+  const breakdown = useRevenueBreakdown({ ...periodDays(period), facilityId, ownerId });
+  // El de comparación, hasta el mismo día: el mes en curso va a medias.
+  const previous = useRevenueBreakdown({
+    ...previousPeriodDays(period, compare),
+    facilityId,
+    ownerId,
+  });
   const [view, setView] = useState<'concept' | 'facility' | 'type'>('concept');
   const d = breakdown.data;
   const rows = d
@@ -313,8 +338,11 @@ export function RevenueBreakdownCard({
           </div>
           <CsvButton
             disabled={!d}
-            filename={`ingresos-por-${view}-${period.from}-${period.to}.csv`}
-            rows={() => [['Concepto', 'Importe'], ...rows.map((r) => [r.label, r.amount])]}
+            filename={`facturado-por-${VIEW_FILE[view]}-${period.from}-${period.to}.csv`}
+            rows={() => [
+              [VIEW_HEADER[view], 'Base sin IVA'],
+              ...rows.map((r) => [r.label, r.amount]),
+            ]}
           />
         </div>
         <div className="flex flex-wrap gap-2">
@@ -338,7 +366,9 @@ export function RevenueBreakdownCard({
       </CardHeader>
       <CardContent>
         {!d ? (
-          <Loader />
+          <QueryState query={breakdown} height="h-40">
+            {() => null}
+          </QueryState>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay facturas en el periodo.</p>
         ) : (
@@ -363,7 +393,11 @@ export function RevenueBreakdownCard({
                   </div>
                   {prevRows && (
                     <div className="text-xs">
-                      <Delta current={r.amount} previous={before} />
+                      <Delta
+                        current={r.amount}
+                        previous={before}
+                        suffix={compareLabel(compare, { sameDay: true })}
+                      />
                     </div>
                   )}
                 </li>
@@ -387,92 +421,132 @@ function retentionTint(v: number | null): string {
   return 'bg-rose-50 text-rose-800 dark:bg-rose-950 dark:text-rose-300';
 }
 
-export function CohortsPanel({ facilityId }: { facilityId?: string }) {
-  const [months, setMonths] = useState(12);
-  const cohorts = useCohorts({ months, facilityId });
+export function CohortsPanel({
+  facilityId,
+  ownerId,
+  months,
+  onMonthsChange,
+}: {
+  facilityId?: string;
+  ownerId?: string;
+  months: number;
+  onMonthsChange: (n: number) => void;
+}) {
+  const cohorts = useCohorts({ months, facilityId, ownerId });
   const rows = cohorts.data?.cohorts ?? [];
+  // Una columna que no puede tener datos con este rango (p. ej. «a 12 meses» con
+  // 12 meses: nadie lleva aún un año) no se enseña.
+  const has = {
+    r3: rows.some((c) => c.retained3 !== null),
+    r6: rows.some((c) => c.retained6 !== null),
+    r12: rows.some((c) => c.retained12 !== null),
+  };
+  const showRevenue = rows.some((c) => c.revenuePerContract !== null);
 
   return (
     <Card>
       <CardHeader className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <CardTitle className="text-base">Cohortes de altas</CardTitle>
+            <CardTitle className="text-base">Permanencia según el mes de alta</CardTitle>
             <CardDescription>
               Contratos agrupados por el mes en que empezaron: cuántos seguían a los 3, 6 y 12
-              meses, cuánto han durado y lo que ha facturado cada uno de media. «—» = aún no ha
-              pasado ese tiempo.
+              meses, cuánto han durado y lo que ha facturado cada uno de media (con IVA). «—» = aún
+              no ha pasado ese tiempo.
             </CardDescription>
           </div>
           <CsvButton
             disabled={rows.length === 0}
-            filename="cohortes.csv"
+            filename="permanencia-por-mes-de-alta.csv"
             rows={() => [
               [
                 'Mes de alta',
                 'Contratos',
-                'A 3 meses',
-                'A 6 meses',
-                'A 12 meses',
+                'A 3 meses (%)',
+                'A 6 meses (%)',
+                'A 12 meses (%)',
                 'Meses de media',
-                'Facturado por contrato',
+                ...(showRevenue ? ['Facturado por contrato (con IVA)'] : []),
               ],
               ...rows.map((c) => [
-                c.yearMonth,
+                shortMonth(c.yearMonth),
                 c.contracts,
                 c.retained3 === null ? '' : Math.round(c.retained3 * 100),
                 c.retained6 === null ? '' : Math.round(c.retained6 * 100),
                 c.retained12 === null ? '' : Math.round(c.retained12 * 100),
                 c.avgStayMonths,
-                c.revenuePerContract,
+                ...(showRevenue ? [c.revenuePerContract ?? ''] : []),
               ]),
             ]}
           />
         </div>
-        <RangeButtons value={months} onChange={setMonths} options={[6, 12, 24, 36]} />
+        <RangeButtons value={months} onChange={onMonthsChange} options={[6, 12, 24, 36]} />
       </CardHeader>
       <CardContent>
-        {cohorts.isLoading ? (
-          <Loader />
-        ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No hay contratos firmados en el periodo.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Mes de alta</TableHead>
-                  <TableHead className="text-right">Contratos</TableHead>
-                  <TableHead className="text-center">A 3 meses</TableHead>
-                  <TableHead className="text-center">A 6 meses</TableHead>
-                  <TableHead className="text-center">A 12 meses</TableHead>
-                  <TableHead className="text-right">Meses de media</TableHead>
-                  <TableHead className="text-right">Facturado por contrato</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((c) => (
-                  <TableRow key={c.yearMonth}>
-                    <TableCell className="capitalize">{shortMonth(c.yearMonth)}</TableCell>
-                    <TableCell className="text-right">{c.contracts}</TableCell>
-                    {[c.retained3, c.retained6, c.retained12].map((v, i) => (
-                      <TableCell key={i} className="text-center">
-                        <span
-                          className={`rounded px-2 py-0.5 text-xs font-medium ${retentionTint(v)}`}
-                        >
-                          {v === null ? '—' : pct(v)}
-                        </span>
-                      </TableCell>
+        <QueryState query={cohorts} height="h-40">
+          {(data) =>
+            data.cohorts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No hay contratos firmados en el periodo.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Mes de alta</TableHead>
+                      <TableHead className="text-right">Contratos</TableHead>
+                      {has.r3 && <TableHead className="text-center">A 3 meses</TableHead>}
+                      {has.r6 && <TableHead className="text-center">A 6 meses</TableHead>}
+                      {has.r12 && <TableHead className="text-center">A 12 meses</TableHead>}
+                      <TableHead className="text-right">Meses de media</TableHead>
+                      {showRevenue && (
+                        <TableHead className="text-right">Facturado por contrato</TableHead>
+                      )}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.cohorts.map((c) => (
+                      <TableRow key={c.yearMonth}>
+                        <TableCell className="capitalize">{shortMonth(c.yearMonth)}</TableCell>
+                        <TableCell className="text-right">{c.contracts}</TableCell>
+                        {(
+                          [
+                            [has.r3, c.retained3],
+                            [has.r6, c.retained6],
+                            [has.r12, c.retained12],
+                          ] as const
+                        )
+                          .filter(([shown]) => shown)
+                          .map(([, v], i) => (
+                            <TableCell key={i} className="text-center">
+                              <span
+                                className={`rounded px-2 py-0.5 text-xs font-medium ${retentionTint(v)}`}
+                              >
+                                {v === null ? '—' : pct(v)}
+                              </span>
+                            </TableCell>
+                          ))}
+                        <TableCell className="text-right">
+                          {c.avgStayMonths.toLocaleString('es-ES')}
+                        </TableCell>
+                        {showRevenue && (
+                          <TableCell className="text-right">
+                            {c.revenuePerContract === null ? '—' : eur(c.revenuePerContract)}
+                          </TableCell>
+                        )}
+                      </TableRow>
                     ))}
-                    <TableCell className="text-right">
-                      {c.avgStayMonths.toLocaleString('es-ES')}
-                    </TableCell>
-                    <TableCell className="text-right">{eur(c.revenuePerContract)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                  </TableBody>
+                </Table>
+              </div>
+            )
+          }
+        </QueryState>
+        {!has.r12 && rows.length > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Para ver cuántos siguen al año, elige 24 o 36 meses.
+          </p>
         )}
       </CardContent>
     </Card>

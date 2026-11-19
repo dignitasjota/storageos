@@ -33,8 +33,10 @@ export function ForecastCard({
 }) {
   const data = (forecast?.points ?? []).map((p) => ({
     label: monthLabel(p.yearMonth),
-    mrr: Math.round(p.projectedMrr),
+    // Sin permiso para ver el dinero, los contratos previstos.
+    mrr: p.projectedMrr === null ? p.projectedActiveContracts : Math.round(p.projectedMrr),
   }));
+  const money = forecast?.current.mrr !== null;
   const current = forecast?.current;
   const projectedEnd = data.length > 0 ? data[data.length - 1]!.mrr : null;
 
@@ -45,12 +47,17 @@ export function ForecastCard({
         <CardDescription>
           {current ? (
             <>
-              Hoy <span className="font-medium text-foreground">{eur(current.mrr)}</span>
+              Hoy{' '}
+              <span className="font-medium text-foreground">
+                {money ? eur(current.mrr ?? 0) : `${current.activeContracts} contratos`}
+              </span>
               {projectedEnd !== null && (
                 <>
                   {' '}
                   → en 6 meses{' '}
-                  <span className="font-medium text-foreground">{eur(projectedEnd)}</span>
+                  <span className="font-medium text-foreground">
+                    {money ? eur(projectedEnd) : `${projectedEnd} contratos`}
+                  </span>
                 </>
               )}
               {forecast?.assumptions.cappedAtCapacity && current.totalUnits > 0 && (
@@ -95,20 +102,22 @@ export function ForecastCard({
                       axisLine={false}
                     />
                     <YAxis
-                      tickFormatter={eurShort}
+                      tickFormatter={(v: number) => (money ? eurShort(v) : String(v))}
                       tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
                       width={56}
                     />
                     <Tooltip
-                      formatter={(v) => eur(Number(v) || 0)}
+                      formatter={(v) =>
+                        money ? eur(Number(v) || 0) : `${Number(v) || 0} contratos`
+                      }
                       contentStyle={{ fontSize: 13 }}
                     />
                     <Area
                       type="monotone"
                       dataKey="mrr"
-                      name="Cuotas previstas"
+                      name={money ? 'Cuotas previstas' : 'Contratos previstos'}
                       stroke="#2563eb"
                       strokeWidth={2}
                       fill="url(#mrrFill)"

@@ -1,3 +1,4 @@
+import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -8,6 +9,10 @@ import { cleanupTestTenants } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
+
+const ADMIN_URL =
+  process.env.DATABASE_ADMIN_URL ??
+  'postgresql://storageos:storageos@localhost:5433/storageos?schema=public';
 
 function isoDate(daysFromNow: number): string {
   return new Date(Date.now() + daysFromNow * 86_400_000).toISOString().slice(0, 10);
@@ -34,7 +39,7 @@ describe('Insights: churn risk + pricing suggestions (e2e)', () => {
       .get('/analytics/churn-risk')
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.summary).toEqual({ high: 0, medium: 0, low: 0, total: 0 });
+    expect(res.body.summary).toEqual({ high: 0, medium: 0, low: 0, total: 0, atStakeMonthly: 0 });
     expect(res.body.items).toEqual([]);
   });
 
@@ -63,6 +68,22 @@ describe('Insights: churn risk + pricing suggestions (e2e)', () => {
       .post(`/contracts/${create.body.id}/sign`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .send({});
+
+    // El negocio cobra solo (domiciliación): no tener método de pago cuenta.
+    const admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
+    try {
+      const tenant = await admin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+      await admin.goCardlessSettings.create({
+        data: {
+          tenantId: tenant.id,
+          accessTokenEncrypted: 'x',
+          webhookSecretEncrypted: 'x',
+          enabled: true,
+        },
+      });
+    } finally {
+      await admin.$disconnect();
+    }
 
     const res = await request(app.getHttpServer())
       .get('/analytics/churn-risk')

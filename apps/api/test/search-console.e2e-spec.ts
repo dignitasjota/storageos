@@ -78,14 +78,15 @@ describe('Search Console (e2e)', () => {
 
     const pos = await http().get('/seo/positions?days=28').set(a);
     expect(pos.status).toBe(200);
-    expect(pos.body.totals.clicks).toBe(28 * 6);
+    // Totales de Google: 6 clics de las búsquedas + 1 de las que no detalla.
+    expect(pos.body.totals.clicks).toBe(28 * 7);
     expect(pos.body.queries.map((q: { query: string }) => q.query)).toContain('trasteros mislata');
     const zone = pos.body.pages.find((p: { areaSlug: string | null }) => p.areaSlug === 'mislata');
     expect(zone).toMatchObject({ path: '/trasteros-en-mislata', position: 3.2 });
 
     // Repetir la descarga no duplica filas.
     await http().post('/seo/search-console/sync').set(a).expect(201);
-    expect((await http().get('/seo/positions?days=28').set(a)).body.totals.clicks).toBe(28 * 6);
+    expect((await http().get('/seo/positions?days=28').set(a)).body.totals.clicks).toBe(28 * 7);
 
     // Desconectar borra los datos.
     const off = await http().delete('/seo/search-console').set(a);
@@ -114,7 +115,7 @@ describe('Search Console (e2e)', () => {
     const report = await http().get('/seo/report').set(a);
     expect(report.status).toBe(200);
     expect(report.body.month).toBe(prev.toISOString().slice(0, 7));
-    expect(report.body.summary.totals.clicks).toBe(daysInPrev * 6);
+    expect(report.body.summary.totals.clicks).toBe(daysInPrev * 7);
     expect(Array.isArray(report.body.tips)).toBe(true);
     // «alquiler trasteros» sale en la posición 9 con apariciones: es una oportunidad.
     expect(report.body.summary.opportunities.map((q: { query: string }) => q.query)).toContain(
@@ -155,7 +156,8 @@ describe('Search Console (e2e)', () => {
     expect(taken.body.code).toBe('search_console_site_taken');
 
     // La descarga del intruso se para con el motivo y no trae datos.
-    await http().post('/seo/search-console/sync').set(intruderAuth).expect(201);
+    // «Actualizar ahora» dice que no se pudo (antes respondía como si nada).
+    await http().post('/seo/search-console/sync').set(intruderAuth).expect(502);
     const after = (await http().get('/seo/search-console').set(intruderAuth)).body;
     expect(after.status).toBe('error');
     expect(after.lastError).toContain('no es tu web');

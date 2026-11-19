@@ -63,9 +63,9 @@ describe('Benchmarking anónimo entre tenants (e2e)', () => {
     expect(typeof res.body.sampleSize).toBe('number');
 
     if (res.body.available === true) {
-      // Si por casualidad la BD tuviera ≥5 operadores con trasteros, validamos
+      // Si por casualidad la BD tuviera ≥10 operadores con trasteros, validamos
       // que sólo se exponen agregados anónimos + los valores propios.
-      expect(res.body.sampleSize).toBeGreaterThanOrEqual(5);
+      expect(res.body.sampleSize).toBeGreaterThanOrEqual(10);
       for (const metric of [res.body.occupancy, res.body.price].filter(Boolean)) {
         expect(typeof metric.median).toBe('number');
         expect(typeof metric.p25).toBe('number');
@@ -75,7 +75,7 @@ describe('Benchmarking anónimo entre tenants (e2e)', () => {
         expect(metric.myPercentile).toBeLessThanOrEqual(100);
       }
     } else {
-      // Caso esperado en una BD de test recién limpiada (< 5 operadores):
+      // Caso esperado en una BD de test recién limpiada (< 10 operadores):
       // muestra insuficiente → sin agregados (protege el anonimato).
       expect(res.body.available).toBe(false);
       expect(res.body.occupancy).toBeUndefined();

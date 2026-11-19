@@ -71,7 +71,8 @@ export class FacilityInsightsService {
     const facFilter = resolveFacilityFilter(facilityScope);
     if (facFilter === null) return [];
     const now = new Date();
-    const scope: AnalyticsScope = { ids: facFilter, explicit: false };
+    // Cada local lleva sus cifras, también los que aún no han abierto.
+    const scope: AnalyticsScope = { ids: facFilter, explicit: false, includePreOpening: true };
     const money = options.moneyVisible;
     const data = await this.prisma.withTenant(
       async (tx) => {
