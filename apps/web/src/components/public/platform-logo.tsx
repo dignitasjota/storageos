@@ -8,10 +8,16 @@ export function PlatformLogo({
   logoUrl,
   name = 'TrasterOS',
   className = 'h-8',
+  maxWidthClass = 'max-w-[200px]',
+  fallbackClassName,
 }: {
   logoUrl: string | null;
   name?: string;
   className?: string;
+  /** Ancho máximo del logo subido (los anchos con margen se ven pequeños). */
+  maxWidthClass?: string;
+  /** Alto del isotipo cuando no hay logo subido (por defecto, el de `className`). */
+  fallbackClassName?: string;
 }) {
   if (logoUrl) {
     return (
@@ -19,14 +25,19 @@ export function PlatformLogo({
       <img
         src={logoUrl}
         alt={name}
-        className={`${className} w-auto max-w-[200px] object-contain`}
+        className={`${className} w-auto ${maxWidthClass} object-contain`}
       />
     );
   }
   return (
     <span className="flex items-center gap-2">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={DEFAULT_PLATFORM_ICON} alt="" aria-hidden className={`${className} w-auto`} />
+      <img
+        src={DEFAULT_PLATFORM_ICON}
+        alt=""
+        aria-hidden
+        className={`${fallbackClassName ?? className} w-auto`}
+      />
       <span className="text-lg font-semibold tracking-tight text-white">{name}</span>
     </span>
   );

@@ -58,7 +58,12 @@ export function PublicHeader({
     >
       <div className="container flex h-16 items-center justify-between gap-4">
         <Link href="/" className="flex shrink-0 items-center" aria-label={common('appName')}>
-          <PlatformLogo logoUrl={logoUrl} className="h-7 sm:h-8" />
+          <PlatformLogo
+            logoUrl={logoUrl}
+            className="h-12 sm:h-14"
+            maxWidthClass="max-w-[170px] sm:max-w-[240px]"
+            fallbackClassName="h-7 sm:h-8"
+          />
         </Link>
         {!isPortal && (
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Principal">
