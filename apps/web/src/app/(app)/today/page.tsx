@@ -346,7 +346,8 @@ export default function TodayPage() {
           data.collectionsDeadlines.count +
           data.depositsToSettle.count +
           data.depositsToRegister.count +
-          data.depositsToCollect.count,
+          data.depositsToCollect.count +
+          data.firstPaymentsPending.count,
         operations:
           data.moveInsToday.count +
           data.moveOutsToday.count +
@@ -780,6 +781,15 @@ export default function TodayPage() {
                     empty="Todas las fianzas están depositadas."
                   />
                 )}
+                <SectionCard
+                  title="Primeros pagos pendientes"
+                  icon={PiggyBank}
+                  count={data.firstPaymentsPending.count}
+                  items={data.firstPaymentsPending.items}
+                  href="/invoices?awaiting=1"
+                  itemHref={(it) => `/invoices/${it.id}`}
+                  empty="Ningún contrato espera su primer pago."
+                />
                 <SectionCard
                   title="Fianzas a cobrar en el local"
                   icon={PiggyBank}

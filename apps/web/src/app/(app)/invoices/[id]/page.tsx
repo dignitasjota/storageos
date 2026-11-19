@@ -273,6 +273,8 @@ export default function InvoiceDetailPage() {
     'cash' | 'bank_transfer' | 'card' | 'sepa_debit' | 'other'
   >('cash');
   const [paidOverride, setPaidOverride] = useState(false);
+  // Primer pago: registrar también la fianza que va con la factura (un solo cobro).
+  const [paidDeposit, setPaidDeposit] = useState(true);
   const [refundOpen, setRefundOpen] = useState(false);
   const [refundAmount, setRefundAmount] = useState(0);
   const [refundReason, setRefundReason] = useState('');
@@ -324,6 +326,9 @@ export default function InvoiceDetailPage() {
   const isDraft = i.status === 'draft';
   // Primer pago de un contrato firmado por enlace: se emite al registrar su cobro.
   const awaitingPayment = isDraft && i.issueOnPayment;
+  // Fianza pendiente que se paga con esta factura (primer pago de un contrato).
+  const depositPending =
+    i.kind === 'invoice' && i.bundledDeposit ? i.bundledDeposit.amountPending : 0;
   // Una rectificativa que se quedó en borrador cancelado no rectifica nada.
   const rectifiedBy = i.rectifiedBy.filter((r) => r.status !== 'cancelled');
   const isRectification = i.invoiceType.startsWith('R');
@@ -1282,6 +1287,27 @@ export default function InvoiceDetailPage() {
                 pendiente.
               </p>
             )}
+            {depositPending > 0 && (
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={paidDeposit && paidAmount === i.amountPending}
+                  disabled={paidAmount !== i.amountPending}
+                  onChange={(e) => setPaidDeposit(e.target.checked)}
+                />
+                <span>
+                  Incluye la fianza ({i.bundledDeposit!.invoiceNumber}, {formatEur(depositPending)}
+                  ): se registra también, con la misma forma de pago. Total{' '}
+                  {formatEur(i.amountPending + depositPending)}.
+                  {paidAmount !== i.amountPending && (
+                    <span className="block text-xs text-muted-foreground">
+                      Solo al registrar la factura entera.
+                    </span>
+                  )}
+                </span>
+              </label>
+            )}
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
               <input
                 type="checkbox"
@@ -1308,10 +1334,14 @@ export default function InvoiceDetailPage() {
                       amount: paidAmount,
                       methodType: paidMethod,
                       ...(paidOverride ? { overridePaymentInFlight: true } : {}),
+                      ...(depositPending > 0 && paidDeposit && paidAmount === i.amountPending
+                        ? { includeBundledDeposit: true }
+                        : {}),
                     },
                   });
                   setPaidOpen(false);
                   setPaidOverride(false);
+                  setPaidDeposit(true);
                 }, 'Cobro registrado.')
               }
               disabled={paidAmount <= 0 || paidAmount > i.amountPending || markPaid.isPending}

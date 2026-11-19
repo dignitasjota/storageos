@@ -89,3 +89,30 @@ export async function loadPendingFirstPayment(
   if (!mainId) return null;
   return loadFirstPayment(db, tenantId, { id: mainId, status: 'draft', issueOnPayment: true });
 }
+
+/**
+ * La factura con la que se paga un documento: si es un justificante de fianza
+ * que va con una factura aún por pagar, esa factura (que cobra las dos de una
+ * vez); si no, el propio documento. Así, pagar la fianza suelta mientras su
+ * factura está pendiente cobra las dos juntas y no deja la otra para después.
+ */
+export async function paymentHeadId(db: Db, tenantId: string, invoiceId: string): Promise<string> {
+  const row = await db.invoice.findFirst({
+    where: { id: invoiceId, tenantId, deletedAt: null },
+    select: { kind: true, bundledWithInvoiceId: true },
+  });
+  if (row?.kind !== 'deposit_receipt' || !row.bundledWithInvoiceId) return invoiceId;
+  const head = await db.invoice.findFirst({
+    where: {
+      id: row.bundledWithInvoiceId,
+      tenantId,
+      kind: 'invoice',
+      deletedAt: null,
+      ...PAYABLE_INVOICE_WHERE,
+    },
+    select: { id: true, total: true, amountPaid: true },
+  });
+  if (!head) return invoiceId;
+  const pending = Math.round(Number(head.total) * 100) - Math.round(Number(head.amountPaid) * 100);
+  return pending > 0 ? head.id : invoiceId;
+}

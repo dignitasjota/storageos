@@ -31,6 +31,7 @@ import {
 import { Queue } from 'bullmq';
 
 import { customerScopeWhere } from '../../common/customer-scope';
+import { paymentHeadId } from '../../common/first-payment';
 import { emailLocale, todayInTimezone } from '../../common/format';
 import { applyMarketingOptOutByEmail } from '../../common/marketing/opt-out';
 import { planInstallmentDue, type PlanInstallmentDue } from '../../common/payment-plan-guard';
@@ -1955,6 +1956,18 @@ export class PortalService {
    * otro customer (aunque sea del mismo tenant) devuelve 404 sin filtrar
    * su existencia.
    */
+  /**
+   * El documento que hay que cobrar: la fianza que va con una factura aún por
+   * pagar se cobra con ella (un solo pago). Solo documentos del inquilino.
+   */
+  async paymentHead(tenantId: string, customerId: string, invoiceId: string): Promise<string> {
+    const own = await this.admin.invoice.count({
+      where: { id: invoiceId, tenantId, customerId, deletedAt: null },
+    });
+    if (!own) return invoiceId;
+    return paymentHeadId(this.admin, tenantId, invoiceId);
+  }
+
   async chargeMyInvoice(
     tenantId: string,
     customerId: string,

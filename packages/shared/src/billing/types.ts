@@ -81,6 +81,14 @@ export interface InvoiceDto {
   kind: InvoiceKind;
   /** Justificante: factura con la que se cobra en un solo pago. */
   bundledWithInvoiceId: string | null;
+  /** Factura: la fianza que se paga con ella (primer pago de un contrato). */
+  bundledDeposit: {
+    id: string;
+    invoiceNumber: string;
+    total: number;
+    amountPending: number;
+    status: InvoiceStatusValue;
+  } | null;
   /**
    * Borrador que se emite al cobrarse (primera factura de una reserva online):
    * sin número hasta que se paga; si la reserva caduca, se anula sin más.

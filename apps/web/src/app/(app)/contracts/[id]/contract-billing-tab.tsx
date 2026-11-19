@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { InvoiceStatusBadge } from '@/components/invoice-status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useInvoices } from '@/lib/billing/hooks';
+import { invoiceNumberLabel, isNumbered } from '@/lib/billing/labels';
 import { useContractAccount } from '@/lib/customers/hooks';
 import { formatDate, formatEur } from '@/lib/format';
 
@@ -20,7 +21,8 @@ export function ContractBillingTab({
   const account = useContractAccount(contractId);
   const invoices = useInvoices({ contractId });
   const a = account.data;
-  const rows = (invoices.data ?? []).filter((i) => i.status !== 'draft');
+  // Los borradores no, salvo el primer pago (se emite, con su número, al cobrarse).
+  const rows = (invoices.data ?? []).filter((i) => i.status !== 'draft' || i.issueOnPayment);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -56,12 +58,31 @@ export function ContractBillingTab({
             <ul className="divide-y text-sm">
               {rows.map((i) => (
                 <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                  <Link href={`/invoices/${i.id}`} className="font-mono text-xs hover:underline">
-                    {i.invoiceNumber}
+                  <Link
+                    href={`/invoices/${i.id}`}
+                    className={
+                      isNumbered(i)
+                        ? 'font-mono text-xs hover:underline'
+                        : 'text-xs italic hover:underline'
+                    }
+                  >
+                    {invoiceNumberLabel(i)}
+                    {i.kind === 'deposit_receipt' ? ' · fianza' : ''}
                   </Link>
-                  <span className="text-muted-foreground">{formatDate(i.issueDate)}</span>
+                  <span className="text-muted-foreground">
+                    {i.issueDate
+                      ? formatDate(i.issueDate)
+                      : i.dueDate
+                        ? `Pagar antes del ${formatDate(i.dueDate)}`
+                        : '—'}
+                  </span>
                   <span className="tabular-nums">{formatEur(i.total)}</span>
-                  <InvoiceStatusBadge status={i.status} total={i.total} voided={!!i.voidedAt} />
+                  <InvoiceStatusBadge
+                    status={i.status}
+                    total={i.total}
+                    voided={!!i.voidedAt}
+                    awaitingPayment={i.issueOnPayment}
+                  />
                 </li>
               ))}
             </ul>

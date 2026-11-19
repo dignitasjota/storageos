@@ -152,6 +152,8 @@ export default function InvoicesPage() {
   const [status, setStatus] = useState<InvoiceStatusValue | undefined>();
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [overdueOnly, setOverdueOnly] = useState(false);
+  // Primeros pagos sin cobrar (sin número hasta que se pagan).
+  const [awaitingOnly, setAwaitingOnly] = useState(false);
   // Borradores descartados y justificantes anulados: ocultos de inicio (se
   // recuerda en el navegador). Con un estado elegido, se ve ese estado.
   const [hideCancelled, setHideCancelled] = useState(true);
@@ -184,11 +186,12 @@ export default function InvoicesPage() {
     (period !== 'all' ? 1 : 0) + (type ? 1 : 0) + (payment ? 1 : 0) + (sort !== 'newest' ? 1 : 0);
   // Enlaces con filtro (`/invoices?status=overdue` desde «Hoy» o las sugerencias).
   useEffect(() => {
-    const s = new URLSearchParams(window.location.search).get('status');
-    const parsed = InvoiceStatusEnum.safeParse(s);
+    const params = new URLSearchParams(window.location.search);
+    const parsed = InvoiceStatusEnum.safeParse(params.get('status'));
     if (parsed.success) {
       setStatus(parsed.data);
     }
+    if (params.get('awaiting') === '1') setAwaitingOnly(true);
   }, []);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -203,6 +206,7 @@ export default function InvoicesPage() {
     status,
     customerId,
     overdue: overdueOnly ? 'true' : undefined,
+    awaitingPayment: awaitingOnly ? 'true' : undefined,
     hideCancelled: hideCancelled && !status ? 'true' : undefined,
     search: search || undefined,
     type,
@@ -231,6 +235,7 @@ export default function InvoicesPage() {
     status,
     customerId,
     overdueOnly,
+    awaitingOnly,
     hideCancelled,
     search,
     headerFacilityId,
@@ -245,6 +250,7 @@ export default function InvoicesPage() {
     !!status ||
     !!customerId ||
     overdueOnly ||
+    awaitingOnly ||
     !!type ||
     !!payment ||
     period !== 'all' ||
@@ -254,6 +260,7 @@ export default function InvoicesPage() {
     setStatus(undefined);
     setCustomerId(undefined);
     setOverdueOnly(false);
+    setAwaitingOnly(false);
     setType(undefined);
     setPayment(undefined);
     setSort('newest');
@@ -268,6 +275,7 @@ export default function InvoicesPage() {
     if (status) f.status = status;
     if (customerId) f.customerId = customerId;
     if (overdueOnly) f.overdue = 'true';
+    if (awaitingOnly) f.awaitingPayment = 'true';
     if (type) f.type = type;
     if (payment) f.payment = payment;
     if (sort !== 'newest') f.sort = sort;
@@ -284,6 +292,7 @@ export default function InvoicesPage() {
     setStatus(parsedStatus.success ? parsedStatus.data : undefined);
     setCustomerId(str('customerId'));
     setOverdueOnly(str('overdue') === 'true');
+    setAwaitingOnly(str('awaitingPayment') === 'true');
     const t = str('type');
     setType(t && t in TYPE_LABELS ? (t as InvoiceTypeFilterValue) : undefined);
     const p = str('payment');
@@ -514,6 +523,17 @@ export default function InvoicesPage() {
             {i.invoiceType.startsWith('R') && <Badge variant="outline">Rectificativa</Badge>}
             {i.lateFeeForInvoiceId && <Badge variant="outline">Recargo</Badge>}
             <InvoiceCollectionBadges invoice={i} compact />
+            {/* El primer pago aún no tiene número: su contrato y la fianza que va con él. */}
+            {(!isNumbered(i) && i.contractNumber) ||
+            (i.bundledDeposit && i.bundledDeposit.amountPending > 0) ? (
+              <span className="basis-full text-[11px] text-muted-foreground">
+                {!isNumbered(i) && i.contractNumber ? `Contrato ${i.contractNumber}` : ''}
+                {!isNumbered(i) && i.contractNumber && i.bundledDeposit?.amountPending ? ' · ' : ''}
+                {i.bundledDeposit && i.bundledDeposit.amountPending > 0
+                  ? `+ fianza ${formatEur(i.bundledDeposit.amountPending)} en el mismo pago`
+                  : ''}
+              </span>
+            ) : null}
           </span>
         );
       },
@@ -694,6 +714,13 @@ export default function InvoicesPage() {
           onClick={() => setOverdueOnly((v) => !v)}
         >
           Solo vencidas
+        </Button>
+        <Button
+          variant={awaitingOnly ? 'default' : 'outline'}
+          onClick={() => setAwaitingOnly((v) => !v)}
+          title="Primeros pagos de contratos aún sin cobrar: la factura se emite, con su número, al pagarse"
+        >
+          Pendiente de pago
         </Button>
         <Button
           variant={hideCancelled ? 'default' : 'outline'}

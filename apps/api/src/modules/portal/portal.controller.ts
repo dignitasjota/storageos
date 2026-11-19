@@ -1532,8 +1532,12 @@ export class PortalController {
     if (!parsed.success) {
       throw new BadRequestException({ code: 'invalid_body', message: 'Petición no válida' });
     }
-    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [invoiceId]);
-    return this.portal.chargeMyInvoice(tenantId, customerId, invoiceId, {
+    // La fianza suelta de una factura pendiente se cobra con ella (un solo pago).
+    const target = parsed.data.installment
+      ? invoiceId
+      : await this.portal.paymentHead(tenantId, customerId, invoiceId);
+    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [target]);
+    return this.portal.chargeMyInvoice(tenantId, customerId, target, {
       ...(parsed.data.installment ? { installment: true } : {}),
     });
   }
@@ -1576,8 +1580,9 @@ export class PortalController {
     @Body() input: PortalOfflinePaymentDto,
   ): Promise<PortalOfflinePaymentResultDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
-    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [invoiceId]);
-    return this.offline.choose(tenantId, customerId, invoiceId, input);
+    const target = await this.portal.paymentHead(tenantId, customerId, invoiceId);
+    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [target]);
+    return this.offline.choose(tenantId, customerId, target, input);
   }
 
   @Public()
@@ -1590,6 +1595,9 @@ export class PortalController {
     @Body() body: RedsysRedirectBody,
   ): Promise<RedsysRedirectDto> {
     const { customerId, tenantId } = await this.requirePortalSession(auth);
+    if (!body.installment) {
+      invoiceId = await this.portal.paymentHead(tenantId, customerId, invoiceId);
+    }
     await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [
       invoiceId,
       ...(body.extraInvoiceIds ?? []),

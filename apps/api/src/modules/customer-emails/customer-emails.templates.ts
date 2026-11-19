@@ -56,6 +56,8 @@ export type CustomerEmailData =
       /** Cómo pagarla (solo si está pendiente). */
       payment: InvoicePaymentHint | null;
       pdfUrl: string | null;
+      /** Fianza pendiente que se paga con ella, en el mismo pago. */
+      deposit?: { number: string; amount: number } | null;
     }
   | {
       kind: 'contract_signed';
@@ -379,6 +381,11 @@ function content(data: CustomerEmailData, l: Locale, base?: CustomerEmailBase): 
                 ? `Due date: ${day(data.dueDate, l)}.`
                 : `Vencimiento: ${day(data.dueDate, l)}.`
               : '',
+          data.deposit && !data.paidAt
+            ? en
+              ? `Together with the deposit (${data.deposit.number}) of ${eur(data.deposit.amount, l)}: you pay ${eur(data.total + data.deposit.amount, l)} in total, in a single payment.`
+              : `Junto con la fianza (${data.deposit.number}) de ${eur(data.deposit.amount, l)}: pagas ${eur(data.total + data.deposit.amount, l)} en total, en un solo pago.`
+            : '',
           ...(data.payment && !data.paidAt
             ? paymentParagraphs(data.payment, data.invoiceNumber, l)
             : []),

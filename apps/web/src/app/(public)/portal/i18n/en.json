@@ -206,7 +206,7 @@
         "statusRectified": "Cancelled",
         "depositReceipt": "Deposit receipt (not an invoice)",
         "paidWithInvoice": "paid together with invoice {number}",
-        "includesDeposit": "Includes the deposit: you pay {total} in total",
+        "includesDeposit": "Rent {rent} + deposit {deposit}: you pay {total} in total",
         "paymentInProgress": "Payment in progress",
         "pay": "Pay",
         "payWithCard": "Pay with card",

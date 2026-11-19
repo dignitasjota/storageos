@@ -142,7 +142,15 @@ export class BookingRecoveryService {
             kind: 'invoice',
             ...NO_PAYMENT_IN_FLIGHT,
           },
-          select: { total: true, amountPaid: true },
+          select: {
+            total: true,
+            amountPaid: true,
+            // La fianza que se paga con ella: el recordatorio dice el total.
+            bundledReceipts: {
+              where: { ...PAYABLE_INVOICE_WHERE, deletedAt: null },
+              select: { total: true, amountPaid: true },
+            },
+          },
           take: 1,
         },
       },
@@ -207,8 +215,15 @@ export class BookingRecoveryService {
     } else {
       url = tenantPortalLoginUrl(webBase, tenant);
       cta = 'Pagar ahora';
-      const pending = Number(unpaid!.total) - Number(unpaid!.amountPaid);
-      step = `Ya has firmado; solo te falta pagar la primera factura (${formatEur(pending)}) para activar tu acceso.`;
+      const rent = Number(unpaid!.total) - Number(unpaid!.amountPaid);
+      const deposit = unpaid!.bundledReceipts.reduce(
+        (sum, r) => sum + Number(r.total) - Number(r.amountPaid),
+        0,
+      );
+      step =
+        deposit > 0
+          ? `Ya has firmado; solo te falta el primer pago (${formatEur(rent + deposit)}: alquiler ${formatEur(rent)} y fianza ${formatEur(deposit)}) para activar tu acceso.`
+          : `Ya has firmado; solo te falta pagar la primera factura (${formatEur(rent)}) para activar tu acceso.`;
     }
     const subject =
       mode === 'extended'
