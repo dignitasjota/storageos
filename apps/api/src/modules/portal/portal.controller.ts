@@ -97,6 +97,7 @@ import {
   PortalRespondOfferSchema,
   PortalOfflinePaymentSchema,
   type PortalOfflinePaymentResultDto,
+  type PortalDemoCardPaymentResultDto,
   type PortalPaymentOptionsDto,
   CustomerAuthorizedPersonSchema,
   type CustomerAuthorizedPersonDto,
@@ -147,6 +148,7 @@ import { UnitChangesService } from '../unit-changes/unit-changes.service';
 import { UnitRequestsService } from '../unit-requests/unit-requests.service';
 import { WaitlistService } from '../waitlist/waitlist.service';
 
+import { DemoCardPaymentService } from './demo-card-payment.service';
 import { NightPassService } from './night-pass.service';
 import { OfflinePaymentsService } from './offline-payments.service';
 import { PortalAccountService } from './portal-account.service';
@@ -230,6 +232,7 @@ export class PortalController {
     private readonly generalTerms: GeneralTermsService,
     private readonly realtime: RealtimeService,
     private readonly collections: CollectionsExtrasService,
+    private readonly demoCard: DemoCardPaymentService,
   ) {}
 
   // Envía un email (magic link) — mismo preset que el homólogo de staff
@@ -1465,11 +1468,12 @@ export class PortalController {
     @Headers('authorization') auth: string | undefined,
   ): Promise<PortalPaymentOptionsDto> {
     const { tenantId } = await this.requirePortalSession(auth);
-    const [cardPayments, offline] = await Promise.all([
+    const [cardPayments, offline, demoCard] = await Promise.all([
       this.portal.cardPaymentsAvailable(tenantId),
       this.offline.options(tenantId),
+      this.demoCard.isDemo(tenantId),
     ]);
-    return { cardPayments, ...offline };
+    return { cardPayments, ...offline, demoCard };
   }
 
   /** ¿Ofrece el negocio pago con tarjeta/Bizum vía Redsys? (para gatear los botones). */
@@ -1583,6 +1587,24 @@ export class PortalController {
     const target = await this.portal.paymentHead(tenantId, customerId, invoiceId);
     await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [target]);
     return this.offline.choose(tenantId, customerId, target, input);
+  }
+
+  /**
+   * Cuenta de demostración: pago con tarjeta SIMULADO. No llama a ninguna
+   * pasarela; apunta el cobro dentro de la demo. 403 en cualquier otro negocio.
+   */
+  @Public()
+  @ThrottleLogin()
+  @Post('me/invoices/:id/demo-card-payment')
+  @HttpCode(HttpStatus.OK)
+  async demoCardPayment(
+    @Headers('authorization') auth: string | undefined,
+    @Param('id', ParseUUIDPipe) invoiceId: string,
+  ): Promise<PortalDemoCardPaymentResultDto> {
+    const { customerId, tenantId } = await this.requirePortalSession(auth);
+    const target = await this.portal.paymentHead(tenantId, customerId, invoiceId);
+    await this.generalTerms.assertAcceptedForInvoices(tenantId, customerId, [target]);
+    return this.demoCard.pay(tenantId, customerId, target);
   }
 
   @Public()

@@ -298,7 +298,8 @@ function DemoCard({ settings }: { settings: PlatformSalesSettingsDto }) {
         <CardTitle className="text-base">Cuenta de demostración</CardTitle>
         <CardDescription>
           Un negocio de ejemplo para las demos de los comerciales. No cuenta en ninguna cifra y lo
-          que cambien se deshace cada noche.
+          que cambien (datos y ajustes) se deshace cada noche. Las fotos de los locales, el logo y
+          las fotos de la portada se conservan: súbelas una vez desde la demo.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">

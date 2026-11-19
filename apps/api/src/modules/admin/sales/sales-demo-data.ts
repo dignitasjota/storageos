@@ -2,6 +2,22 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 
 import { DEMO_PORTAL_CUSTOMER_TAG, STAFF_EMAIL_KINDS } from '@storageos/shared';
 
+import {
+  clearDemoCatalog,
+  restoreDemoConfig,
+  seedAutomations,
+  seedBlog,
+  seedCashClosure,
+  seedChannels,
+  seedCollectionsCase,
+  seedCoupon,
+  seedFaq,
+  seedMaintenancePlans,
+  seedNightPasses,
+  seedReferrals,
+  seedWebVisits,
+} from './sales-demo-extras';
+
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { Logger } from '@nestjs/common';
 import type { Prisma } from '@storageos/database';
@@ -249,6 +265,18 @@ export async function seedDemoData(ctx: DemoSeedContext): Promise<void> {
     });
   });
 
+  // La configuración y el catálogo vuelven a como eran: lo que un comercial
+  // cambie en una demo no pasa a la siguiente.
+  await step('configuración', () => restoreDemoConfig(db, tenantId));
+  await step('catálogo', () => clearDemoCatalog(db, tenantId));
+  await step('preguntas frecuentes', () => seedFaq(db, tenantId));
+  await step('blog', () => seedBlog(db, tenantId));
+  await step('cupón', () => seedCoupon(db, tenantId));
+  await step('canales de marketing', () => seedChannels(db, tenantId, facilities));
+  await step('automatizaciones', () => seedAutomations(db, tenantId));
+  await step('mantenimiento', () => seedMaintenancePlans(db, tenantId, facilities, ownerId));
+  await step('visitas de la web', () => seedWebVisits(db, tenantId));
+
   let insurancePlan: { id: string; name: string; price: number } | null = null;
   await step('plan de seguro', async () => {
     insurancePlan = await ensureInsurancePlan(db, tenantId);
@@ -281,6 +309,12 @@ export async function seedDemoData(ctx: DemoSeedContext): Promise<void> {
   await step('inquilina del área de clientes', () =>
     seedPortalCustomer(db, tenantId, ownerId, contracts, ctx.encryptSecret),
   );
+  await step('referidos', () => seedReferrals(db, tenantId, contracts));
+  await step('expediente de impago', () =>
+    seedCollectionsCase(db, tenantId, contracts, cuts, ownerId),
+  );
+  await step('pases nocturnos', () => seedNightPasses(db, tenantId, contracts, facilities));
+  await step('cierre de caja', () => seedCashClosure(db, tenantId, ownerId));
 }
 
 // --------------------------------------------------------------- estructura

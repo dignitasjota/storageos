@@ -28,6 +28,7 @@ import { UnitChangesModule } from '../unit-changes/unit-changes.module';
 import { UnitRequestsModule } from '../unit-requests/unit-requests.module';
 import { WaitlistModule } from '../waitlist/waitlist.module';
 
+import { DemoCardPaymentService } from './demo-card-payment.service';
 import { NightPassService } from './night-pass.service';
 import { OfflinePaymentsService } from './offline-payments.service';
 import { PortalAccountService } from './portal-account.service';
@@ -91,6 +92,7 @@ import { PortalService } from './portal.service';
     PortalService,
     PortalAccountService,
     NightPassService,
+    DemoCardPaymentService,
     OfflinePaymentsService,
     PortalInvoiceExportService,
     CustomerDocumentsService,

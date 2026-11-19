@@ -370,6 +370,15 @@ export interface PortalPaymentOptionsDto {
   payAtFacility: boolean;
   /** Domiciliación con la remesa SEPA del negocio. */
   sepaDebit: boolean;
+  /**
+   * Cuenta de demostración: pago con tarjeta SIMULADO (no habla con ninguna
+   * pasarela ni cobra nada; apunta el cobro dentro de la demo).
+   */
+  demoCard: boolean;
+}
+
+export interface PortalDemoCardPaymentResultDto {
+  status: 'succeeded';
 }
 
 export interface PortalOfflinePaymentResultDto {

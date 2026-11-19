@@ -2851,3 +2851,15 @@ Sin migración ni variables nuevas. Arreglos tras revisar la cuenta de demostrac
 - **Datos más coherentes**: Laura es siempre la misma inquilina (un mediano del local Centro, con seguro, al día y con la factura del mes por pagar); los nombres no se repiten; las facturas vencidas llevan su escalado (recordatorio, segundo aviso, corte de acceso y aviso legal) y solo tiene el acceso cortado quien el escalado cortó; el tamaño Grande está siempre agotado en el local Norte, con su lista de espera («Agotado · Avísame» en la web).
 
 Tras desplegar, **poner la demo a cero**.
+
+## 168. Mejoras de la demo: pago con tarjeta simulado, extras y configuración (2026-11-19)
+
+Sin migración ni variables nuevas.
+
+- **Pago con tarjeta simulado**, solo en la cuenta de demostración: en la firma de la reserva y en el área de clientes sale «Pagar con tarjeta» con una tarjeta de prueba y el aviso de que no se cobra nada. `POST /portal/me/invoices/:id/demo-card-payment` (`DemoCardPaymentService`) no llama a ninguna pasarela: apunta el cobro dentro de la demo como un cobro a mano (forma de pago tarjeta, sin pasarela ni identificador externo, nota «Pago con tarjeta simulado…»), con su fianza, y emite el acceso como un pago real. Cualquier otro negocio recibe **403 `demo_only`**; `PortalPaymentOptionsDto.demoCard` solo es `true` en la demo.
+- **El script de Stripe ya no se carga al abrir la firma o el área de clientes** (`@stripe/stripe-js/pure`): solo al pagar con Stripe.
+- **Extras activados en la demo**: Web Premium (plantilla Cabe con textos, opiniones, preguntas, formulario y blog) y SEO local.
+- **Configuración y catálogo se reinician**: color, plantilla y textos de la web, ajustes de cobro, referidos, pase nocturno e impagos vuelven a su valor, y se rehacen cupones, promociones, seguros, productos, competencia, preguntas frecuentes, canales, automatizaciones, planes de mantenimiento y entradas del blog. **Se conservan** las fotos de los locales, el logo, el favicon y las fotos de la portada: súbelas una vez desde la demo.
+- **Datos nuevos**: 5 preguntas frecuentes, 2 entradas del blog, el cupón `TRESMESES`, 3 canales de marketing con su QR, 2 automatizaciones, 2 planes de mantenimiento, un mes de visitas de la web por origen, un expediente de impago con el candado puesto, el cierre de caja de ayer, 2 pases nocturnos (el local Norte cierra de 23:00 a 6:00) y los referidos de Laura (código `LAURA15`).
+
+Tras desplegar, **poner la demo a cero** y, si quieres, subir las fotos de los dos locales.

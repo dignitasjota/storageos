@@ -43,7 +43,9 @@ export class OfflinePaymentsService {
   ) {}
 
   /** Qué formas sin pasarela ofrece el negocio (la tarjeta la resuelve el portal). */
-  async options(tenantId: string): Promise<Omit<PortalPaymentOptionsDto, 'cardPayments'>> {
+  async options(
+    tenantId: string,
+  ): Promise<Omit<PortalPaymentOptionsDto, 'cardPayments' | 'demoCard'>> {
     const [tenant, sepa] = await this.prisma.withTenant(
       (tx) =>
         Promise.all([

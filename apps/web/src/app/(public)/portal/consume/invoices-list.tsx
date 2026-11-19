@@ -10,6 +10,7 @@ import { usePortalLocale } from '../i18n/provider';
 
 import type { PortalInvoiceDto } from '@storageos/shared';
 
+import { DemoCardPayment } from '@/components/payments/demo-card-payment';
 import { OfflinePaymentChoice } from '@/components/payments/offline-payment-choice';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -86,6 +87,8 @@ export function InvoicesList({
   saveCard,
   payingId,
   offlineOptions,
+  demoCard,
+  onDemoPaid,
   onPay,
   onPayAll,
   onDownload,
@@ -100,6 +103,9 @@ export function InvoicesList({
   payingId: string | null;
   /** Transferencia, en el local o domiciliación (las que active el negocio). */
   offlineOptions: { bankTransfer: boolean; payAtFacility: boolean; sepaDebit: boolean };
+  /** Cuenta de demostración: pago con tarjeta simulado (no cobra nada). */
+  demoCard: boolean;
+  onDemoPaid: () => void;
   onPay: (i: PortalInvoiceDto, opts?: { installment?: boolean }) => void;
   onPayAll: (list: PortalInvoiceDto[]) => void;
   onDownload: (id: string) => void;
@@ -321,6 +327,16 @@ export function InvoicesList({
                     amount: eur(i.amountPending + i.bundledReceiptPending, locale),
                   })}
             </Button>
+          )}
+          {payable(i) && demoCard && (
+            <DemoCardPayment
+              size="sm"
+              invoiceId={i.id}
+              portalToken={accessToken}
+              amountLabel={eur(i.amountPending + i.bundledReceiptPending, locale)}
+              locale={locale}
+              onPaid={onDemoPaid}
+            />
           )}
           {payable(i) && redsysEnabled && (
             <Button
