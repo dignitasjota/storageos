@@ -5,11 +5,15 @@ import { hash as argonHash } from '@node-rs/argon2';
 import {
   type ImpersonationTokenDto,
   type PlatformSalesSettingsDto,
+  DEMO_PORTAL_CUSTOMER_TAG,
+  type SalesDemoPortalLinkDto,
   type SalesDemoStatusDto,
 } from '@storageos/shared';
 
+import { CryptoService } from '../../../common/crypto/crypto.service';
 import { AuthService } from '../../auth/auth.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { PortalService } from '../../portal/portal.service';
 import { AdminTenantResetService } from '../admin-tenant-reset.service';
 import { ImpersonationService } from '../impersonation.service';
 import { SuperAdminAuditService } from '../super-admin-audit.service';
@@ -91,6 +95,8 @@ export class SalesDemoService {
     private readonly assignment: SalesAssignmentService,
     private readonly audit: SuperAdminAuditService,
     private readonly notify: SalesNotifyService,
+    private readonly portal: PortalService,
+    private readonly crypto: CryptoService,
   ) {}
 
   private async demoTenantId(): Promise<string | null> {
@@ -105,14 +111,15 @@ export class SalesDemoService {
 
   async status(): Promise<SalesDemoStatusDto> {
     const id = await this.demoTenantId();
-    if (!id) return { available: false, tenantName: null, resetAt: null };
+    if (!id) return { available: false, tenantName: null, tenantSlug: null, resetAt: null };
     const [tenant, s] = await Promise.all([
-      this.admin.tenant.findUnique({ where: { id }, select: { name: true } }),
+      this.admin.tenant.findUnique({ where: { id }, select: { name: true, slug: true } }),
       this.assignment.settings(),
     ]);
     return {
       available: true,
       tenantName: tenant?.name ?? null,
+      tenantSlug: tenant?.slug ?? null,
       resetAt: s.demoResetAt?.toISOString() ?? null,
     };
   }
@@ -296,6 +303,41 @@ export class SalesDemoService {
     });
   }
 
+  /**
+   * Enlace de un solo uso al área de clientes de la inquilina de la demo: el
+   * comercial enseña lo que ven los inquilinos y lo que hacen ahí (un mensaje,
+   * pedir otro trastero…) le llega al negocio de la demo.
+   */
+  async openPortal(superAdminId: string): Promise<SalesDemoPortalLinkDto> {
+    const id = await this.demoTenantId();
+    if (!id)
+      throw new NotFoundException({
+        code: 'demo_not_found',
+        message: 'Aún no hay cuenta de demostración',
+      });
+    const customer = await this.admin.customer.findFirst({
+      where: { tenantId: id, deletedAt: null, tags: { has: DEMO_PORTAL_CUSTOMER_TAG } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    if (!customer)
+      throw new ConflictException({
+        code: 'demo_portal_missing',
+        message: 'La demo aún no tiene inquilino de ejemplo: ponla a cero y vuelve a probar',
+      });
+    const { url } = await this.portal.issueStaffMagicLink(id, customer.id);
+    await this.audit.record({
+      superAdminId,
+      action: 'admin.sales.demo_portal_opened',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+    });
+    return {
+      url,
+      customerName: [customer.firstName, customer.lastName].filter(Boolean).join(' '),
+    };
+  }
+
   // ------------------------------------------------------------ datos de ejemplo
 
   /**
@@ -380,7 +422,13 @@ export class SalesDemoService {
    * facturas y cobros, contactos, tareas, accesos… (`sales-demo-data.ts`).
    */
   private async seedOperational(tenantId: string): Promise<void> {
-    await seedDemoData({ db: this.admin, tenantId, logger: this.logger, occupancy: OCCUPANCY });
+    await seedDemoData({
+      db: this.admin,
+      tenantId,
+      logger: this.logger,
+      occupancy: OCCUPANCY,
+      encryptSecret: (plain) => this.crypto.encryptString(plain, tenantId),
+    });
     this.logger.log(`[sales] demo ${tenantId}: datos de ejemplo creados`);
   }
 }

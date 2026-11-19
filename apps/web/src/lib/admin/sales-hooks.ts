@@ -12,6 +12,7 @@ import type {
   CreatePlatformLeadFollowupInput,
   CreateSalesProspectInput,
   ImpersonationTokenDto,
+  SalesDemoPortalLinkDto,
   LosePlatformLeadInput,
   MovePlatformLeadInput,
   PlatformLeadFollowupDto,
@@ -518,6 +519,13 @@ export function useUpdateSalesMe() {
     mutationFn: (input: UpdateSalesMeInput) =>
       adminApiFetch<SalesRepProfileDto>('/admin/sales/me', { method: 'PATCH', json: input }),
     onSuccess: (me) => qc.setQueryData([...ROOT, 'me'], me),
+  });
+}
+
+export function useOpenSalesDemoPortal() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<SalesDemoPortalLinkDto>('/admin/sales/demo/portal', { method: 'POST' }),
   });
 }
 

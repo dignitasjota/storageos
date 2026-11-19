@@ -37,6 +37,7 @@ import {
   UpsertSalesTargetSchema,
   UpsertSalesTemplateSchema,
   type ImpersonationTokenDto,
+  type SalesDemoPortalLinkDto,
   type PlatformSalesSettingsDto,
   type SalesAccountRepDto,
   type SalesAddonClaimDto,
@@ -448,6 +449,12 @@ export class SalesTeamController {
       ipAddress: req.ip ?? null,
       userAgent: req.headers['user-agent'] ?? null,
     });
+  }
+
+  @Post('demo/portal')
+  @HttpCode(HttpStatus.OK)
+  openDemoPortal(@CurrentSuperAdmin('sub') byId: string): Promise<SalesDemoPortalLinkDto> {
+    return this.demo.openPortal(byId);
   }
 
   // ------------------------------------------------------------ materiales

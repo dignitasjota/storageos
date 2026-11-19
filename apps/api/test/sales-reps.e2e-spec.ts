@@ -880,6 +880,43 @@ describe('Comerciales (e2e)', () => {
       expect(open.status).toBe(200);
       expect(open.body.accessToken).toBeTruthy();
       expect(open.body.readOnly).toBe(false);
+      // El comercial entra al área de clientes como la inquilina de la demo.
+      const status = await http()
+        .get('/admin/sales/demo')
+        .set('Authorization', `Bearer ${repAToken}`);
+      expect(status.body.tenantSlug).toBeTruthy();
+      const portal = await http()
+        .post('/admin/sales/demo/portal')
+        .set('Authorization', `Bearer ${repAToken}`);
+      expect(portal.status).toBe(200);
+      expect(portal.body.customerName).toBe('Laura Martín Sanz');
+      const token = new URL(portal.body.url as string).searchParams.get('token');
+      const session = await http().post('/portal/login/consume').send({ token }).expect(200);
+      const portalAuth = { Authorization: `Bearer ${session.body.accessToken}` };
+      const access = await http().get('/portal/me/access').set(portalAuth);
+      expect(access.status).toBe(200);
+      expect(JSON.stringify(access.body)).toContain('482913');
+      // Lo que escribe le llega al negocio de la demo.
+      await http()
+        .post('/portal/me/messages')
+        .set(portalAuth)
+        .send({ body: 'Hola, quiero un trastero más grande' })
+        .expect(201);
+      expect(
+        await db.customerMessage.count({
+          where: {
+            tenantId: demoId,
+            customerId: session.body.customerId,
+            body: 'Hola, quiero un trastero más grande',
+          },
+        }),
+      ).toBe(1);
+      // El contacto que ve el cliente no es el correo de quien creó la demo.
+      expect((await db.tenant.findUniqueOrThrow({ where: { id: demoId } })).contactEmail).toBe(
+        'hola@example.com',
+      );
+      // Su web pública está publicada.
+      await http().get(`/public/landing/${status.body.tenantSlug}`).expect(200);
       // Las facturas se ven en el panel de la demo.
       const invoices = await http()
         .get('/invoices?status=overdue')

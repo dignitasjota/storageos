@@ -18,6 +18,7 @@ import {
   SalesPage,
   Stat,
 } from '@/components/admin/sales/common';
+import { DemoExtraLinks } from '@/components/admin/sales/demo-links';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,6 +50,7 @@ import {
   useCreateSalesRep,
   useDemoAction,
   useOpenDemoAsAdmin,
+  useOpenDemoPortalAsAdmin,
   useSalesSettings,
   useSalesTeam,
   useSaveSalesSettings,
@@ -277,6 +279,7 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
 function DemoCard({ settings }: { settings: PlatformSalesSettingsDto }) {
   const action = useDemoAction();
   const open = useOpenDemoAsAdmin();
+  const openPortal = useOpenDemoPortalAsAdmin();
   const save = useSaveSalesSettings();
   const demo = settings.demo;
 
@@ -348,6 +351,12 @@ function DemoCard({ settings }: { settings: PlatformSalesSettingsDto }) {
                 Poner a cero ahora
               </Button>
             </div>
+            <DemoExtraLinks
+              size="sm"
+              tenantSlug={demo.tenantSlug}
+              openPortal={() => openPortal.mutateAsync()}
+              portalPending={openPortal.isPending}
+            />
           </>
         ) : (
           <Button size="sm" disabled={action.isPending} onClick={() => void run('create')}>

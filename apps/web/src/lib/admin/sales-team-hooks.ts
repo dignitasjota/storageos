@@ -10,6 +10,7 @@ import type {
   CreateSalesRepInput,
   CreateSalesSettlementInput,
   ImpersonationTokenDto,
+  SalesDemoPortalLinkDto,
   PlatformSalesSettingsDto,
   ReassignSalesPortfolioInput,
   SalesAccountRepDto,
@@ -339,6 +340,13 @@ export function useDemoAction() {
       { method: 'POST' },
     ),
   );
+}
+
+export function useOpenDemoPortalAsAdmin() {
+  return useMutation({
+    mutationFn: () =>
+      adminApiFetch<SalesDemoPortalLinkDto>('/admin/sales-team/demo/portal', { method: 'POST' }),
+  });
 }
 
 export function useOpenDemoAsAdmin() {

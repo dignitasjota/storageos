@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 
+import { DEMO_PORTAL_CUSTOMER_TAG, STAFF_EMAIL_KINDS } from '@storageos/shared';
+
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { Logger } from '@nestjs/common';
 import type { Prisma } from '@storageos/database';
@@ -181,6 +183,8 @@ export interface DemoSeedContext {
   tenantId: string;
   logger: Logger;
   occupancy: number;
+  /** Cifra el PIN para que la inquilina lo vea en su área de clientes. */
+  encryptSecret?: (plain: string) => string;
 }
 
 /** Siembra todo lo de la demo. Cada parte que falla se anota y no para el resto. */
@@ -218,7 +222,14 @@ export async function seedDemoData(ctx: DemoSeedContext): Promise<void> {
       data: {
         transferIban: 'ES9121000418450200051332',
         offlineCashEnabled: true,
+        offlineTransferEnabled: true,
+        // Lo ve el cliente en la web y en el contrato: nunca el correo real
+        // de quien creó la demo.
+        contactEmail: 'hola@example.com',
+        contactPhone: '960 000 000',
         autoIssueRecurring: true,
+        // Los avisos al equipo irían al correo real de quien creó la demo.
+        staffEmailSettings: Object.fromEntries(STAFF_EMAIL_KINDS.map((k) => [k, false])),
       },
     });
   });
@@ -248,6 +259,9 @@ export async function seedDemoData(ctx: DemoSeedContext): Promise<void> {
   await step('valoraciones', () => seedReviews(db, tenantId, contracts));
   await step('mensajes y avisos', () => seedMessages(db, tenantId, ownerId, contracts));
   await step('competencia', () => ensureCompetitors(db, tenantId, facilities));
+  await step('inquilina del área de clientes', () =>
+    seedPortalCustomer(db, tenantId, ownerId, contracts, ctx.encryptSecret),
+  );
 }
 
 // --------------------------------------------------------------- estructura
@@ -1724,4 +1738,108 @@ async function ensureCompetitors(
       });
     }
   }
+}
+
+// --------------------------------------------- inquilina del área de clientes
+
+/** PIN de la inquilina de la demo (lo ve en su área de clientes). */
+const PORTAL_PIN = '482913';
+
+/**
+ * Laura: la inquilina con la que el comercial entra al área de clientes. Paga
+ * por transferencia (la factura de este mes está por pagar), tiene su PIN a la
+ * vista y una conversación con el equipo.
+ */
+async function seedPortalCustomer(
+  db: PrismaAdminService,
+  tenantId: string,
+  ownerId: string | null,
+  contracts: SeededContract[],
+  encryptSecret: ((plain: string) => string) | undefined,
+): Promise<void> {
+  const candidates = contracts.filter((c) => c.status === 'active' && c.profile === 'good');
+  const c =
+    candidates.find((x) => x.method === 'bank_transfer' && x.insurance) ??
+    candidates.find((x) => x.method === 'bank_transfer' || x.method === 'cash') ??
+    candidates[0];
+  if (!c) return;
+  const name = 'Laura Martín Sanz';
+  await db.customer.update({
+    where: { id: c.customerId },
+    data: {
+      customerType: 'individual',
+      firstName: 'Laura',
+      lastName: 'Martín Sanz',
+      companyName: null,
+      documentType: 'dni',
+      email: 'laura.martin@example.com',
+      phone: '612345678',
+      address: 'Calle de Cuba, 24, 3.º B',
+      kycVerified: true,
+      tags: [DEMO_PORTAL_CUSTOMER_TAG],
+    },
+  });
+  await db.invoice.updateMany({
+    where: { tenantId, customerId: c.customerId },
+    data: { customerNameSnapshot: name },
+  });
+  // Este mes está por pagar (paga por transferencia).
+  const today = dateOnly(new Date());
+  await db.invoice.updateMany({
+    where: {
+      tenantId,
+      customerId: c.customerId,
+      kind: 'invoice',
+      issueDate: { gte: monthStart(today.getUTCFullYear(), today.getUTCMonth()) },
+      status: 'issued',
+    },
+    data: { dueDate: monthEnd(today.getUTCFullYear(), today.getUTCMonth()) },
+  });
+  if (encryptSecret) {
+    await db.accessCredential.updateMany({
+      where: { tenantId, customerId: c.customerId, method: 'pin' },
+      data: {
+        status: 'active',
+        suspendedAt: null,
+        suspendReason: null,
+        secretEncrypted: encryptSecret(PORTAL_PIN),
+        secretPreview: `••${PORTAL_PIN.slice(-2)}`,
+      },
+    });
+  }
+  const at = (days: number, hour: number) => {
+    const d = addDays(new Date(), -days);
+    d.setUTCHours(hour, 0, 0, 0);
+    return d;
+  };
+  await db.customerMessage.createMany({
+    data: [
+      {
+        tenantId,
+        customerId: c.customerId,
+        senderType: 'staff',
+        senderUserId: ownerId,
+        body: '¡Bienvenida, Laura! Cualquier cosa que necesites, escríbenos por aquí.',
+        createdAt: at(20, 9),
+        readAt: at(20, 12),
+      },
+      {
+        tenantId,
+        customerId: c.customerId,
+        senderType: 'customer',
+        body: 'Gracias. ¿Puedo dejar la bici dentro del trastero?',
+        createdAt: at(19, 18),
+        readAt: at(19, 19),
+      },
+      {
+        tenantId,
+        customerId: c.customerId,
+        senderType: 'staff',
+        senderUserId: ownerId,
+        body: 'Sí, sin problema. Solo te pedimos que no guardes combustible ni baterías.',
+        createdAt: at(19, 19),
+        readAt: at(18, 8),
+      },
+    ],
+  });
 }

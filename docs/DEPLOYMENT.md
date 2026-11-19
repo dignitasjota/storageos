@@ -2827,3 +2827,14 @@ Sin migración ni variables nuevas. El reinicio de cada noche (y «Reiniciar» e
 **La cuenta de demostración nunca envía correos ni WhatsApp**: `CommunicationsService.dispatch` deja `skipped` cualquier envío de ese tenant («Cuenta de demostración: no se envía»).
 
 Tras desplegar, **pulsar «Reiniciar» en Equipo comercial → Demo** para ver los datos sin esperar a la noche.
+
+## 166. Demo: área de clientes y web pública (2026-11-19)
+
+Sin migración ni variables nuevas. Además de «Abrir la demo» (el panel del negocio), el comercial (Mi enlace y QR → Cuenta de demostración) y la dirección (Equipo comercial → Cuenta de demostración) tienen:
+
+- **Área de clientes**: entra como Laura Martín, una inquilina de la demo (contrato con seguro, la factura de este mes por pagar, su PIN a la vista y una conversación con el equipo). Lo que haga (un mensaje, pedir otro trastero, una incidencia) le llega al negocio de la demo. Es un enlace de un solo uso (`POST /admin/sales/demo/portal`, auditado `admin.sales.demo_portal_opened`).
+- **Web pública**: `/s/<slug de la demo>`. Desde ahí se reserva como un cliente nuevo (pago por transferencia o en el local) y la reserva sale en el panel (contrato por firmar, trastero reservado y aviso).
+
+La demo tiene los avisos por correo al equipo apagados y un contacto de ejemplo (`hola@example.com`): antes salía el correo real de quien la creó en la web y en el contrato que firma el cliente.
+
+Tras desplegar, **poner la demo a cero** para que aparezca la inquilina.
