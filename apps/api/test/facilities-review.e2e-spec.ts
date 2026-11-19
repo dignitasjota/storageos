@@ -450,6 +450,12 @@ describe('Revisión de Locales (e2e)', () => {
   it('las cifras cuadran con el Resumen y el dinero se oculta sin permiso', async () => {
     const s = await setup('fac-money', 3);
     const token = s.owner.accessToken;
+    // Sin el «primer pago al entrar a final de mes»: según el día en que se pase
+    // la prueba, la primera factura incluiría también el mes siguiente.
+    await db.tenant.update({
+      where: { slug: s.owner.slug },
+      data: { firstPaymentNextMonthFromDay: null },
+    });
     await ensureDefaultSeries(app, token);
     const real = await signed(s.auth, token, s.unitIds[0]!);
 

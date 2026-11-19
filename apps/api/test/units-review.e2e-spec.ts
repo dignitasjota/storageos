@@ -296,6 +296,13 @@ describe('Revisión de Trasteros (e2e)', () => {
 
   it('el historial sigue al trastero tras un traslado', async () => {
     const s = await setup('urv-tenancy', 2);
+    // Sin el «primer pago al entrar a final de mes»: con el alta hace 30 días
+    // (un día 20 o más) la primera factura cubriría también este mes y caería
+    // en el trastero de destino según la fecha en que se pase la prueba.
+    await db.tenant.update({
+      where: { id: s.tenantId },
+      data: { firstPaymentNextMonthFromDay: null },
+    });
     await ensureDefaultSeries(app, s.owner.accessToken);
     const [origin, target] = s.unitIds as [string, string];
     const c = await signed(s.auth, s.owner.accessToken, origin);
