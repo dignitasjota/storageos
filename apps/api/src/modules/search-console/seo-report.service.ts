@@ -141,7 +141,11 @@ export class SeoReportService {
     opts: { toUserId?: string } = {},
   ): Promise<{ recipients: number; month: string }> {
     const connection = await this.prisma.withTenant(
-      (tx) => tx.tenantSearchConsole.findUnique({ where: { tenantId }, select: { id: true } }),
+      (tx) =>
+        tx.tenantSearchConsole.findUnique({
+          where: { tenantId },
+          select: { id: true, reportRecipientIds: true },
+        }),
       tenantId,
     );
     if (!connection) {
@@ -166,7 +170,12 @@ export class SeoReportService {
             tenantId,
             isActive: true,
             emailVerifiedAt: { not: null },
-            ...(opts.toUserId ? { id: opts.toUserId } : { role: 'owner' }),
+            // A quien lo pide; si no, a las personas elegidas o a los propietarios.
+            ...(opts.toUserId
+              ? { id: opts.toUserId }
+              : connection.reportRecipientIds.length > 0
+                ? { id: { in: connection.reportRecipientIds } }
+                : { role: 'owner' }),
           },
           select: { email: true },
         });

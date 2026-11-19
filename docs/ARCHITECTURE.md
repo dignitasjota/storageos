@@ -580,3 +580,33 @@ Las direcciones «bonitas» (`/reservar/<centro>`, `/precios`, `/contacto`, `/<l
 - **Comisiones** (`sales.hourly`): cada cobro se reparte entre plan y extras por sus líneas (`commission-split.ts`), sin IVA y menos lo devuelto; solo cuentan los extras de la venta o aprobados por la dirección; las devoluciones posteriores restan.
 - **Propuestas con seguimiento**: el enlace del correo pasa por `/v1/public/offers/:id/open` con firma HMAC, anota la apertura y avisa; caducan a los 15 días.
 - **Correo con el nombre del comercial**: `EmailService` admite `fromName` y `replyTo` para sus propuestas y, si la dirección lo deja activado, los correos automáticos de sus clientes.
+
+## Equipo comercial: revisión, funcionalidades y citas (2026-11-17/18, #970–#972, #976–#978)
+
+- **Comisión congelada por cobro**: la primera partida de cada cobro guarda el reparto entre plan y extras (`split`); los recálculos solo lo escalan por lo devuelto, así que cambiar los extras después no toca cobros anteriores.
+- **Ventas** (`sales_wins`): el primer pago de cada cliente de comercial; cuentan para objetivos, tramos y bonus, y desaparecen si se devuelve todo.
+- **Leads del admin**: asignar un lead a un comercial desde el panel admin pasa por `SalesAssignmentService.assign` (cartera, historial y aviso), igual que los de la web.
+- **Citas** (`sales.appointments`, cada 5 min en el API): recordatorios del día antes y una hora antes, reservados fila a fila con `updateMany`.
+
+## Planes por trastero y prueba (2026-11-18, #973–#975)
+
+- **Trasteros de más** como extra interno (`is_system`): se cuentan justo antes de cada cobro (remesa SEPA, Redsys, Stripe sin prorrateo) y van siempre con la cuota, sin tocar el MRR ni los cargos sueltos.
+- **Solo lectura** (`TenantStatusGuard`, 403 `subscription_expired_read_only`): al acabar la prueba o el plan gratis sin pagar. Inquilinos, web pública y cobros siguen funcionando; a los 30 días se suspende.
+- **Precio a medida**: al llegar al tope de Pro o Administrador, `PlanLimitsService.flagCustomPricing` crea un seguimiento y un aviso, una vez mientras siga pendiente.
+
+## Primer pago en un solo cobro (2026-11-18, #979)
+
+- La factura del primer pago y su fianza se cobran juntas en todas las vías (enlace de la firma, área de clientes, Redsys, transferencia, recordatorios y «Registrar cobro» con «Incluye la fianza»): un solo «Pago recibido» con el total.
+
+## Analítica (2026-11-19, #980–#981)
+
+- **Una definición por cifra**: `AnalyticsScope` lleva el emisor (`?ownerId=`, propietarios aparte como en Fiscalidad) y deja fuera los locales por abrir; `monthlyFee` es la cuota con descuento y prepago; el cobrado no cuenta la fianza aplicada.
+- **Dinero con permisos**: las cifras de dinero exigen `invoices:read` y `payments:read`; sin ellos salen a `null`.
+- **`AnalyticsExtrasService`**: resumen del mes, deuda por inquilino y local, cartera por debajo del precio, rendimiento por tipo, cuotas que entran y salen, escenarios de la previsión e informe «Resumen del mes» en PDF.
+
+## Mercado (2026-11-19, #982–#983)
+
+- **Precio comparable único** (`competitorComparablePrice` en `pricing-engine.ts`): lo que paga de media un cliente de la competencia el primer año, sin IVA, con su seguro, alta y la promoción solo mientras dure. Lo usan la sugerencia de precio, los avisos, la ficha de cada trastero y «Tu precio frente al mercado».
+- **Ocupación de la competencia** solo con inventarios completos y comprobados en 180 días; la del total conocido sale aparte como estimada.
+- **Search Console**: se guardan los totales de cada día y por dispositivo además de las búsquedas, para cuadrar con el panel de Google y comparar con el año pasado. Un fallo pasajero de Google no cambia el estado a «sin acceso»; la descarga diaria repasa desde la última buena.
+- **IA para leer tarifas** (`CompetitorsMarketService.aiParse`): propone, nunca guarda; el usuario revisa y aplica.

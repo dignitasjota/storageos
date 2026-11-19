@@ -542,10 +542,24 @@ export interface CompetitionPriceDropDto {
 }
 
 export interface CompetitionAlertsDto {
-  /** Competidores sin revisar en más de 30 días (o nunca). */
+  /** Competidores que toca revisar (su plazo, 30 días por defecto) o nunca comprobados. */
   stale: { id: string; name: string; lastReviewedAt: string | null }[];
   /** Bajadas de precio de los últimos 30 días en tamaños donde eres más caro. */
   priceDrops: CompetitionPriceDropDto[];
+  /** Subidas de los últimos 30 días en tamaños donde eres más barato: margen para subir. */
+  priceRises: CompetitionPriceDropDto[];
+  /**
+   * Competidores con el inventario completo sin ningún trastero libre de un
+   * tamaño parecido a uno tuyo que sí tienes libre.
+   */
+  soldOut: {
+    competitorFacilityId: string;
+    competitorName: string;
+    /** Tu tipo de trastero con libres. */
+    unitTypeName: string;
+    areaM2: number;
+    myAvailable: number;
+  }[];
 }
 
 // ---------------------------------------------------------------------------

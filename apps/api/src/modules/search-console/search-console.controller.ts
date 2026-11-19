@@ -1,9 +1,15 @@
 import {
   BadGatewayException,
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -11,6 +17,11 @@ import {
 import {
   ConnectSearchConsoleSchema,
   SeoMonthlyReportToggleSchema,
+  CreateTrackedKeywordSchema,
+  UpdateSeoSettingsSchema,
+  type SeoDetailDto,
+  type SeoGoogleFunnelDto,
+  type TrackedKeywordDto,
   type SearchConsoleSettingsDto,
   type SeoMonthlyReportDto,
   type SeoPositionsDto,
@@ -29,6 +40,8 @@ import { SeoReportService } from './seo-report.service';
 
 class ConnectSearchConsoleDto extends createZodDto(ConnectSearchConsoleSchema) {}
 class ToggleReportDto extends createZodDto(SeoMonthlyReportToggleSchema) {}
+class UpdateSeoSettingsDto extends createZodDto(UpdateSeoSettingsSchema) {}
+class CreateTrackedKeywordDto extends createZodDto(CreateTrackedKeywordSchema) {}
 
 /** Posiciones en Google con Search Console. Extra «SEO local». */
 @RequireFeature('local_seo')
@@ -112,5 +125,73 @@ export class SearchConsoleController {
   ): Promise<SearchConsoleSettingsDto> {
     await this.report.setMonthlyReport(user.tenantId, body.enabled);
     return this.gsc.settings(user.tenantId);
+  }
+
+  /** Palabras de la marca y quién recibe el informe mensual. */
+  @RequirePermission('settings:manage')
+  @Patch('search-console/settings')
+  updateSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: UpdateSeoSettingsDto,
+  ): Promise<SearchConsoleSettingsDto> {
+    return this.gsc.updateSettings(user.tenantId, body);
+  }
+
+  @RequirePermission('analytics:read')
+  @Get('keywords')
+  keywords(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('days') days?: string,
+  ): Promise<TrackedKeywordDto[]> {
+    return this.gsc.listKeywords(user.tenantId, Number(days) || 28);
+  }
+
+  @RequirePermission('settings:manage')
+  @Post('keywords')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async addKeyword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateTrackedKeywordDto,
+  ): Promise<void> {
+    await this.gsc.addKeyword(user.tenantId, body);
+  }
+
+  @RequirePermission('settings:manage')
+  @Delete('keywords/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeKeyword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    await this.gsc.removeKeyword(user.tenantId, id);
+  }
+
+  /** Una búsqueda (`?query=`) o una página (`?page=`) día a día. */
+  @RequirePermission('analytics:read')
+  @Get('detail')
+  detail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('query') query?: string,
+    @Query('page') page?: string,
+    @Query('days') days?: string,
+  ): Promise<SeoDetailDto> {
+    const key = (query ?? page ?? '').slice(0, 1000);
+    if (!key) {
+      throw new BadRequestException({
+        code: 'detail_required',
+        message: 'Indica la búsqueda o la página',
+      });
+    }
+    return this.gsc.detail(user.tenantId, query ? 'query' : 'page', key, Number(days) || 28);
+  }
+
+  /** De Google a reservas en el periodo. */
+  @RequirePermission('analytics:read')
+  @Get('google-funnel')
+  googleFunnel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('days') days?: string,
+  ): Promise<SeoGoogleFunnelDto> {
+    return this.gsc.googleFunnel(user.tenantId, Number(days) || 28);
   }
 }

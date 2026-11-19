@@ -3,6 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch } from '../auth/api';
 
 import type {
+  BulkCreateCompetitorUnitsInput,
+  CompetitorAiParseResultDto,
+  CompetitorPromotionDto,
+  CompetitorTrendDto,
+  CompetitorUnitExportRowDto,
+  MarketPriceMapDto,
   CompetitorFacilityDto,
   CompetitorUnitDto,
   CompetitorUnitObservationDto,
@@ -144,4 +150,59 @@ export function useCompetitorUnitHistory(unitId: string | null) {
     queryFn: () => apiFetch<CompetitorUnitObservationDto[]>(`/competitors/units/${unitId}/history`),
     enabled: !!unitId,
   });
+}
+
+// --- Mejoras (2026-11-19) ---
+
+/** Tu precio frente al del mercado por tipo de trastero. */
+export function useMarketPriceMap(facilityId?: string | null) {
+  return useQuery({
+    queryKey: ['competitors', 'price-map', facilityId ?? null] as const,
+    queryFn: () => apiFetch<MarketPriceMapDto>(withFacility('/competitors/price-map', facilityId)),
+  });
+}
+
+export function useCompetitorTrend(id: string | null) {
+  return useQuery({
+    queryKey: ['competitors', id, 'trend'] as const,
+    queryFn: () => apiFetch<CompetitorTrendDto>(`/competitors/${id}/trend`),
+    enabled: !!id,
+  });
+}
+
+export function useCompetitorPromotions(id: string | null) {
+  return useQuery({
+    queryKey: ['competitors', id, 'promotions'] as const,
+    queryFn: () => apiFetch<CompetitorPromotionDto[]>(`/competitors/${id}/promotions`),
+    enabled: !!id,
+  });
+}
+
+export function useBulkCreateCompetitorUnits(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: BulkCreateCompetitorUnitsInput) =>
+      apiFetch<CompetitorUnitDto[]>(`/competitors/${id}/units/bulk`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: (data) => {
+      qc.setQueryData(unitsKey(id), data);
+      invalidateMarket(qc);
+    },
+  });
+}
+
+export function useCompetitorAiParse(id: string) {
+  return useMutation({
+    mutationFn: (text: string) =>
+      apiFetch<CompetitorAiParseResultDto>(`/competitors/${id}/ai-parse`, {
+        method: 'POST',
+        json: { text },
+      }),
+  });
+}
+
+export function fetchCompetitorExport(facilityId?: string | null) {
+  return apiFetch<CompetitorUnitExportRowDto[]>(withFacility('/competitors/export', facilityId));
 }

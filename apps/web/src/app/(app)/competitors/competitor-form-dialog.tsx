@@ -13,6 +13,7 @@ import {
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -52,6 +53,8 @@ interface FormState {
   promoFreeMonths: string;
   promoDiscountPct: string;
   promoDiscountMonths: string;
+  promoEndsAt: string;
+  reviewEveryDays: string;
   depositAmount: string;
   setupFee: string;
   mandatoryInsuranceMonthly: string;
@@ -76,6 +79,8 @@ const empty: FormState = {
   promoFreeMonths: '',
   promoDiscountPct: '',
   promoDiscountMonths: '',
+  promoEndsAt: '',
+  reviewEveryDays: '',
   depositAmount: '',
   setupFee: '',
   mandatoryInsuranceMonthly: '',
@@ -104,6 +109,8 @@ function fromDto(f: CompetitorFacilityDto): FormState {
     promoFreeMonths: str(f.promoFreeMonths),
     promoDiscountPct: str(f.promoDiscountPct),
     promoDiscountMonths: str(f.promoDiscountMonths),
+    promoEndsAt: f.promoEndsAt ?? '',
+    reviewEveryDays: str(f.reviewEveryDays),
     depositAmount: str(f.depositAmount),
     setupFee: str(f.setupFee),
     mandatoryInsuranceMonthly: str(f.mandatoryInsuranceMonthly),
@@ -146,6 +153,7 @@ export function CompetitorFormDialog({
       ['promoFreeMonths', 'Meses gratis'],
       ['promoDiscountPct', 'Descuento'],
       ['promoDiscountMonths', 'Meses de descuento'],
+      ['reviewEveryDays', 'Revisar cada'],
       ['depositAmount', 'Fianza'],
       ['setupFee', 'Alta'],
       ['mandatoryInsuranceMonthly', 'Seguro obligatorio'],
@@ -176,6 +184,8 @@ export function CompetitorFormDialog({
       promoFreeMonths: toNum(form.promoFreeMonths),
       promoDiscountPct: toNum(form.promoDiscountPct),
       promoDiscountMonths: toNum(form.promoDiscountMonths),
+      promoEndsAt: form.promoEndsAt || null,
+      reviewEveryDays: toNum(form.reviewEveryDays),
       depositAmount: toNum(form.depositAmount),
       setupFee: toNum(form.setupFee),
       mandatoryInsuranceMonthly: toNum(form.mandatoryInsuranceMonthly),
@@ -396,11 +406,38 @@ export function CompetitorFormDialog({
                 />
               </Field>
             </div>
+            <Field label="La promoción termina el (opcional)">
+              <div className="flex flex-wrap items-center gap-2">
+                <DateSelect
+                  value={form.promoEndsAt || undefined}
+                  onChange={(v) => set({ promoEndsAt: v ?? '' })}
+                  around
+                />
+                {form.promoEndsAt && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => set({ promoEndsAt: '' })}
+                  >
+                    Quitar fecha
+                  </Button>
+                )}
+              </div>
+            </Field>
             <p className="text-xs text-muted-foreground">
               El precio que se compara es lo que paga de media un cliente el primer año: con el alta
-              y el seguro obligatorio, y descontando la promoción (la fianza no cuenta, se
-              devuelve).
+              y el seguro obligatorio, y descontando la promoción hasta que termine (la fianza no
+              cuenta, se devuelve). Cada cambio de promoción queda en su histórico.
             </p>
+            <Field label="Revisar cada (días)">
+              <Input
+                inputMode="numeric"
+                value={form.reviewEveryDays}
+                onChange={(e) => set({ reviewEveryDays: e.target.value })}
+                placeholder="30"
+              />
+            </Field>
           </Section>
 
           <Section title="Características">

@@ -3,11 +3,18 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
 import { resolveAnalyticsScope } from '../analytics/analytics-scope';
 import { unitCounts } from '../analytics/business-metrics';
+import {
+  competitorComparablePrice,
+  competitorPromoActive,
+  type CompetitorCosts,
+} from '../analytics/pricing-engine';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
 import type {
+  BulkCreateCompetitorUnitsInput,
+  CompetitorPromotionDto,
   CompetitorContactMethod,
   CompetitorFacilityDto,
   CompetitorFeature,
@@ -27,6 +34,46 @@ const num = (d: { toString(): string }): number => Number(d.toString());
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 const cleanText = (v: string | null | undefined): string | null =>
   v && v.trim() ? v.trim() : null;
+
+/** Campos de la promoción de un competidor. */
+interface PromoFields {
+  currentPromotion: string | null;
+  promoFreeMonths: number | null;
+  promoDiscountPct: number | null;
+  promoDiscountMonths: number | null;
+  promoEndsAt: Date | null;
+}
+
+function hasPromo(p: PromoFields): boolean {
+  return (
+    Boolean(p.currentPromotion) ||
+    (p.promoFreeMonths ?? 0) > 0 ||
+    ((p.promoDiscountPct ?? 0) > 0 && (p.promoDiscountMonths ?? 0) > 0)
+  );
+}
+
+function samePromo(a: PromoFields, b: PromoFields): boolean {
+  return (
+    (a.currentPromotion ?? null) === (b.currentPromotion ?? null) &&
+    (a.promoFreeMonths ?? null) === (b.promoFreeMonths ?? null) &&
+    (a.promoDiscountPct ?? null) === (b.promoDiscountPct ?? null) &&
+    (a.promoDiscountMonths ?? null) === (b.promoDiscountMonths ?? null) &&
+    (a.promoEndsAt?.getTime() ?? null) === (b.promoEndsAt?.getTime() ?? null)
+  );
+}
+
+/** Precio comparable y por m² de un trastero de la competencia. */
+export function comparableOf(
+  costs: CompetitorCosts,
+  price: number,
+  areaM2: number,
+): { comparablePrice: number; comparablePerM2: number } {
+  const comparable = competitorComparablePrice(costs, price);
+  return {
+    comparablePrice: round2(comparable),
+    comparablePerM2: areaM2 > 0 ? round2(comparable / areaM2) : 0,
+  };
+}
 
 /** Una ocupación de la competencia más antigua no cuenta (como en el precio). */
 const FRESH_DAYS = 180;
@@ -103,9 +150,13 @@ export class CompetitorsService {
     );
     return rows.map((r) => {
       const checked = lastChecked(r.lastReviewedAt, r.units);
+      const every = r.reviewEveryDays ?? 30;
       return {
         ...this.facilityToDto(r),
         lastReviewedAt: checked?.toISOString() ?? null,
+        nextReviewOn: checked
+          ? new Date(checked.getTime() + every * 86_400_000).toISOString().slice(0, 10)
+          : null,
         facilityName: r.facility?.name ?? null,
         unitCount: r._count.units,
         availableCount: r.units.filter((u) => u.status === 'available').length,
@@ -218,6 +269,7 @@ export class CompetitorsService {
         }),
       tenantId,
     );
+    await this.syncPromotion(tenantId, created, null);
     await this.log(tenantId, actor, 'competitor.created', 'CompetitorFacility', created.id, {
       name: created.name,
     });
@@ -249,6 +301,7 @@ export class CompetitorsService {
         }),
       tenantId,
     );
+    await this.syncPromotion(tenantId, updated, existing);
     await this.log(tenantId, actor, 'competitor.updated', 'CompetitorFacility', id, {
       fields: Object.keys(input),
     });
@@ -277,7 +330,7 @@ export class CompetitorsService {
     competitorFacilityId: string,
     facilityScope?: FacilityScope,
   ): Promise<CompetitorUnitDto[]> {
-    await this.findFacilityOrThrow(tenantId, competitorFacilityId, facilityScope);
+    const costs = await this.findFacilityOrThrow(tenantId, competitorFacilityId, facilityScope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.competitorUnit.findMany({
@@ -287,7 +340,7 @@ export class CompetitorsService {
         }),
       tenantId,
     );
-    return rows.map((r) => this.unitToDto(r, r.observations));
+    return rows.map((r) => this.unitToDto(costs, r, r.observations));
   }
 
   async createUnit(
@@ -296,7 +349,11 @@ export class CompetitorsService {
     input: CreateCompetitorUnitInput,
     actor: CompetitorActor = { userId: null },
   ): Promise<CompetitorUnitDto> {
-    await this.findFacilityOrThrow(tenantId, competitorFacilityId, actor.facilityScope);
+    const costs = await this.findFacilityOrThrow(
+      tenantId,
+      competitorFacilityId,
+      actor.facilityScope,
+    );
     // Si hay ancho y fondo, el área se calcula; si no, se usa la indicada (el
     // refine del schema garantiza que llega una de las dos).
     const areaM2 =
@@ -331,7 +388,7 @@ export class CompetitorsService {
       areaM2,
       priceMonthly: input.priceMonthly,
     });
-    return this.unitToDto(created, created.observations);
+    return this.unitToDto(costs, created, created.observations);
   }
 
   async updateUnit(
@@ -350,7 +407,18 @@ export class CompetitorsService {
             depthM: true,
             priceMonthly: true,
             status: true,
-            competitorFacility: { select: { facilityId: true } },
+            competitorFacility: {
+              select: {
+                facilityId: true,
+                priceIncludesVat: true,
+                mandatoryInsuranceMonthly: true,
+                setupFee: true,
+                promoFreeMonths: true,
+                promoDiscountPct: true,
+                promoDiscountMonths: true,
+                promoEndsAt: true,
+              },
+            },
           },
         }),
       tenantId,
@@ -420,7 +488,7 @@ export class CompetitorsService {
       fields: Object.keys(input),
       ...(observed ? { priceMonthly: nextPrice, status: nextStatus } : {}),
     });
-    return this.unitToDto(updated, updated.observations);
+    return this.unitToDto(existing.competitorFacility, updated, updated.observations);
   }
 
   async removeUnit(
@@ -537,6 +605,110 @@ export class CompetitorsService {
     }));
   }
 
+  /** Alta de varios trasteros de una vez (pegados de una tabla). */
+  async bulkCreateUnits(
+    tenantId: string,
+    competitorFacilityId: string,
+    input: BulkCreateCompetitorUnitsInput,
+    actor: CompetitorActor = { userId: null },
+  ): Promise<CompetitorUnitDto[]> {
+    await this.findFacilityOrThrow(tenantId, competitorFacilityId, actor.facilityScope);
+    const now = new Date();
+    await this.prisma.withTenant(async (tx) => {
+      for (const u of input.units) {
+        const areaM2 =
+          u.widthM != null && u.depthM != null ? round2(u.widthM * u.depthM) : (u.areaM2 as number);
+        await tx.competitorUnit.create({
+          data: {
+            tenantId,
+            competitorFacilityId,
+            areaM2,
+            widthM: u.widthM ?? null,
+            depthM: u.depthM ?? null,
+            heightM: u.heightM ?? null,
+            priceMonthly: u.priceMonthly,
+            status: u.status,
+            notes: cleanText(u.notes),
+            externalRef: cleanText(u.externalRef),
+            lastCheckedAt: now,
+            observations: {
+              create: { tenantId, observedAt: now, priceMonthly: u.priceMonthly, status: u.status },
+            },
+          },
+        });
+      }
+    }, tenantId);
+    await this.log(
+      tenantId,
+      actor,
+      'competitor.units_imported',
+      'CompetitorFacility',
+      competitorFacilityId,
+      {
+        units: input.units.length,
+      },
+    );
+    return this.listUnits(tenantId, competitorFacilityId, actor.facilityScope);
+  }
+
+  /** Histórico de sus promociones (la vigente primero). */
+  async listPromotions(
+    tenantId: string,
+    competitorFacilityId: string,
+    facilityScope?: FacilityScope,
+  ): Promise<CompetitorPromotionDto[]> {
+    await this.findFacilityOrThrow(tenantId, competitorFacilityId, facilityScope);
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.competitorPromotion.findMany({
+          where: { competitorFacilityId },
+          orderBy: { startedAt: 'desc' },
+        }),
+      tenantId,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      description: r.description,
+      freeMonths: r.freeMonths,
+      discountPct: r.discountPct,
+      discountMonths: r.discountMonths,
+      endsAt: r.endsAt ? r.endsAt.toISOString().slice(0, 10) : null,
+      startedAt: r.startedAt.toISOString(),
+      endedAt: r.endedAt?.toISOString() ?? null,
+    }));
+  }
+
+  /**
+   * Si su promoción cambia, la anterior queda cerrada en el histórico y la
+   * nueva empieza hoy (si tiene algo).
+   */
+  private async syncPromotion(
+    tenantId: string,
+    next: PromoFields & { id: string },
+    previous: PromoFields | null,
+  ): Promise<void> {
+    if (previous && samePromo(previous, next)) return;
+    await this.prisma.withTenant(async (tx) => {
+      await tx.competitorPromotion.updateMany({
+        where: { competitorFacilityId: next.id, endedAt: null },
+        data: { endedAt: new Date() },
+      });
+      if (hasPromo(next)) {
+        await tx.competitorPromotion.create({
+          data: {
+            tenantId,
+            competitorFacilityId: next.id,
+            description: next.currentPromotion,
+            freeMonths: next.promoFreeMonths,
+            discountPct: next.promoDiscountPct,
+            discountMonths: next.promoDiscountMonths,
+            endsAt: next.promoEndsAt,
+          },
+        });
+      }
+    }, tenantId);
+  }
+
   // ---- helpers ----
 
   /** Un competidor ligado a un local que el usuario no ve, no existe para él. */
@@ -592,12 +764,23 @@ export class CompetitorsService {
     tenantId: string,
     id: string,
     facilityScope?: FacilityScope,
-  ): Promise<{ id: string; inventoryComplete: boolean }> {
+  ): Promise<PromoFields & CompetitorCosts & { id: string; inventoryComplete: boolean }> {
     const found = await this.prisma.withTenant(
       (tx) =>
         tx.competitorFacility.findFirst({
           where: { id, tenantId, ...competitorWhere(facilityScope) },
-          select: { id: true, inventoryComplete: true },
+          select: {
+            id: true,
+            inventoryComplete: true,
+            currentPromotion: true,
+            promoFreeMonths: true,
+            promoDiscountPct: true,
+            promoDiscountMonths: true,
+            promoEndsAt: true,
+            priceIncludesVat: true,
+            mandatoryInsuranceMonthly: true,
+            setupFee: true,
+          },
         }),
       tenantId,
     );
@@ -634,6 +817,10 @@ export class CompetitorsService {
     if (input.mandatoryInsuranceMonthly !== undefined)
       data.mandatoryInsuranceMonthly = input.mandatoryInsuranceMonthly;
     if (input.features !== undefined) data.features = [...new Set(input.features)];
+    if (input.reviewEveryDays !== undefined) data.reviewEveryDays = input.reviewEveryDays;
+    if (input.promoEndsAt !== undefined) {
+      data.promoEndsAt = input.promoEndsAt ? new Date(`${input.promoEndsAt}T00:00:00Z`) : null;
+    }
     if (input.inventoryComplete !== undefined) {
       data.inventoryComplete = input.inventoryComplete;
       // La fecha marca cuándo se dio por completo (se conserva si ya lo estaba).
@@ -671,6 +858,8 @@ export class CompetitorsService {
     mandatoryInsuranceMonthly: { toString(): string } | null;
     features: string[];
     lastReviewedAt: Date | null;
+    reviewEveryDays: number | null;
+    promoEndsAt: Date | null;
     createdAt: Date;
   }): CompetitorFacilityDto {
     const opt = (d: { toString(): string } | null) => (d != null ? num(d) : null);
@@ -699,6 +888,10 @@ export class CompetitorsService {
       setupFee: opt(r.setupFee),
       mandatoryInsuranceMonthly: opt(r.mandatoryInsuranceMonthly),
       features: r.features as CompetitorFeature[],
+      reviewEveryDays: r.reviewEveryDays,
+      promoEndsAt: r.promoEndsAt ? r.promoEndsAt.toISOString().slice(0, 10) : null,
+      promotionActive: hasPromo(r) && competitorPromoActive(r),
+      nextReviewOn: null,
       lastReviewedAt: r.lastReviewedAt?.toISOString() ?? null,
       unitCount: 0,
       availableCount: 0,
@@ -707,6 +900,7 @@ export class CompetitorsService {
   }
 
   private unitToDto(
+    costs: CompetitorCosts,
     r: {
       id: string;
       competitorFacilityId: string;
@@ -735,6 +929,7 @@ export class CompetitorsService {
       notes: r.notes,
       externalRef: r.externalRef,
       history: summarizeObservations(observations),
+      ...comparableOf(costs, num(r.priceMonthly), num(r.areaM2)),
     };
   }
 }

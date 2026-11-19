@@ -10,8 +10,22 @@ import {
   RefreshCw,
   TriangleAlert,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
+
+import {
+  BrandDevicesCards,
+  GoogleFunnelCard,
+  LowCtrCard,
+  QueriesCard,
+  ReportRecipients,
+  SeoDetailDialog,
+  TrackedKeywordsCard,
+  WeeklyCard,
+  YearAgoLine,
+  type SeoTarget,
+} from './seo-panels';
 
 import type { SeoTotalsDto } from '@storageos/shared';
 
@@ -412,7 +426,7 @@ function MonthlyReportCard() {
                   })
                 }
               />
-              Enviar este informe cada mes (día 3) a los propietarios
+              Enviar este informe cada mes (día 3)
             </label>
           </Can>
           <Button
@@ -439,6 +453,7 @@ function MonthlyReportCard() {
             )}
             Enviármelo ahora
           </Button>
+          <ReportRecipients />
         </div>
       </CardContent>
     </Card>
@@ -452,7 +467,7 @@ export default function SeoPage() {
   // descarga haya fallado.
   const hasSite = Boolean(settings.data?.siteUrl);
   const [days, setDays] = useState(28);
-  const [allQueries, setAllQueries] = useState(false);
+  const [target, setTarget] = useState<SeoTarget | null>(null);
   const positions = useSeoPositions(days, hasSite);
   const d = positions.data;
   const areaPages = d?.pages.filter((p) => p.areaSlug) ?? [];
@@ -510,6 +525,8 @@ export default function SeoPage() {
           )}
 
           <Kpis now={d.totals} before={d.previousTotals} comparable={d.previousComplete} />
+          <YearAgoLine d={d} />
+          <WeeklyCard d={d} />
 
           {connected && <MonthlyReportCard />}
 
@@ -545,7 +562,13 @@ export default function SeoPage() {
                 <ul className="divide-y text-sm">
                   {d.opportunities.map((q) => (
                     <li key={q.query} className="flex items-center justify-between gap-3 py-2">
-                      <span className="truncate">{q.query}</span>
+                      <button
+                        type="button"
+                        className="truncate text-left hover:underline"
+                        onClick={() => setTarget({ kind: 'query', key: q.query, label: q.query })}
+                      >
+                        {q.query}
+                      </button>
                       <span className="shrink-0 text-muted-foreground">
                         posición {fmtPos(q.position)} · {nf.format(q.impressions)} apariciones
                       </span>
@@ -556,69 +579,11 @@ export default function SeoPage() {
             </Card>
           )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Búsquedas</CardTitle>
-              <CardDescription>
-                Lo que escribe la gente en Google antes de verte. Google no detalla las búsquedas
-                muy poco frecuentes: por eso los totales de arriba pueden ser algo mayores que la
-                suma de esta lista.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Búsqueda</TableHead>
-                    <TableHead className="text-right">Clics</TableHead>
-                    <TableHead className="text-right">Apariciones</TableHead>
-                    <TableHead className="text-right">Posición</TableHead>
-                    <TableHead className="text-right">Cambio</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(allQueries ? d.queries : d.queries.slice(0, 25)).map((q) => (
-                    <TableRow key={q.query}>
-                      <TableCell className="max-w-[240px] truncate">{q.query}</TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {nf.format(q.clicks)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {nf.format(q.impressions)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtPos(q.position)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {d.previousComplete ? (
-                          <Change value={q.change} />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {d.queries.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                        Sin búsquedas en este periodo.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-              {d.queries.length > 25 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => setAllQueries((v) => !v)}
-                >
-                  {allQueries ? 'Ver menos' : `Ver todas (${d.queries.length})`}
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+          <LowCtrCard d={d} onOpen={setTarget} />
+          <TrackedKeywordsCard days={days} onOpen={setTarget} />
+          <BrandDevicesCards d={d} />
+          <GoogleFunnelCard days={days} />
+          <QueriesCard d={d} onOpen={setTarget} />
 
           {[
             { title: 'Páginas de zona', rows: areaPages },
@@ -627,8 +592,16 @@ export default function SeoPage() {
             .filter((g) => g.rows.length > 0)
             .map((g) => (
               <Card key={g.title}>
-                <CardHeader>
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
                   <CardTitle className="text-base">{g.title}</CardTitle>
+                  {g.title === 'Páginas de zona' && (
+                    <Link
+                      href="/settings/area-pages"
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Editar las páginas de zona
+                    </Link>
+                  )}
                 </CardHeader>
                 <CardContent>
                   <Table>
@@ -644,7 +617,17 @@ export default function SeoPage() {
                     <TableBody>
                       {g.rows.map((p) => (
                         <TableRow key={p.page}>
-                          <TableCell className="max-w-[220px] truncate">{p.path}</TableCell>
+                          <TableCell className="max-w-[220px]">
+                            <button
+                              type="button"
+                              className="max-w-full truncate text-left hover:underline"
+                              onClick={() =>
+                                setTarget({ kind: 'page', key: p.page, label: p.path })
+                              }
+                            >
+                              {p.path}
+                            </button>
+                          </TableCell>
                           <TableCell className="hidden max-w-[200px] truncate text-muted-foreground sm:table-cell">
                             {p.topQuery ?? '—'}
                           </TableCell>
@@ -676,6 +659,12 @@ export default function SeoPage() {
             ))}
         </>
       )}
+      <SeoDetailDialog
+        target={target}
+        days={days}
+        onClose={() => setTarget(null)}
+        onOpen={setTarget}
+      />
     </div>
   );
 }

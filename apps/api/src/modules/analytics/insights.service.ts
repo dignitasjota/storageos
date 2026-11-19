@@ -39,7 +39,7 @@ import {
   MIN_OBSERVED_RENTALS,
   observationWeight,
   observedRentals,
-  effectiveMonthlyPrice,
+  competitorComparablePrice,
   marketTrend,
   rentalIntervals,
   statusAt,
@@ -433,7 +433,6 @@ export class InsightsService {
   ): Promise<CompetitionAlertsDto> {
     return this.prisma.withTenant(async (tx) => {
       const now = Date.now();
-      const staleCut = new Date(now - COMPETITOR_STALE_DAYS * 86_400_000);
       const since = new Date(now - COMPETITOR_DROP_DAYS * 86_400_000);
       // Competidores ligados a un local que el usuario no ve quedan fuera.
       // Con un local elegido, sus competidores y los que no van ligados a
@@ -455,10 +454,15 @@ export class InsightsService {
             promoFreeMonths: true,
             promoDiscountPct: true,
             promoDiscountMonths: true,
+            promoEndsAt: true,
+            reviewEveryDays: true,
+            inventoryComplete: true,
             units: {
               select: {
                 id: true,
                 areaM2: true,
+                status: true,
+                lastCheckedAt: true,
                 // Las dos últimas revisiones: la de ahora y la anterior, sea cuando sea.
                 observations: {
                   orderBy: { observedAt: 'desc' },
@@ -472,7 +476,14 @@ export class InsightsService {
         }),
         tx.unit.findMany({
           where: { ...unitWhere(scope), status: { in: ['available', 'reserved', 'occupied'] } },
-          select: { facilityId: true, areaM2: true, basePriceMonthly: true },
+          select: {
+            facilityId: true,
+            areaM2: true,
+            basePriceMonthly: true,
+            status: true,
+            unitTypeId: true,
+            unitType: { select: { name: true } },
+          },
         }),
       ]);
 
@@ -489,7 +500,12 @@ export class InsightsService {
           }
           return { c, checked };
         })
-        .filter(({ checked }) => !checked || checked < staleCut)
+        // Cada competidor con su plazo de revisión (30 días si no tiene).
+        .filter(({ c, checked }) => {
+          if (!checked) return true;
+          const days = c.reviewEveryDays ?? COMPETITOR_STALE_DAYS;
+          return checked.getTime() < now - days * 86_400_000;
+        })
         .map(({ c, checked }) => ({
           id: c.id,
           name: c.name,
@@ -508,29 +524,37 @@ export class InsightsService {
       };
 
       const priceDrops: CompetitionPriceDropDto[] = [];
+      const priceRises: CompetitionPriceDropDto[] = [];
       for (const c of competitors) {
         // Su precio comparable con el tuyo: sin IVA, con seguro, alta y promoción.
-        const comparable = (price: number) => {
-          const gross = effectiveMonthlyPrice({
-            price,
-            insuranceMonthly: toNumber(c.mandatoryInsuranceMonthly),
-            setupFee: toNumber(c.setupFee),
-            promoFreeMonths: c.promoFreeMonths ?? 0,
-            promoDiscountPct: c.promoDiscountPct ?? 0,
-            promoDiscountMonths: c.promoDiscountMonths ?? 0,
-          });
-          return round2(c.priceIncludesVat ? gross / 1.21 : gross);
-        };
+        const comparable = (price: number) => round2(competitorComparablePrice(c, price));
         for (const u of c.units) {
           const [latest, previous] = u.observations;
           // Solo una bajada reciente que sigue vigente (la última revisión).
           if (!latest || !previous || latest.observedAt < since) continue;
           const prev = toNumber(previous.priceMonthly);
           const next = toNumber(latest.priceMonthly);
-          if (next >= prev) continue;
+          if (next === prev) continue;
           const area = toNumber(u.areaM2);
           const mine = myPriceFor(area, c.facilityId);
           const comparablePrice = comparable(next);
+          // Sube y tú eres más barato: tienes margen para subir.
+          if (next > prev) {
+            if (mine !== null && mine < comparablePrice) {
+              priceRises.push({
+                competitorFacilityId: c.id,
+                competitorName: c.name,
+                competitorUnitId: u.id,
+                areaM2: area,
+                previousPrice: prev,
+                newPrice: next,
+                comparablePrice,
+                observedAt: latest.observedAt.toISOString(),
+                myPrice: mine,
+              });
+            }
+            continue;
+          }
           if (mine !== null && mine > comparablePrice) {
             priceDrops.push({
               competitorFacilityId: c.id,
@@ -547,7 +571,52 @@ export class InsightsService {
         }
       }
       priceDrops.sort((a, b) => b.observedAt.localeCompare(a.observedAt));
-      return { stale, priceDrops };
+      priceRises.sort((a, b) => b.observedAt.localeCompare(a.observedAt));
+
+      // Se les agota un tamaño que tú tienes libre: es tu momento para ese tamaño.
+      const freshCut = now - 30 * 86_400_000;
+      const myTypes = new Map<
+        string,
+        { name: string; areas: number[]; available: number; facilities: Set<string> }
+      >();
+      for (const u of myUnits) {
+        const t = myTypes.get(u.unitTypeId) ?? {
+          name: u.unitType.name,
+          areas: [],
+          available: 0,
+          facilities: new Set<string>(),
+        };
+        t.areas.push(toNumber(u.areaM2));
+        if (u.status === 'available') t.available += 1;
+        t.facilities.add(u.facilityId);
+        myTypes.set(u.unitTypeId, t);
+      }
+      const soldOut: CompetitionAlertsDto['soldOut'] = [];
+      for (const c of competitors) {
+        if (!c.inventoryComplete || c.units.length === 0) continue;
+        // Su inventario tiene que estar al día (revisado este mes).
+        if (c.units.some((u) => u.lastCheckedAt.getTime() < freshCut)) continue;
+        for (const t of myTypes.values()) {
+          if (t.available === 0) continue;
+          if (c.facilityId && !t.facilities.has(c.facilityId)) continue;
+          const areas = t.areas.filter((a) => a > 0);
+          if (areas.length === 0) continue;
+          const area = areas.reduce((x, y) => x + y, 0) / areas.length;
+          const near = c.units.filter((u) => {
+            const a = toNumber(u.areaM2);
+            return a >= area * 0.75 && a <= area * 1.25;
+          });
+          if (near.length === 0 || near.some((u) => u.status === 'available')) continue;
+          soldOut.push({
+            competitorFacilityId: c.id,
+            competitorName: c.name,
+            unitTypeName: t.name,
+            areaM2: round2(area),
+            myAvailable: t.available,
+          });
+        }
+      }
+      return { stale, priceDrops, priceRises, soldOut };
     }, tenantId);
   }
 
@@ -758,6 +827,7 @@ export class InsightsService {
           promoFreeMonths: true,
           promoDiscountPct: true,
           promoDiscountMonths: true,
+          promoEndsAt: true,
           features: true,
           inventoryComplete: true,
           units: {
@@ -860,17 +930,10 @@ export class InsightsService {
     const comparable = competitors.map((c) => ({
       ...c,
       units: c.units.map((u) => {
-        const gross = effectiveMonthlyPrice({
-          price: toNumber(u.priceMonthly),
-          insuranceMonthly: toNumber(c.mandatoryInsuranceMonthly),
-          setupFee: toNumber(c.setupFee),
-          promoFreeMonths: c.promoFreeMonths ?? 0,
-          promoDiscountPct: c.promoDiscountPct ?? 0,
-          promoDiscountMonths: c.promoDiscountMonths ?? 0,
-        });
         return {
           areaM2: toNumber(u.areaM2),
-          price: c.priceIncludesVat ? gross / 1.21 : gross,
+          // Una promoción que ya terminó no cuenta.
+          price: competitorComparablePrice(c, toNumber(u.priceMonthly), now),
           occupied: u.status === 'occupied',
           ageDays: daysBetween(u.lastCheckedAt, now),
           // Lo revisado hace más de 180 días ya no dice nada de su ocupación ni su ritmo.

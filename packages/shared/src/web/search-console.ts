@@ -77,9 +77,70 @@ export interface SearchConsoleSettingsDto {
   lastSyncedAt: string | null;
   /** Informe mensual por correo a los propietarios. */
   monthlyReport: boolean;
+  /** Palabras de tu marca (búsquedas de quien ya te conoce). */
+  brandTerms: string[];
+  /** Quién recibe el informe mensual (vacío = los propietarios). */
+  reportRecipientIds: string[];
 }
 
 export const SeoMonthlyReportToggleSchema = z.object({ enabled: z.boolean() });
+
+/** Ajustes de Posiciones en Google: marca y quién recibe el informe. */
+export const UpdateSeoSettingsSchema = z.object({
+  brandTerms: z.array(z.string().trim().min(2).max(60)).max(10).optional(),
+  reportRecipientIds: z.array(z.string().uuid()).max(20).optional(),
+});
+export type UpdateSeoSettingsInput = z.infer<typeof UpdateSeoSettingsSchema>;
+
+/** Búsqueda que se sigue, con la posición a la que se quiere llegar. */
+export const CreateTrackedKeywordSchema = z.object({
+  keyword: z.string().trim().min(2).max(120),
+  targetPosition: z.number().int().min(1).max(100).nullable().optional(),
+});
+export type CreateTrackedKeywordInput = z.infer<typeof CreateTrackedKeywordSchema>;
+
+export interface TrackedKeywordDto {
+  id: string;
+  keyword: string;
+  targetPosition: number | null;
+  /** Posición media del periodo (null si no has salido). */
+  position: number | null;
+  previousPosition: number | null;
+  clicks: number;
+  impressions: number;
+  /** Ya está en la posición objetivo o mejor. */
+  reached: boolean;
+}
+
+/** Totales de un día por dispositivo (MOBILE, DESKTOP, TABLET). */
+export interface SearchConsoleDeviceInput extends SearchConsoleDayInput {
+  device: string;
+}
+
+/** Evolución día a día de una búsqueda o una página. */
+export interface SeoDetailDto {
+  kind: 'query' | 'page';
+  key: string;
+  daily: { date: string; clicks: number; impressions: number; position: number }[];
+  /** Para una búsqueda, sus páginas; para una página, sus búsquedas. */
+  related: { label: string; clicks: number; impressions: number; position: number }[];
+}
+
+/** De Google a reservas en el periodo. */
+export interface SeoGoogleFunnelDto {
+  from: string;
+  to: string;
+  /** Clics en Google (Search Console). */
+  googleClicks: number;
+  /** Visitantes que llegan desde Google sin anuncios (analítica de la web). */
+  visitors: number;
+  /** Contactos que llegaron así. */
+  contacts: number;
+  /** Reservas y contratos firmados de esos contactos. */
+  bookings: number;
+  /** Página por la que entraron. */
+  pages: { path: string; visitors: number }[];
+}
 
 /** Fila guardada (lo que devuelve Search Console por día, búsqueda y página). */
 export interface SearchConsoleRowInput {
@@ -159,6 +220,40 @@ export interface SeoPositionsDto {
   firstDate: string | null;
   /** El periodo anterior tiene todos sus días descargados (si no, no se compara). */
   previousComplete: boolean;
+  /** Clics, apariciones y posición de cada semana del periodo (lunes a domingo). */
+  weekly: { week: string; clicks: number; impressions: number; position: number | null }[];
+  /** Búsquedas con tu marca frente a las demás (con las búsquedas detalladas). */
+  brand: {
+    terms: string[];
+    brandClicks: number;
+    brandImpressions: number;
+    genericClicks: number;
+    genericImpressions: number;
+  };
+  /** Por dispositivo (si ya se han descargado). */
+  devices: {
+    device: string;
+    clicks: number;
+    impressions: number;
+    position: number | null;
+    ctr: number | null;
+  }[];
+  /** Los mismos días del año pasado (si se descargaron enteros). */
+  yearAgoTotals: SeoTotalsDto | null;
+  /**
+   * Páginas que salen mucho en Google y apenas reciben clics para su posición:
+   * su título o descripción no anima a entrar.
+   */
+  lowCtrPages: {
+    page: string;
+    path: string;
+    areaSlug: string | null;
+    impressions: number;
+    clicks: number;
+    ctr: number;
+    expectedCtr: number;
+    position: number;
+  }[];
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -253,7 +348,12 @@ export function shiftDate(date: string, days: number): string {
 export function summarizeSearchConsole(
   rows: SearchConsoleRowInput[],
   days: number,
-  opts: { days?: SearchConsoleDayInput[]; firstDate?: string | null } = {},
+  opts: {
+    days?: SearchConsoleDayInput[];
+    firstDate?: string | null;
+    brandTerms?: string[];
+    devices?: SearchConsoleDeviceInput[];
+  } = {},
 ): SeoPositionsDto {
   const dated = [...rows.map((r) => r.date), ...(opts.days ?? []).map((d) => d.date)];
   const lastDate = dated.reduce<string | null>((m, d) => (!m || d > m ? d : m), null);
@@ -272,12 +372,42 @@ export function previousMonthRange(date: string): { from: string; to: string } {
   return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) };
 }
 
+/** Porcentaje de clics habitual en Google según la posición (aproximado). */
+export function expectedCtr(position: number): number {
+  if (position < 1.5) return 0.28;
+  if (position < 2.5) return 0.15;
+  if (position < 3.5) return 0.11;
+  if (position < 4.5) return 0.08;
+  if (position < 5.5) return 0.06;
+  if (position <= 10) return 0.03;
+  return 0.01;
+}
+
+/** ¿Es una búsqueda con la marca? (contiene alguna de sus palabras). */
+export function isBrandQuery(query: string, terms: string[]): boolean {
+  const q = query.toLowerCase();
+  return terms.some((t) => t.trim().length >= 2 && q.includes(t.trim().toLowerCase()));
+}
+
+/** Lunes de la semana de una fecha `YYYY-MM-DD`. */
+export function weekStart(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  const day = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - day);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Resumen de un rango concreto frente a otro (p. ej. un mes frente al anterior). */
 export function summarizeRange(
   rows: SearchConsoleRowInput[],
   range: { from: string; to: string; previousFrom: string; previousTo: string },
   lastDate: string | null = null,
-  opts: { days?: SearchConsoleDayInput[]; firstDate?: string | null } = {},
+  opts: {
+    days?: SearchConsoleDayInput[];
+    firstDate?: string | null;
+    brandTerms?: string[];
+    devices?: SearchConsoleDeviceInput[];
+  } = {},
 ): SeoPositionsDto {
   const { from, to, previousFrom, previousTo } = range;
   const current = rows.filter((r) => r.date >= from && r.date <= to);
@@ -387,11 +517,95 @@ export function summarizeRange(
     }
   }
 
+  // Semanas del periodo: con los totales de Google si los hay.
+  const weeks = new Map<string, { clicks: number; impressions: number; weighted: number }>();
+  const dayList = days.filter((d) => d.date >= from && d.date <= to);
+  const weekSource: SearchConsoleDayInput[] =
+    dayList.length > 0
+      ? dayList
+      : current.map((r) => ({
+          date: r.date,
+          clicks: r.clicks,
+          impressions: r.impressions,
+          position: r.position,
+        }));
+  for (const d of weekSource) {
+    const key = weekStart(d.date);
+    const w = weeks.get(key) ?? { clicks: 0, impressions: 0, weighted: 0 };
+    w.clicks += d.clicks;
+    w.impressions += d.impressions;
+    w.weighted += d.position * d.impressions;
+    weeks.set(key, w);
+  }
+  const weekly = [...weeks.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([week, w]) => ({
+      week,
+      clicks: w.clicks,
+      impressions: w.impressions,
+      position: w.impressions > 0 ? round1(w.weighted / w.impressions) : null,
+    }));
+
+  const terms = (opts.brandTerms ?? []).filter((t) => t.trim().length >= 2);
+  const brand = {
+    terms,
+    brandClicks: 0,
+    brandImpressions: 0,
+    genericClicks: 0,
+    genericImpressions: 0,
+  };
+  for (const r of current) {
+    if (terms.length > 0 && isBrandQuery(r.query, terms)) {
+      brand.brandClicks += r.clicks;
+      brand.brandImpressions += r.impressions;
+    } else {
+      brand.genericClicks += r.clicks;
+      brand.genericImpressions += r.impressions;
+    }
+  }
+
+  const byDevice = new Map<string, SearchConsoleDayInput[]>();
+  for (const d of (opts.devices ?? []).filter((x) => x.date >= from && x.date <= to)) {
+    byDevice.set(d.device, [...(byDevice.get(d.device) ?? []), d]);
+  }
+  const devices = [...byDevice.entries()]
+    .map(([device, list]) => ({ device, ...totalsOfDays(list) }))
+    .sort((a, b) => b.clicks - a.clicks);
+
+  // El mismo tramo del año pasado (364 días: misma semana), si está entero.
+  const yaFrom = shiftDate(from, -364);
+  const yaTo = shiftDate(to, -364);
+  const yearAgoComplete = firstDate !== null && firstDate <= yaFrom;
+  const yearAgoDays = days.filter((d) => d.date >= yaFrom && d.date <= yaTo);
+  const yearAgoTotals =
+    yearAgoComplete && yearAgoDays.length > 0 ? totalsOfDays(yearAgoDays) : null;
+
+  const lowCtrPages = pages
+    .filter((p) => p.impressions >= 100 && p.position <= 10)
+    .map((p) => ({
+      page: p.page,
+      path: p.path,
+      areaSlug: p.areaSlug,
+      impressions: p.impressions,
+      clicks: p.clicks,
+      ctr: Math.round((p.clicks / p.impressions) * 1000) / 1000,
+      expectedCtr: expectedCtr(p.position),
+      position: p.position,
+    }))
+    .filter((p) => p.ctr < p.expectedCtr * 0.5)
+    .sort((a, b) => b.impressions - a.impressions)
+    .slice(0, 5);
+
   return {
     from,
     to,
     previousFrom,
     previousTo,
+    weekly,
+    brand,
+    devices,
+    yearAgoTotals,
+    lowCtrPages,
     totals: totals(current, from, to),
     previousTotals: totals(previous, previousFrom, previousTo),
     queries: queries.slice(0, 200),

@@ -3396,3 +3396,27 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 - Cada descarga repasa desde la última buena (más 6 días) para no dejar huecos. Al conectar se bajan 190 días.
 - Se guardan también los totales de cada día de Google (tabla `search_console_days`): los totales de `GET /seo/positions`, el informe y el Resumen de marketing cuadran con el panel de Search Console. `SeoPositionsDto` añade `firstDate` y `previousComplete` (sin el periodo anterior completo no hay avisos ni comparación) y hasta 200 búsquedas.
 - `POST /seo/report/send` (`analytics:read`) envía el informe solo a quien lo pide; sin Search Console → 400 `search_console_not_connected`; sin datos del mes → 400 `seo_report_empty`. El envío mensual no va a negocios suspendidos ni se manda vacío.
+
+### Mercado: mejoras (2026-11-19)
+
+**Competencia** (lectura `analytics:read`, cambios `units:manage`)
+
+- `CompetitorUnitDto.comparablePrice` y `comparablePerM2`: lo que paga de media un cliente al mes el primer año, sin IVA, con su seguro obligatorio, su alta y su promoción vigente.
+- Competidor: `reviewEveryDays` (cada cuántos días revisarlo; 30 si no tiene) y `promoEndsAt` (`AAAA-MM-DD`; después la promoción no cuenta en el precio comparable ni en la sugerencia de precio). El DTO añade `promotionActive` y `nextReviewOn`. El aviso «toca revisarlo» usa el plazo de cada competidor.
+- `GET /competitors/:id/promotions`: histórico de sus promociones (cada cambio cierra la anterior).
+- `GET /competitors/price-map?facilityId=` → `MarketPriceMapDto`: por cada tipo de trastero tuyo, tu precio medio frente a la mediana, mínimo y máximo comparables de la competencia en ±25 % de m² (comprobados en 180 días), con la diferencia en %, y los puntos (m², precio) para la gráfica.
+- `GET /competitors/:id/trend?months=` (3-24, 12 por defecto): precio comparable medio y ocupación (solo con inventario completo) al cerrar cada mes.
+- `POST /competitors/:id/units/bulk {units}` (hasta 200): varios trasteros de una vez.
+- `POST /competitors/:id/ai-parse {text}`: la IA lee el texto de su página de tarifas y propone sus trasteros (`matchUnitId` si ya está fichado con esa referencia o esos m²). No guarda nada; gasta una consulta del mes; sin el asistente IA en el plan → 403 `feature_not_in_plan`; respuesta ilegible → 400 `competitor_parse_failed`.
+- `GET /competitors/export?facilityId=`: una fila por trastero de la competencia (para el CSV).
+- `GET /analytics/competition-alerts` añade `priceRises` (subidas en 30 días donde eres más barato) y `soldOut` (competidores con el inventario completo y comprobado este mes sin libres de un tamaño que tú tienes libre).
+
+**Posiciones en Google** (extra «SEO local»)
+
+- Al conectar se bajan 190 días de búsquedas y 16 meses de totales por día y por dispositivo (tabla `search_console_devices`).
+- `SeoPositionsDto` añade `weekly` (clics, apariciones y posición por semana), `brand` (búsquedas con tu marca frente a las demás), `devices`, `yearAgoTotals` (mismas semanas del año pasado, si están descargadas) y `lowCtrPages` (páginas que salen entre los 10 primeros con menos de la mitad de los clics habituales para su posición).
+- `PATCH /seo/search-console/settings {brandTerms?, reportRecipientIds?}` (`settings:manage`): palabras de la marca y quién recibe el informe mensual (personas activas del negocio; si no, 400 `invalid_recipient`; vacío = los propietarios).
+- `GET /seo/keywords?days=`, `POST /seo/keywords {keyword, targetPosition?}` (204; repetida → 409 `keyword_exists`; hasta 50 → 400 `too_many_keywords`) y `DELETE /seo/keywords/:id`: búsquedas que se siguen con su posición, la anterior y si se ha llegado al objetivo.
+- `GET /seo/detail?query=…` o `?page=…&days=`: una búsqueda o una página día a día con sus páginas o sus búsquedas (sin ninguna de las dos → 400 `detail_required`).
+- `GET /seo/google-funnel?days=`: clics en Google, visitantes desde Google sin anuncios, contactos y reservas con ese origen, y la página por la que entran.
+- Aviso al equipo `seo.clicks_drop` cuando los clics de los últimos 7 días caen un 30 % o más (con al menos 20 la semana anterior), como mucho uno por semana, tras la descarga diaria.

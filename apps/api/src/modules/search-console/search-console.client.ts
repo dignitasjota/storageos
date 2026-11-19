@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   shiftDate,
   type SearchConsoleDayInput,
+  type SearchConsoleDeviceInput,
   type SearchConsoleRowInput,
 } from '@storageos/shared';
 
@@ -138,6 +139,57 @@ export class SearchConsoleClient {
     }));
   }
 
+  /** Totales de cada día por dispositivo (MOBILE, DESKTOP, TABLET). */
+  async searchAnalyticsDevices(
+    siteUrl: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<SearchConsoleDeviceInput[]> {
+    if (this.stub) {
+      // Dos de cada tres clics desde el móvil.
+      return (await this.searchAnalyticsDays(siteUrl, startDate, endDate)).flatMap((d) => [
+        {
+          date: d.date,
+          device: 'MOBILE',
+          clicks: Math.round((d.clicks * 2) / 3),
+          impressions: Math.round((d.impressions * 2) / 3),
+          position: d.position + 0.5,
+        },
+        {
+          date: d.date,
+          device: 'DESKTOP',
+          clicks: d.clicks - Math.round((d.clicks * 2) / 3),
+          impressions: d.impressions - Math.round((d.impressions * 2) / 3),
+          position: d.position - 0.5,
+        },
+      ]);
+    }
+    const out: SearchConsoleDeviceInput[] = [];
+    for (let startRow = 0; startRow < MAX_ROWS; startRow += PAGE_SIZE) {
+      const res = await this.request<{
+        rows?: { keys: [string, string]; clicks: number; impressions: number; position: number }[];
+      }>('POST', `${API}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
+        startDate,
+        endDate,
+        dimensions: ['date', 'device'],
+        rowLimit: PAGE_SIZE,
+        startRow,
+      });
+      const rows = res.rows ?? [];
+      for (const r of rows) {
+        out.push({
+          date: r.keys[0],
+          device: r.keys[1],
+          clicks: Math.round(r.clicks),
+          impressions: Math.round(r.impressions),
+          position: r.position,
+        });
+      }
+      if (rows.length < PAGE_SIZE) break;
+    }
+    return out;
+  }
+
   private request<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
     return this.account.request<T>(SCOPE, method, url, body);
   }
@@ -151,7 +203,7 @@ function stubRows(siteUrl: string, startDate: string, endDate: string): SearchCo
     .replace(/\/.*$/, '');
   const base = `https://${host}`;
   const out: SearchConsoleRowInput[] = [];
-  for (let d = startDate, i = 0; d <= endDate && i < 400; d = shiftDate(d, 1), i++) {
+  for (let d = startDate, i = 0; d <= endDate && i < 500; d = shiftDate(d, 1), i++) {
     out.push(
       {
         date: d,

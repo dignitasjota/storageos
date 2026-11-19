@@ -6,11 +6,34 @@ import {
   type CompetitorFacilityDto,
   type CompetitorUnitDto,
 } from '@storageos/shared';
-import { ClipboardCheck, Globe, History, Loader2, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
+import {
+  ClipboardCheck,
+  ClipboardPaste,
+  Globe,
+  History,
+  LineChart as LineChartIcon,
+  Loader2,
+  Pencil,
+  Phone,
+  Plus,
+  Sparkles,
+  Tag,
+  Trash2,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { CompetitorFormDialog } from './competitor-form-dialog';
+import {
+  AiParseDialog,
+  BulkUnitsDialog,
+  CompetitorPromotionsDialog,
+  CompetitorTrendDialog,
+  ExportCompetitorsButton,
+  FeatureComparison,
+  MarketPriceCard,
+  NoChangesButton,
+} from './market-panels';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -113,7 +136,7 @@ export default function CompetitorsPage() {
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[16rem] flex-1">
           <h1 className="text-2xl font-semibold tracking-tight">Competencia</h1>
           <p className="text-sm text-muted-foreground">
             Ficha los locales de la competencia y sus trasteros (m², precio y si están libres). La
@@ -122,14 +145,14 @@ export default function CompetitorsPage() {
               ` Ves los competidores de ${facilityName} y los que no van ligados a ningún local.`}
           </p>
         </div>
-        {canManage && (
-          <Button className="shrink-0" onClick={openNewFacility}>
-            Añadir competidor
-          </Button>
-        )}
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {(facilities ?? []).length > 0 && <ExportCompetitorsButton facilityId={facilityId} />}
+          {canManage && <Button onClick={openNewFacility}>Añadir competidor</Button>}
+        </div>
       </div>
 
       <CompetitionAlertsCard facilityId={facilityId} />
+      <MarketPriceCard facilityId={facilityId} />
       <MarketOccupancyCard facilityId={facilityId} />
 
       {facilitiesQ.isError && !facilities ? (
@@ -144,6 +167,7 @@ export default function CompetitorsPage() {
             <CompetitorCard
               key={f.id}
               facility={f}
+              mine={myFacilities.data?.find((m) => m.id === (f.facilityId ?? facilityId))}
               active={selected === f.id}
               onSelect={() => setSelected(f.id)}
               onEdit={canManage ? () => openEditFacility(f) : undefined}
@@ -171,22 +195,26 @@ export default function CompetitorsPage() {
 
 function CompetitorCard({
   facility,
+  mine,
   active,
   onSelect,
   onEdit,
   onDelete,
 }: {
   facility: CompetitorFacilityDto;
+  /** Tu local con el que se compara (el suyo o el de la cabecera). */
+  mine?: { name: string; features: string[] } | undefined;
   active: boolean;
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }) {
   const occupancy = competitorOccupancy(facility);
+  const every = facility.reviewEveryDays ?? 30;
   const reviewStale =
     facility.unitCount > 0 &&
     (facility.lastReviewedAt == null ||
-      Date.now() - new Date(facility.lastReviewedAt).getTime() > 30 * 86_400_000);
+      Date.now() - new Date(facility.lastReviewedAt).getTime() > every * 86_400_000);
   return (
     <Card className={active ? 'border-primary' : 'cursor-pointer hover:border-muted-foreground/40'}>
       <CardContent
@@ -275,13 +303,23 @@ function CompetitorCard({
           )}
           {facility.inventoryComplete && <Badge variant="secondary">Inventario completo</Badge>}
           {facility.currentPromotion && (
-            <Badge variant="secondary">Promo: {facility.currentPromotion}</Badge>
+            <Badge variant={facility.promotionActive ? 'secondary' : 'outline'}>
+              Promo: {facility.currentPromotion}
+              {facility.promoEndsAt &&
+                (facility.promotionActive
+                  ? ` (hasta el ${formatDate(facility.promoEndsAt)})`
+                  : ' (terminada)')}
+            </Badge>
           )}
         </div>
-        {facility.features.length > 0 && (
-          <p className="mt-2 text-xs text-muted-foreground">
-            {facility.features.map((f) => COMPETITOR_FEATURE_LABELS[f]).join(' · ')}
-          </p>
+        {mine ? (
+          <FeatureComparison mine={mine.features} theirs={facility.features} myName={mine.name} />
+        ) : (
+          facility.features.length > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {facility.features.map((f) => COMPETITOR_FEATURE_LABELS[f]).join(' · ')}
+            </p>
+          )
         )}
         <p
           className={`mt-2 text-xs ${reviewStale ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
@@ -289,7 +327,13 @@ function CompetitorCard({
           {facility.unitCount === 0
             ? 'Sin trasteros fichados todavía'
             : facility.lastReviewedAt
-              ? `Última comprobación: ${formatDate(facility.lastReviewedAt)}${reviewStale ? ' · conviene revisarlo' : ''}`
+              ? `Última comprobación: ${formatDate(facility.lastReviewedAt)}${
+                  reviewStale
+                    ? ' · conviene revisarlo'
+                    : facility.nextReviewOn
+                      ? ` · próxima: ${formatDate(facility.nextReviewOn)}`
+                      : ''
+                }`
               : 'Sin comprobar todavía'}
         </p>
       </CardContent>
@@ -381,6 +425,10 @@ function CompetitorUnits({
   const [edit, setEdit] = useState<CompetitorUnitDto | null>(null);
   const [open, setOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [trendOpen, setTrendOpen] = useState(false);
+  const [promosOpen, setPromosOpen] = useState(false);
   const [historyUnit, setHistoryUnit] = useState<CompetitorUnitDto | null>(null);
   const emptyForm = {
     areaM2: 0,
@@ -479,18 +527,35 @@ function CompetitorUnits({
     <Card>
       <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-base">Trasteros de {facility.name}</CardTitle>
-        {canManage && (
-          <div className="flex flex-wrap gap-2">
-            {(units ?? []).length > 0 && (
-              <Button size="sm" variant="outline" onClick={() => setReviewOpen(true)}>
-                <ClipboardCheck className="mr-1 size-4" /> Revisar
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setTrendOpen(true)}>
+            <LineChartIcon className="mr-1 size-4" /> Evolución
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setPromosOpen(true)}>
+            <Tag className="mr-1 size-4" /> Promociones
+          </Button>
+          {canManage && (
+            <>
+              {(units ?? []).length > 0 && (
+                <>
+                  <NoChangesButton facilityId={facility.id} units={units ?? []} />
+                  <Button size="sm" variant="outline" onClick={() => setReviewOpen(true)}>
+                    <ClipboardCheck className="mr-1 size-4" /> Revisar
+                  </Button>
+                </>
+              )}
+              <Button size="sm" variant="outline" onClick={() => setAiOpen(true)}>
+                <Sparkles className="mr-1 size-4" /> Leer su web con IA
               </Button>
-            )}
-            <Button size="sm" onClick={openNew}>
-              <Plus className="mr-1 size-4" /> Añadir trastero
-            </Button>
-          </div>
-        )}
+              <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)}>
+                <ClipboardPaste className="mr-1 size-4" /> Pegar tabla
+              </Button>
+              <Button size="sm" onClick={openNew}>
+                <Plus className="mr-1 size-4" /> Añadir trastero
+              </Button>
+            </>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <Table>
@@ -501,6 +566,12 @@ function CompetitorUnits({
               <TableHead className="whitespace-nowrap">
                 Precio al mes ({facility.priceIncludesVat ? 'con IVA' : 'sin IVA'})
               </TableHead>
+              <TableHead
+                className="whitespace-nowrap"
+                title="Lo que paga de media un cliente al mes el primer año: sin IVA, con su seguro obligatorio, alta y promoción vigente"
+              >
+                Comparable (sin IVA)
+              </TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>Histórico</TableHead>
               <TableHead>Comprobado</TableHead>
@@ -510,7 +581,7 @@ function CompetitorUnits({
           <TableBody>
             {(units ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
                   Sin trasteros fichados todavía.
                 </TableCell>
               </TableRow>
@@ -532,6 +603,14 @@ function CompetitorUnits({
                       : '—'}
                   </TableCell>
                   <TableCell>{eur(u.priceMonthly)}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    {eur(u.comparablePrice)}
+                    {u.comparablePerM2 > 0 && (
+                      <span className="block text-xs text-muted-foreground">
+                        {eur(u.comparablePerM2)}/m²
+                      </span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <button
                       type="button"
@@ -726,6 +805,16 @@ function CompetitorUnits({
         units={units ?? []}
       />
       <UnitHistoryDialog unit={historyUnit} onClose={() => setHistoryUnit(null)} />
+      <BulkUnitsDialog facility={facility} open={bulkOpen} onOpenChange={setBulkOpen} />
+      <AiParseDialog facility={facility} open={aiOpen} onOpenChange={setAiOpen} />
+      <CompetitorTrendDialog
+        facility={trendOpen ? facility : null}
+        onClose={() => setTrendOpen(false)}
+      />
+      <CompetitorPromotionsDialog
+        facility={promosOpen ? facility : null}
+        onClose={() => setPromosOpen(false)}
+      />
     </Card>
   );
 }
@@ -738,7 +827,9 @@ function HistorySummary({ unit }: { unit: CompetitorUnitDto }) {
   if (h.observations <= 1) return <span>1 comprobación</span>;
   const parts: string[] = [];
   if (h.priceChangePct != null && h.priceChangePct !== 0) {
-    parts.push(`${h.priceChangePct > 0 ? '▲' : '▼'} ${Math.abs(h.priceChangePct)}%`);
+    parts.push(
+      `${h.priceChangePct > 0 ? '▲' : '▼'} ${Math.abs(h.priceChangePct).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`,
+    );
   }
   if (h.inCurrentStatusSince) {
     const d = daysSince(h.inCurrentStatusSince);
@@ -1031,7 +1122,14 @@ function MarketOccupancyCard({ facilityId }: { facilityId?: string | undefined }
 /** Lo que conviene mirar: fichas sin revisar y bajadas de precio donde eres más caro. */
 function CompetitionAlertsCard({ facilityId }: { facilityId?: string | undefined }) {
   const { data } = useCompetitionAlerts(facilityId);
-  if (!data || (data.stale.length === 0 && data.priceDrops.length === 0)) return null;
+  if (
+    !data ||
+    (data.stale.length === 0 &&
+      data.priceDrops.length === 0 &&
+      data.priceRises.length === 0 &&
+      data.soldOut.length === 0)
+  )
+    return null;
   return (
     <Card className="border-amber-300 dark:border-amber-800">
       <CardHeader className="pb-2">
@@ -1055,9 +1153,42 @@ function CompetitionAlertsCard({ facilityId }: { facilityId?: string | undefined
             </ul>
           </div>
         )}
+        {data.priceRises.length > 0 && (
+          <div className="space-y-1">
+            <p className="font-medium">Han subido precios donde tú eres más barato (30 días)</p>
+            <ul className="space-y-1">
+              {data.priceRises.slice(0, 6).map((d) => (
+                <li key={d.competitorUnitId} className="text-muted-foreground">
+                  <span className="font-medium text-foreground">{d.competitorName}</span>:{' '}
+                  {d.areaM2.toLocaleString('es-ES')} m² de {eur(d.previousPrice)} a{' '}
+                  {eur(d.newPrice)} el {formatDate(d.observedAt)} (comparable{' '}
+                  {eur(d.comparablePrice)}); los tuyos parecidos, {eur(d.myPrice)} sin IVA. Tienes
+                  margen para subir.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {data.soldOut.length > 0 && (
+          <div className="space-y-1">
+            <p className="font-medium">Se les ha agotado un tamaño que tú tienes libre</p>
+            <ul className="space-y-1">
+              {data.soldOut.slice(0, 6).map((d) => (
+                <li
+                  key={`${d.competitorFacilityId}-${d.unitTypeName}`}
+                  className="text-muted-foreground"
+                >
+                  <span className="font-medium text-foreground">{d.competitorName}</span> no tiene
+                  libres de unos {d.areaM2.toLocaleString('es-ES')} m²; tú tienes {d.myAvailable}{' '}
+                  {d.unitTypeName} libres. Buen momento para darlos a conocer o mantener el precio.
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {data.stale.length > 0 && (
           <div className="space-y-1">
-            <p className="font-medium">Sin comprobar en más de 30 días</p>
+            <p className="font-medium">Toca revisarlos</p>
             <p className="text-muted-foreground">
               {data.stale
                 .map(
@@ -1065,7 +1196,7 @@ function CompetitionAlertsCard({ facilityId }: { facilityId?: string | undefined
                 )
                 .join(' · ')}
               . Sus precios pesan menos en la sugerencia de precio cuanto más antiguos son: usa
-              «Revisar» en cada uno.
+              «Revisar» (o «Sin cambios» si todo sigue igual) en cada uno.
             </p>
           </div>
         )}

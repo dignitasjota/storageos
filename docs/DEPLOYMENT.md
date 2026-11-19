@@ -2805,3 +2805,11 @@ Migración `20270210100000_search_console_days` (tabla `search_console_days` con
 - **Precios de 0 €** ya no se aceptan. Los que hubiera guardados se quedan: conviene corregirlos.
 - La página de Competencia sigue el local de la cabecera.
 - El informe mensual de SEO no se envía vacío ni a negocios suspendidos. «Enviármelo ahora» va solo a quien lo pulsa.
+
+## 164. Mejoras de Mercado: Competencia y Posiciones en Google (2026-11-19)
+
+Migración `20270211100000_market_improvements`: `competitor_facilities.review_every_days` y `promo_ends_at`, tabla `competitor_promotions` (histórico; se rellena con la promoción que tenía cada competidor), `tenant_search_console.brand_terms`, `report_recipient_ids` y `last_drop_alert_at`, y tablas `seo_tracked_keywords` y `search_console_devices`, todas con RLS. Sin variables nuevas.
+
+- **Competencia**: tu precio frente al mercado por tipo de trastero (con gráfica), precio comparable y por m² en cada trastero suyo, evolución mensual de cada competidor, promociones con fecha de fin y su histórico, plazo de revisión por competidor, «Sin cambios» en un clic, pegar una tabla de trasteros, leer su página de tarifas con IA (necesita el asistente IA en el plan y gasta una consulta), tus características frente a las suyas, avisos de subidas de precio y de tamaños agotados y exportación a CSV.
+- **Posiciones en Google**: clics por semana, comparación con el año pasado, búsquedas con tu marca frente a las demás, dispositivos, búsquedas que sigues con su objetivo, detalle de cada búsqueda y página, de Google a reservas, páginas que salen pero casi nadie pulsa, buscar, ordenar y exportar las búsquedas, elegir quién recibe el informe y aviso de caídas de clics.
+- **Tras desplegar**: los negocios que ya tenían Search Console conectado no tienen los datos por dispositivo ni el año pasado hasta que se descarguen. Para traerlos, desconectar y volver a conectar (baja 16 meses de totales), o esperar: la descarga diaria va llenando los dispositivos desde el día del despliegue.

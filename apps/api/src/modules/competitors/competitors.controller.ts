@@ -18,6 +18,13 @@ import {
   UpdateCompetitorFacilitySchema,
   UpdateCompetitorUnitSchema,
   ReviewCompetitorSchema,
+  BulkCreateCompetitorUnitsSchema,
+  CompetitorAiParseSchema,
+  type CompetitorAiParseResultDto,
+  type CompetitorPromotionDto,
+  type CompetitorTrendDto,
+  type CompetitorUnitExportRowDto,
+  type MarketPriceMapDto,
   type CompetitorFacilityDto,
   type CompetitorUnitDto,
   type CompetitorUnitObservationDto,
@@ -31,6 +38,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { CompetitorsMarketService } from './competitors-market.service';
 import { CompetitorsService, type CompetitorActor } from './competitors.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,6 +63,8 @@ class UpdateCompetitorFacilityDto extends createZodDto(UpdateCompetitorFacilityS
 class CreateCompetitorUnitDto extends createZodDto(CreateCompetitorUnitSchema) {}
 class UpdateCompetitorUnitDto extends createZodDto(UpdateCompetitorUnitSchema) {}
 class ReviewCompetitorDto extends createZodDto(ReviewCompetitorSchema) {}
+class BulkCreateCompetitorUnitsDto extends createZodDto(BulkCreateCompetitorUnitsSchema) {}
+class CompetitorAiParseDto extends createZodDto(CompetitorAiParseSchema) {}
 
 /**
  * Fichar la competencia (locales + trasteros con m² y precio) para anclar la
@@ -62,7 +72,83 @@ class ReviewCompetitorDto extends createZodDto(ReviewCompetitorSchema) {}
  */
 @Controller('competitors')
 export class CompetitorsController {
-  constructor(private readonly service: CompetitorsService) {}
+  constructor(
+    private readonly service: CompetitorsService,
+    private readonly market: CompetitorsMarketService,
+  ) {}
+
+  /** Tu precio frente al del mercado por tipo de trastero. Antes de `:id`. */
+  @RequirePermission('analytics:read')
+  @Get('price-map')
+  priceMap(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<MarketPriceMapDto> {
+    return this.market.priceMap(
+      user.tenantId,
+      user.facilityScope ?? null,
+      facilityParam(facilityId),
+    );
+  }
+
+  /** Todos los trasteros de la competencia para exportar. Antes de `:id`. */
+  @RequirePermission('analytics:read')
+  @Get('export')
+  exportUnits(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<CompetitorUnitExportRowDto[]> {
+    return this.market.exportUnits(
+      user.tenantId,
+      user.facilityScope ?? null,
+      facilityParam(facilityId),
+    );
+  }
+
+  /** Evolución mensual de su precio comparable y su ocupación. */
+  @RequirePermission('analytics:read')
+  @Get(':id/trend')
+  trend(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('months') months?: string,
+  ): Promise<CompetitorTrendDto> {
+    const n = Math.min(24, Math.max(3, Number(months) || 12));
+    return this.market.trend(user.tenantId, id, user.facilityScope ?? null, n);
+  }
+
+  /** Histórico de sus promociones. */
+  @RequirePermission('analytics:read')
+  @Get(':id/promotions')
+  promotions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CompetitorPromotionDto[]> {
+    return this.service.listPromotions(user.tenantId, id, user.facilityScope ?? null);
+  }
+
+  /** Varios trasteros de una vez (pegados de una tabla o un CSV). */
+  @RequirePermission('units:manage')
+  @Post(':id/units/bulk')
+  bulkUnits(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: BulkCreateCompetitorUnitsDto,
+  ): Promise<CompetitorUnitDto[]> {
+    return this.service.bulkCreateUnits(user.tenantId, id, body, actorOf(user));
+  }
+
+  /** La IA lee su página de tarifas y propone sus trasteros (no guarda nada). */
+  @RequirePermission('units:manage')
+  @Post(':id/ai-parse')
+  @HttpCode(HttpStatus.OK)
+  aiParse(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: CompetitorAiParseDto,
+  ): Promise<CompetitorAiParseResultDto> {
+    return this.market.aiParse(user.tenantId, user.sub, id, body.text, user.facilityScope ?? null);
+  }
 
   @RequirePermission('analytics:read')
   @Get()

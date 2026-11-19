@@ -274,6 +274,46 @@ export function effectiveMonthlyPrice(args: {
   return Math.max(0, year / 12);
 }
 
+/** Lo que hace falta de un competidor para su precio comparable. */
+export interface CompetitorCosts {
+  priceIncludesVat: boolean;
+  mandatoryInsuranceMonthly: { toString(): string } | number | null;
+  setupFee: { toString(): string } | number | null;
+  promoFreeMonths: number | null;
+  promoDiscountPct: number | null;
+  promoDiscountMonths: number | null;
+  /** Hasta cuándo dura su promoción; pasada esa fecha no cuenta. */
+  promoEndsAt?: Date | null;
+}
+
+/** ¿Su promoción cuenta hoy? (sin fecha de fin, sí). */
+export function competitorPromoActive(c: CompetitorCosts, now = new Date()): boolean {
+  if (!c.promoEndsAt) return true;
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return c.promoEndsAt.getTime() >= today.getTime();
+}
+
+/**
+ * Precio comparable con el tuyo: lo que paga de media un cliente el primer año,
+ * sin IVA, con su seguro obligatorio y su alta y la promoción si sigue vigente.
+ */
+export function competitorComparablePrice(
+  c: CompetitorCosts,
+  price: number,
+  now = new Date(),
+): number {
+  const promo = competitorPromoActive(c, now);
+  const gross = effectiveMonthlyPrice({
+    price,
+    insuranceMonthly: Number(c.mandatoryInsuranceMonthly ?? 0),
+    setupFee: Number(c.setupFee ?? 0),
+    promoFreeMonths: promo ? (c.promoFreeMonths ?? 0) : 0,
+    promoDiscountPct: promo ? (c.promoDiscountPct ?? 0) : 0,
+    promoDiscountMonths: promo ? (c.promoDiscountMonths ?? 0) : 0,
+  });
+  return c.priceIncludesVat ? gross / 1.21 : gross;
+}
+
 /**
  * Lo que vale cada característica sobre el precio (%). Un competidor con una
  * que mi local no tiene es «más caro de lo que parece» y su referencia baja.

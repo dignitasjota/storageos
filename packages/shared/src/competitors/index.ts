@@ -73,6 +73,14 @@ export const CreateCompetitorFacilitySchema = z.object({
   setupFee: optionalMoney,
   mandatoryInsuranceMonthly: optionalMoney,
   features: z.array(CompetitorFeatureEnum).max(10).optional(),
+  /** Cada cuántos días conviene revisarlo (vacío = 30). */
+  reviewEveryDays: z.number().int().min(1).max(365).nullable().optional(),
+  /** Hasta cuándo dura su promoción (AAAA-MM-DD); después no cuenta. */
+  promoEndsAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha no válida')
+    .nullable()
+    .optional(),
 });
 export type CreateCompetitorFacilityInput = z.infer<typeof CreateCompetitorFacilitySchema>;
 
@@ -106,6 +114,12 @@ export interface CompetitorFacilityDto {
   setupFee: number | null;
   mandatoryInsuranceMonthly: number | null;
   features: CompetitorFeature[];
+  reviewEveryDays: number | null;
+  promoEndsAt: string | null;
+  /** La promoción cuenta hoy (tiene datos y no ha terminado). */
+  promotionActive: boolean;
+  /** Cuándo toca revisarlo (la última comprobación + su plazo). */
+  nextReviewOn: string | null;
   /**
    * Última vez que se comprobó algo suyo: la revisión completa o cualquier
    * trastero (alta, cambio de precio o de estado, «lo he comprobado hoy»).
@@ -168,6 +182,13 @@ export interface CompetitorUnitDto {
   externalRef: string | null;
   /** Resumen de su histórico de comprobaciones. */
   history: CompetitorUnitHistorySummaryDto;
+  /**
+   * Lo que paga de media un cliente al mes el primer año, sin IVA y con su
+   * seguro obligatorio, alta y promoción: comparable con tu precio.
+   */
+  comparablePrice: number;
+  /** Precio comparable por m². */
+  comparablePerM2: number;
 }
 
 export interface CompetitorUnitHistorySummaryDto {
@@ -240,4 +261,102 @@ export interface MarketOccupancyDto {
   competitionOccupiedUnits: number;
   competitionTotalUnits: number;
   competitors: CompetitorOccupancyRowDto[];
+}
+
+// --- Mejoras (2026-11-19) ---
+
+/** Alta de varios trasteros de una vez (pegados de una tabla). */
+export const BulkCreateCompetitorUnitsSchema = z.object({
+  units: z.array(CreateCompetitorUnitSchema).min(1).max(200),
+});
+export type BulkCreateCompetitorUnitsInput = z.infer<typeof BulkCreateCompetitorUnitsSchema>;
+
+/** Texto de su página de tarifas para que la IA proponga sus trasteros. */
+export const CompetitorAiParseSchema = z.object({
+  text: z.string().trim().min(20, 'Pega el texto de su página de tarifas').max(20000),
+});
+export type CompetitorAiParseInput = z.infer<typeof CompetitorAiParseSchema>;
+
+export interface CompetitorUnitProposalDto {
+  areaM2: number | null;
+  widthM: number | null;
+  depthM: number | null;
+  priceMonthly: number;
+  status: CompetitorUnitStatus;
+  externalRef: string | null;
+  /** El trastero suyo que ya tienes fichado con esas medidas (para actualizarlo). */
+  matchUnitId: string | null;
+}
+
+export interface CompetitorAiParseResultDto {
+  units: CompetitorUnitProposalDto[];
+  /** Lo que la IA ha visto que no son trasteros (promociones, fianza…). */
+  notes: string | null;
+}
+
+export interface CompetitorPromotionDto {
+  id: string;
+  description: string | null;
+  freeMonths: number | null;
+  discountPct: number | null;
+  discountMonths: number | null;
+  endsAt: string | null;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+/** Tu precio frente al del mercado para cada tipo de trastero. */
+export interface MarketPriceRowDto {
+  unitTypeId: string;
+  name: string;
+  /** m² medios de tus trasteros de ese tipo. */
+  areaM2: number;
+  /** Tu precio medio de hoy, sin IVA. */
+  myPrice: number;
+  /** Precio comparable de la competencia en tamaños parecidos (±25 % de m²). */
+  marketMedian: number | null;
+  marketMin: number | null;
+  marketMax: number | null;
+  samples: number;
+  /** Cuánto estás por encima (+) o por debajo (−) de la mediana, en %. */
+  gapPct: number | null;
+}
+
+export interface MarketPricePointDto {
+  source: 'mine' | 'competitor';
+  name: string;
+  areaM2: number;
+  price: number;
+}
+
+export interface MarketPriceMapDto {
+  facilityId: string | null;
+  rows: MarketPriceRowDto[];
+  points: MarketPricePointDto[];
+}
+
+/** Evolución mensual de un competidor. */
+export interface CompetitorTrendDto {
+  points: {
+    yearMonth: string;
+    /** Precio comparable medio de sus trasteros comprobados hasta ese mes. */
+    avgComparablePrice: number | null;
+    /** Ocupación al final del mes (solo con su inventario completo). */
+    occupancy: number | null;
+  }[];
+}
+
+/** Una fila por trastero de la competencia, para exportar. */
+export interface CompetitorUnitExportRowDto {
+  competitorName: string;
+  zone: string | null;
+  facilityName: string | null;
+  distanceKm: number | null;
+  areaM2: number;
+  priceMonthly: number;
+  priceIncludesVat: boolean;
+  comparablePrice: number;
+  status: CompetitorUnitStatus;
+  externalRef: string | null;
+  lastCheckedAt: string;
 }

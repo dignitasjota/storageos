@@ -1320,3 +1320,34 @@ Todas las tablas nuevas son de la plataforma (sin tenant ni RLS, con `REVOKE` a 
 - `sales_commission_plans.guarantee_months` (meses que el cliente tiene que seguir para que cuente el fijo de la venta; null = sin garantía), `sale_tiers` (jsonb `[{fromSales, amount}]`: a partir de esas ventas en un mes, cada venta del mes paga ese fijo) y `target_bonus` (bonus por cumplir el objetivo del mes).
 - `sales_commission_items`: `tenant_id` admite nulo (el tramo y el bonus son del mes, no de un cliente); tipos nuevos `tier` y `bonus`, únicos por comercial y mes (índices parciales); `related_item_id` (FK a sí misma) en los descuentos y reintegros de una venta.
 - `sales_settlements.received_at` / `received_note`: el comercial confirma que ha recibido la liquidación en efectivo.
+
+### Plan Basic por trastero (`20270207100000_plan_basic`)
+
+- `subscription_plans.included_units`: trasteros incluidos en la cuota (Basic cobra 1 € por trastero desde ahí, con un mínimo).
+- `subscription_addons.plan_slugs` (planes en los que se puede contratar; vacío = todos), `max_quantity` y `is_system` (extra interno que gestiona la plataforma: los «Trasteros de más» del plan Basic; no sale en «Hoy», cobros pendientes ni acciones del admin).
+- `tenant_subscriptions.units_billed_for`: sin uso desde la revisión de los planes (los trasteros de más se cuentan justo antes de cada cobro).
+- Datos: Pro hasta 1.000 trasteros, Administrador hasta 1.500 y el plan gratis oculto.
+
+### Prueba con el plan elegido (`20270208100000_plan_trial`)
+
+- `tenants.free_plan_ends_at`: fecha en que un cliente del plan gratis pasa a Basic (se avisa con 30 días). Al acabar la prueba o ese plazo sin pagar, la suscripción queda `expired` y el panel en solo lectura.
+
+### Leads del admin con comercial (`20270209100000_lead_sales_rep_backfill`)
+
+- Sin cambios de estructura: pone en la cartera de su comercial (`platform_leads.sales_rep_id`, `sales_assignments` con `source = 'manual'`) los leads asignados a un comercial desde el panel admin antes del arreglo.
+
+### Citas de los comerciales (`20270210100000_sales_appointments`)
+
+- **`sales_appointments`** (global, `REVOKE`): lead, comercial, `kind` (`in_person` | `call` | `video`), título, `starts_at`, `duration_minutes`, lugar o enlace, notas, `status` (`scheduled` | `done` | `cancelled` | `no_show`), quién la puso y `day_reminder_sent_at`/`hour_reminder_sent_at` (recordatorios del día antes y una hora antes).
+
+### Posiciones en Google: totales por día (`20270210100000_search_console_days`)
+
+- **`search_console_days`** (RLS, único por negocio y día): clics, apariciones y posición de cada día tal como los da Google (con las búsquedas que no detalla). Los totales de Posiciones en Google, el informe y el Resumen de marketing salen de aquí.
+
+### Mejoras de Mercado (`20270211100000_market_improvements`)
+
+- `competitor_facilities.review_every_days` (cada cuántos días revisarlo; null = 30) y `promo_ends_at` (después la promoción no cuenta en el precio comparable).
+- **`competitor_promotions`** (RLS): histórico de las promociones de cada competidor (descripción, meses gratis, descuento, fin, `started_at`, `ended_at`); se rellenó con la que tenía cada uno.
+- `tenant_search_console.brand_terms` (palabras de la marca), `report_recipient_ids` (quién recibe el informe; vacío = los propietarios) y `last_drop_alert_at` (aviso de caída, uno por semana).
+- **`seo_tracked_keywords`** (RLS, única por negocio y búsqueda sin mayúsculas): búsquedas que se siguen con su `target_position`.
+- **`search_console_devices`** (RLS, única por negocio, día y dispositivo): totales por día de `MOBILE`, `DESKTOP` y `TABLET`.
