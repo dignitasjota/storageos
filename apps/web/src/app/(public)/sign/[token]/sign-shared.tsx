@@ -22,6 +22,7 @@ import { type PublicWebLocale } from '@/app/(public)/s/[slug]/i18n/messages';
 import { formatPrice } from '@/app/(public)/s/[slug]/templates';
 import { StripeSetupForm } from '@/components/billing/stripe-setup-form';
 import { SignaturePad } from '@/components/move-in/signature-pad';
+import { DemoCardPayment } from '@/components/payments/demo-card-payment';
 import { OfflinePaymentChoice } from '@/components/payments/offline-payment-choice';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -521,6 +522,8 @@ function BookingPayment({
 
   // Tarjeta por Stripe: desactivada mientras no haya Stripe Connect.
   const [cardPayments, setCardPayments] = useState(false);
+  // Cuenta de demostración: tarjeta simulada (no cobra nada).
+  const [demoCard, setDemoCard] = useState(false);
   // Transferencia, en el local o domiciliación: solo las que active el negocio.
   const [offline, setOffline] = useState({
     bankTransfer: false,
@@ -537,6 +540,7 @@ function BookingPayment({
     })
       .then((o) => {
         setCardPayments(o.cardPayments);
+        setDemoCard(!!o.demoCard);
         setOffline({
           bankTransfer: !!o.bankTransfer,
           payAtFacility: !!o.payAtFacility,
@@ -667,15 +671,27 @@ function BookingPayment({
         />
       ) : (
         <div className="flex flex-col gap-2">
+          {demoCard && (
+            <DemoCardPayment
+              invoiceId={invoice.id}
+              portalToken={portalToken}
+              amountLabel={formatPrice(toPay, locale)}
+              locale={locale}
+              onPaid={() => setPaid(true)}
+            />
+          )}
           {cardPayments && (
             <Button onClick={startStripe} disabled={busy}>
               {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               {t('payWithCard')}
             </Button>
           )}
-          {!cardPayments && redsys && !redsys.enabled && !redsys.bizumEnabled && !hasOffline && (
-            <p className="text-sm text-muted-foreground">{t('noOnlinePayment')}</p>
-          )}
+          {!cardPayments &&
+            !demoCard &&
+            redsys &&
+            !redsys.enabled &&
+            !redsys.bizumEnabled &&
+            !hasOffline && <p className="text-sm text-muted-foreground">{t('noOnlinePayment')}</p>}
           {redsys?.bizumEnabled && (
             <Button variant="outline" onClick={() => void payWithRedsys('bizum')}>
               {t('payWithBizum')}

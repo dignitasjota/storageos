@@ -2,6 +2,22 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 
 import { DEMO_PORTAL_CUSTOMER_TAG, STAFF_EMAIL_KINDS } from '@storageos/shared';
 
+import {
+  clearDemoCatalog,
+  restoreDemoConfig,
+  seedAutomations,
+  seedBlog,
+  seedCashClosure,
+  seedChannels,
+  seedCollectionsCase,
+  seedCoupon,
+  seedFaq,
+  seedMaintenancePlans,
+  seedNightPasses,
+  seedReferrals,
+  seedWebVisits,
+} from './sales-demo-extras';
+
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
 import type { Logger } from '@nestjs/common';
 import type { Prisma } from '@storageos/database';
@@ -146,6 +162,9 @@ const MONTHS = [
   'diciembre',
 ];
 
+/** Tamaño que la demo tiene siempre agotado en un local (con lista de espera). */
+const SOLD_OUT = { facility: 'Norte', type: 'Grande' };
+
 type PayMethod = 'card' | 'sepa_debit' | 'bank_transfer' | 'cash';
 /** Cómo paga cada inquilino y si se retrasa. */
 type Profile = 'good' | 'late' | 'debtor';
@@ -167,6 +186,15 @@ interface SeededContract {
   status: 'active' | 'ending' | 'ended';
   profile: Profile;
   method: PayMethod;
+  /** La inquilina con la que se entra al área de clientes. */
+  portal: boolean;
+}
+
+/** Factura vencida sin cobrar (para el escalado de impagos). */
+interface OverdueInvoice {
+  invoiceId: string;
+  customerId: string;
+  dueDate: Date;
 }
 
 interface DraftInvoice {
@@ -190,6 +218,7 @@ export interface DemoSeedContext {
 /** Siembra todo lo de la demo. Cada parte que falla se anota y no para el resto. */
 export async function seedDemoData(ctx: DemoSeedContext): Promise<void> {
   const { db, tenantId, logger } = ctx;
+  usedNames.clear();
   const step = async (name: string, fn: () => Promise<void>) => {
     try {
       await fn();
@@ -228,11 +257,25 @@ export async function seedDemoData(ctx: DemoSeedContext): Promise<void> {
         contactEmail: 'hola@example.com',
         contactPhone: '960 000 000',
         autoIssueRecurring: true,
+        // El resumen mensual de marketing iría al correo real de quien creó la demo.
+        marketingReportEnabled: false,
         // Los avisos al equipo irían al correo real de quien creó la demo.
         staffEmailSettings: Object.fromEntries(STAFF_EMAIL_KINDS.map((k) => [k, false])),
       },
     });
   });
+
+  // La configuración y el catálogo vuelven a como eran: lo que un comercial
+  // cambie en una demo no pasa a la siguiente.
+  await step('configuración', () => restoreDemoConfig(db, tenantId));
+  await step('catálogo', () => clearDemoCatalog(db, tenantId));
+  await step('preguntas frecuentes', () => seedFaq(db, tenantId));
+  await step('blog', () => seedBlog(db, tenantId));
+  await step('cupón', () => seedCoupon(db, tenantId));
+  await step('canales de marketing', () => seedChannels(db, tenantId, facilities));
+  await step('automatizaciones', () => seedAutomations(db, tenantId));
+  await step('mantenimiento', () => seedMaintenancePlans(db, tenantId, facilities, ownerId));
+  await step('visitas de la web', () => seedWebVisits(db, tenantId));
 
   let insurancePlan: { id: string; name: string; price: number } | null = null;
   await step('plan de seguro', async () => {
@@ -245,23 +288,33 @@ export async function seedDemoData(ctx: DemoSeedContext): Promise<void> {
   await step('inquilinos y contratos', async () => {
     contracts = await seedContracts(db, tenantId, types, insurancePlan, ctx.occupancy);
   });
-  const invoiceIds = new Map<string, string[]>();
+  let overdue: OverdueInvoice[] = [];
   await step('facturas y cobros', async () => {
-    const overdue = await seedInvoices(db, tenantId, contracts);
-    for (const [k, v] of overdue) invoiceIds.set(k, v);
+    overdue = await seedInvoices(db, tenantId, contracts);
+  });
+  // Inquilino → factura por la que se le cortó el acceso.
+  const cuts = new Map<string, string>();
+  await step('escalado de impagos', async () => {
+    for (const [k, v] of await seedDunning(db, tenantId, overdue)) cuts.set(k, v);
   });
   await step('trasteros fuera de servicio', () => seedUnitStates(db, tenantId));
   await step('reservas y lista de espera', () => seedReservations(db, tenantId, types, facilities));
   await step('contactos', () => seedLeads(db, tenantId, ownerId, types, facilities, contracts));
   await step('tareas e incidencias', () => seedOperations(db, tenantId, ownerId, contracts));
   await step('gastos', () => seedExpenses(db, tenantId, facilities));
-  await step('accesos', () => seedAccess(db, tenantId, facilities, contracts, invoiceIds));
+  await step('accesos', () => seedAccess(db, tenantId, facilities, contracts, cuts));
   await step('valoraciones', () => seedReviews(db, tenantId, contracts));
   await step('mensajes y avisos', () => seedMessages(db, tenantId, ownerId, contracts));
   await step('competencia', () => ensureCompetitors(db, tenantId, facilities));
   await step('inquilina del área de clientes', () =>
     seedPortalCustomer(db, tenantId, ownerId, contracts, ctx.encryptSecret),
   );
+  await step('referidos', () => seedReferrals(db, tenantId, contracts));
+  await step('expediente de impago', () =>
+    seedCollectionsCase(db, tenantId, contracts, cuts, ownerId),
+  );
+  await step('pases nocturnos', () => seedNightPasses(db, tenantId, contracts, facilities));
+  await step('cierre de caja', () => seedCashClosure(db, tenantId, ownerId));
 }
 
 // --------------------------------------------------------------- estructura
@@ -362,6 +415,20 @@ async function ensurePromotion(db: PrismaAdminService, tenantId: string): Promis
 
 // --------------------------------------------------- inquilinos y contratos
 
+/** Nombres ya usados en este sembrado: no se repiten inquilinos ni empresas. */
+const usedNames = new Set<string>();
+
+function freshName(make: () => string): string | null {
+  for (let i = 0; i < 30; i++) {
+    const name = make();
+    if (!usedNames.has(name)) {
+      usedNames.add(name);
+      return name;
+    }
+  }
+  return null;
+}
+
 async function newCustomer(
   db: PrismaAdminService,
   tenantId: string,
@@ -369,11 +436,17 @@ async function newCustomer(
   createdAt: Date,
   opts: { business?: boolean; portal?: boolean } = {},
 ) {
-  const business = opts.business ?? chance(0.15);
-  const first = pick(FIRST_NAMES);
-  const last = `${pick(LAST_NAMES)} ${pick(LAST_NAMES)}`;
-  const company = pick(COMPANIES);
+  // Cada empresa, una sola vez; si se acaban, es un particular.
+  const company = (opts.business ?? chance(0.15)) ? freshName(() => pick(COMPANIES)) : null;
+  const business = company !== null;
+  const person = (
+    freshName(() => `${pick(FIRST_NAMES)}|${pick(LAST_NAMES)} ${pick(LAST_NAMES)}`) ??
+    `${pick(FIRST_NAMES)}|${pick(LAST_NAMES)} ${pick(LAST_NAMES)}`
+  ).split('|');
+  const first = person[0] ?? 'Cliente';
+  const last = person[1] ?? 'Demo';
   const taxId = business ? `B${randomInt(10_000_000, 99_999_999)}` : dni();
+  const verified = chance(0.7);
   const customer = await db.customer.create({
     data: {
       tenantId,
@@ -383,20 +456,20 @@ async function newCustomer(
       companyName: business ? company : null,
       documentType: business ? 'cif' : 'dni',
       documentNumber: taxId,
-      email: demoEmail(business ? company : first, business ? 'empresa' : last, n),
+      email: demoEmail(company ?? first, business ? 'empresa' : last, n),
       phone: `6${randomInt(10_000_000, 99_999_999)}`,
       address: `${pick(STREETS)}, ${randomInt(1, 120)}`,
       city: 'Valencia',
       postalCode: `460${String(randomInt(1, 25)).padStart(2, '0')}`,
       country: 'ES',
-      kycVerified: chance(0.7),
-      kycVerifiedAt: createdAt,
+      kycVerified: verified,
+      kycVerifiedAt: verified ? createdAt : null,
       portalLastSeenAt:
         (opts.portal ?? chance(0.45)) ? new Date(Date.now() - randomInt(1, 20) * DAY) : null,
       createdAt,
     },
   });
-  return { customer, name: business ? company : `${first} ${last}`, taxId };
+  return { customer, name: company ?? `${first} ${last}`, taxId };
 }
 
 async function seedContracts(
@@ -409,7 +482,15 @@ async function seedContracts(
   const units = await db.unit.findMany({
     where: { tenantId, status: 'available', facility: { deletedAt: null, isActive: true } },
     orderBy: { code: 'asc' },
-    select: { id: true, code: true, facilityId: true, basePriceMonthly: true, unitTypeId: true },
+    select: {
+      id: true,
+      code: true,
+      facilityId: true,
+      basePriceMonthly: true,
+      unitTypeId: true,
+      unitType: { select: { name: true } },
+      facility: { select: { name: true } },
+    },
   });
   const depositOf = new Map(types.map((t) => [t.id, num(t.defaultDepositAmount)]));
   const year = new Date().getFullYear();
@@ -432,11 +513,15 @@ async function seedContracts(
     status: SeededContract['status'],
     start: Date,
     end: Date | null,
+    fixed?: { profile: Profile; method: PayMethod; insurance: boolean; portal: boolean },
   ) => {
-    const { customer, name, taxId } = await newCustomer(db, tenantId, customerNo++, start);
+    const { customer, name, taxId } = await newCustomer(db, tenantId, customerNo++, start, {
+      ...(fixed ? { business: false } : {}),
+    });
     const price = num(unit.basePriceMonthly);
     const deposit = depositOf.get(unit.unitTypeId) ?? 0;
-    const withInsurance = insurance && status !== 'ended' && chance(0.3);
+    const withInsurance =
+      insurance && status !== 'ended' && (fixed ? fixed.insurance : chance(0.3));
     const number = `CT-${year}-${String(contractNo++).padStart(5, '0')}`;
     const contract = await db.contract.create({
       data: {
@@ -509,14 +594,16 @@ async function seedContracts(
       end,
       status,
       profile:
-        status === 'ended'
+        fixed?.profile ??
+        (status === 'ended'
           ? 'good'
           : profileRoll < 0.08
             ? 'debtor'
             : profileRoll < 0.2
               ? 'late'
-              : 'good',
-      method: pick(methods),
+              : 'good'),
+      method: fixed?.method ?? pick(methods),
+      portal: fixed?.portal ?? false,
     });
   };
 
@@ -526,9 +613,25 @@ async function seedContracts(
       monthStart(today.getUTCFullYear(), today.getUTCMonth()),
       randomInt(0, today.getUTCDate()),
     );
+  // La inquilina del área de clientes, siempre la misma: un mediano del
+  // primer local, con seguro, al día y que paga por transferencia.
+  const portalUnit = units.find((u) => u.unitType.name.startsWith('Mediano')) ?? units[0] ?? null;
+  if (portalUnit) {
+    await createContract(portalUnit, 'active', dateOnly(addDays(today, -300)), null, {
+      profile: 'good',
+      method: 'bank_transfer',
+      insurance: true,
+      portal: true,
+    });
+  }
+  // Un tamaño agotado en un local: la web enseña «Agotado · Avísame» y la
+  // lista de espera tiene sentido.
+  const soldOut = (u: (typeof units)[number]) =>
+    u.facility.name === SOLD_OUT.facility && u.unitType.name.startsWith(SOLD_OUT.type);
   let newThisMonth = 0;
   for (const unit of units) {
-    if (!chance(occupancy)) {
+    if (unit.id === portalUnit?.id) continue;
+    if (!soldOut(unit) && !chance(occupancy)) {
       free.push(unit);
       continue;
     }
@@ -582,17 +685,17 @@ async function seedContracts(
 
 /**
  * Facturas de los últimos seis meses de cada contrato, numeradas por orden de
- * emisión, con su cobro. Devuelve, por inquilino, sus facturas vencidas.
+ * emisión, con su cobro. Devuelve las vencidas sin cobrar.
  */
 async function seedInvoices(
   db: PrismaAdminService,
   tenantId: string,
   contracts: SeededContract[],
-): Promise<Map<string, string[]>> {
+): Promise<OverdueInvoice[]> {
   const series = await db.invoiceSeries.findFirst({
     where: { tenantId, isDefault: true, isActive: true, ownerId: null },
   });
-  if (!series) return new Map();
+  if (!series) return [];
   const today = dateOnly(new Date());
   const from = monthStart(today.getUTCFullYear(), today.getUTCMonth() - 5);
   const drafts: DraftInvoice[] = [];
@@ -621,7 +724,7 @@ async function seedInvoices(
   }
   drafts.sort((a, b) => a.issueDate.getTime() - b.issueDate.getTime());
 
-  const overdueByCustomer = new Map<string, string[]>();
+  const overdue: OverdueInvoice[] = [];
   const seqByYear = new Map<number, number>();
   let failedPaymentDone = false;
   let partialDone = false;
@@ -659,23 +762,29 @@ async function seedInvoices(
     const subtotal = round2(lines.reduce((s, l) => s + l.base, 0));
     const tax = round2(lines.reduce((s, l) => s + round2(l.base * 0.21), 0));
     const total = round2(subtotal + tax);
-    const recent = d.issueDate >= monthStart(today.getUTCFullYear(), today.getUTCMonth() - 1);
-    const thisMonth = d.issueDate >= monthStart(today.getUTCFullYear(), today.getUTCMonth());
-    // Quién paga: casi todos; los que pagan por transferencia o en el local
-    // aún no han pagado este mes (vence a fin de mes); los que se retrasan
-    // deben el mes pasado y los morosos, los dos últimos y este.
-    const lastMonth = !thisMonth && recent;
+    const monthsAgo =
+      (today.getUTCFullYear() - d.issueDate.getUTCFullYear()) * 12 +
+      today.getUTCMonth() -
+      d.issueDate.getUTCMonth();
+    const thisMonth = monthsAgo === 0;
+    // Quién paga:
+    // - los buenos, todo; por transferencia o en el local, lo de este mes
+    //   aún está por cobrar (vence a fin de mes);
+    // - los que se retrasan pagan tarde y lo de este mes vence a los 15 días;
+    // - los morosos deben uno o dos meses además de este.
+    const debtMonths = Number(c.number.slice(-1)) % 2 === 0 ? 2 : 1;
     let paid = true;
     if (thisMonth && (c.method === 'bank_transfer' || c.method === 'cash')) paid = false;
-    if (c.profile === 'late' && lastMonth) paid = false;
-    if (c.profile === 'debtor' && recent) paid = false;
-    if (thisMonth) d.dueDate = monthEnd(today.getUTCFullYear(), today.getUTCMonth());
+    if (c.profile === 'late' && thisMonth) paid = false;
+    if (c.profile === 'debtor' && monthsAgo <= debtMonths) paid = false;
+    if (thisMonth && c.profile === 'good') {
+      d.dueDate = monthEnd(today.getUTCFullYear(), today.getUTCMonth());
+    }
     const due = d.dueDate < today;
     const status = paid ? 'paid' : due ? 'overdue' : 'issued';
+    const payDelay = c.profile === 'late' ? 15 + randomInt(3, 11) : randomInt(0, 6);
     const paidAt = paid
-      ? new Date(
-          Math.min(d.issueDate.getTime() + randomInt(0, 6) * DAY + 11 * 3_600_000, Date.now()),
-        )
+      ? new Date(Math.min(d.issueDate.getTime() + payDelay * DAY + 11 * 3_600_000, Date.now()))
       : null;
     const partial = !paid && due && !partialDone;
     const invoice = await db.invoice.create({
@@ -751,10 +860,7 @@ async function seedInvoices(
       });
     }
     if (!paid && due) {
-      overdueByCustomer.set(c.customerId, [
-        ...(overdueByCustomer.get(c.customerId) ?? []),
-        invoice.id,
-      ]);
+      overdue.push({ invoiceId: invoice.id, customerId: c.customerId, dueDate: d.dueDate });
       if (!failedPaymentDone && !partial) {
         failedPaymentDone = true;
         await db.payment.create({
@@ -834,7 +940,47 @@ async function seedInvoices(
     where: { id: series.id },
     data: { nextNumber: (seqByYear.get(currentYear) ?? 0) + 1, numberingYear: currentYear },
   });
-  return overdueByCustomer;
+  return overdue;
+}
+
+/**
+ * Escalado de impagos de cada factura vencida, como lo habría dejado el proceso
+ * de cada día: recordatorio (día 1), segundo aviso (día 7), corte de acceso
+ * (día 14) y aviso legal (día 30). Devuelve a quién se le cortó el acceso.
+ */
+async function seedDunning(
+  db: PrismaAdminService,
+  tenantId: string,
+  overdue: OverdueInvoice[],
+): Promise<Map<string, string>> {
+  const steps = [
+    { type: 'email_reminder', days: 1 },
+    { type: 'email_reminder_final', days: 7 },
+    { type: 'access_block', days: 14 },
+    { type: 'legal_notice', days: 30 },
+  ] as const;
+  const now = Date.now();
+  const cuts = new Map<string, string>();
+  const rows: Prisma.DunningActionCreateManyInput[] = [];
+  for (const inv of overdue) {
+    for (const stepDef of steps) {
+      const at = new Date(inv.dueDate.getTime() + stepDef.days * DAY + 6 * 3_600_000);
+      const done = at.getTime() <= now;
+      if (done && stepDef.type === 'access_block') cuts.set(inv.customerId, inv.invoiceId);
+      rows.push({
+        tenantId,
+        invoiceId: inv.invoiceId,
+        actionType: stepDef.type,
+        status: done ? 'executed' : 'scheduled',
+        scheduledFor: at,
+        executedAt: done ? at : null,
+        ...(done && stepDef.type === 'access_block' ? { result: { accessBlocked: true } } : {}),
+        createdAt: new Date(inv.dueDate.getTime() + DAY),
+      });
+    }
+  }
+  if (rows.length > 0) await db.dunningAction.createMany({ data: rows });
+  return cuts;
 }
 
 // ------------------------------------------- trasteros, reservas y espera
@@ -875,7 +1021,7 @@ async function seedReservations(
   db: PrismaAdminService,
   tenantId: string,
   types: { id: string; name: string }[],
-  facilities: { id: string }[],
+  facilities: { id: string; name: string }[],
 ): Promise<void> {
   const free = await db.unit.findMany({
     where: { tenantId, status: 'available' },
@@ -904,8 +1050,8 @@ async function seedReservations(
     });
     if (confirmed) await db.unit.update({ where: { id: unit.id }, data: { status: 'reserved' } });
   }
-  const big = types.find((t) => t.name.startsWith('Grande'));
-  const facility = facilities[0];
+  const big = types.find((t) => t.name.startsWith(SOLD_OUT.type));
+  const facility = facilities.find((f) => f.name === SOLD_OUT.facility) ?? facilities[0];
   if (!big || !facility) return;
   const waiting = [
     { name: 'Rocío Ferrer', days: 18 },
@@ -939,8 +1085,9 @@ async function seedLeads(
   facilities: { id: string }[],
   contracts: SeededContract[],
 ): Promise<void> {
-  // Los contactos no se vacían: se rehacen los de la demo.
-  await db.lead.deleteMany({ where: { tenantId, metadata: { path: ['demo'], equals: true } } });
+  // El vaciado conserva los contactos: aquí se borran todos (también los que
+  // dejan las reservas hechas desde la web en cada demostración).
+  await db.lead.deleteMany({ where: { tenantId } });
   const now = Date.now();
   const won = contracts.filter((c) => c.status === 'active').slice(0, 2);
   const leads: {
@@ -1380,7 +1527,7 @@ async function seedAccess(
   tenantId: string,
   facilities: { id: string; name: string }[],
   contracts: SeededContract[],
-  overdue: Map<string, string[]>,
+  cuts: Map<string, string>,
 ): Promise<void> {
   const devices = new Map<string, string>();
   for (const f of facilities) {
@@ -1404,8 +1551,9 @@ async function seedAccess(
   const live = contracts.filter((c) => c.status !== 'ended');
   const credentials: { id: string; contract: SeededContract; suspended: boolean }[] = [];
   for (const c of live) {
-    const invoices = overdue.get(c.customerId) ?? [];
-    const suspended = c.profile === 'debtor' && invoices.length > 0;
+    // Cortado solo a quien el escalado ya le cortó el acceso.
+    const cutInvoice = cuts.get(c.customerId);
+    const suspended = !!cutInvoice;
     const credential = await db.accessCredential.create({
       data: {
         tenantId,
@@ -1419,7 +1567,7 @@ async function seedAccess(
         allowedUnitIds: [c.unitId],
         activatedAt: c.start,
         suspendedAt: suspended ? addDays(new Date(), -randomInt(2, 10)) : null,
-        suspendReason: suspended ? `dunning:invoice-${invoices[0]}` : null,
+        suspendReason: suspended ? `dunning:invoice-${cutInvoice}` : null,
         createdAt: c.start,
       },
     });
@@ -1519,7 +1667,7 @@ async function seedMessages(
   ownerId: string | null,
   contracts: SeededContract[],
 ): Promise<void> {
-  const live = contracts.filter((c) => c.status !== 'ended');
+  const live = contracts.filter((c) => c.status !== 'ended' && !c.portal);
   const [a, b, d] = [live[2], live[5], live[8]];
   const now = Date.now();
   const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000);
@@ -1757,11 +1905,7 @@ async function seedPortalCustomer(
   contracts: SeededContract[],
   encryptSecret: ((plain: string) => string) | undefined,
 ): Promise<void> {
-  const candidates = contracts.filter((c) => c.status === 'active' && c.profile === 'good');
-  const c =
-    candidates.find((x) => x.method === 'bank_transfer' && x.insurance) ??
-    candidates.find((x) => x.method === 'bank_transfer' || x.method === 'cash') ??
-    candidates[0];
+  const c = contracts.find((x) => x.portal);
   if (!c) return;
   const name = 'Laura Martín Sanz';
   await db.customer.update({

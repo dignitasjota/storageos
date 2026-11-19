@@ -10,6 +10,7 @@ import {
   type EmailProvider,
   type SendEmailResult,
 } from './providers/email-provider';
+import { isReservedExampleAddress } from './reserved-address';
 import { TenantSenderService } from './tenant-sender.service';
 
 import type { PlatformEmailKind, PlatformSenderCategory } from '@storageos/shared';
@@ -147,6 +148,14 @@ export class EmailService {
   }
 
   private async deliver(args: SendMailRenderedArgs): Promise<SendEmailResult> {
+    // Direcciones de ejemplo (inquilinos de la cuenta de demostración): no
+    // existen, rebotarían y dañarían la reputación de la cuenta de envío.
+    if (process.env.NODE_ENV === 'production' && isReservedExampleAddress(args.to)) {
+      return {
+        providerMessageId: null,
+        suppressed: 'No enviado: es una dirección de ejemplo',
+      };
+    }
     // Dirección que rebota de forma permanente: no se insiste (daña la
     // reputación de la cuenta de envío, compartida por todos los tenants).
     const blocked = await this.suppressions.blockedForAll(args.to);

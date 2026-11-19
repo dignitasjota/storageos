@@ -821,6 +821,125 @@ describe('Comerciales (e2e)', () => {
         },
       });
       expect(series.nextNumber).toBe(lastNumber + 1);
+      // Los deudores con el acceso cortado son los que el escalado cortó.
+      const cut = await db.dunningAction.findMany({
+        where: {
+          tenantId: demoId,
+          actionType: 'access_block',
+          status: 'executed',
+          result: { path: ['accessBlocked'], equals: true },
+        },
+        select: { invoice: { select: { customerId: true } } },
+      });
+      const cutCustomers = new Set(cut.map((a) => a.invoice.customerId));
+      expect(cutCustomers.size).toBeGreaterThan(0);
+      const suspended = await db.accessCredential.findMany({
+        where: { tenantId: demoId, status: 'suspended' },
+        select: { customerId: true },
+      });
+      expect(new Set(suspended.map((c) => c.customerId))).toEqual(cutCustomers);
+      // La inquilina del área de clientes: al día, con la factura del mes por pagar.
+      const laura = await db.customer.findFirstOrThrow({
+        where: { tenantId: demoId, tags: { has: 'demo-portal' } },
+      });
+      expect(
+        await db.invoice.count({
+          where: { tenantId: demoId, customerId: laura.id, status: 'issued', kind: 'invoice' },
+        }),
+      ).toBe(1);
+      expect(
+        await db.invoice.count({
+          where: { tenantId: demoId, customerId: laura.id, status: 'overdue' },
+        }),
+      ).toBe(0);
+      // Un tamaño agotado en un local, con su lista de espera.
+      const norte = await db.facility.findFirstOrThrow({
+        where: { tenantId: demoId, name: 'Norte' },
+      });
+      expect(
+        await db.unit.count({
+          where: {
+            tenantId: demoId,
+            facilityId: norte.id,
+            status: 'available',
+            unitType: { name: { startsWith: 'Grande' } },
+          },
+        }),
+      ).toBe(0);
+      expect(
+        await db.waitlistEntry.count({ where: { tenantId: demoId, facilityId: norte.id } }),
+      ).toBe(3);
+      // Nombres sin repetir.
+      const names = (
+        await db.customer.findMany({
+          where: { tenantId: demoId },
+          select: { firstName: true, lastName: true, companyName: true },
+        })
+      ).map((c) => c.companyName ?? `${c.firstName} ${c.lastName}`);
+      expect(new Set(names).size).toBe(names.length);
+      // No es un negocio real: fuera de Google y sin avisos de «sin señal».
+      const demoTenant = await db.tenant.findUniqueOrThrow({ where: { id: demoId } });
+      expect(demoTenant.marketingReportEnabled).toBe(false);
+      const brand = await http().get(`/public/landing/brand/${demoTenant.slug}`).expect(200);
+      expect(brand.body.noindex).toBe(true);
+      const sitemap = await http().get('/public/landing/sitemap').expect(200);
+      expect(
+        (sitemap.body.entries as { tenantSlug: string }[]).some(
+          (e) => e.tenantSlug === demoTenant.slug,
+        ),
+      ).toBe(false);
+      await db.accessDevice.updateMany({
+        where: { tenantId: demoId },
+        data: { lastSeenAt: new Date(Date.now() - 3 * 3_600_000) },
+      });
+      const adminToday = await http()
+        .get('/admin/today')
+        .set('Authorization', `Bearer ${superToken}`)
+        .expect(200);
+      expect(JSON.stringify(adminToday.body.devicesOffline ?? [])).not.toContain(demoId);
+      // Lo que antes salía vacío.
+      expect(await db.faqEntry.count({ where: { tenantId: demoId } })).toBe(5);
+      expect(await db.blogPost.count({ where: { tenantId: demoId, isPublished: true } })).toBe(2);
+      expect(await db.marketingChannel.count({ where: { tenantId: demoId } })).toBe(3);
+      expect(await db.automationRule.count({ where: { tenantId: demoId } })).toBe(2);
+      expect(await db.maintenancePlan.count({ where: { tenantId: demoId } })).toBe(2);
+      expect(await db.webVisit.count({ where: { tenantId: demoId } })).toBeGreaterThan(300);
+      expect(await db.cashClosure.count({ where: { tenantId: demoId } })).toBe(1);
+      expect(await db.referral.count({ where: { tenantId: demoId } })).toBeGreaterThanOrEqual(1);
+      expect(
+        await db.delinquencyCase.count({ where: { tenantId: demoId, status: 'overlocked' } }),
+      ).toBe(1);
+      expect(
+        await db.accessCredential.count({
+          where: { tenantId: demoId, metadata: { path: ['source'], equals: 'night_pass' } },
+        }),
+      ).toBeGreaterThan(0);
+      expect(
+        await db.tenantFeatureOverride.count({
+          where: { tenantId: demoId, feature: { in: ['web_premium', 'local_seo'] }, enabled: true },
+        }),
+      ).toBe(2);
+      expect((await db.tenant.findUniqueOrThrow({ where: { id: demoId } })).webTemplate).toBe(
+        'cabe',
+      );
+      // Lo que cambie un comercial en la configuración vuelve con el reinicio.
+      await db.tenant.update({
+        where: { id: demoId },
+        data: { portalBrandColor: '#000000', webTemplate: 'default' },
+      });
+      await db.coupon.create({
+        data: {
+          tenantId: demoId,
+          code: 'DELCOMERCIAL',
+          name: 'Cupón de un comercial',
+          discountType: 'percentage',
+          discountValue: 50,
+        },
+      });
+      // Una reserva de la web deja un contacto: el reinicio también lo borra.
+      await db.lead.create({
+        data: { tenantId: demoId, firstName: 'Reserva', lastName: 'De la web', source: 'widget' },
+      });
       // A los inquilinos de la demo no se les escribe.
       const customer = await db.customer.findFirstOrThrow({
         where: { tenantId: demoId, email: { not: null } },
@@ -863,6 +982,12 @@ describe('Comerciales (e2e)', () => {
       ).toBeGreaterThan(10);
       // El reinicio no duplica lo que se conserva (contactos y competencia).
       expect(await db.lead.count({ where: demoLeads })).toBeLessThanOrEqual(12);
+      expect(await db.lead.count({ where: { tenantId: demoId, firstName: 'Reserva' } })).toBe(0);
+      const restored = await db.tenant.findUniqueOrThrow({ where: { id: demoId } });
+      expect(restored.portalBrandColor).toBe('#1E3A8A');
+      expect(restored.webTemplate).toBe('cabe');
+      expect(await db.coupon.count({ where: { tenantId: demoId, code: 'DELCOMERCIAL' } })).toBe(0);
+      expect(await db.faqEntry.count({ where: { tenantId: demoId } })).toBe(5);
       expect(await db.competitorFacility.count({ where: { tenantId: demoId } })).toBe(2);
       expect(await db.task.count({ where: { tenantId: demoId } })).toBe(7);
       expect(
@@ -896,6 +1021,37 @@ describe('Comerciales (e2e)', () => {
       const access = await http().get('/portal/me/access').set(portalAuth);
       expect(access.status).toBe(200);
       expect(JSON.stringify(access.body)).toContain('482913');
+      // Pago con tarjeta SIMULADO: cobra la factura dentro de la demo sin
+      // pasar por ninguna pasarela.
+      const options = await http().get('/portal/me/payments/options').set(portalAuth).expect(200);
+      expect(options.body.demoCard).toBe(true);
+      const pending = await db.invoice.findFirstOrThrow({
+        where: { tenantId: demoId, customerId: session.body.customerId, status: 'issued' },
+      });
+      await http()
+        .post(`/portal/me/invoices/${pending.id}/demo-card-payment`)
+        .set(portalAuth)
+        .expect(200);
+      expect((await db.invoice.findUniqueOrThrow({ where: { id: pending.id } })).status).toBe(
+        'paid',
+      );
+      const simulated = await db.payment.findFirstOrThrow({
+        where: { invoiceId: pending.id, status: 'succeeded' },
+      });
+      expect(simulated.gateway).toBe('manual');
+      expect(simulated.gatewayPaymentId).toBeNull();
+      expect(simulated.notes).toContain('simulado');
+      expect(
+        await db.payment.count({
+          where: { tenantId: demoId, gateway: { in: ['stripe', 'redsys', 'gocardless'] } },
+        }),
+      ).toBe(0);
+      expect(await db.redsysOrder.count({ where: { tenantId: demoId } })).toBe(0);
+      // Pagada: no se puede volver a pagar.
+      await http()
+        .post(`/portal/me/invoices/${pending.id}/demo-card-payment`)
+        .set(portalAuth)
+        .expect(400);
       // Lo que escribe le llega al negocio de la demo.
       await http()
         .post('/portal/me/messages')

@@ -1,11 +1,15 @@
 'use client';
 
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { loadStripe, type Stripe } from '@stripe/stripe-js';
+// `/pure`: el script de Stripe se carga solo al pagar con Stripe, no al abrir
+// cualquier página que importe este formulario (la firma de una reserva, el
+// área de clientes…).
+import { loadStripe } from '@stripe/stripe-js/pure';
 import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import type { Stripe } from '@stripe/stripe-js';
 import type * as React from 'react';
 
 import { Button } from '@/components/ui/button';

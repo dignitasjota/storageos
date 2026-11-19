@@ -32,6 +32,7 @@ import { CityBody } from './city-body';
 import type { Metadata } from 'next';
 
 import { safeJsonLd } from '@/lib/json-ld';
+import { tenantRobots } from '@/lib/tenant-favicon';
 
 type Facility = PublicLandingDto['facilities'][number];
 type AreaPage = ResolvedAreaPage<Facility>;
@@ -156,7 +157,7 @@ export async function buildCityMetadata(
       languages: { es, en, 'x-default': es },
     },
     // Una zona cercana sin texto propio suficiente no se indexa.
-    robots: { index: page.indexable, follow: true },
+    robots: await tenantRobots(slug, page.indexable),
     openGraph: {
       title,
       description,

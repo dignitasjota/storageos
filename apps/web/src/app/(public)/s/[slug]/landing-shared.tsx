@@ -21,6 +21,7 @@ import type { Metadata } from 'next';
 
 import { safeJsonLd } from '@/lib/json-ld';
 import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { tenantRobots } from '@/lib/tenant-favicon';
 
 const API_URL = SERVER_API_URL;
 
@@ -241,7 +242,7 @@ export async function buildLandingMetadata(
     title: { absolute: title },
     description,
     alternates: { canonical, languages: languageAlternates(data, slug) },
-    robots: { index: true, follow: true },
+    robots: await tenantRobots(slug),
     // Solo en el homepage de la propiedad (esta ruta) — es lo que exige el
     // método "Etiqueta HTML" de Google Search Console.
     ...(data.googleSiteVerification

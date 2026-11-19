@@ -115,6 +115,8 @@ export class AdminOpsHealthService {
       by: ['tenantId'],
       where: {
         isActive: true,
+        // Los simulados (cuenta de demostración, pruebas) nunca dan señal.
+        OR: [{ provider: null }, { provider: { not: 'stub' } }],
         lastSeenAt: { not: null, lt: new Date(now.getTime() - DEVICE_OFFLINE_MS) },
         tenant: { deletedAt: null, status: { in: ['active', 'trial'] } },
       },

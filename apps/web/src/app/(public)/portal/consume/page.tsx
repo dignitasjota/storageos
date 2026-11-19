@@ -376,6 +376,8 @@ function PortalConsumeContent() {
     sepaDebit: false,
   });
   const [redsysEnabled, setRedsysEnabled] = useState(false);
+  // Cuenta de demostración: pago con tarjeta simulado.
+  const [demoCard, setDemoCard] = useState(false);
   const [bizumEnabled, setBizumEnabled] = useState(false);
   // Pago por referencia de Redsys: guardar la tarjeta para cobrar solas las cuotas.
   const [cardOnFileEnabled, setCardOnFileEnabled] = useState(false);
@@ -529,6 +531,7 @@ function PortalConsumeContent() {
           const o = await portalFetch<PortalPaymentOptionsDto>(s, '/portal/me/payments/options');
           if (!cancelled) {
             setCardPaymentsEnabled(o.cardPayments);
+            setDemoCard(!!o.demoCard);
             setOfflineOptions({
               bankTransfer: !!o.bankTransfer,
               payAtFacility: !!o.payAtFacility,
@@ -1443,6 +1446,8 @@ function PortalConsumeContent() {
                   saveCard={cardOnFileEnabled && saveCard}
                   payingId={payingId}
                   offlineOptions={offlineOptions}
+                  demoCard={demoCard}
+                  onDemoPaid={() => void reloadInvoices()}
                   onPay={(i, opts) => void handlePay(i, opts)}
                   onPayAll={(list) => void handlePayAll(list)}
                   onDownload={(id) => void downloadInvoicePdf(id)}
