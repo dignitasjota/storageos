@@ -1119,6 +1119,9 @@ export interface SalesDemoPortalLinkDto {
 /** Etiqueta del inquilino de la demo con el que se entra a su área de clientes. */
 export const DEMO_PORTAL_CUSTOMER_TAG = 'demo-portal';
 
+/** Etiqueta del tenant que es la cuenta de demostración de los comerciales. */
+export const DEMO_TENANT_TAG = 'demo';
+
 // --------------------------------------------------- panel del tenant (cliente)
 
 /** «Tu comercial» en el panel del cliente. */

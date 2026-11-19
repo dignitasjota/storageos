@@ -6,6 +6,7 @@ import {
   type ImpersonationTokenDto,
   type PlatformSalesSettingsDto,
   DEMO_PORTAL_CUSTOMER_TAG,
+  DEMO_TENANT_TAG,
   type SalesDemoPortalLinkDto,
   type SalesDemoStatusDto,
 } from '@storageos/shared';
@@ -154,7 +155,7 @@ export class SalesDemoService {
       where: { id: tenant.id },
       data: {
         billingExempt: true,
-        tags: ['demo'],
+        tags: [DEMO_TENANT_TAG],
         billingLegalName: 'Trasteros Demo SL',
         taxId: 'B00000000',
         billingAddress: 'Calle de Colón, 12',

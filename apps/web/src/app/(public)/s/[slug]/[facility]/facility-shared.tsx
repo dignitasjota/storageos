@@ -27,6 +27,7 @@ import type { AreaPageFaq, PublicFacilityLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { tenantRobots } from '@/lib/tenant-favicon';
 
 const API_URL = SERVER_API_URL;
 
@@ -266,7 +267,7 @@ export async function buildFacilityMetadata(
     title: { absolute: title },
     description,
     alternates: { canonical, languages: languageAlternates(data, slug, facilitySlug) },
-    robots: { index: true, follow: true },
+    robots: await tenantRobots(slug),
     // Sin `opengraph-image.tsx` propio para este segmento: hereda el del
     // tenant en `/s/[slug]/opengraph-image.tsx` (convención de Next).
     openGraph: {

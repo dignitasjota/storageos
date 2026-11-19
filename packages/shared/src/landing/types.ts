@@ -330,4 +330,6 @@ export interface PublicTenantBrandDto {
   /** Contacto del negocio para el aviso (del primer local que lo tenga). */
   contactPhone: string | null;
   contactEmail: string | null;
+  /** Cuenta de demostración: su web no se indexa ni entra en el sitemap. */
+  noindex: boolean;
 }

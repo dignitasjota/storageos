@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  DEMO_TENANT_TAG,
   SUSPENSION_WEB_OFFLINE_DAYS,
   suspensionDays,
   areaPageLinks,
@@ -760,6 +761,7 @@ export class LandingService {
         contactPhone: true,
         contactEmail: true,
         updatedAt: true,
+        tags: true,
       },
     });
     if (!tenant || tenant.deletedAt) {
@@ -796,6 +798,7 @@ export class LandingService {
       faviconUrl: tenant.webFaviconKey
         ? this.files.buildPublicUrl('public', tenant.webFaviconKey)
         : null,
+      noindex: tenant.tags.includes(DEMO_TENANT_TAG),
     };
   }
 
@@ -964,6 +967,8 @@ export class LandingService {
         status: { in: ['trial', 'active'] },
         users: { some: { emailVerifiedAt: { not: null } } },
         facilities: { some: { deletedAt: null, isActive: true } },
+        // La cuenta de demostración no es un negocio real: fuera de Google.
+        NOT: { tags: { has: DEMO_TENANT_TAG } },
       },
       select: { slug: true, updatedAt: true, customDomain: true, customDomainVerifiedAt: true },
     });

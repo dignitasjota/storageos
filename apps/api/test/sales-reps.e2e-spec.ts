@@ -821,6 +821,86 @@ describe('Comerciales (e2e)', () => {
         },
       });
       expect(series.nextNumber).toBe(lastNumber + 1);
+      // Los deudores con el acceso cortado son los que el escalado cortó.
+      const cut = await db.dunningAction.findMany({
+        where: {
+          tenantId: demoId,
+          actionType: 'access_block',
+          status: 'executed',
+          result: { path: ['accessBlocked'], equals: true },
+        },
+        select: { invoice: { select: { customerId: true } } },
+      });
+      const cutCustomers = new Set(cut.map((a) => a.invoice.customerId));
+      expect(cutCustomers.size).toBeGreaterThan(0);
+      const suspended = await db.accessCredential.findMany({
+        where: { tenantId: demoId, status: 'suspended' },
+        select: { customerId: true },
+      });
+      expect(new Set(suspended.map((c) => c.customerId))).toEqual(cutCustomers);
+      // La inquilina del área de clientes: al día, con la factura del mes por pagar.
+      const laura = await db.customer.findFirstOrThrow({
+        where: { tenantId: demoId, tags: { has: 'demo-portal' } },
+      });
+      expect(
+        await db.invoice.count({
+          where: { tenantId: demoId, customerId: laura.id, status: 'issued', kind: 'invoice' },
+        }),
+      ).toBe(1);
+      expect(
+        await db.invoice.count({
+          where: { tenantId: demoId, customerId: laura.id, status: 'overdue' },
+        }),
+      ).toBe(0);
+      // Un tamaño agotado en un local, con su lista de espera.
+      const norte = await db.facility.findFirstOrThrow({
+        where: { tenantId: demoId, name: 'Norte' },
+      });
+      expect(
+        await db.unit.count({
+          where: {
+            tenantId: demoId,
+            facilityId: norte.id,
+            status: 'available',
+            unitType: { name: { startsWith: 'Grande' } },
+          },
+        }),
+      ).toBe(0);
+      expect(
+        await db.waitlistEntry.count({ where: { tenantId: demoId, facilityId: norte.id } }),
+      ).toBe(3);
+      // Nombres sin repetir.
+      const names = (
+        await db.customer.findMany({
+          where: { tenantId: demoId },
+          select: { firstName: true, lastName: true, companyName: true },
+        })
+      ).map((c) => c.companyName ?? `${c.firstName} ${c.lastName}`);
+      expect(new Set(names).size).toBe(names.length);
+      // No es un negocio real: fuera de Google y sin avisos de «sin señal».
+      const demoTenant = await db.tenant.findUniqueOrThrow({ where: { id: demoId } });
+      expect(demoTenant.marketingReportEnabled).toBe(false);
+      const brand = await http().get(`/public/landing/brand/${demoTenant.slug}`).expect(200);
+      expect(brand.body.noindex).toBe(true);
+      const sitemap = await http().get('/public/landing/sitemap').expect(200);
+      expect(
+        (sitemap.body.entries as { tenantSlug: string }[]).some(
+          (e) => e.tenantSlug === demoTenant.slug,
+        ),
+      ).toBe(false);
+      await db.accessDevice.updateMany({
+        where: { tenantId: demoId },
+        data: { lastSeenAt: new Date(Date.now() - 3 * 3_600_000) },
+      });
+      const adminToday = await http()
+        .get('/admin/today')
+        .set('Authorization', `Bearer ${superToken}`)
+        .expect(200);
+      expect(JSON.stringify(adminToday.body.devicesOffline ?? [])).not.toContain(demoId);
+      // Una reserva de la web deja un contacto: el reinicio también lo borra.
+      await db.lead.create({
+        data: { tenantId: demoId, firstName: 'Reserva', lastName: 'De la web', source: 'widget' },
+      });
       // A los inquilinos de la demo no se les escribe.
       const customer = await db.customer.findFirstOrThrow({
         where: { tenantId: demoId, email: { not: null } },
@@ -863,6 +943,7 @@ describe('Comerciales (e2e)', () => {
       ).toBeGreaterThan(10);
       // El reinicio no duplica lo que se conserva (contactos y competencia).
       expect(await db.lead.count({ where: demoLeads })).toBeLessThanOrEqual(12);
+      expect(await db.lead.count({ where: { tenantId: demoId, firstName: 'Reserva' } })).toBe(0);
       expect(await db.competitorFacility.count({ where: { tenantId: demoId } })).toBe(2);
       expect(await db.task.count({ where: { tenantId: demoId } })).toBe(7);
       expect(

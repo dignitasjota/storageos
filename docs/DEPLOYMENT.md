@@ -2838,3 +2838,16 @@ Sin migración ni variables nuevas. Además de «Abrir la demo» (el panel del n
 La demo tiene los avisos por correo al equipo apagados y un contacto de ejemplo (`hola@example.com`): antes salía el correo real de quien la creó en la web y en el contrato que firma el cliente.
 
 Tras desplegar, **poner la demo a cero** para que aparezca la inquilina.
+
+## 167. Revisión de la demo (2026-11-19)
+
+Sin migración ni variables nuevas. Arreglos tras revisar la cuenta de demostración, su área de clientes y su web:
+
+- **Las puertas simuladas no avisan de «sin señal»**: una hora después de cada reinicio salían en «Hoy» del panel de administración (y en el aviso al móvil) como dispositivos sin conexión. Los dispositivos con proveedor `stub` quedan fuera de ese aviso.
+- **La web de la demo no se indexa**: `noindex` en sus páginas y fuera del sitemap (`PublicTenantBrandDto.noindex`, etiqueta `demo` del tenant). El sitemap del web se renueva cada hora.
+- **Los contactos de las reservas hechas en cada demo se borran al reiniciar** (el vaciado conserva los contactos y se acumulaban).
+- **El resumen mensual de marketing no se envía desde la demo** (llegaba al correo real de quien la creó).
+- **Nunca se envía correo a direcciones de ejemplo** (`@example.com`, `.test`, `.invalid`…) en producción: `EmailService` lo deja como no enviado. Cubre los enlaces de acceso al área de clientes de los inquilinos de la demo.
+- **Datos más coherentes**: Laura es siempre la misma inquilina (un mediano del local Centro, con seguro, al día y con la factura del mes por pagar); los nombres no se repiten; las facturas vencidas llevan su escalado (recordatorio, segundo aviso, corte de acceso y aviso legal) y solo tiene el acceso cortado quien el escalado cortó; el tamaño Grande está siempre agotado en el local Norte, con su lista de espera («Agotado · Avísame» en la web).
+
+Tras desplegar, **poner la demo a cero**.

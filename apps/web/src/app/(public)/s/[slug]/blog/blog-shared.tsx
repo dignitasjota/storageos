@@ -17,6 +17,7 @@ import type { PublicBlogListDto, PublicBlogPostDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
+import { tenantRobots } from '@/lib/tenant-favicon';
 
 const API_URL = SERVER_API_URL;
 
@@ -93,7 +94,7 @@ export async function buildBlogListMetadata(
     title: { absolute: title },
     description,
     alternates: { canonical, languages: listLanguageAlternates(data, slug) },
-    robots: { index: true, follow: true },
+    robots: await tenantRobots(slug),
     openGraph: {
       title,
       description,
@@ -155,7 +156,7 @@ export async function buildBlogPostMetadata(
     title: { absolute: title },
     description,
     alternates: { canonical, languages: postLanguageAlternates(data, slug, postSlug) },
-    robots: { index: true, follow: true },
+    robots: await tenantRobots(slug),
     openGraph: {
       title,
       description,
