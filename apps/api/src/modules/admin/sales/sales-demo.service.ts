@@ -1,93 +1,26 @@
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 import {
   type ImpersonationTokenDto,
   type PlatformSalesSettingsDto,
+  DEMO_PORTAL_CUSTOMER_TAG,
+  type SalesDemoPortalLinkDto,
   type SalesDemoStatusDto,
 } from '@storageos/shared';
 
+import { CryptoService } from '../../../common/crypto/crypto.service';
 import { AuthService } from '../../auth/auth.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { PortalService } from '../../portal/portal.service';
 import { AdminTenantResetService } from '../admin-tenant-reset.service';
 import { ImpersonationService } from '../impersonation.service';
 import { SuperAdminAuditService } from '../super-admin-audit.service';
 
 import { SalesAssignmentService } from './sales-assignment.service';
-import { DAY } from './sales-common';
+import { seedDemoData } from './sales-demo-data';
 import { SalesNotifyService } from './sales-notify.service';
-
-const DNI_LETTERS = 'TRWAGMYFPDXBNJZSQVHLCKE';
-const FIRST_NAMES = [
-  'Lucía',
-  'Hugo',
-  'Martina',
-  'Mateo',
-  'Sofía',
-  'Leo',
-  'Julia',
-  'Daniel',
-  'Paula',
-  'Pablo',
-  'Valeria',
-  'Álvaro',
-  'Carmen',
-  'Adrián',
-  'Elena',
-  'Javier',
-  'Sara',
-  'Diego',
-  'Noa',
-  'Marcos',
-  'Irene',
-  'Sergio',
-  'Claudia',
-  'Raúl',
-  'Alba',
-  'Iván',
-  'Marta',
-  'Óscar',
-  'Nerea',
-  'Rubén',
-];
-const LAST_NAMES = [
-  'García',
-  'Martínez',
-  'López',
-  'Sánchez',
-  'Pérez',
-  'Gómez',
-  'Martín',
-  'Jiménez',
-  'Ruiz',
-  'Hernández',
-  'Díaz',
-  'Moreno',
-  'Muñoz',
-  'Álvarez',
-  'Romero',
-  'Alonso',
-  'Gutiérrez',
-  'Navarro',
-  'Torres',
-  'Domínguez',
-  'Vázquez',
-  'Ramos',
-  'Gil',
-  'Serrano',
-  'Blanco',
-  'Molina',
-  'Castro',
-];
-const COMPANIES = [
-  'Reformas Levante SL',
-  'Mudanzas Rápidas SL',
-  'Electro Hogar Valencia',
-  'Archivo Legal Abogados',
-  'Distribuciones Turia SL',
-  'Floristería Las Flores',
-];
 
 /** Tamaños de la demo: nombre, medidas, precio y color. */
 const SIZES = [
@@ -144,15 +77,6 @@ const FACILITIES = [
 /** Proporción de trasteros alquilados en la demo. */
 const OCCUPANCY = 0.72;
 
-function pick<T>(list: readonly T[]): T {
-  return list[randomInt(list.length)]!;
-}
-
-function dni(): string {
-  const n = randomInt(10_000_000, 99_999_999);
-  return `${n}${DNI_LETTERS[n % 23]}`;
-}
-
 /**
  * Cuenta de demostración para los comerciales: un negocio de trasteros con
  * locales, tamaños, inquilinos y contratos de ejemplo. Cada noche se vacían los
@@ -171,6 +95,8 @@ export class SalesDemoService {
     private readonly assignment: SalesAssignmentService,
     private readonly audit: SuperAdminAuditService,
     private readonly notify: SalesNotifyService,
+    private readonly portal: PortalService,
+    private readonly crypto: CryptoService,
   ) {}
 
   private async demoTenantId(): Promise<string | null> {
@@ -185,14 +111,15 @@ export class SalesDemoService {
 
   async status(): Promise<SalesDemoStatusDto> {
     const id = await this.demoTenantId();
-    if (!id) return { available: false, tenantName: null, resetAt: null };
+    if (!id) return { available: false, tenantName: null, tenantSlug: null, resetAt: null };
     const [tenant, s] = await Promise.all([
-      this.admin.tenant.findUnique({ where: { id }, select: { name: true } }),
+      this.admin.tenant.findUnique({ where: { id }, select: { name: true, slug: true } }),
       this.assignment.settings(),
     ]);
     return {
       available: true,
       tenantName: tenant?.name ?? null,
+      tenantSlug: tenant?.slug ?? null,
       resetAt: s.demoResetAt?.toISOString() ?? null,
     };
   }
@@ -376,6 +303,41 @@ export class SalesDemoService {
     });
   }
 
+  /**
+   * Enlace de un solo uso al área de clientes de la inquilina de la demo: el
+   * comercial enseña lo que ven los inquilinos y lo que hacen ahí (un mensaje,
+   * pedir otro trastero…) le llega al negocio de la demo.
+   */
+  async openPortal(superAdminId: string): Promise<SalesDemoPortalLinkDto> {
+    const id = await this.demoTenantId();
+    if (!id)
+      throw new NotFoundException({
+        code: 'demo_not_found',
+        message: 'Aún no hay cuenta de demostración',
+      });
+    const customer = await this.admin.customer.findFirst({
+      where: { tenantId: id, deletedAt: null, tags: { has: DEMO_PORTAL_CUSTOMER_TAG } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    if (!customer)
+      throw new ConflictException({
+        code: 'demo_portal_missing',
+        message: 'La demo aún no tiene inquilino de ejemplo: ponla a cero y vuelve a probar',
+      });
+    const { url } = await this.portal.issueStaffMagicLink(id, customer.id);
+    await this.audit.record({
+      superAdminId,
+      action: 'admin.sales.demo_portal_opened',
+      targetType: 'tenant',
+      targetId: id,
+      targetTenantId: id,
+    });
+    return {
+      url,
+      customerName: [customer.firstName, customer.lastName].filter(Boolean).join(' '),
+    };
+  }
+
   // ------------------------------------------------------------ datos de ejemplo
 
   /**
@@ -455,60 +417,18 @@ export class SalesDemoService {
     }
   }
 
-  /** Inquilinos y contratos (lo que se vacía y se vuelve a crear cada noche). */
+  /**
+   * Todo lo que se vacía y se vuelve a crear cada noche: inquilinos, contratos,
+   * facturas y cobros, contactos, tareas, accesos… (`sales-demo-data.ts`).
+   */
   private async seedOperational(tenantId: string): Promise<void> {
-    const units = await this.admin.unit.findMany({
-      where: { tenantId, status: 'available', facility: { deletedAt: null, isActive: true } },
-      orderBy: { code: 'asc' },
-      select: { id: true, basePriceMonthly: true, unitTypeId: true },
+    await seedDemoData({
+      db: this.admin,
+      tenantId,
+      logger: this.logger,
+      occupancy: OCCUPANCY,
+      encryptSecret: (plain) => this.crypto.encryptString(plain, tenantId),
     });
-    const types = await this.admin.unitType.findMany({
-      where: { tenantId },
-      select: { id: true, defaultDepositAmount: true },
-    });
-    const depositOf = new Map(types.map((t) => [t.id, Number(t.defaultDepositAmount)]));
-    const year = new Date().getFullYear();
-    let contractNo = 1;
-    const now = Date.now();
-    for (const unit of units) {
-      if (Math.random() > OCCUPANCY) continue;
-      const business = Math.random() < 0.15;
-      const first = pick(FIRST_NAMES);
-      const last = `${pick(LAST_NAMES)} ${pick(LAST_NAMES)}`;
-      const customer = await this.admin.customer.create({
-        data: {
-          tenantId,
-          customerType: business ? 'business' : 'individual',
-          firstName: business ? null : first,
-          lastName: business ? null : last,
-          companyName: business ? pick(COMPANIES) : null,
-          documentType: business ? 'cif' : 'dni',
-          documentNumber: business ? `B${randomInt(10_000_000, 99_999_999)}` : dni(),
-          phone: `6${randomInt(10_000_000, 99_999_999)}`,
-          city: 'Valencia',
-          country: 'ES',
-        },
-      });
-      const start = new Date(now - randomInt(20, 700) * DAY);
-      await this.admin.contract.create({
-        data: {
-          tenantId,
-          customerId: customer.id,
-          unitId: unit.id,
-          contractNumber: `CT-${year}-${String(contractNo).padStart(5, '0')}`,
-          status: 'active',
-          startDate: new Date(
-            Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
-          ),
-          signedAt: start,
-          priceMonthly: unit.basePriceMonthly,
-          depositAmount: depositOf.get(unit.unitTypeId) ?? 0,
-          depositStatus: (depositOf.get(unit.unitTypeId) ?? 0) > 0 ? 'held' : 'none',
-        },
-      });
-      await this.admin.unit.update({ where: { id: unit.id }, data: { status: 'occupied' } });
-      contractNo += 1;
-    }
-    this.logger.log(`[sales] demo ${tenantId}: ${contractNo - 1} contratos de ejemplo`);
+    this.logger.log(`[sales] demo ${tenantId}: datos de ejemplo creados`);
   }
 }

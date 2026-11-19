@@ -47,6 +47,7 @@ import {
   type AdminApprovalRequestDto,
   type AdminQuoteDto,
   type ImpersonationTokenDto,
+  type SalesDemoPortalLinkDto,
   type PlatformLeadFollowupDto,
   type SalesAccountDto,
   type SalesAccountSummaryDto,
@@ -693,6 +694,16 @@ export class SalesController {
   ): Promise<ImpersonationTokenDto> {
     const actor = this.actor(admin, req);
     return this.demo.open(actor.repId, actor);
+  }
+
+  /** Área de clientes de la inquilina de la demo (enlace de un solo uso). */
+  @Post('demo/portal')
+  @HttpCode(HttpStatus.OK)
+  openDemoPortal(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ): Promise<SalesDemoPortalLinkDto> {
+    return this.demo.openPortal(this.actor(admin, req).repId);
   }
 
   // ---------------------------------------------------------------- avisos

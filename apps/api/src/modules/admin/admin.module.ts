@@ -14,6 +14,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { StripeConnectModule } from '../payments/stripe-connect/stripe-connect.module';
 import { PlatformModule } from '../platform/platform.module';
+import { PortalModule } from '../portal/portal.module';
 import { PushModule } from '../push/push.module';
 import { TwoFactorModule } from '../two-factor/two-factor.module';
 import { UsersModule } from '../users/users.module';
@@ -156,6 +157,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
 @Module({
   imports: [
     AccessModule,
+    // PortalModule: enlace al área de clientes del inquilino de la demo.
+    PortalModule,
     PushModule,
     EmailDomainsModule,
     AuthModule,

@@ -2813,3 +2813,28 @@ Migración `20270211100000_market_improvements`: `competitor_facilities.review_e
 - **Competencia**: tu precio frente al mercado por tipo de trastero (con gráfica), precio comparable y por m² en cada trastero suyo, evolución mensual de cada competidor, promociones con fecha de fin y su histórico, plazo de revisión por competidor, «Sin cambios» en un clic, pegar una tabla de trasteros, leer su página de tarifas con IA (necesita el asistente IA en el plan y gasta una consulta), tus características frente a las suyas, avisos de subidas de precio y de tamaños agotados y exportación a CSV.
 - **Posiciones en Google**: clics por semana, comparación con el año pasado, búsquedas con tu marca frente a las demás, dispositivos, búsquedas que sigues con su objetivo, detalle de cada búsqueda y página, de Google a reservas, páginas que salen pero casi nadie pulsa, buscar, ordenar y exportar las búsquedas, elegir quién recibe el informe y aviso de caídas de clics.
 - **Tras desplegar**: los negocios que ya tenían Search Console conectado no tienen los datos por dispositivo ni el año pasado hasta que se descarguen. Para traerlos, desconectar y volver a conectar (baja 16 meses de totales), o esperar: la descarga diaria va llenando los dispositivos desde el día del despliegue.
+
+## 165. Cuenta de demostración con datos de todo tipo (2026-11-19)
+
+Sin migración ni variables nuevas. El reinicio de cada noche (y «Reiniciar» en Equipo comercial → Demo) rellena la cuenta de demostración con datos para enseñar todas las pantallas (`apps/api/src/modules/admin/sales/sales-demo-data.ts`):
+
+- **Inquilinos y contratos**: ~75 % de ocupación, con contratos en marcha, con baja pedida, terminados (fianza devuelta), altas y bajas de este mes y dos borradores esperando la firma. Seguro en ~30 %. Correos `@example.com`.
+- **Facturas de los últimos seis meses** numeradas en orden (`FA/<año>/…`; la serie sigue desde la última), casi todas cobradas (tarjeta, domiciliación, transferencia y efectivo), las de este mes por cobrar, deudores con facturas vencidas, un cobro rechazado, un pago a cuenta y los justificantes de fianza.
+- **El resto**: un trastero en mantenimiento y otro bloqueado, reservas y lista de espera, 12 contactos en todas las fases con seguimientos y llamadas, tareas, incidencias, seis meses de gastos (uno pendiente), puertas con PIN y una semana de entradas (los deudores, con el acceso cortado), valoraciones, mensajes, avisos y comunicaciones ya enviadas.
+- **Lo que el vaciado conserva** (competencia, productos, plan de seguro y promoción) se crea solo si falta; los contactos de la demo (`metadata.demo`) se rehacen cada vez.
+- La cuenta queda con la puesta en marcha completa (IBAN de transferencia, pago en el local y emisión automática de las facturas del mes).
+
+**La cuenta de demostración nunca envía correos ni WhatsApp**: `CommunicationsService.dispatch` deja `skipped` cualquier envío de ese tenant («Cuenta de demostración: no se envía»).
+
+Tras desplegar, **pulsar «Reiniciar» en Equipo comercial → Demo** para ver los datos sin esperar a la noche.
+
+## 166. Demo: área de clientes y web pública (2026-11-19)
+
+Sin migración ni variables nuevas. Además de «Abrir la demo» (el panel del negocio), el comercial (Mi enlace y QR → Cuenta de demostración) y la dirección (Equipo comercial → Cuenta de demostración) tienen:
+
+- **Área de clientes**: entra como Laura Martín, una inquilina de la demo (contrato con seguro, la factura de este mes por pagar, su PIN a la vista y una conversación con el equipo). Lo que haga (un mensaje, pedir otro trastero, una incidencia) le llega al negocio de la demo. Es un enlace de un solo uso (`POST /admin/sales/demo/portal`, auditado `admin.sales.demo_portal_opened`).
+- **Web pública**: `/s/<slug de la demo>`. Desde ahí se reserva como un cliente nuevo (pago por transferencia o en el local) y la reserva sale en el panel (contrato por firmar, trastero reservado y aviso).
+
+La demo tiene los avisos por correo al equipo apagados y un contacto de ejemplo (`hola@example.com`): antes salía el correo real de quien la creó en la web y en el contrato que firma el cliente.
+
+Tras desplegar, **poner la demo a cero** para que aparezca la inquilina.

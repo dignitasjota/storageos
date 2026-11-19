@@ -13,11 +13,13 @@ import {
   QueryState,
   SalesPage,
 } from '@/components/admin/sales/common';
+import { DemoExtraLinks } from '@/components/admin/sales/demo-links';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import {
   useOpenSalesDemo,
+  useOpenSalesDemoPortal,
   useSalesDemo,
   useSalesMe,
   useUpdateSalesMe,
@@ -53,6 +55,7 @@ export default function SalesProfilePage() {
   const save = useUpdateSalesMe();
   const demo = useSalesDemo();
   const openDemo = useOpenSalesDemo();
+  const openPortal = useOpenSalesDemoPortal();
   const [form, setForm] = useState({ phone: '', whatsapp: '', bookingUrl: '' });
 
   // Se rellena una vez: volver a la pestaña no borra lo que se está escribiendo.
@@ -196,6 +199,11 @@ export default function SalesProfilePage() {
                     Abrir la demo
                     <ExternalLink className="ml-1.5 size-3.5" />
                   </Button>
+                  <DemoExtraLinks
+                    tenantSlug={demo.data.tenantSlug}
+                    openPortal={() => openPortal.mutateAsync()}
+                    portalPending={openPortal.isPending}
+                  />
                   {demo.data.resetAt && (
                     <p className="text-xs text-muted-foreground">
                       Última puesta a cero: {formatDateTime(demo.data.resetAt)}

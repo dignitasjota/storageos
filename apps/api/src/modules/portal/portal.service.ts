@@ -362,7 +362,7 @@ export class PortalService {
   }
 
   /** Genera el enlace de acceso de larga duración (7 días) que reparte el staff. */
-  private async issueStaffMagicLink(
+  async issueStaffMagicLink(
     tenantId: string,
     customerId: string,
   ): Promise<{ url: string; expiresAt: string }> {

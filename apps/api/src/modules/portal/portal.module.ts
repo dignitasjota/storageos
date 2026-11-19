@@ -96,5 +96,7 @@ import { PortalService } from './portal.service';
     CustomerDocumentsService,
     CustomerAuthorizedPersonsService,
   ],
+  // La cuenta de demostración de los comerciales abre el área de clientes.
+  exports: [PortalService],
 })
 export class PortalModule {}

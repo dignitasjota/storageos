@@ -1105,8 +1105,19 @@ export interface SalesImportResultDto {
 export interface SalesDemoStatusDto {
   available: boolean;
   tenantName: string | null;
+  /** Para abrir su web pública (`/s/<slug>`). */
+  tenantSlug: string | null;
   resetAt: string | null;
 }
+
+/** Enlace de un solo uso al área de clientes del inquilino de la demo. */
+export interface SalesDemoPortalLinkDto {
+  url: string;
+  customerName: string;
+}
+
+/** Etiqueta del inquilino de la demo con el que se entra a su área de clientes. */
+export const DEMO_PORTAL_CUSTOMER_TAG = 'demo-portal';
 
 // --------------------------------------------------- panel del tenant (cliente)
 
