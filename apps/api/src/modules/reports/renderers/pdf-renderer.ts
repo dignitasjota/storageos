@@ -86,6 +86,18 @@ export class PdfRenderer {
           .map((s) => `<li><span>${escape(s.label)}</span><strong>${escape(s.value)}</strong></li>`)
           .join('')}</ul></div>`
       : '';
+    // Color del negocio (validado `#rrggbb`) en la cabecera de la tabla.
+    const brandColor =
+      r.brand?.color && /^#[0-9a-f]{6}$/i.test(r.brand.color) ? r.brand.color : '#111111';
+    const logo =
+      r.brand?.logoDataUri &&
+      /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(r.brand.logoDataUri)
+        ? `<img class="logo" src="${r.brand.logoDataUri}" alt="">`
+        : '';
+    const brandLine =
+      logo || r.brand?.name
+        ? `<div class="brand">${logo}${r.brand?.name ? `<span>${escape(r.brand.name)}</span>` : ''}</div>`
+        : '';
     return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8">
 <style>
@@ -94,7 +106,11 @@ export class PdfRenderer {
   .sub { color: #666; margin-bottom: 16px; }
   table { border-collapse: collapse; width: 100%; }
   th, td { padding: 6px 8px; border-bottom: 1px solid #eee; }
-  th { background: #f5f5f5; font-weight: 600; }
+  th { background: ${brandColor}14; font-weight: 600; border-bottom: 2px solid ${brandColor}; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+  .brand .logo { max-height: 36px; max-width: 160px; }
+  .brand span { font-size: 12px; font-weight: 600; color: #333; }
+  h1 { color: ${brandColor}; }
   thead { display: table-header-group; }
   tr { page-break-inside: avoid; }
   td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -105,6 +121,7 @@ export class PdfRenderer {
   .footer { margin-top: 24px; font-size: 9px; color: #999; }
 </style></head>
 <body>
+  ${brandLine}
   <h1>${escape(r.title)}</h1>
   ${r.subtitle ? `<div class="sub">${escape(r.subtitle)}</div>` : ''}
   <table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>

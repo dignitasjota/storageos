@@ -38,6 +38,7 @@ import { EditDraftDialog } from './edit-draft-dialog';
 import { InvoiceActivityCard } from './invoice-activity';
 import { VerifactuRecords } from './verifactu-records';
 
+import { AskAssistantButton } from '@/components/ai/ask-assistant-button';
 import { InvoiceCollectionBadges } from '@/components/billing/invoice-collection-badges';
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -633,6 +634,7 @@ export default function InvoiceDetailPage() {
                 awaitingPayment={i.issueOnPayment}
               />
               <InvoiceCollectionBadges invoice={i} />
+              <AskAssistantButton type="invoice" id={i.id} label={invoiceNumberLabel(i)} />
               {i.issuedBy === 'holded' && isDraft ? (
                 <Badge
                   variant="outline"

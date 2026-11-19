@@ -4,6 +4,9 @@ import { apiFetch } from '../auth/api';
 
 import type {
   AiConversationDetailDto,
+  AiScheduledQuestionDto,
+  CreateAiScheduledQuestionInput,
+  UpdateAiScheduledQuestionInput,
   AiConversationDto,
   AiPendingActionDto,
   AiUsageDto,
@@ -110,5 +113,67 @@ export function useUpdateTenantAiSettings() {
 export function useTestTenantAiSettings() {
   return useMutation({
     mutationFn: () => apiFetch<TenantAiTestDto>('/ai/settings/test', { method: 'POST' }),
+  });
+}
+
+/** Preguntas para empezar según lo que pasa hoy. */
+export function useAiSuggestions() {
+  return useQuery({
+    queryKey: ['ai', 'suggestions'],
+    queryFn: () => apiFetch<string[]>('/ai/suggestions'),
+    staleTime: 5 * 60_000,
+  });
+}
+
+const scheduledKey = ['ai', 'scheduled-questions'] as const;
+
+export function useAiScheduledQuestions(enabled = true) {
+  return useQuery({
+    queryKey: scheduledKey,
+    queryFn: () => apiFetch<AiScheduledQuestionDto[]>('/ai/scheduled-questions'),
+    enabled,
+  });
+}
+
+export function useCreateAiScheduledQuestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateAiScheduledQuestionInput) =>
+      apiFetch<AiScheduledQuestionDto>('/ai/scheduled-questions', { method: 'POST', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: scheduledKey }),
+  });
+}
+
+export function useUpdateAiScheduledQuestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: UpdateAiScheduledQuestionInput & { id: string }) =>
+      apiFetch<AiScheduledQuestionDto>(`/ai/scheduled-questions/${id}`, {
+        method: 'PATCH',
+        json: input,
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: scheduledKey }),
+  });
+}
+
+export function useDeleteAiScheduledQuestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/ai/scheduled-questions/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: scheduledKey }),
+  });
+}
+
+export function useSendAiScheduledQuestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<AiScheduledQuestionDto>(`/ai/scheduled-questions/${id}/send`, { method: 'POST' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: scheduledKey });
+      void qc.invalidateQueries({ queryKey: listKey });
+      void qc.invalidateQueries({ queryKey: aiUsageKey });
+    },
   });
 }

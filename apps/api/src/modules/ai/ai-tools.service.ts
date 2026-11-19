@@ -57,6 +57,8 @@ const TOOL_PERMISSIONS: Record<string, Permission> = {
   propose_create_task: ACTION_PERMISSIONS.create_task,
   propose_payment_reminder: ACTION_PERMISSIONS.payment_reminder,
   propose_customer_message: ACTION_PERMISSIONS.customer_message,
+  propose_customer_note: ACTION_PERMISSIONS.customer_note,
+  propose_customer_followup: ACTION_PERMISSIONS.customer_followup,
 };
 
 /** Herramienta de propuesta → tipo de acción. */
@@ -64,6 +66,8 @@ const PROPOSAL_TOOLS: Record<string, AiActionType> = {
   propose_create_task: 'create_task',
   propose_payment_reminder: 'payment_reminder',
   propose_customer_message: 'customer_message',
+  propose_customer_note: 'customer_note',
+  propose_customer_followup: 'customer_followup',
 };
 
 /** Entidades con local opcional (tareas, incidencias, gastos): las suyas + las generales. */
@@ -252,11 +256,17 @@ export class AiToolsService {
       {
         name: 'propose_payment_reminder',
         description:
-          'PROPONE enviar por email un recordatorio de pago de una factura pendiente. No lo envía: el usuario debe confirmarlo.',
+          'PROPONE enviar por email un recordatorio de pago de una o varias facturas pendientes (hasta 20, p. ej. a todos los deudores de list_debtors). No lo envía: el usuario debe confirmarlo.',
         input_schema: {
           type: 'object',
-          properties: { invoiceNumber: { type: 'string', description: 'Número de la factura' } },
-          required: ['invoiceNumber'],
+          properties: {
+            invoiceNumber: { type: 'string', description: 'Número de una factura' },
+            invoiceNumbers: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Números de varias facturas (hasta 20)',
+            },
+          },
         },
       },
       {
@@ -270,6 +280,38 @@ export class AiToolsService {
             body: { type: 'string', description: 'Texto del mensaje, en español' },
           },
           required: ['customerId', 'body'],
+        },
+      },
+      {
+        name: 'propose_customer_note',
+        description:
+          'PROPONE apuntar una nota en la ficha de un inquilino (lo hablado en una llamada, visita…). No la guarda: el usuario debe confirmarla.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            customerId: { type: 'string', description: 'UUID del cliente' },
+            content: { type: 'string', description: 'Texto de la nota, en español' },
+            type: {
+              type: 'string',
+              enum: ['note', 'call', 'visit', 'meeting', 'whatsapp', 'email', 'other'],
+            },
+          },
+          required: ['customerId', 'content'],
+        },
+      },
+      {
+        name: 'propose_customer_followup',
+        description:
+          'PROPONE un seguimiento (recordatorio) para un inquilino en una fecha: «llamarle el jueves para la renovación». No lo crea: el usuario debe confirmarlo.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            customerId: { type: 'string', description: 'UUID del cliente' },
+            title: { type: 'string', description: 'Qué hay que hacer' },
+            dueDate: { type: 'string', description: 'Fecha YYYY-MM-DD' },
+            note: { type: 'string' },
+          },
+          required: ['customerId', 'title', 'dueDate'],
         },
       },
       {

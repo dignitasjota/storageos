@@ -1,7 +1,7 @@
 'use client';
 
 import { LEAD_LOST_REASON_LABELS, leadSourceLabel, type LeadLostReason } from '@storageos/shared';
-import { CheckCircle2, CircleDashed } from 'lucide-react';
+import { CheckCircle2, CircleDashed, FileDown } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
@@ -205,6 +205,7 @@ export default function AnalyticsPage() {
   // Permiso para ver el dinero (facturas y cobros), como en el Resumen.
   const canInvoices = useHasPermission('invoices:read');
   const canPayments = useHasPermission('payments:read');
+  const canRunReports = useHasPermission('reports:run');
   const moneyVisible = canInvoices && canPayments;
 
   // Pestaña inicial desde `?tab=`: hasta leerla no se monta ninguna (si no, la
@@ -253,6 +254,8 @@ export default function AnalyticsPage() {
 
   const usesPeriod = shownTab === 'revenue' || shownTab === 'churn' || shownTab === 'leads';
 
+  const reportHref = shownTab ? reportLinkFor(shownTab, shownPeriod, facilityId) : null;
+
   return (
     <div className="min-w-0 space-y-4 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -264,6 +267,13 @@ export default function AnalyticsPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <MonthPdfButton />
+          {reportHref && canRunReports && (
+            <Button asChild variant="outline" size="sm" className="h-9">
+              <Link href={reportHref}>
+                <FileDown className="mr-1 h-4 w-4" /> Descargar como informe
+              </Link>
+            </Button>
+          )}
           {shownTab && ISSUER_TABS.includes(shownTab) && (
             <IssuerSelect value={issuer} onChange={setIssuer} />
           )}
@@ -2029,4 +2039,31 @@ function SeoChecklistPanel() {
 function compactEuros(v: number): string {
   if (Math.abs(v) < 1000) return `${Math.round(v)} €`;
   return `${(v / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} mil €`;
+}
+
+/**
+ * El informe que corresponde a cada pestaña, con el periodo y el local que se
+ * están viendo (`/reports?run=…` lo abre ya preparado).
+ */
+function reportLinkFor(
+  tab: string,
+  period: { from: string; to: string },
+  facilityId: string | undefined,
+): string | null {
+  const [y, m] = period.to.split('-').map(Number) as [number, number];
+  const lastDay = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+  const range = { from: `${period.from}-01`, to: lastDay };
+  const code: Record<string, [string, Record<string, string>]> = {
+    revenue: ['invoices_period', range],
+    occupancy: ['occupancy_snapshot', {}],
+    churn: ['move_outs_period', range],
+    aging: ['debtors_by_customer', {}],
+    leads: ['leads_by_source', range],
+    'churn-risk': ['contracts_ending', { days: '60' }],
+  };
+  const found = code[tab];
+  if (!found) return null;
+  const params = new URLSearchParams({ run: found[0], ...found[1] });
+  if (facilityId) params.set('facilityId', facilityId);
+  return `/reports?${params.toString()}`;
 }

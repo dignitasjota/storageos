@@ -59,8 +59,10 @@ describe('Asistente IA — streaming (e2e)', () => {
 
     const events = parseEvents(res.body as string);
     const types = events.map((e) => e.type);
-    expect(types[0]).toBe('tool');
-    expect(events[0]!.name).toBe('get_occupancy');
+    // Primero la conversación (para poder abrirla si se detiene), luego la herramienta.
+    expect(types[0]).toBe('start');
+    expect(types[1]).toBe('tool');
+    expect(events[1]!.name).toBe('get_occupancy');
     expect(types).toContain('text');
     expect(types[types.length - 1]).toBe('done');
 

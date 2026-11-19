@@ -14,6 +14,7 @@ import { AiActionsService } from './ai-actions.service';
 import { AiAdminController } from './ai-admin.controller';
 import { AI_PROVIDER } from './ai-provider';
 import { AiQuotaService } from './ai-quota.service';
+import { AiScheduledService } from './ai-scheduled.service';
 import { AiToolsService } from './ai-tools.service';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
@@ -41,6 +42,7 @@ import type { Env } from '../../config/env.schema';
   controllers: [AiController, AiAdminController],
   providers: [
     AiService,
+    AiScheduledService,
     AiToolsService,
     AiActionsService,
     PlatformAiSettingsService,

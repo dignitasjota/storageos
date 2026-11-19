@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   HttpException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -19,24 +20,24 @@ import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { JOB_REPORTS_GENERATE, QUEUE_REPORTS } from '../queues/queues.module';
 
-import { AgingGenerator } from './generators/aging.generator';
-import { AnalyticsMonthGenerator } from './generators/analytics-month.generator';
-import { CollectionsMonthGenerator } from './generators/collections-month.generator';
-import { ContractsActiveGenerator } from './generators/contracts-active.generator';
-import { InvoicesPeriodGenerator } from './generators/invoices-period.generator';
-import { MoveOutsPeriodGenerator } from './generators/move-outs-period.generator';
-import { OccupancySnapshotGenerator } from './generators/occupancy-snapshot.generator';
-import { OwnerStatementGenerator } from './generators/owner-statement.generator';
 import { dayLabel } from './generators/report-helpers';
 import { PdfRenderer } from './renderers/pdf-renderer';
 import { XlsxRenderer } from './renderers/xlsx-renderer';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import type { AnalyticsScope } from '../analytics/analytics-scope';
-import type { ReportGenerator } from './generators/types';
+import type { ReportBrand, ReportGenerator } from './generators/types';
 import type { Env } from '../../config/env.schema';
 import type { Prisma, ReportRun } from '@storageos/database';
-import type { ReportGeneratorCatalogEntry, ReportRunDto, RunReportInput } from '@storageos/shared';
+import type {
+  ReportGeneratorCatalogEntry,
+  ReportPreviewDto,
+  ReportRunDto,
+  RunReportInput,
+} from '@storageos/shared';
+
+/** Lista de todos los informes (la monta el módulo). */
+export const REPORT_GENERATORS = Symbol('REPORT_GENERATORS');
 
 export interface ReportJobData {
   tenantId: string;
@@ -47,10 +48,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Un informe que lleva más de esto sin terminar se da por fallido. */
 const STALE_RUN_MINUTES = 15;
 const FACILITY_PARAM = 'facilityId';
+/** Filas que enseña la vista previa. */
+const PREVIEW_ROWS = 25;
 const GENERIC_ERROR =
   'No se ha podido generar el informe. Vuelve a intentarlo; si sigue fallando, escribe a soporte.';
 
-type Viewer = Pick<
+export type Viewer = Pick<
   AuthenticatedUser,
   'sub' | 'tenantId' | 'role' | 'permissions' | 'facilityScope'
 >;
@@ -68,26 +71,12 @@ export class ReportsService {
     private readonly admin: PrismaAdminService,
     private readonly pdfRenderer: PdfRenderer,
     private readonly xlsxRenderer: XlsxRenderer,
-    private readonly invoicesGenerator: InvoicesPeriodGenerator,
-    private readonly contractsGenerator: ContractsActiveGenerator,
-    private readonly agingGenerator: AgingGenerator,
-    occupancyGenerator: OccupancySnapshotGenerator,
-    collectionsGenerator: CollectionsMonthGenerator,
-    moveOutsGenerator: MoveOutsPeriodGenerator,
-    ownerStatementGenerator: OwnerStatementGenerator,
-    analyticsMonthGenerator: AnalyticsMonthGenerator,
+    @Inject(REPORT_GENERATORS) generators: ReportGenerator[],
     @InjectQueue(QUEUE_REPORTS) private readonly queue: Queue,
     private readonly files: FilesService,
     config: ConfigService<Env, true>,
   ) {
-    this.register(this.invoicesGenerator);
-    this.register(this.contractsGenerator);
-    this.register(this.agingGenerator);
-    this.register(occupancyGenerator);
-    this.register(collectionsGenerator);
-    this.register(moveOutsGenerator);
-    this.register(ownerStatementGenerator);
-    this.register(analyticsMonthGenerator);
+    for (const g of generators) this.register(g);
 
     const endpoint = `${config.get('MINIO_USE_SSL', { infer: true }) ? 'https' : 'http'}://${config.get('MINIO_ENDPOINT', { infer: true })}:${config.get('MINIO_PORT', { infer: true })}`;
     this.s3 = new S3Client({
@@ -107,8 +96,12 @@ export class ReportsService {
     this.generators.set(g.code, g);
   }
 
+  generatorOf(code: string): ReportGenerator | undefined {
+    return this.generators.get(code);
+  }
+
   /** ¿Puede esta persona pedir y ver este informe? */
-  private allowed(g: ReportGenerator, user: Viewer): boolean {
+  allowed(g: ReportGenerator, user: Viewer): boolean {
     if (g.companyWide && user.facilityScope) return false;
     return (g.requires ?? []).every((p) => userCan(user as AuthenticatedUser, p));
   }
@@ -165,8 +158,15 @@ export class ReportsService {
     return rows.map((f) => ({ value: f.id, label: f.name }));
   }
 
-  async run(args: { user: Viewer; input: RunReportInput }): Promise<ReportRunDto> {
-    const { user } = args;
+  /**
+   * Comprueba que esta persona puede pedir el informe, en ese formato y con
+   * esos parámetros; devuelve el informe y solo los parámetros que conoce.
+   */
+  async prepare(
+    user: Viewer,
+    input: { generator: string; format?: string; params: Record<string, unknown> },
+  ): Promise<{ generator: ReportGenerator; params: Record<string, unknown> }> {
+    const args = { input };
     const generator = this.generators.get(args.input.generator);
     if (!generator) {
       throw new NotFoundException({
@@ -180,7 +180,7 @@ export class ReportsService {
         message: 'No tienes permiso para pedir este informe',
       });
     }
-    if (!generator.formats.includes(args.input.format)) {
+    if (args.input.format && !generator.formats.includes(args.input.format as never)) {
       throw new BadRequestException({
         code: 'report_format_unsupported',
         message: 'Este informe no se puede generar en ese formato',
@@ -232,7 +232,12 @@ export class ReportsService {
       }
       params[FACILITY_PARAM] = facilityId;
     }
+    return { generator, params };
+  }
 
+  async run(args: { user: Viewer; input: RunReportInput }): Promise<ReportRunDto> {
+    const { user } = args;
+    const { generator, params } = await this.prepare(user, args.input);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.reportRun.create({
@@ -257,6 +262,37 @@ export class ReportsService {
       { attempts: 1 },
     );
     return (await this.toDtos(user.tenantId, [created]))[0]!;
+  }
+
+  /** Las primeras filas y los totales, para ver el informe antes de pedirlo. */
+  async preview(
+    user: Viewer,
+    input: { generator: string; params: Record<string, unknown> },
+  ): Promise<ReportPreviewDto> {
+    const { generator, params } = await this.prepare(user, input);
+    const facilityId = params[FACILITY_PARAM];
+    const scope: AnalyticsScope =
+      typeof facilityId === 'string'
+        ? { ids: [facilityId], explicit: true }
+        : { ids: user.facilityScope ?? undefined, explicit: false };
+    const timezone = await this.prisma.withTenant(
+      (tx) => tenantTimezone(tx, user.tenantId),
+      user.tenantId,
+    );
+    const result = await generator.run({ tenantId: user.tenantId, params, scope, timezone });
+    return {
+      title: result.title,
+      subtitle: result.subtitle ?? null,
+      columns: result.columns.map((c) => ({
+        key: c.key,
+        label: c.label,
+        type: c.type ?? 'text',
+        align: c.align ?? (c.type === 'currency' || c.type === 'number' ? 'right' : 'left'),
+      })),
+      rows: result.rows.slice(0, PREVIEW_ROWS),
+      totalRows: result.rows.length,
+      summary: result.summary ?? [],
+    };
   }
 
   /**
@@ -396,6 +432,7 @@ export class ReportsService {
         run.tenantId,
       );
       const result = await generator.run({ tenantId: run.tenantId, params, scope, timezone });
+      result.brand = await this.brandOf(run.tenantId);
       if (typeof facilityId === 'string') {
         const facility = await this.admin.facility.findFirst({
           where: { id: facilityId, tenantId: run.tenantId },
@@ -451,6 +488,33 @@ export class ReportsService {
       });
       if (!expected) throw err;
     }
+  }
+
+  /**
+   * Nombre, color y logo del negocio para la cabecera del informe. El logo solo
+   * si está subido (se lee del almacén y va dentro del fichero; nunca se
+   * descarga una dirección ajena).
+   */
+  private async brandOf(tenantId: string): Promise<ReportBrand> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, portalBrandColor: true, portalLogoKey: true },
+    });
+    const color =
+      t?.portalBrandColor && /^#[0-9a-f]{6}$/i.test(t.portalBrandColor) ? t.portalBrandColor : null;
+    let logoDataUri: string | null = null;
+    if (t?.portalLogoKey && t.portalLogoKey.startsWith(`${tenantId}/`)) {
+      try {
+        const bytes = await this.files.getObject({ bucket: 'public', key: t.portalLogoKey });
+        const mime = bytes[0] === 0x89 ? 'image/png' : 'image/jpeg';
+        if (bytes.length <= 2_000_000) {
+          logoDataUri = `data:${mime};base64,${bytes.toString('base64')}`;
+        }
+      } catch {
+        logoDataUri = null;
+      }
+    }
+    return { name: t?.name ?? null, color, logoDataUri };
   }
 
   /** Nombres de locales y propietarios para describir cada informe de la lista. */
