@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { TaskPriorityEnum } from '@storageos/shared';
 import { z } from 'zod';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import { AuditService } from '../auth/audit.service';
 import { InvoicesService } from '../billing/invoices.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
@@ -173,7 +174,13 @@ export class AiActionsService {
     const customer = await this.prisma.withTenant(
       (tx) =>
         tx.customer.findFirst({
-          where: { id: parsed.data.customerId, tenantId: ctx.tenantId, deletedAt: null },
+          where: {
+            id: parsed.data.customerId,
+            tenantId: ctx.tenantId,
+            deletedAt: null,
+            // Solo a los inquilinos que esta persona puede abrir en el panel.
+            ...customerScopeWhere(ctx.facilityScope),
+          },
           select: { customerType: true, firstName: true, lastName: true, companyName: true },
         }),
       ctx.tenantId,
@@ -300,6 +307,7 @@ export class AiActionsService {
           ...(payload.facilityId ? { facilityId: payload.facilityId } : {}),
           metadata: { source: 'ai_assistant' },
         },
+        facilityScope: args.facilityScope,
         meta: args.meta,
       });
       return { link: '/tasks' };
@@ -313,6 +321,20 @@ export class AiActionsService {
       const fail = res.failed[0];
       return fail ? { error: fail.error } : { link: `/invoices/${payload.invoiceId}` };
     }
+    // El alcance pudo cambiar desde la propuesta: se vuelve a comprobar.
+    const visible = await this.prisma.withTenant(
+      (tx) =>
+        tx.customer.findFirst({
+          where: {
+            id: payload.customerId!,
+            deletedAt: null,
+            ...customerScopeWhere(args.facilityScope),
+          },
+          select: { id: true },
+        }),
+      args.tenantId,
+    );
+    if (!visible) return { error: 'Ese inquilino no está entre los que puedes ver' };
     await this.customerMessages.sendFromStaff(
       args.tenantId,
       payload.customerId!,
@@ -351,18 +373,31 @@ export class AiActionsService {
     type: string;
     summary: string;
     status: string;
+    payload: unknown;
     result: unknown;
     createdAt: Date;
   }): AiPendingActionDto {
     const result = (r.result ?? {}) as { link?: string; error?: string };
+    const payload = (r.payload ?? {}) as { body?: string; description?: string };
     return {
       id: r.id,
       type: r.type as AiActionType,
       summary: r.summary,
+      // Lo que se enviará o guardará, entero, para leerlo antes de confirmar.
+      details: actionDetails(r.type, payload),
       status: r.status as AiPendingActionDto['status'],
       resultLink: result.link ?? null,
       resultError: result.error ?? null,
       createdAt: r.createdAt.toISOString(),
     };
   }
+}
+
+function actionDetails(
+  type: string,
+  payload: { body?: string; description?: string },
+): string | null {
+  if (type === 'customer_message') return payload.body ?? null;
+  if (type === 'create_task') return payload.description ?? null;
+  return null;
 }

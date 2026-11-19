@@ -1,6 +1,7 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { ALL_FACILITIES } from '../src/modules/analytics/analytics-scope';
 import { AnalyticsMonthGenerator } from '../src/modules/reports/generators/analytics-month.generator';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -210,9 +211,12 @@ describe('Mejoras de Analítica (e2e)', () => {
 
     // Resumen del mes en PDF: las cifras del mes frente al anterior.
     const ym = today.toISOString().slice(0, 7);
-    const result = await app
-      .get(AnalyticsMonthGenerator)
-      .run({ tenantId: tenant.id, params: { month: ym } });
+    const result = await app.get(AnalyticsMonthGenerator).run({
+      tenantId: tenant.id,
+      params: { month: ym },
+      scope: ALL_FACILITIES,
+      timezone: 'Europe/Madrid',
+    });
     const labels = result.rows.map((r) => r.label);
     expect(labels).toEqual(
       expect.arrayContaining([

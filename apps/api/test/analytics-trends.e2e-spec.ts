@@ -1,6 +1,7 @@
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { ALL_FACILITIES } from '../src/modules/analytics/analytics-scope';
 import { CollectionsMonthGenerator } from '../src/modules/reports/generators/collections-month.generator';
 import { MoveOutsPeriodGenerator } from '../src/modules/reports/generators/move-outs-period.generator';
 import { OccupancySnapshotGenerator } from '../src/modules/reports/generators/occupancy-snapshot.generator';
@@ -109,16 +110,22 @@ describe('Tendencias de Analítica (e2e)', () => {
     );
     expect(row).toMatchObject({ contracts: 2, retained3: 0.5, retained12: null });
 
-    const occ = await app
-      .get(OccupancySnapshotGenerator)
-      .run({ tenantId: owner.tenantId, params: {} });
-    expect(occ.rows[0]).toMatchObject({ total: 4, occupied: 1, available: 3, mrr: 60 });
+    const occ = await app.get(OccupancySnapshotGenerator).run({
+      tenantId: owner.tenantId,
+      params: {},
+      scope: ALL_FACILITIES,
+      timezone: 'Europe/Madrid',
+    });
+    expect(occ.rows[0]).toMatchObject({ total: 4, occupied: 1, available: 3, fee: 60 });
 
     const from = new Date(Date.now() - 100 * DAY).toISOString().slice(0, 10);
     const to = new Date().toISOString().slice(0, 10);
-    const outs = await app
-      .get(MoveOutsPeriodGenerator)
-      .run({ tenantId: owner.tenantId, params: { from, to } });
+    const outs = await app.get(MoveOutsPeriodGenerator).run({
+      tenantId: owner.tenantId,
+      params: { from, to },
+      scope: ALL_FACILITIES,
+      timezone: 'Europe/Madrid',
+    });
     expect(outs.rows).toHaveLength(1);
     expect(outs.rows[0]).toMatchObject({ type: 'Finalizado', price: 40 });
 
@@ -210,9 +217,12 @@ describe('Tendencias de Analítica (e2e)', () => {
     expect(res.body.byUnitType[0].amount).toBe(50);
     await http().get('/analytics/revenue-breakdown?from=hoy').set(auth).expect(400);
 
-    const report = await app
-      .get(CollectionsMonthGenerator)
-      .run({ tenantId: owner.tenantId, params: { month: ymOf(today) } });
+    const report = await app.get(CollectionsMonthGenerator).run({
+      tenantId: owner.tenantId,
+      params: { month: ymOf(today) },
+      scope: ALL_FACILITIES,
+      timezone: 'Europe/Madrid',
+    });
     expect(report.rows).toHaveLength(1);
     expect(report.rows[0]).toMatchObject({ method: 'Transferencia', amount: 72.6 });
   });

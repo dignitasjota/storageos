@@ -14,11 +14,29 @@ export interface AiStreamHandlers {
  * Resuelve con el resultado final (conversación + mensaje guardado) y lanza
  * `ApiError` si el servidor responde con error antes o durante el stream.
  */
+/**
+ * La petición no llegó a salir (sin red, navegador sin streaming): el servidor
+ * no ha recibido nada y se puede repetir por la vía normal sin duplicar.
+ */
+export class AiStreamUnavailableError extends Error {
+  constructor() {
+    super('stream_unavailable');
+  }
+}
+
 export async function streamAiChat(
   input: ChatInput,
   handlers: AiStreamHandlers,
 ): Promise<ChatResultDto> {
-  const res = await apiFetchResponse('/ai/chat/stream', { method: 'POST', json: input });
+  let res: Response;
+  try {
+    res = await apiFetchResponse('/ai/chat/stream', { method: 'POST', json: input });
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new AiStreamUnavailableError();
+  }
+  // Con respuesta del servidor la pregunta ya está en marcha: un corte a partir
+  // de aquí NO se reintenta (se preguntaría dos veces).
   if (!res.body) throw new Error('stream_not_supported');
 
   const reader = res.body.getReader();

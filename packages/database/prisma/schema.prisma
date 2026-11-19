@@ -4629,6 +4629,9 @@ model ReportRun {
   format            ReportFormat
   status            ReportStatus @default(pending)
   params            Json         @default("{}")
+  /// Quien lo pidió solo ve algunos locales: los de `facilityScope`.
+  facilityScoped    Boolean      @default(false) @map("facility_scoped")
+  facilityScope     String[]     @default([]) @map("facility_scope") @db.Uuid
   downloadUrl       String?      @map("download_url")
   fileBytes         Int?         @map("file_bytes")
   errorMessage      String?      @map("error_message")

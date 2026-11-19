@@ -28,6 +28,8 @@ export interface AiPendingActionDto {
   type: AiActionType;
   /** Descripción legible de lo que se hará al confirmar. */
   summary: string;
+  /** Texto completo que se enviará o guardará (el resumen lo recorta). */
+  details: string | null;
   status: AiActionStatus;
   /** Tras confirmar: enlace al recurso creado o motivo del fallo. */
   resultLink: string | null;

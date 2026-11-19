@@ -6,6 +6,10 @@ export interface ReportRunDto {
   format: ReportFormatValue;
   status: ReportStatusValue;
   params: Record<string, unknown>;
+  /** Nombre del informe (el del catálogo), aunque ya no se ofrezca. */
+  generatorName: string;
+  /** Periodo, local o propietario con los que se pidió, en una línea. */
+  paramsLabel: string | null;
   /**
    * El fichero NO viaja aquí como URL permanente (bucket privado, sin
    * firmar): pedir `GET /reports/:id/download` cuando `true` da una URL

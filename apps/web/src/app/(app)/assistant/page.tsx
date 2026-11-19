@@ -1,7 +1,7 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { Bot, Plus, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
+import { Bot, History, Loader2, Plus, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import type { AiMessageDto, AiPendingActionDto, AiUsageDto } from '@storageos/sh
 import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   aiConversationsKey,
   useAiActionDecision,
@@ -21,7 +22,7 @@ import {
   useAiUsage,
   useDeleteConversation,
 } from '@/lib/ai/hooks';
-import { streamAiChat } from '@/lib/ai/stream';
+import { AiStreamUnavailableError, streamAiChat } from '@/lib/ai/stream';
 import { ApiError } from '@/lib/auth/api';
 import { formatDate, formatNumber } from '@/lib/format';
 
@@ -38,6 +39,14 @@ const TOOL_LABELS: Record<string, string> = {
   list_open_tasks: 'tareas abiertas',
   list_open_incidents: 'incidencias abiertas',
   get_expenses_summary: 'gastos',
+  search_records: 'búsqueda',
+  get_record: 'una ficha',
+  list_records: 'un listado',
+  get_collections_month: 'cobros del mes',
+  list_debtors: 'deudores',
+  get_calendar: 'el calendario',
+  get_business_settings: 'la configuración',
+  get_contracts_trend: 'altas y bajas',
   propose_create_task: 'preparar una tarea',
   propose_payment_reminder: 'preparar un recordatorio de pago',
   propose_customer_message: 'preparar un mensaje al inquilino',
@@ -67,6 +76,8 @@ export default function AssistantPage() {
   const [streamText, setStreamText] = useState('');
   const [streamTool, setStreamTool] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  // Conversaciones anteriores en el móvil (en escritorio van en la columna).
+  const [historyOpen, setHistoryOpen] = useState(false);
   const qc = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -84,16 +95,18 @@ export default function AssistantPage() {
     setStreamTool(null);
     setSending(true);
     const payload = { conversationId: activeId ?? undefined, content };
-    let received = false;
+    const refresh = () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: aiConversationsKey }),
+        qc.invalidateQueries({ queryKey: aiUsageKey }),
+      ]);
     try {
       const res = await streamAiChat(payload, {
         onText: (delta) => {
-          received = true;
           setStreamTool(null);
           setStreamText((t) => t + delta);
         },
         onTool: (name) => {
-          received = true;
           // El texto previo a una consulta no forma parte de la respuesta final.
           setStreamText('');
           setStreamTool(name);
@@ -106,18 +119,32 @@ export default function AssistantPage() {
         qc.invalidateQueries({ queryKey: aiUsageKey }),
       ]);
     } catch (err) {
-      if (err instanceof ApiError) {
-        toast.error(err.body.message);
-      } else if (!received) {
-        // El navegador/red no permitió el streaming: respuesta completa de una vez.
+      if (err instanceof AiStreamUnavailableError) {
+        // La petición no llegó a salir: respuesta completa de una vez.
         try {
           const res = await chat.mutateAsync(payload);
           setActiveId(res.conversationId);
         } catch (e) {
+          // No se pierde lo escrito.
+          setInput(content);
           toast.error(e instanceof ApiError ? e.body.message : 'No se pudo enviar el mensaje.');
         }
+      } else if (err instanceof ApiError && err.body.statusCode !== 500) {
+        // Rechazada antes de empezar (límite de consultas, sin permiso…).
+        setInput(content);
+        toast.error(err.body.message);
       } else {
-        toast.error('Se cortó la respuesta. Inténtalo de nuevo.');
+        // Se cortó con la pregunta ya en marcha: no se repite sola (se
+        // preguntaría dos veces). Lo guardado aparece al refrescar.
+        toast.error(
+          err instanceof ApiError
+            ? err.body.message
+            : 'Se cortó la respuesta. Si no aparece en la conversación, vuelve a preguntar.',
+        );
+        await refresh();
+        if (activeId) {
+          await qc.invalidateQueries({ queryKey: [...aiConversationsKey, activeId] });
+        }
       }
     } finally {
       setPending(null);
@@ -129,13 +156,60 @@ export default function AssistantPage() {
 
   async function remove(id: string) {
     if (!(await ask({ title: '¿Borrar esta conversación?', destructive: true }))) return;
-    await del.mutateAsync(id);
-    if (activeId === id) setActiveId(null);
+    try {
+      await del.mutateAsync(id);
+      if (activeId === id) setActiveId(null);
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se pudo borrar la conversación.',
+      );
+    }
   }
 
+  const conversationList = (
+    <div className="space-y-1">
+      {conversations.isError ? (
+        <p className="p-2 text-xs text-muted-foreground">
+          No se han podido cargar las conversaciones.{' '}
+          <button className="underline" onClick={() => void conversations.refetch()}>
+            Reintentar
+          </button>
+        </p>
+      ) : (conversations.data ?? []).length === 0 ? (
+        <p className="p-2 text-xs text-muted-foreground">Aún no hay conversaciones.</p>
+      ) : (
+        (conversations.data ?? []).map((c) => (
+          <div
+            key={c.id}
+            className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm transition hover:bg-muted ${
+              activeId === c.id ? 'bg-muted' : ''
+            }`}
+          >
+            <button
+              onClick={() => {
+                setActiveId(c.id);
+                setHistoryOpen(false);
+              }}
+              className="line-clamp-1 flex-1 text-left"
+            >
+              {c.title ?? 'Conversación'}
+            </button>
+            <button
+              onClick={() => remove(c.id)}
+              className="rounded p-1 transition focus-visible:opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+              aria-label={`Borrar la conversación «${c.title ?? 'sin título'}»`}
+            >
+              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col px-4 py-4 sm:px-6 sm:py-6">
-      <div className="mb-4 flex items-center justify-between">
+    <div className="flex h-[calc(100dvh-4rem)] flex-col px-4 py-4 sm:px-6 sm:py-6">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
             <Sparkles className="h-6 w-6 text-primary" /> Asistente IA
@@ -145,46 +219,44 @@ export default function AssistantPage() {
           </p>
           {usage.data && <UsageLine usage={usage.data} />}
         </div>
-        <Button variant="outline" onClick={() => setActiveId(null)}>
-          <Plus className="mr-1 h-4 w-4" /> Nueva conversación
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="lg:hidden" onClick={() => setHistoryOpen(true)}>
+            <History className="mr-1 h-4 w-4" /> Anteriores
+          </Button>
+          <Button variant="outline" onClick={() => setActiveId(null)}>
+            <Plus className="mr-1 h-4 w-4" /> Nueva conversación
+          </Button>
+        </div>
       </div>
+
+      <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
+        <SheetContent side="left" className="overflow-auto">
+          <SheetHeader>
+            <SheetTitle>Conversaciones</SheetTitle>
+          </SheetHeader>
+          <div className="mt-3">{conversationList}</div>
+        </SheetContent>
+      </Sheet>
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[260px_1fr]">
         <Card className="hidden min-h-0 overflow-auto lg:block">
-          <CardContent className="space-y-1 p-2">
-            {(conversations.data ?? []).length === 0 ? (
-              <p className="p-2 text-xs text-muted-foreground">Sin conversaciones.</p>
-            ) : (
-              (conversations.data ?? []).map((c) => (
-                <div
-                  key={c.id}
-                  className={`group flex items-center gap-1 rounded-md px-2 py-1.5 text-sm transition hover:bg-muted ${
-                    activeId === c.id ? 'bg-muted' : ''
-                  }`}
-                >
-                  <button
-                    onClick={() => setActiveId(c.id)}
-                    className="line-clamp-1 flex-1 text-left"
-                  >
-                    {c.title ?? 'Conversación'}
-                  </button>
-                  <button
-                    onClick={() => remove(c.id)}
-                    className="opacity-0 transition group-hover:opacity-100"
-                    aria-label="Borrar"
-                  >
-                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                </div>
-              ))
-            )}
-          </CardContent>
+          <CardContent className="p-2">{conversationList}</CardContent>
         </Card>
 
         <Card className="flex min-h-0 flex-col">
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-auto p-4">
-            {messages.length === 0 && !pending ? (
+            {activeId && detail.isLoading && !pending ? (
+              <div className="flex h-full items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : activeId && detail.isError && !pending ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+                <p>No se ha podido cargar la conversación.</p>
+                <Button size="sm" variant="outline" onClick={() => void detail.refetch()}>
+                  Reintentar
+                </Button>
+              </div>
+            ) : messages.length === 0 && !pending ? (
               <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
                 <Bot className="h-10 w-10 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
@@ -245,10 +317,11 @@ export default function AssistantPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Escribe tu pregunta…"
+              aria-label="Tu pregunta"
               className="flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               disabled={sending}
             />
-            <Button type="submit" disabled={sending || !input.trim()}>
+            <Button type="submit" disabled={sending || !input.trim()} aria-label="Enviar">
               <Send className="h-4 w-4" />
             </Button>
           </form>
@@ -319,6 +392,12 @@ function ActionCard({ action }: { action: AiPendingActionDto }) {
   return (
     <div className="space-y-2 rounded-lg border bg-background px-3 py-2 text-sm">
       <p className="font-medium">{action.summary}</p>
+      {/* El resumen recorta el texto: antes de confirmar se lee entero. */}
+      {action.details && action.status === 'proposed' && (
+        <div className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted px-2 py-1.5 text-xs">
+          {action.details}
+        </div>
+      )}
       <p className="text-xs text-muted-foreground">
         {ACTION_STATUS[action.status]}
         {action.status === 'failed' && action.resultError ? ` — ${action.resultError}` : ''}
@@ -356,14 +435,14 @@ function UsageLine({ usage }: { usage: AiUsageDto }) {
     return (
       <p className="mt-1 text-xs text-muted-foreground">
         Usáis vuestra propia clave de IA
-        {usage.ownQueries > 0 ? `: ${formatNumber(usage.ownQueries)} consultas este mes` : ''}.
+        {usage.ownQueries > 0 ? `: ${formatNumber(usage.ownQueries, 0)} consultas este mes` : ''}.
       </p>
     );
   }
   if (usage.used >= usage.limit && usage.ownKeyConfigured) {
     return (
       <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-        Se han usado las {formatNumber(usage.limit)} consultas del mes: el asistente sigue con
+        Se han usado las {formatNumber(usage.limit, 0)} consultas del mes: el asistente sigue con
         vuestra propia clave hasta el {formatDate(usage.resetsOn)}.
       </p>
     );
@@ -378,7 +457,7 @@ function UsageLine({ usage }: { usage: AiUsageDto }) {
         : 'text-muted-foreground';
   return (
     <p className={`mt-1 text-xs ${tone}`}>
-      Este mes: {formatNumber(usage.used)} de {formatNumber(usage.limit)} consultas
+      Este mes: {formatNumber(usage.used, 0)} de {formatNumber(usage.limit, 0)} consultas
       {ratio >= 1 ? (
         <>
           . Se reinicia el {formatDate(usage.resetsOn)} o{' '}
@@ -390,7 +469,7 @@ function UsageLine({ usage }: { usage: AiUsageDto }) {
       ) : ratio >= 0.8 ? (
         <>
           {' '}
-          (te quedan {formatNumber(left)}).{' '}
+          (te quedan {formatNumber(left, 0)}).{' '}
           <Link href="/settings/saas-billing" className="underline">
             Ampliar
           </Link>

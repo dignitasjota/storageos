@@ -2755,6 +2755,7 @@ Sin migración ni variables nuevas. El primer pago de un contrato (la factura de
 - **Un solo «Pago recibido»**: con Redsys llegaban «Pago recibido» y «Fianza recibida»; el correo de la transferencia, el recordatorio de reserva sin pagar, «Enviar por correo» y los recordatorios de una factura con fianza pendiente dicen el total.
 - **«Registrar cobro»** de una factura con fianza pendiente: casilla «Incluye la fianza», marcada por defecto, que registra las dos con la misma forma de pago.
 - **Panel**: filtro «Pendiente de pago» en Facturas (`?awaiting=1`), búsqueda por número de contrato, «Contrato …» y «+ fianza … en el mismo pago» bajo el número, lo pendiente cuenta el primer pago, el primer pago se ve en la ficha del contrato y en «Hoy» hay una tarjeta «Primeros pagos pendientes» con el total y el plazo.
+
 ## 161. Revisión de Analítica (2026-11-19)
 
 Sin migración ni variables nuevas. Arreglos tras analizar Analítica entera; decisiones de Jota: aplicar el precio de un tipo cambia también sus trasteros libres, las facturas de los propietarios van aparte (como en Fiscalidad) y los locales por abrir no cuentan hasta que abren.
@@ -2863,3 +2864,19 @@ Sin migración ni variables nuevas.
 - **Datos nuevos**: 5 preguntas frecuentes, 2 entradas del blog, el cupón `TRESMESES`, 3 canales de marketing con su QR, 2 automatizaciones, 2 planes de mantenimiento, un mes de visitas de la web por origen, un expediente de impago con el candado puesto, el cierre de caja de ayer, 2 pases nocturnos (el local Norte cierra de 23:00 a 6:00) y los referidos de Laura (código `LAURA15`).
 
 Tras desplegar, **poner la demo a cero** y, si quieres, subir las fotos de los dos locales.
+
+## 169. Revisión de Informes y del Asistente IA (2026-11-19)
+
+Migración `20270212100000_report_run_scope` (se aplica sola al arrancar el API). Sin variables nuevas.
+
+- **Los informes en PDF vuelven a generarse**: fallaban todos (Puppeteer se cargaba con un `import` que en el servidor compilado es un `require`). Hay una prueba que impide que vuelva a pasar en cualquier PDF.
+- **Cada informe sale con los locales de quien lo pide**. Con más de un local a la vista se puede pedir de uno solo. Quien solo ve algunos locales ve en la lista únicamente los informes que pidió él, y cada informe pide su permiso (facturas, cobros, contratos…).
+- **Las cifras son las del Resumen**: los justificantes de fianza ya no cuentan como facturas ni como cobros, y la cuota de cada contrato lleva su descuento. «Facturas vencidas» con una fecha pasada enseña lo que se debía ese día.
+- Textos en español (estados, cabeceras, nombres), fechas `dd/mm/aaaa`, apaisado con muchas columnas y pie con la hora del negocio.
+- Las fechas se comprueban al pedir el informe; un informe que se queda a medias se da por fallido a los 15 minutos; los errores técnicos ya no se enseñan tal cual.
+- En la lista: periodo y quién lo pidió, «Repetir» y «Quitar», y la descarga baja el fichero con su nombre (ya no abre otra pestaña).
+- **Asistente IA**: quien solo ve unos locales ya no llega por el asistente a inquilinos, contactos, envíos, valoraciones ni planes de pago de otros; tampoco puede preparar un mensaje para ellos ni pedir una respuesta sugerida. Las notas internas no entran en la respuesta sugerida.
+- **Importes del asistente como en el panel**: cuotas con descuento, deuda sin fianzas, la retención de IRPF no se resta dos veces, una factura cancelada o rectificada no debe nada, y los meses van en la hora del negocio. Sin permiso de facturas y cobros no da importes.
+- «Facturas de octubre» ya incluye las del día 31 (el filtro se corría un día).
+- Una consulta que falla ya no deja la pregunta sin respuesta; el chat no repite sola una pregunta que ya estaba en marcha; la conexión no se corta mientras el asistente piensa.
+- Pantalla: «4 de 300 consultas» (salía «4,00 de 300,00»), conversaciones anteriores también en el móvil, el mensaje que se va a enviar se lee entero antes de confirmar y no se pierde lo escrito si falla el envío.

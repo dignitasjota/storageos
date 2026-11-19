@@ -86,6 +86,10 @@ export class AiController {
     const send = (event: Record<string, unknown>) => {
       if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
+    // Latido: mientras el modelo piensa no viaja nada y un proxy cortaría la conexión.
+    const heartbeat = setInterval(() => {
+      if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n');
+    }, 15_000);
     try {
       const result = await this.ai.chatStream(
         chatArgs(user, body),
@@ -108,6 +112,7 @@ export class AiController {
         message: response?.message ?? 'No se pudo completar la respuesta.',
       });
     } finally {
+      clearInterval(heartbeat);
       res.end();
     }
   }
@@ -173,6 +178,7 @@ export class AiController {
   }
 
   /** Redacta (no envía) una respuesta sugerida para el chat con un inquilino. */
+  @RequirePermission('ai:use', 'customers:read')
   @Post('suggest-reply')
   @HttpCode(HttpStatus.OK)
   suggestReply(
@@ -183,6 +189,8 @@ export class AiController {
       tenantId: user.tenantId,
       customerId: body.customerId,
       userId: user.sub,
+      facilityScope: user.facilityScope ?? null,
+      money: (user.permissions ?? permissionsForRole(user.role)).includes('invoices:read'),
     });
   }
 

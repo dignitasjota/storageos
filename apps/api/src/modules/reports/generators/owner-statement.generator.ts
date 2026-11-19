@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
 import { OwnerStatementsService } from '../../owners/owner-statements.service';
 
-import { eur, monthRange } from './new-reports.helpers';
+import { eur, monthRange } from './report-helpers';
 
 import type { ReportGenerator, ReportGeneratorContext, ReportResult } from './types';
 
@@ -15,6 +16,12 @@ export class OwnerStatementGenerator implements ReportGenerator {
   readonly description =
     'Lo cobrado de sus contratos en el mes, devoluciones, honorarios, gastos y lo que hay que transferirle.';
   readonly formats = ['pdf', 'xlsx'] as const as ('pdf' | 'xlsx')[];
+  readonly requires = ['invoices:read', 'payments:read'] as const as [
+    'invoices:read',
+    'payments:read',
+  ];
+  /** La liquidación es de todos los locales del propietario. */
+  readonly companyWide = true;
   readonly paramsSchema = {
     ownerId: { label: 'Propietario', type: 'select' as const, required: true, options: [] },
     month: { label: 'Mes', type: 'period' as const, required: true },
@@ -40,8 +47,15 @@ export class OwnerStatementGenerator implements ReportGenerator {
     return { ownerId: owners.map((o) => ({ value: o.id, label: o.legalName })) };
   }
 
+  validate(params: Record<string, unknown>): void {
+    monthRange(params.month, 'Mes');
+    if (typeof params.ownerId !== 'string' || !/^[0-9a-f-]{36}$/i.test(params.ownerId)) {
+      throw new BadRequestException({ code: 'invalid_owner', message: 'Elige un propietario' });
+    }
+  }
+
   async run(ctx: ReportGeneratorContext): Promise<ReportResult> {
-    const { start, end, label } = monthRange(ctx.params.month, 'month');
+    const { start, end, label } = monthRange(ctx.params.month, 'Mes');
     const last = new Date(end.getTime() - 86_400_000);
     const s = await this.statements.compute(
       ctx.tenantId,
@@ -54,6 +68,7 @@ export class OwnerStatementGenerator implements ReportGenerator {
       title: `Liquidación de ${s.ownerName}`,
       subtitle: `${label} · NIF ${s.ownerTaxId}${s.ownerIbanLast4 ? ` · cuenta …${s.ownerIbanLast4}` : ''}`,
       generatedAt: new Date(),
+      timezone: ctx.timezone,
       columns: [
         { key: 'date', label: 'Fecha', width: 12 },
         { key: 'concept', label: 'Concepto', width: 40 },

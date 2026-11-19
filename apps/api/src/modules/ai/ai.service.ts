@@ -15,6 +15,7 @@ import {
   WEB_CHAT_AI_FEATURE,
 } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -672,7 +673,17 @@ export class AiService {
       for (const use of toolUses) {
         toolsUsed.add(use.name);
         hooks?.onTool(use.name);
-        const output = await this.tools.execute(toolCtx, use.name, use.input);
+        // Una consulta que falla no tumba la pregunta: el modelo recibe el error
+        // y responde con lo que tenga (antes se perdía la respuesta entera).
+        let output: string;
+        try {
+          output = await this.tools.execute(toolCtx, use.name, use.input);
+        } catch (err) {
+          this.logger.warn(
+            `Herramienta ${use.name} falló: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          output = JSON.stringify({ error: 'No se ha podido consultar ese dato ahora mismo.' });
+        }
         results.push({ type: 'tool_result', tool_use_id: use.id, content: output });
       }
       messages.push({ role: 'user', content: results });
@@ -770,6 +781,10 @@ export class AiService {
     tenantId: string;
     customerId: string;
     userId?: string | null;
+    /** Locales de quien lo pide (null = todos). */
+    facilityScope?: string[] | null;
+    /** Con `invoices:read`: la deuda entra en el contexto. */
+    money?: boolean;
   }): Promise<{ suggestion: string }> {
     if (!this.provider.available) {
       throw new ServiceUnavailableException({
@@ -781,7 +796,8 @@ export class AiService {
 
     const ctx = await this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findFirst({
-        where: { id: customerId, deletedAt: null },
+        // Fuera de sus locales no existe, como en la ficha del panel.
+        where: { id: customerId, deletedAt: null, ...customerScopeWhere(args.facilityScope) },
         select: { customerType: true, firstName: true, lastName: true, companyName: true },
       });
       if (!customer) {
@@ -792,18 +808,26 @@ export class AiService {
       }
       const [contracts, invoices, messages] = await Promise.all([
         tx.contract.findMany({
-          where: { customerId, status: { in: ['active', 'ending'] } },
+          where: { customerId, deletedAt: null, status: { in: ['active', 'ending'] } },
           select: {
             priceMonthly: true,
             unit: { select: { code: true, facility: { select: { name: true } } } },
           },
         }),
-        tx.invoice.findMany({
-          where: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
-          select: { total: true, amountPaid: true },
-        }),
+        args.money === false
+          ? []
+          : tx.invoice.findMany({
+              where: {
+                customerId,
+                status: { in: ['issued', 'overdue'] },
+                deletedAt: null,
+                kind: 'invoice', // las fianzas no son deuda
+              },
+              select: { total: true, amountPaid: true },
+            }),
         tx.customerMessage.findMany({
-          where: { customerId },
+          // Las notas internas del equipo no entran en un texto para el inquilino.
+          where: { customerId, isInternal: false },
           orderBy: { createdAt: 'desc' },
           take: 12,
           select: { senderType: true, body: true },

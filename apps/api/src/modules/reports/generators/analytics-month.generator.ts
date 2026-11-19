@@ -1,10 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
-import { ALL_FACILITIES } from '../../analytics/analytics-scope';
 import { AnalyticsTrendsService } from '../../analytics/analytics-trends.service';
 import { AnalyticsService } from '../../analytics/analytics.service';
 
-import { eur, monthRange } from './new-reports.helpers';
+import { eur, monthRange } from './report-helpers';
 
 import type { ReportGenerator, ReportGeneratorContext, ReportResult } from './types';
 
@@ -44,6 +43,12 @@ export class AnalyticsMonthGenerator implements ReportGenerator {
   readonly description =
     'Las cifras de un mes frente al anterior: facturado, cobrado, ocupación, cuotas al mes, altas, bajas y contactos.';
   readonly formats = ['pdf', 'xlsx'] as const as ('pdf' | 'xlsx')[];
+  readonly requires = ['analytics:read', 'invoices:read', 'payments:read'] as const as [
+    'analytics:read',
+    'invoices:read',
+    'payments:read',
+  ];
+  readonly byFacility = true;
   readonly paramsSchema = {
     month: { label: 'Mes', type: 'period' as const, required: true },
   };
@@ -53,8 +58,12 @@ export class AnalyticsMonthGenerator implements ReportGenerator {
     private readonly trends: AnalyticsTrendsService,
   ) {}
 
+  validate(params: Record<string, unknown>): void {
+    monthRange(params.month, 'Mes');
+  }
+
   async run(ctx: ReportGeneratorContext): Promise<ReportResult> {
-    const { start, label } = monthRange(ctx.params.month, 'month');
+    const { start, label } = monthRange(ctx.params.month, 'Mes');
     const prevStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() - 1, 1));
     const month = ym(start);
     const prev = ym(prevStart);
@@ -66,7 +75,7 @@ export class AnalyticsMonthGenerator implements ReportGenerator {
       timeZone: 'UTC',
     });
     // Las facturas, solo las del propio negocio (como Analítica por defecto).
-    const own = { ...ALL_FACILITIES, issuer: null };
+    const own = { ...ctx.scope, issuer: null };
     const now = new Date();
     const monthsBack =
       (now.getUTCFullYear() - prevStart.getUTCFullYear()) * 12 +
@@ -76,13 +85,20 @@ export class AnalyticsMonthGenerator implements ReportGenerator {
 
     const [revenue, churn, leads, leadsPrev, history] = await Promise.all([
       this.analytics.getMonthlyRevenue(ctx.tenantId, { from: prev, to: month }, own),
-      this.analytics.getChurn(ctx.tenantId, { from: prev, to: month }),
-      this.analytics.getLeadsFunnel(ctx.tenantId, { from: `${month}-01`, to: lastDay(start) }),
-      this.analytics.getLeadsFunnel(ctx.tenantId, {
-        from: `${prev}-01`,
-        to: lastDay(prevStart),
-      }),
-      monthsBack <= 36 ? this.trends.getOccupancyHistory(ctx.tenantId, monthsBack) : null,
+      this.analytics.getChurn(ctx.tenantId, { from: prev, to: month }, ctx.scope),
+      this.analytics.getLeadsFunnel(
+        ctx.tenantId,
+        { from: `${month}-01`, to: lastDay(start) },
+        ctx.scope,
+      ),
+      this.analytics.getLeadsFunnel(
+        ctx.tenantId,
+        { from: `${prev}-01`, to: lastDay(prevStart) },
+        ctx.scope,
+      ),
+      monthsBack <= 36
+        ? this.trends.getOccupancyHistory(ctx.tenantId, monthsBack, ctx.scope)
+        : null,
     ]);
 
     const point = <T extends { yearMonth: string }>(list: T[], key: string) =>
@@ -156,6 +172,7 @@ export class AnalyticsMonthGenerator implements ReportGenerator {
       title: `Resumen de ${label}`,
       subtitle: `Frente a ${prevLabel}`,
       generatedAt: new Date(),
+      timezone: ctx.timezone,
       columns: [
         { key: 'label', label: 'Cifra', width: 30 },
         { key: 'current', label: label, width: 18, align: 'right' },

@@ -1,9 +1,19 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  HttpException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 
+import { isFacilityAllowed } from '../../common/facility-scope';
+import { userCan } from '../../common/guards/permissions.guard';
+import { tenantTimezone } from '../analytics/business-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
@@ -17,9 +27,12 @@ import { InvoicesPeriodGenerator } from './generators/invoices-period.generator'
 import { MoveOutsPeriodGenerator } from './generators/move-outs-period.generator';
 import { OccupancySnapshotGenerator } from './generators/occupancy-snapshot.generator';
 import { OwnerStatementGenerator } from './generators/owner-statement.generator';
+import { dayLabel } from './generators/report-helpers';
 import { PdfRenderer } from './renderers/pdf-renderer';
 import { XlsxRenderer } from './renderers/xlsx-renderer';
 
+import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import type { AnalyticsScope } from '../analytics/analytics-scope';
 import type { ReportGenerator } from './generators/types';
 import type { Env } from '../../config/env.schema';
 import type { Prisma, ReportRun } from '@storageos/database';
@@ -29,6 +42,18 @@ export interface ReportJobData {
   tenantId: string;
   runId: string;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Un informe que lleva más de esto sin terminar se da por fallido. */
+const STALE_RUN_MINUTES = 15;
+const FACILITY_PARAM = 'facilityId';
+const GENERIC_ERROR =
+  'No se ha podido generar el informe. Vuelve a intentarlo; si sigue fallando, escribe a soporte.';
+
+type Viewer = Pick<
+  AuthenticatedUser,
+  'sub' | 'tenantId' | 'role' | 'permissions' | 'facilityScope'
+>;
 
 @Injectable()
 export class ReportsService {
@@ -82,19 +107,36 @@ export class ReportsService {
     this.generators.set(g.code, g);
   }
 
-  async catalog(tenantId: string): Promise<ReportGeneratorCatalogEntry[]> {
+  /** ¿Puede esta persona pedir y ver este informe? */
+  private allowed(g: ReportGenerator, user: Viewer): boolean {
+    if (g.companyWide && user.facilityScope) return false;
+    return (g.requires ?? []).every((p) => userCan(user as AuthenticatedUser, p));
+  }
+
+  async catalog(user: Viewer): Promise<ReportGeneratorCatalogEntry[]> {
     const entries: ReportGeneratorCatalogEntry[] = [];
+    const facilities = await this.facilityOptions(user);
     for (const g of this.generators.values()) {
+      if (!this.allowed(g, user)) continue;
       const schema = { ...g.paramsSchema } as Record<
         string,
         ReportGeneratorCatalogEntry['paramsSchema'][string]
       >;
       if (g.loadOptions) {
-        const options = await g.loadOptions(tenantId);
+        const options = await g.loadOptions(user.tenantId);
         if (!options) continue;
         for (const [key, list] of Object.entries(options)) {
           if (schema[key]) schema[key] = { ...schema[key], options: list };
         }
+      }
+      // Con más de un local a la vista se puede pedir de uno solo.
+      if (g.byFacility && facilities.length > 1) {
+        schema[FACILITY_PARAM] = {
+          label: 'Local (vacío = todos los que ves)',
+          type: 'select',
+          required: false,
+          options: facilities,
+        };
       }
       entries.push({
         code: g.code,
@@ -107,66 +149,167 @@ export class ReportsService {
     return entries;
   }
 
-  async run(args: {
-    tenantId: string;
-    userId: string;
-    input: RunReportInput;
-  }): Promise<ReportRunDto> {
+  private async facilityOptions(user: Viewer): Promise<{ value: string; label: string }[]> {
+    const rows = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findMany({
+          where: {
+            deletedAt: null,
+            ...(user.facilityScope ? { id: { in: user.facilityScope } } : {}),
+          },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+        }),
+      user.tenantId,
+    );
+    return rows.map((f) => ({ value: f.id, label: f.name }));
+  }
+
+  async run(args: { user: Viewer; input: RunReportInput }): Promise<ReportRunDto> {
+    const { user } = args;
     const generator = this.generators.get(args.input.generator);
     if (!generator) {
       throw new NotFoundException({
         code: 'report_generator_not_found',
-        message: 'Generador desconocido',
+        message: 'Ese informe no existe',
+      });
+    }
+    if (!this.allowed(generator, user)) {
+      throw new ForbiddenException({
+        code: 'report_not_allowed',
+        message: 'No tienes permiso para pedir este informe',
       });
     }
     if (!generator.formats.includes(args.input.format)) {
-      throw new NotFoundException({
+      throw new BadRequestException({
         code: 'report_format_unsupported',
-        message: `Formato ${args.input.format} no soportado por ${generator.code}`,
+        message: 'Este informe no se puede generar en ese formato',
       });
     }
+    // Solo se guardan los parámetros que el informe conoce.
+    const params: Record<string, unknown> = {};
+    for (const [key, def] of Object.entries(generator.paramsSchema)) {
+      const value = args.input.params[key];
+      const empty = value === undefined || value === null || value === '';
+      if (empty) {
+        if (def.required) {
+          throw new BadRequestException({
+            code: 'report_param_required',
+            message: `Falta «${def.label}»`,
+          });
+        }
+        continue;
+      }
+      params[key] = value;
+    }
+    generator.validate?.(params);
+
+    const facilityId = args.input.params[FACILITY_PARAM];
+    if (
+      generator.byFacility &&
+      facilityId !== undefined &&
+      facilityId !== null &&
+      facilityId !== ''
+    ) {
+      if (typeof facilityId !== 'string' || !UUID_RE.test(facilityId)) {
+        throw new BadRequestException({
+          code: 'invalid_facility_id',
+          message: 'El local indicado no es válido',
+        });
+      }
+      const exists = isFacilityAllowed(user.facilityScope, facilityId)
+        ? await this.prisma.withTenant(
+            (tx) =>
+              tx.facility.findFirst({
+                where: { id: facilityId, deletedAt: null },
+                select: { id: true },
+              }),
+            user.tenantId,
+          )
+        : null;
+      if (!exists) {
+        throw new NotFoundException({ code: 'facility_not_found', message: 'Ese local no existe' });
+      }
+      params[FACILITY_PARAM] = facilityId;
+    }
+
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.reportRun.create({
           data: {
-            tenantId: args.tenantId,
-            triggeredByUserId: args.userId,
+            tenantId: user.tenantId,
+            triggeredByUserId: user.sub,
             generatorCode: generator.code,
             format: args.input.format,
             status: 'pending',
-            params: args.input.params as Prisma.InputJsonValue,
+            params: params as Prisma.InputJsonValue,
+            facilityScoped: !!user.facilityScope,
+            facilityScope: user.facilityScope ?? [],
           },
+          include: { triggeredBy: { select: { fullName: true } } },
         }),
-      args.tenantId,
+      user.tenantId,
     );
-    await this.queue.add(JOB_REPORTS_GENERATE, {
-      tenantId: args.tenantId,
-      runId: created.id,
-    } satisfies ReportJobData);
-    return this.toDto(created);
+    await this.queue.add(
+      JOB_REPORTS_GENERATE,
+      { tenantId: user.tenantId, runId: created.id } satisfies ReportJobData,
+      // Un fallo se enseña al momento: repetirlo lo decide quien lo pidió.
+      { attempts: 1 },
+    );
+    return (await this.toDtos(user.tenantId, [created]))[0]!;
   }
 
-  async list(tenantId: string, limit = 50): Promise<ReportRunDto[]> {
+  /**
+   * Informes que esta persona puede ver: los de un tipo para el que tiene
+   * permiso y, si solo ve algunos locales, únicamente los que pidió ella (los
+   * de los demás pueden llevar otros locales).
+   */
+  private visibleWhere(user: Viewer): Prisma.ReportRunWhereInput {
+    const codes = [...this.generators.values()]
+      .filter((g) => (g.requires ?? []).every((p) => userCan(user as AuthenticatedUser, p)))
+      .map((g) => g.code);
+    return {
+      generatorCode: { in: codes },
+      ...(user.facilityScope ? { triggeredByUserId: user.sub } : {}),
+    };
+  }
+
+  async list(user: Viewer, limit = 50): Promise<ReportRunDto[]> {
+    await this.failStale(user.tenantId);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.reportRun.findMany({
+          where: this.visibleWhere(user),
           include: { triggeredBy: { select: { fullName: true } } },
           orderBy: { createdAt: 'desc' },
           take: limit,
         }),
-      tenantId,
+      user.tenantId,
     );
-    return rows.map((r) => this.toDto({ ...r, triggeredByName: r.triggeredBy?.fullName ?? null }));
+    return this.toDtos(user.tenantId, rows);
   }
 
-  async detail(tenantId: string, id: string): Promise<ReportRunDto> {
+  /** Los que se quedaron a medias (reinicio del servidor) dejan de «generarse». */
+  private async failStale(tenantId: string): Promise<void> {
+    const limit = new Date(Date.now() - STALE_RUN_MINUTES * 60_000);
+    await this.prisma.withTenant(
+      (tx) =>
+        tx.reportRun.updateMany({
+          where: { status: { in: ['pending', 'running'] }, createdAt: { lt: limit } },
+          data: { status: 'failed', finishedAt: new Date(), errorMessage: GENERIC_ERROR },
+        }),
+      tenantId,
+    );
+  }
+
+  private async findVisible(user: Viewer, id: string) {
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.reportRun.findFirst({
-          where: { id },
+          where: { id, ...this.visibleWhere(user) },
           include: { triggeredBy: { select: { fullName: true } } },
         }),
-      tenantId,
+      user.tenantId,
     );
     if (!row) {
       throw new NotFoundException({
@@ -174,7 +317,25 @@ export class ReportsService {
         message: 'Informe no encontrado',
       });
     }
-    return this.toDto({ ...row, triggeredByName: row.triggeredBy?.fullName ?? null });
+    return row;
+  }
+
+  async detail(user: Viewer, id: string): Promise<ReportRunDto> {
+    const row = await this.findVisible(user, id);
+    return (await this.toDtos(user.tenantId, [row]))[0]!;
+  }
+
+  /** Quita un informe de la lista y borra su fichero. */
+  async remove(user: Viewer, id: string): Promise<void> {
+    const row = await this.findVisible(user, id);
+    if (row.downloadUrl) {
+      const key = this.files.keyFromPublicUrl('reports', row.downloadUrl);
+      if (key) await this.files.deleteObjects('reports', [key]).catch(() => undefined);
+    }
+    await this.prisma.withTenant(
+      (tx) => tx.reportRun.deleteMany({ where: { id: row.id } }),
+      user.tenantId,
+    );
   }
 
   /**
@@ -183,20 +344,17 @@ export class ReportsService {
    * bucket privado (`reports`) — nunca se expone tal cual; se firma bajo
    * demanda.
    */
-  async getSignedDownloadUrl(tenantId: string, id: string): Promise<{ url: string }> {
-    const row = await this.prisma.withTenant(
-      (tx) => tx.reportRun.findFirst({ where: { id } }),
-      tenantId,
-    );
-    if (!row) {
-      throw new NotFoundException({
-        code: 'report_run_not_found',
-        message: 'Informe no encontrado',
-      });
-    }
-    const url = row.downloadUrl
-      ? await this.files.presignFromPublicUrl('reports', row.downloadUrl, 300)
-      : null;
+  async getSignedDownloadUrl(user: Viewer, id: string): Promise<{ url: string }> {
+    const row = await this.findVisible(user, id);
+    const generator = this.generators.get(row.generatorCode);
+    const ext = row.format === 'xlsx' ? 'xlsx' : 'pdf';
+    const key =
+      row.downloadUrl && row.status === 'done'
+        ? this.files.keyFromPublicUrl('reports', row.downloadUrl)
+        : null;
+    // Con nombre propio y como descarga (no depende de abrir otra pestaña).
+    const filename = `${fileSlug(generator?.name ?? 'informe')}-${row.createdAt.toISOString().slice(0, 10)}.${ext}`;
+    const url = key ? await this.files.getPresignedGetUrl('reports', key, 300, filename) : null;
     if (!url) {
       throw new NotFoundException({
         code: 'download_not_available',
@@ -215,7 +373,8 @@ export class ReportsService {
       this.logger.warn(`generate: run ${jobData.runId} no existe`);
       return;
     }
-    if (run.status !== 'pending') {
+    // `running` = el proceso se cortó a medias y la cola lo repite.
+    if (run.status !== 'pending' && run.status !== 'running') {
       this.logger.warn(`generate: run ${jobData.runId} status=${run.status}, skip`);
       return;
     }
@@ -226,10 +385,28 @@ export class ReportsService {
     try {
       const generator = this.generators.get(run.generatorCode);
       if (!generator) throw new Error(`Generator ${run.generatorCode} no registrado`);
-      const result = await generator.run({
-        tenantId: run.tenantId,
-        params: run.params as Record<string, unknown>,
-      });
+      const params = run.params as Record<string, unknown>;
+      const facilityId = params[FACILITY_PARAM];
+      const scope: AnalyticsScope =
+        typeof facilityId === 'string'
+          ? { ids: [facilityId], explicit: true }
+          : { ids: run.facilityScoped ? run.facilityScope : undefined, explicit: false };
+      const timezone = await this.prisma.withTenant(
+        (tx) => tenantTimezone(tx, run.tenantId),
+        run.tenantId,
+      );
+      const result = await generator.run({ tenantId: run.tenantId, params, scope, timezone });
+      if (typeof facilityId === 'string') {
+        const facility = await this.admin.facility.findFirst({
+          where: { id: facilityId, tenantId: run.tenantId },
+          select: { name: true },
+        });
+        if (facility) {
+          result.subtitle = [result.subtitle, facility.name].filter(Boolean).join(' · ');
+        }
+      } else if (run.facilityScoped) {
+        result.subtitle = [result.subtitle, 'Solo tus locales'].filter(Boolean).join(' · ');
+      }
       const buffer =
         run.format === 'xlsx'
           ? await this.xlsxRenderer.render(result)
@@ -262,22 +439,101 @@ export class ReportsService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Run ${run.id} fallo: ${msg}`);
+      // Un error de datos (4xx) se explica; uno técnico no se enseña tal cual.
+      const expected = err instanceof HttpException && err.getStatus() < 500;
       await this.admin.reportRun.update({
         where: { id: run.id },
-        data: { status: 'failed', finishedAt: new Date(), errorMessage: msg.slice(0, 1000) },
+        data: {
+          status: 'failed',
+          finishedAt: new Date(),
+          errorMessage: expected ? msg.slice(0, 300) : GENERIC_ERROR,
+        },
       });
-      throw err;
+      if (!expected) throw err;
     }
   }
 
-  private toDto(r: ReportRun & { triggeredByName?: string | null }): ReportRunDto {
+  /** Nombres de locales y propietarios para describir cada informe de la lista. */
+  private async toDtos(
+    tenantId: string,
+    rows: (ReportRun & { triggeredBy?: { fullName: string } | null })[],
+  ): Promise<ReportRunDto[]> {
+    const ids = (key: string) => [
+      ...new Set(
+        rows
+          .map((r) => (r.params as Record<string, unknown> | null)?.[key])
+          .filter((v): v is string => typeof v === 'string' && UUID_RE.test(v)),
+      ),
+    ];
+    const facilityIds = ids(FACILITY_PARAM);
+    const ownerIds = ids('ownerId');
+    const names = new Map<string, string>();
+    if (facilityIds.length > 0 || ownerIds.length > 0) {
+      await this.prisma.withTenant(async (tx) => {
+        const [facilities, owners] = await Promise.all([
+          facilityIds.length
+            ? tx.facility.findMany({
+                where: { id: { in: facilityIds } },
+                select: { id: true, name: true },
+              })
+            : [],
+          ownerIds.length
+            ? tx.owner.findMany({
+                where: { id: { in: ownerIds } },
+                select: { id: true, legalName: true },
+              })
+            : [],
+        ]);
+        for (const f of facilities) names.set(f.id, f.name);
+        for (const o of owners) names.set(o.id, o.legalName);
+      }, tenantId);
+    }
+    return rows.map((r) =>
+      this.toDto({ ...r, triggeredByName: r.triggeredBy?.fullName ?? null }, names),
+    );
+  }
+
+  private paramsLabel(r: ReportRun, names: Map<string, string>): string | null {
+    const p = (r.params ?? {}) as Record<string, unknown>;
+    const str = (key: string) => (typeof p[key] === 'string' ? (p[key] as string) : null);
+    const isDay = (v: string | null): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const parts: string[] = [];
+    const from = str('from');
+    const to = str('to');
+    const month = str('month');
+    const atDate = str('atDate');
+    if (isDay(from) && isDay(to)) parts.push(`${dayLabel(from)} – ${dayLabel(to)}`);
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      parts.push(
+        new Date(`${month}-01T00:00:00.000Z`).toLocaleDateString('es-ES', {
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }),
+      );
+    }
+    if (isDay(atDate)) parts.push(`A ${dayLabel(atDate)}`);
+    const owner = str('ownerId');
+    if (owner && names.has(owner)) parts.push(names.get(owner)!);
+    const facility = str(FACILITY_PARAM);
+    if (facility && names.has(facility)) parts.push(names.get(facility)!);
+    else if (r.facilityScoped) parts.push('Solo sus locales');
+    return parts.length > 0 ? parts.join(' · ') : null;
+  }
+
+  private toDto(
+    r: ReportRun & { triggeredByName?: string | null },
+    names: Map<string, string>,
+  ): ReportRunDto {
     return {
       id: r.id,
       generatorCode: r.generatorCode,
+      generatorName: this.generators.get(r.generatorCode)?.name ?? 'Informe',
+      paramsLabel: this.paramsLabel(r, names),
       format: r.format,
       status: r.status,
       params: (r.params ?? {}) as Record<string, unknown>,
-      hasDownload: !!r.downloadUrl,
+      hasDownload: !!r.downloadUrl && r.status === 'done',
       fileBytes: r.fileBytes,
       errorMessage: r.errorMessage,
       triggeredByUserId: r.triggeredByUserId,
@@ -288,4 +544,16 @@ export class ReportsService {
       createdAt: r.createdAt.toISOString(),
     };
   }
+}
+
+/** «Facturas emitidas en un periodo» → `facturas-emitidas-en-un-periodo`. */
+function fileSlug(name: string): string {
+  return (
+    name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'informe'
+  );
 }

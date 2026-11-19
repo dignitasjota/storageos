@@ -1,6 +1,12 @@
 import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
+import { invoiceFacilityWhere } from '../../common/facility-scope';
 import { zonedDayStart, zonedNextDayStart } from '../../common/format';
+import { leadScopeWhere } from '../../common/lead-scope';
+import { CASH_METHOD_WHERE } from '../analytics/business-metrics';
+import { communicationScopeWhere } from '../communications/communications.service';
+import { reviewScopeWhere } from '../reviews/reviews.service';
 
 import type { AiToolDef } from './ai-provider';
 import type { PrismaService } from '../database/prisma.service';
@@ -26,7 +32,7 @@ interface Ctx {
 }
 
 const LIMIT = 30;
-const UUID = /^[0-9a-f-]{36}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const RECORD_TYPES = {
   customer: 'customers:read',
@@ -92,7 +98,22 @@ function day(value: unknown): string | undefined {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) ? s : undefined;
 }
 
-/** Rango [desde, hasta] (días incluidos) en la zona del negocio. */
+/**
+ * Rango [desde, hasta] para una columna de FECHA sin hora (emisión, vencimiento,
+ * inicio de contrato): el día tal cual, sin zona horaria. Con la hora local se
+ * corría un día: entraba el anterior y se quedaba fuera el último.
+ */
+function dateRange(input: Input): { gte?: Date; lte?: Date } | undefined {
+  const from = day(input.from);
+  const to = day(input.to);
+  if (!from && !to) return undefined;
+  return {
+    ...(from ? { gte: new Date(`${from}T00:00:00Z`) } : {}),
+    ...(to ? { lte: new Date(`${to}T00:00:00Z`) } : {}),
+  };
+}
+
+/** Rango [desde, hasta] (días incluidos) en la zona del negocio, para columnas con hora. */
 function range(input: Input, tz: string): { gte?: Date; lt?: Date } | undefined {
   const from = day(input.from);
   const to = day(input.to);
@@ -123,22 +144,27 @@ const CUSTOMER_NAME = {
 const unitScope = (s: Scope): Prisma.UnitWhereInput => (s ? { facilityId: { in: s } } : {});
 const contractScope = (s: Scope): Prisma.ContractWhereInput =>
   s ? { unit: { facilityId: { in: s } } } : {};
+/** El mismo criterio que el panel: sus locales (también pases y ventas) y lo que no es de ninguno. */
 const invoiceScope = (s: Scope): Prisma.InvoiceWhereInput =>
-  s
-    ? {
-        OR: [
-          { contract: { unit: { facilityId: { in: s } } } },
-          { contractId: null, facilityId: null },
-          { contractId: null, facilityId: { in: s } },
-        ],
-      }
-    : {};
+  (invoiceFacilityWhere(s) ?? {}) as Prisma.InvoiceWhereInput;
+/** Facturas de un local concreto (contrato, pase nocturno o venta de ese local). */
+const invoiceOfFacility = (facilityId: string): Prisma.InvoiceWhereInput =>
+  (invoiceFacilityWhere(null, facilityId) ?? {}) as Prisma.InvoiceWhereInput;
+/** Cuotas, importes y deuda: los mismos permisos que piden en el panel. */
+const moneyVisible = (ctx: Pick<Ctx, 'permissions'>) =>
+  has(ctx, 'invoices:read') && has(ctx, 'payments:read');
 /** Entidades con local opcional (tareas, incidencias, gastos, vencimientos). */
 const optionalScope = (s: Scope) =>
   s ? { OR: [{ facilityId: { in: s } }, { facilityId: null }] } : {};
 
-const pending = (i: { total: Prisma.Decimal; amountPaid: Prisma.Decimal }) =>
-  Math.max(0, Number(i.total) - Number(i.amountPaid));
+/**
+ * Lo que queda por cobrar. Solo deben algo las emitidas y las vencidas (una
+ * rectificada, cancelada o en borrador no); la retención ya va en lo pagado.
+ */
+const pending = (i: { total: Prisma.Decimal; amountPaid: Prisma.Decimal; status?: string }) =>
+  i.status !== undefined && i.status !== 'issued' && i.status !== 'overdue'
+    ? 0
+    : Math.max(0, Number(i.total) - Number(i.amountPaid));
 
 export class AiBusinessTools {
   constructor(private readonly prisma: PrismaService) {}
@@ -315,16 +341,20 @@ export class AiBusinessTools {
       const rows = await tx.customer.findMany({
         where: {
           deletedAt: null,
-          AND: words.map((w) => ({
-            OR: [
-              { firstName: like(w) },
-              { lastName: like(w) },
-              { companyName: like(w) },
-              { email: like(w) },
-              { phone: like(w) },
-              { documentNumber: like(w) },
-            ],
-          })),
+          AND: [
+            // Solo los que esta persona puede abrir en el panel.
+            customerScopeWhere(ctx.scope),
+            ...words.map((w) => ({
+              OR: [
+                { firstName: like(w) },
+                { lastName: like(w) },
+                { companyName: like(w) },
+                { email: like(w) },
+                { phone: like(w) },
+                { documentNumber: like(w) },
+              ],
+            })),
+          ],
         },
         select: { ...CUSTOMER_NAME.select, email: true, phone: true },
         take: 10,
@@ -355,7 +385,7 @@ export class AiBusinessTools {
     }
     if (has(ctx, 'units:read')) {
       const rows = await tx.unit.findMany({
-        where: { code: like(q), ...unitScope(ctx.scope) },
+        where: { code: like(q), facility: { deletedAt: null }, ...unitScope(ctx.scope) },
         select: { id: true, code: true, status: true, facility: { select: { name: true } } },
         take: 5,
       });
@@ -387,15 +417,18 @@ export class AiBusinessTools {
       const rows = await tx.lead.findMany({
         where: {
           deletedAt: null,
-          AND: words.map((w) => ({
-            OR: [
-              { firstName: like(w) },
-              { lastName: like(w) },
-              { companyName: like(w) },
-              { email: like(w) },
-              { phone: like(w) },
-            ],
-          })),
+          AND: [
+            leadScopeWhere(ctx.scope),
+            ...words.map((w) => ({
+              OR: [
+                { firstName: like(w) },
+                { lastName: like(w) },
+                { companyName: like(w) },
+                { email: like(w) },
+                { phone: like(w) },
+              ],
+            })),
+          ],
         },
         select: { id: true, firstName: true, lastName: true, companyName: true, status: true },
         take: 5,
@@ -443,7 +476,7 @@ export class AiBusinessTools {
       case 'task':
         return byId ? this.task(tx, ctx, ref, tz) : { error: 'Hace falta el id' };
       case 'lead':
-        return byId ? this.lead(tx, ref) : { error: 'Hace falta el id' };
+        return byId ? this.lead(tx, ctx, ref) : { error: 'Hace falta el id' };
       default:
         return { error: 'Tipo no válido' };
     }
@@ -451,7 +484,8 @@ export class AiBusinessTools {
 
   private async customer(tx: Tx, ctx: Ctx, id: string) {
     const c = await tx.customer.findFirst({
-      where: { id, deletedAt: null },
+      // Fuera de sus locales no existe, como en la ficha del panel.
+      where: { id, deletedAt: null, ...customerScopeWhere(ctx.scope) },
       select: {
         ...CUSTOMER_NAME.select,
         email: true,
@@ -527,7 +561,9 @@ export class AiBusinessTools {
         facility: k.unit?.facility?.name ?? null,
         start: d(k.startDate),
         end: d(k.endDate),
-        monthlyPrice: r2(Number(k.priceMonthly) - Number(k.discountAmount)),
+        ...(moneyVisible(ctx)
+          ? { monthlyPrice: r2(Number(k.priceMonthly) - Number(k.discountAmount)) }
+          : {}),
       })),
       recentNotes: interactions.map((i) => ({
         type: i.type,
@@ -552,7 +588,12 @@ export class AiBusinessTools {
         orderBy: { dueDate: 'asc' },
       }),
       tx.payment.findMany({
-        where: { customerId: id, status: { in: ['succeeded', 'partially_refunded', 'refunded'] } },
+        where: {
+          customerId: id,
+          status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+          methodType: CASH_METHOD_WHERE,
+          ...(ctx.scope ? { invoice: invoiceScope(ctx.scope) } : {}),
+        },
         select: { amount: true, refundedAmount: true, paidAt: true, methodType: true },
         orderBy: { paidAt: 'desc' },
         take: 5,
@@ -692,7 +733,7 @@ export class AiBusinessTools {
 
   private async unit(tx: Tx, ctx: Ctx, where: Prisma.UnitWhereInput) {
     const u = await tx.unit.findFirst({
-      where: { ...where, ...unitScope(ctx.scope) },
+      where: { ...where, facility: { deletedAt: null }, ...unitScope(ctx.scope) },
       select: {
         id: true,
         code: true,
@@ -744,9 +785,12 @@ export class AiBusinessTools {
         id: c.id,
         number: c.contractNumber,
         status: c.status,
-        customer: personName(c.customer),
+        // Quién lo ocupa y qué paga: como en el panel, con su permiso.
+        ...(has(ctx, 'contracts:read') || has(ctx, 'customers:read')
+          ? { customer: personName(c.customer) }
+          : {}),
         since: d(c.startDate),
-        price: n(c.priceMonthly),
+        ...(moneyVisible(ctx) ? { price: n(c.priceMonthly) } : {}),
       })),
       history: u.statusHistory.map((h) => ({
         date: d(h.occurredAt),
@@ -823,9 +867,8 @@ export class AiBusinessTools {
       paid: n(i.amountPaid),
       refunded: n(i.amountRefunded),
       withholding: n(i.withholdingAmount),
-      pending: r2(
-        Math.max(0, Number(i.total) - Number(i.amountPaid) - Number(i.withholdingAmount)),
-      ),
+      // La retención ya está dentro de lo pagado: no se resta otra vez.
+      pending: r2(pending(i)),
       aeat: i.aeatStatus,
       notes: i.notes,
       lines: i.items.map((l) => ({
@@ -1004,9 +1047,9 @@ export class AiBusinessTools {
     };
   }
 
-  private async lead(tx: Tx, id: string) {
+  private async lead(tx: Tx, ctx: Ctx, id: string) {
     const l = await tx.lead.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, deletedAt: null, ...leadScopeWhere(ctx.scope) },
       select: {
         firstName: true,
         lastName: true,
@@ -1052,6 +1095,8 @@ export class AiBusinessTools {
 
   private async list(tx: Tx, ctx: Ctx, type: ListType, input: Input, tz: string) {
     const when = range(input, tz);
+    // Emisión, vencimiento e inicio de contrato son fechas sin hora.
+    const whenDate = dateRange(input);
     const customerId = UUID.test(str(input.customerId)) ? str(input.customerId) : undefined;
     const facilityId = UUID.test(str(input.facilityId)) ? str(input.facilityId) : undefined;
     if (facilityId && ctx.scope && !ctx.scope.includes(facilityId)) {
@@ -1075,8 +1120,8 @@ export class AiBusinessTools {
             deletedAt: null,
             ...(st ? { status: st } : {}),
             ...(customerId ? { customerId } : {}),
-            ...(when ? { issueDate: when } : {}),
-            ...(facilityId ? { contract: { unit: { facilityId } } } : invoiceScope(ctx.scope)),
+            ...(whenDate ? { issueDate: whenDate } : {}),
+            ...(facilityId ? invoiceOfFacility(facilityId) : invoiceScope(ctx.scope)),
           },
           select: {
             id: true,
@@ -1121,9 +1166,7 @@ export class AiBusinessTools {
             methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
             ...(ctx.scope || facilityId
               ? {
-                  invoice: facilityId
-                    ? { contract: { unit: { facilityId } } }
-                    : invoiceScope(ctx.scope),
+                  invoice: facilityId ? invoiceOfFacility(facilityId) : invoiceScope(ctx.scope),
                 }
               : {}),
           },
@@ -1161,7 +1204,7 @@ export class AiBusinessTools {
             deletedAt: null,
             ...(st ? { status: st } : {}),
             ...(customerId ? { customerId } : {}),
-            ...(when ? { startDate: when } : {}),
+            ...(whenDate ? { startDate: whenDate } : {}),
             ...(facilityId ? { unit: { facilityId } } : contractScope(ctx.scope)),
           },
           select: {
@@ -1199,6 +1242,7 @@ export class AiBusinessTools {
         ] as const);
         const rows = await tx.unit.findMany({
           where: {
+            facility: { deletedAt: null },
             ...(st ? { status: st } : {}),
             ...(facilityId ? { facilityId } : unitScope(ctx.scope)),
           },
@@ -1342,6 +1386,7 @@ export class AiBusinessTools {
             deletedAt: null,
             ...(st ? { status: st } : {}),
             ...(when ? { createdAt: when } : {}),
+            ...(facilityId ? { preferredFacilityId: facilityId } : leadScopeWhere(ctx.scope)),
           },
           select: {
             id: true,
@@ -1373,7 +1418,7 @@ export class AiBusinessTools {
           where: {
             deletedAt: null,
             ...(st ? { status: st } : { status: { in: ['open', 'in_progress'] } }),
-            ...(when ? { dueDate: when } : {}),
+            ...(whenDate ? { dueDate: whenDate } : {}),
             ...(facilityId ? { facilityId } : optionalScope(ctx.scope)),
           },
           select: {
@@ -1479,6 +1524,8 @@ export class AiBusinessTools {
             ...(customerId ? { customerId } : {}),
             ...(when ? { createdAt: when } : {}),
             ...(commStatus ? { status: commStatus } : {}),
+            // Solo los envíos a inquilinos y contactos que puede abrir.
+            AND: [communicationScopeWhere(ctx.scope)],
           },
           select: {
             channel: true,
@@ -1532,7 +1579,7 @@ export class AiBusinessTools {
         const rows = await tx.businessReminder.findMany({
           where: {
             ...(status ? { status } : { status: { not: 'done' } }),
-            ...(when ? { dueDate: when } : {}),
+            ...(whenDate ? { dueDate: whenDate } : {}),
             ...(facilityId ? { facilityId } : optionalScope(ctx.scope)),
           },
           select: {
@@ -1623,6 +1670,7 @@ export class AiBusinessTools {
             ...(status ? { status } : { status: 'submitted' }),
             ...(customerId ? { customerId } : {}),
             ...(when ? { createdAt: when } : {}),
+            ...reviewScopeWhere(ctx.scope),
           },
           select: {
             status: true,
@@ -1687,6 +1735,7 @@ export class AiBusinessTools {
           where: {
             ...(status ? { status } : { status: 'active' }),
             ...(customerId ? { customerId } : {}),
+            ...(ctx.scope ? { customer: customerScopeWhere(ctx.scope) } : {}),
           },
           select: {
             status: true,
@@ -1739,8 +1788,9 @@ export class AiBusinessTools {
         where: {
           status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
           paidAt: { gte: start, lt: end },
-          methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-          ...(ctx.scope ? { invoice: invoiceScope(ctx.scope) } : {}),
+          // Como «Cobrado» en el Resumen: sin fianzas ni compensaciones.
+          methodType: CASH_METHOD_WHERE,
+          invoice: { kind: 'invoice', ...invoiceScope(ctx.scope) },
         },
         select: { amount: true, refundedAmount: true, methodType: true },
       }),
@@ -1751,7 +1801,7 @@ export class AiBusinessTools {
       byMethod.set(p.methodType, (byMethod.get(p.methodType) ?? 0) + v);
     }
     const expected = due.reduce((s, i) => s + Number(i.total) - Number(i.withholdingAmount), 0);
-    const stillPending = due.filter((i) => i.status !== 'paid').reduce((s, i) => s + pending(i), 0);
+    const stillPending = due.reduce((s, i) => s + pending(i), 0);
     return {
       month,
       expectedFromInvoicesDueThisMonth: r2(expected),

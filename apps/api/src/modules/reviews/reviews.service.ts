@@ -73,7 +73,7 @@ const REVIEW_INCLUDE = {
 } satisfies Prisma.ReviewInclude;
 
 /** Valoraciones de los inquilinos que ve quien solo tiene unos locales. */
-function reviewScopeWhere(scope: FacilityScope): Prisma.ReviewWhereInput {
+export function reviewScopeWhere(scope: FacilityScope): Prisma.ReviewWhereInput {
   return scope ? { customer: customerScopeWhere(scope) } : {};
 }
 

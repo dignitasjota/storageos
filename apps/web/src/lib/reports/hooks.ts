@@ -63,3 +63,13 @@ export function useReportDownloadUrl() {
     mutationFn: (id: string) => apiFetch<{ url: string }>(`/reports/${id}/download`),
   });
 }
+
+export function useDeleteReport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/reports/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: reportsListKey });
+    },
+  });
+}
