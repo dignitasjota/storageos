@@ -25,9 +25,12 @@ type MenuKey = 'product' | 'solutions' | 'resources';
 export function PublicHeader({
   logoUrl,
   hasContact = false,
+  hasBlog = false,
 }: {
   logoUrl: string | null;
   hasContact?: boolean;
+  /** Hay entradas publicadas en el blog: enlace «Blog» en el menú. */
+  hasBlog?: boolean;
 }) {
   const t = useTranslations('publicHeader');
   const common = useTranslations('common');
@@ -48,7 +51,10 @@ export function PublicHeader({
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  const resources = RESOURCES_MENU.filter((l) => !l.needsContact || hasContact);
+  // El blog va en el primer nivel (si tiene entradas), no en «Recursos».
+  const resources = RESOURCES_MENU.filter(
+    (l) => (!l.needsContact || hasContact) && l.key !== 'blog',
+  );
   const close = () => setOpen(null);
 
   return (
@@ -86,6 +92,15 @@ export function PublicHeader({
             >
               {t('menu.pricing')}
             </Link>
+            {hasBlog && (
+              <Link
+                href="/blog"
+                onMouseEnter={close}
+                className="rounded-md px-3 py-2 text-sm font-medium text-primary-foreground/85 transition hover:bg-white/10 hover:text-primary-foreground"
+              >
+                {t('menu.blog')}
+              </Link>
+            )}
             <MenuTrigger
               label={t('menu.resources')}
               active={open === 'resources'}
@@ -158,6 +173,7 @@ export function PublicHeader({
           <SheetTitle className="border-b px-5 py-4 text-base">{t('menu.title')}</SheetTitle>
           <MobileMenu
             resources={resources}
+            hasBlog={hasBlog}
             showLogin={!showAppCta}
             onNavigate={() => setMobileOpen(false)}
           />
@@ -282,10 +298,12 @@ function LinkPanel({
 
 function MobileMenu({
   resources,
+  hasBlog,
   showLogin,
   onNavigate,
 }: {
   resources: SiteMenuLink[];
+  hasBlog: boolean;
   showLogin: boolean;
   onNavigate: () => void;
 }) {
@@ -333,6 +351,11 @@ function MobileMenu({
         <Link href="/precios" onClick={onNavigate} className="block text-sm font-medium">
           {t('menu.pricing')}
         </Link>
+        {hasBlog && (
+          <Link href="/blog" onClick={onNavigate} className="mt-3 block text-sm font-medium">
+            {t('menu.blog')}
+          </Link>
+        )}
       </div>
       {section(
         t('menu.resources'),

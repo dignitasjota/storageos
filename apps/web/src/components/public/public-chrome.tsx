@@ -30,6 +30,7 @@ export function PublicChrome({
   forcedBare = false,
   logoUrl = null,
   hasContact = false,
+  hasBlog = false,
   footer = null,
   analyticsId = null,
 }: {
@@ -39,6 +40,8 @@ export function PublicChrome({
   logoUrl?: string | null;
   /** Hay formulario de contacto en la portada (enlace «Contacto»). */
   hasContact?: boolean;
+  /** El blog tiene entradas publicadas (enlace «Blog» en la cabecera). */
+  hasBlog?: boolean;
   /** Pie gestionado desde el panel admin; null = el de por defecto. */
   footer?: UpdatePlatformFooterInput | null;
   /** Google Analytics 4 de la web (solo se carga con el consentimiento). */
@@ -62,7 +65,7 @@ export function PublicChrome({
   }
   return (
     <div className="flex min-h-screen flex-col">
-      <PublicHeader logoUrl={logoUrl} hasContact={hasContact} />
+      <PublicHeader logoUrl={logoUrl} hasContact={hasContact} hasBlog={hasBlog} />
       <main className="flex-1">{children}</main>
       <PublicFooter
         logoUrl={logoUrl}
