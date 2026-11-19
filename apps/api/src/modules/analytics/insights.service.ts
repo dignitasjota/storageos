@@ -53,6 +53,7 @@ import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma } from '@storageos/database';
 import type {
   ApplyPricingResultDto,
+  ApplyUnitPricingManyResultDto,
   ApplyUnitPricingResultDto,
   ChurnRiskItemDto,
   CompetitionAlertsDto,
@@ -163,6 +164,7 @@ export class InsightsService {
               firstName: true,
               lastName: true,
               companyName: true,
+              phone: true,
             },
           },
           unit: { select: { code: true, facility: { select: { name: true } } } },
@@ -171,7 +173,10 @@ export class InsightsService {
       });
 
       if (contracts.length === 0) {
-        return { summary: { high: 0, medium: 0, low: 0, total: 0 }, items: [] };
+        return {
+          summary: { high: 0, medium: 0, low: 0, total: 0, atStakeMonthly: 0 },
+          items: [],
+        };
       }
 
       const customerIds = [...new Set(contracts.map((c) => c.customerId))];
@@ -376,6 +381,7 @@ export class InsightsService {
           factors,
           contractStatus: main.status === 'ending' ? 'ending' : 'active',
           lastAccessAt: seen ? seen.toISOString() : null,
+          phone: main.customer.phone,
         };
       });
 
@@ -384,6 +390,10 @@ export class InsightsService {
         medium: items.filter((i) => i.level === 'medium').length,
         low: items.filter((i) => i.level === 'low').length,
         total: items.length,
+        // Lo que se pierde al mes si se van los de riesgo alto y medio.
+        atStakeMonthly: round2(
+          items.filter((i) => i.level !== 'low').reduce((sum, i) => sum + (i.priceMonthly ?? 0), 0),
+        ),
       };
 
       // El detalle omite los `low` (sin señales relevantes) y ordena por riesgo.
@@ -1507,6 +1517,41 @@ export class InsightsService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.getPricingStrategy(args.tenantId);
+  }
+
+  /**
+   * Aplica de una vez el precio de varios trasteros. Cada uno va por separado:
+   * si uno falla (no existe o es de un local que no ves), el resto sigue.
+   */
+  async applyUnitPricingMany(args: {
+    tenantId: string;
+    userId: string;
+    items: { unitId: string; price: number }[];
+    meta: RequestMeta;
+    facilityScope?: FacilityScope;
+  }): Promise<ApplyUnitPricingManyResultDto> {
+    let applied = 0;
+    const failed: ApplyUnitPricingManyResultDto['failed'] = [];
+    for (const item of args.items) {
+      try {
+        await this.applyUnitPricing({
+          tenantId: args.tenantId,
+          userId: args.userId,
+          unitId: item.unitId,
+          price: item.price,
+          meta: args.meta,
+          ...(args.facilityScope !== undefined ? { facilityScope: args.facilityScope } : {}),
+        });
+        applied += 1;
+      } catch (err) {
+        failed.push({
+          unitId: item.unitId,
+          message:
+            err instanceof NotFoundException ? 'Trastero no encontrado' : 'No se pudo aplicar',
+        });
+      }
+    }
+    return { applied, failed };
   }
 
   /** Aplica el precio sugerido a un trastero (fija `basePriceMonthly`). */

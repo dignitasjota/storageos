@@ -99,7 +99,7 @@ describe('InsightsService.getChurnRisk', () => {
     const tx = buildTx();
     const service = buildService(tx);
     const res = await service.getChurnRisk(TENANT);
-    expect(res.summary).toEqual({ high: 0, medium: 0, low: 0, total: 0 });
+    expect(res.summary).toEqual({ high: 0, medium: 0, low: 0, total: 0, atStakeMonthly: 0 });
     expect(res.items).toEqual([]);
   });
 
@@ -141,7 +141,7 @@ describe('InsightsService.getChurnRisk', () => {
 
     const service = buildService(tx);
     const res = await service.getChurnRisk(TENANT);
-    expect(res.summary).toEqual({ high: 0, medium: 0, low: 1, total: 1 });
+    expect(res.summary).toEqual({ high: 0, medium: 0, low: 1, total: 1, atStakeMonthly: 0 });
     expect(res.items).toEqual([]);
   });
 });

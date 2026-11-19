@@ -10,6 +10,7 @@ import { FilesService } from '../files/files.service';
 import { JOB_REPORTS_GENERATE, QUEUE_REPORTS } from '../queues/queues.module';
 
 import { AgingGenerator } from './generators/aging.generator';
+import { AnalyticsMonthGenerator } from './generators/analytics-month.generator';
 import { CollectionsMonthGenerator } from './generators/collections-month.generator';
 import { ContractsActiveGenerator } from './generators/contracts-active.generator';
 import { InvoicesPeriodGenerator } from './generators/invoices-period.generator';
@@ -49,6 +50,7 @@ export class ReportsService {
     collectionsGenerator: CollectionsMonthGenerator,
     moveOutsGenerator: MoveOutsPeriodGenerator,
     ownerStatementGenerator: OwnerStatementGenerator,
+    analyticsMonthGenerator: AnalyticsMonthGenerator,
     @InjectQueue(QUEUE_REPORTS) private readonly queue: Queue,
     private readonly files: FilesService,
     config: ConfigService<Env, true>,
@@ -60,6 +62,7 @@ export class ReportsService {
     this.register(collectionsGenerator);
     this.register(moveOutsGenerator);
     this.register(ownerStatementGenerator);
+    this.register(analyticsMonthGenerator);
 
     const endpoint = `${config.get('MINIO_USE_SSL', { infer: true }) ? 'https' : 'http'}://${config.get('MINIO_ENDPOINT', { infer: true })}:${config.get('MINIO_PORT', { infer: true })}`;
     this.s3 = new S3Client({

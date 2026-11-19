@@ -19,6 +19,8 @@ import {
   periodDays,
   periodText,
   previousPeriodDays,
+  compareLabel,
+  type CompareMode,
 } from './period';
 import { QueryState, shortMonth } from './ui';
 
@@ -291,14 +293,20 @@ export function RevenueBreakdownCard({
   facilityId,
   period,
   ownerId,
+  compare = 'previous',
 }: {
   facilityId?: string;
   period: Period;
   ownerId?: string;
+  compare?: CompareMode;
 }) {
   const breakdown = useRevenueBreakdown({ ...periodDays(period), facilityId, ownerId });
-  // El anterior hasta el mismo día: el mes en curso va a medias.
-  const previous = useRevenueBreakdown({ ...previousPeriodDays(period), facilityId, ownerId });
+  // El de comparación, hasta el mismo día: el mes en curso va a medias.
+  const previous = useRevenueBreakdown({
+    ...previousPeriodDays(period, compare),
+    facilityId,
+    ownerId,
+  });
   const [view, setView] = useState<'concept' | 'facility' | 'type'>('concept');
   const d = breakdown.data;
   const rows = d
@@ -388,7 +396,7 @@ export function RevenueBreakdownCard({
                       <Delta
                         current={r.amount}
                         previous={before}
-                        suffix="vs periodo anterior hasta el mismo día"
+                        suffix={compareLabel(compare, { sameDay: true })}
                       />
                     </div>
                   )}

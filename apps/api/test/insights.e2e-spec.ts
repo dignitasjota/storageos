@@ -39,7 +39,7 @@ describe('Insights: churn risk + pricing suggestions (e2e)', () => {
       .get('/analytics/churn-risk')
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(res.status).toBe(200);
-    expect(res.body.summary).toEqual({ high: 0, medium: 0, low: 0, total: 0 });
+    expect(res.body.summary).toEqual({ high: 0, medium: 0, low: 0, total: 0, atStakeMonthly: 0 });
     expect(res.body.items).toEqual([]);
   });
 

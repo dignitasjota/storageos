@@ -3359,3 +3359,19 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 - `RevenueForecastDto`: `assumptions.historyMonths` (meses cerrados con actividad) y `current.totalUnits` = trasteros que se pueden alquilar.
 - `GET /analytics/pricing-strategy` solo lista los locales que ve el usuario.
 - `GET /analytics/benchmark`: mínimo 10 negocios (sin demos ni cuentas exentas) y se reutiliza una hora.
+
+### Analítica: mejoras (2026-11-19)
+
+| Método | Ruta                                                | Permiso                             | Qué devuelve                                                                                                                                                                                                               |
+| ------ | --------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/analytics/headline?facilityId=&ownerId=`          | `analytics:read`                    | El mes en curso frente al pasado hasta el mismo día: facturado (null sin permiso de dinero), ocupación de hoy y al cerrar el mes pasado, altas, bajas, contactos y vencido sin cobrar                                      |
+| GET    | `/analytics/arrears-breakdown?facilityId=&ownerId=` | + `invoices:read` y `payments:read` | Deuda vencida de los 10 inquilinos que más deben (y cuántos son), por local, y media de días hasta cobrar y de retraso sobre el vencimiento (facturas cobradas en 90 días)                                                 |
+| GET    | `/analytics/portfolio-gap?facilityId=`              | + dinero                            | Contratos en vigor que pagan menos que el precio de hoy de su trastero (hasta 200, de mayor a menor diferencia), con la fecha del último cambio de cuota y lo que sumaría al mes                                           |
+| GET    | `/analytics/unit-economics?facilityId=`             | + dinero                            | Por tipo de trastero: alquilados, m², cuotas al mes, cuotas por m² alquilado y total, cuota media y precio medio de hoy de esos trasteros                                                                                  |
+| GET    | `/analytics/churn-breakdown?from=&to=&facilityId=`  | `analytics:read`                    | Cuotas al mes que entran (altas) y salen (bajas) cada mes (null sin permiso de dinero) y bajas del periodo según lo que llevaban (`lt3`, `3to6`, `6to12`, `12to24`, `gt24` meses)                                          |
+| GET    | `/analytics/forecast-scenarios?facilityId=`         | `analytics:read`                    | Tres escenarios (`low`: la mitad de altas y 1,5× bajas; `expected`; `high`) con 12 meses y el mes en que se llenaría (hasta 5 años), y cuándo se llena cada local y tamaño con sus altas menos bajas de los meses cerrados |
+| POST   | `/analytics/unit-pricing-suggestions/apply-many`    | `units:manage`                      | `{ items: [{ unitId, price }] }` (1-500): aplica cada precio por separado → `{ applied, failed: [{ unitId, message }] }`                                                                                                   |
+
+- `GET /analytics/leads-funnel` añade `timing`: mediana de horas hasta contactar (`firstResponseHours`, `responded`) y de días hasta ganar (`daysToWin`).
+- `GET /analytics/churn-risk` añade el teléfono de cada inquilino (`phone`) y `summary.atStakeMonthly` (cuotas de los de riesgo alto y medio; null sin permiso de dinero).
+- Informe nuevo `analytics_month` («Resumen del mes», PDF o Excel, parámetro `month` AAAA-MM): facturado, cobrado, ocupación y cuotas al cerrar, altas, bajas, tasa de bajas y contactos frente al mes anterior. Las facturas son las del propio negocio.

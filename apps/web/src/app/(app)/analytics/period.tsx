@@ -4,6 +4,7 @@ import { ArrowDownRight, ArrowUpRight, Download } from 'lucide-react';
 
 import { MonthYearSelect, ym } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { downloadCsv } from '@/lib/csv';
 import { formatEur } from '@/lib/format';
@@ -45,10 +46,35 @@ export function periodPresets(): Period[] {
   ];
 }
 
-/** El periodo de la misma duración justo antes. */
-export function previousPeriod(p: { from: string; to: string }): { from: string; to: string } {
-  const n = length(p);
+/** Con qué se compara: el periodo justo antes o el mismo del año pasado. */
+export type CompareMode = 'previous' | 'lastYear';
+
+/** El periodo con el que se compara (de la misma duración). */
+export function previousPeriod(
+  p: { from: string; to: string },
+  mode: CompareMode = 'previous',
+): { from: string; to: string } {
+  const n = mode === 'lastYear' ? 12 : length(p);
   return { from: shift(p.from, -n), to: shift(p.to, -n) };
+}
+
+/** Texto de la comparación: «vs periodo anterior (meses cerrados)». */
+export function compareLabel(
+  mode: CompareMode,
+  opts: { closed?: boolean; sameDay?: boolean } = {},
+): string {
+  const base = mode === 'lastYear' ? 'vs el mismo periodo del año pasado' : 'vs periodo anterior';
+  if (opts.closed) return `${base} (meses cerrados)`;
+  if (opts.sameDay) return `${base} hasta el mismo día`;
+  return base;
+}
+
+/** El periodo sin el mes en curso (que aún no ha terminado). */
+export function withoutCurrentMonth<T extends { from: string; to: string }>(p: T): T {
+  if (!includesCurrentMonth(p)) return p;
+  const now = new Date();
+  const to = shift(ym(now.getFullYear(), now.getMonth() + 1), -1);
+  return { ...p, to, from: p.from > to ? to : p.from };
 }
 
 /** Como mucho se analizan 36 meses: el resto se recorta por el principio. */
@@ -69,8 +95,11 @@ export function includesCurrentMonth(p: { to: string }): boolean {
  * a hoy (día 19), el anterior acaba también el día 19 de su último mes. Así se
  * compara lo mismo con lo mismo.
  */
-export function previousPeriodDays(p: { from: string; to: string }): { from: string; to: string } {
-  const prev = previousPeriod(p);
+export function previousPeriodDays(
+  p: { from: string; to: string },
+  mode: CompareMode = 'previous',
+): { from: string; to: string } {
+  const prev = previousPeriod(p, mode);
   const days = periodDays(p);
   const endDay = Number(days.to.slice(8, 10));
   const [ty, tm] = prev.to.split('-').map(Number);
@@ -104,9 +133,17 @@ export function periodText(p: Period): string {
 export function PeriodSelector({
   value,
   onChange,
+  compare,
+  onCompareChange,
+  closedOnly,
+  onClosedOnlyChange,
 }: {
   value: Period;
   onChange: (p: Period) => void;
+  compare?: CompareMode;
+  onCompareChange?: (m: CompareMode) => void;
+  closedOnly?: boolean;
+  onClosedOnlyChange?: (v: boolean) => void;
 }) {
   const presets = periodPresets();
   const setCustom = (part: 'from' | 'to', v: string) => {
@@ -140,7 +177,32 @@ export function PeriodSelector({
           <Label className="text-xs">Hasta</Label>
           <MonthYearSelect value={value.to} onChange={(v) => setCustom('to', v)} />
         </div>
-        <p className="text-xs text-muted-foreground">Como mucho, 36 meses.</p>
+        {compare && onCompareChange && (
+          <div className="space-y-1">
+            <Label className="text-xs" htmlFor="analytics-compare">
+              Comparar con
+            </Label>
+            <select
+              id="analytics-compare"
+              className="h-9 rounded-md border bg-background px-2 text-base sm:text-sm"
+              value={compare}
+              onChange={(e) => onCompareChange(e.target.value as CompareMode)}
+            >
+              <option value="previous">El periodo anterior</option>
+              <option value="lastYear">El mismo periodo del año pasado</option>
+            </select>
+          </div>
+        )}
+        {onClosedOnlyChange && (
+          <label className="flex items-center gap-2 pb-2 text-sm">
+            <Checkbox
+              checked={closedOnly === true}
+              onCheckedChange={(v) => onClosedOnlyChange(v === true)}
+            />
+            Sin el mes en curso
+          </label>
+        )}
+        <p className="pb-2 text-xs text-muted-foreground">Como mucho, 36 meses.</p>
       </div>
     </div>
   );

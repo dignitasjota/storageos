@@ -2771,3 +2771,25 @@ Sin migración ni variables nuevas. Arreglos tras analizar Analítica entera; de
   - **Comparativa del sector**: mínimo 10 negocios, sin demos ni cuentas exentas (puede dejar de salir hasta que haya suficientes).
 - **Permisos**: Ingresos y Deudas solo para quien ve facturas y cobros; sin ese permiso el resto de Analítica y el Resumen no enseñan importes.
 - **Aplicar el precio de un tipo** cambia también el de sus trasteros libres en todos los locales (antes solo el de catálogo, que no usaba la reserva online).
+
+## 162. Mejoras de Analítica (2026-11-19)
+
+Sin migración ni variables nuevas. Lo que cambia en Analítica:
+
+- **Arriba, una línea con cómo va el mes** frente al pasado hasta el mismo día (facturado, ocupación, altas y bajas, contactos y lo vencido).
+- **Periodo**:
+  - comparar con el periodo anterior o con el mismo del año pasado;
+  - opción «Sin el mes en curso»;
+  - la pestaña y el periodo se recuerdan en el navegador.
+- **Deudas**: quién debe más, por local, días hasta cobrar y retraso medio, con enlace a Deudores.
+- **Riesgo de baja**: cuotas en juego y botones para llamar, escribir por WhatsApp u ofrecer retención.
+- **Precios**:
+  - «Aplicar todas» en la vista por trastero;
+  - columna de libres y lo que sumaría aplicar todo en la vista por tipo;
+  - pestaña «Inquilinos por debajo del precio» (candidatos a una subida).
+- **Previsión**: escenarios prudente, esperado y optimista, el mes en que te llenarías y cuándo se llena cada local y tamaño.
+- **Ocupación**: rendimiento por tipo de trastero (cuotas por m² y cuota media frente al precio de hoy).
+- **Bajas**: cuotas que entran y salen cada mes, y cuánto llevaban los que se van.
+- **Contactos**: tiempo hasta responder y hasta contratar, y coste por cliente de cada canal de Marketing.
+- **Resumen del mes en PDF**: botón en Analítica; el informe queda también en Informes.
+- **Tras desplegar**: los informes se generan en el worker, que debe tener esta versión para el «Resumen del mes».

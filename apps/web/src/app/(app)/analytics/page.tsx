@@ -22,6 +22,20 @@ import {
 import { toast } from 'sonner';
 
 import {
+  ArrearsBreakdownCard,
+  ChannelCostCard,
+  ChurnBreakdownCards,
+  ChurnRiskActions,
+  ForecastScenariosCards,
+  HeadlineLine,
+  LeadsTimingCards,
+  MonthPdfButton,
+  PortfolioGapPanel,
+  UnitEconomicsCard,
+} from './extras-panels';
+import {
+  compareLabel,
+  type CompareMode,
   CsvButton,
   Delta,
   includesCurrentMonth,
@@ -32,6 +46,7 @@ import {
   periodText,
   previousPeriod,
   previousPeriodDays,
+  withoutCurrentMonth,
 } from './period';
 import { PreOpeningCard } from './pre-opening-card';
 import { PriceChangeEffectsPanel } from './price-change-effects-panel';
@@ -56,6 +71,7 @@ import type {
   ChurnRiskLevel,
   MonthlyRevenuePointDto,
   PricingAction,
+  PricingSuggestionItemDto,
   SeoChecklistItemDto,
 } from '@storageos/shared';
 
@@ -123,7 +139,67 @@ const COMPANY_TABS: AnalyticsTab[] = ['market', 'seo'];
 /** Pestañas que separan las facturas de cada emisor (plan Administrador). */
 const ISSUER_TABS: AnalyticsTab[] = ['revenue', 'aging', 'cohorts'];
 
-type PricingSubTab = 'by-type' | 'by-unit' | 'effects';
+type PricingSubTab = 'by-type' | 'by-unit' | 'effects' | 'portfolio';
+
+const VIEW_KEY = 'storageos.analytics.view';
+
+interface SavedView {
+  tab?: string;
+  period?: Period;
+  compare?: CompareMode;
+  closedOnly?: boolean;
+}
+
+/** La pestaña y el periodo que se miraron la última vez (en este navegador). */
+function readSavedView(): SavedView {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as {
+      tab?: string;
+      periodKey?: string;
+      from?: string;
+      to?: string;
+      compare?: string;
+      closedOnly?: boolean;
+    };
+    // Un periodo fijo («últimos 12 meses») se recalcula con la fecha de hoy.
+    const preset = periodPresets().find((p) => p.key === raw.periodKey);
+    const period =
+      preset ??
+      (raw.periodKey === 'custom' &&
+      raw.from &&
+      raw.to &&
+      /^\d{4}-\d{2}$/.test(raw.from) &&
+      /^\d{4}-\d{2}$/.test(raw.to)
+        ? { key: 'custom', label: 'Personalizado', from: raw.from, to: raw.to }
+        : undefined);
+    return {
+      ...(raw.tab ? { tab: raw.tab } : {}),
+      ...(period ? { period } : {}),
+      ...(raw.compare === 'lastYear' || raw.compare === 'previous' ? { compare: raw.compare } : {}),
+      ...(raw.closedOnly ? { closedOnly: true } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function saveView(v: { tab: string; period: Period; compare: CompareMode; closedOnly: boolean }) {
+  try {
+    localStorage.setItem(
+      VIEW_KEY,
+      JSON.stringify({
+        tab: v.tab,
+        periodKey: v.period.key,
+        from: v.period.from,
+        to: v.period.to,
+        compare: v.compare,
+        closedOnly: v.closedOnly,
+      }),
+    );
+  } catch {
+    // Solo es una comodidad.
+  }
+}
 
 export default function AnalyticsPage() {
   // Permiso para ver el dinero (facturas y cobros), como en el Resumen.
@@ -133,15 +209,27 @@ export default function AnalyticsPage() {
 
   // Pestaña inicial desde `?tab=`: hasta leerla no se monta ninguna (si no, la
   // primera pediría sus datos para nada).
+  // Si no viene en la URL, la última que se miró (y su periodo).
   const [tab, setTab] = useState<AnalyticsTab | null>(null);
+  const [period, setPeriod] = useState<Period>(() => periodPresets()[0]!);
+  const [compare, setCompare] = useState<CompareMode>('previous');
+  const [closedOnly, setClosedOnly] = useState(false);
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('tab');
+    const saved = readSavedView();
+    const requested = new URLSearchParams(window.location.search).get('tab') ?? saved.tab;
     const valid =
       requested && (ANALYTICS_TABS as readonly string[]).includes(requested)
         ? (requested as AnalyticsTab)
         : null;
     setTab(valid ?? 'revenue');
+    if (saved.period) setPeriod(saved.period);
+    if (saved.compare) setCompare(saved.compare);
+    if (saved.closedOnly) setClosedOnly(true);
   }, []);
+  useEffect(() => {
+    if (!tab) return;
+    saveView({ tab, period, compare, closedOnly });
+  }, [tab, period, compare, closedOnly]);
   const shownTab = tab && !moneyVisible && MONEY_TABS.includes(tab) ? ('occupancy' as const) : tab;
 
   function handleTabChange(value: string) {
@@ -153,8 +241,8 @@ export default function AnalyticsPage() {
   const [facilityId, setFacilityId] = useFacilityFilterState();
   const facilities = useFacilities();
   const facilityList = facilities.data ?? [];
-  // Periodo común de Ingresos, Bajas y Contactos.
-  const [period, setPeriod] = useState<Period>(() => periodPresets()[0]!);
+  // Periodo común de Ingresos, Bajas y Contactos (sin el mes en curso si se pide).
+  const shownPeriod = closedOnly ? withoutCurrentMonth(period) : period;
   // Lo que se elige dentro de cada pestaña no se pierde al cambiar de pestaña.
   const [issuer, setIssuer] = useState('self');
   const [pricingTab, setPricingTab] = useState<PricingSubTab>('by-type');
@@ -175,6 +263,7 @@ export default function AnalyticsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <MonthPdfButton />
           {shownTab && ISSUER_TABS.includes(shownTab) && (
             <IssuerSelect value={issuer} onChange={setIssuer} />
           )}
@@ -199,7 +288,18 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      {usesPeriod && <PeriodSelector value={period} onChange={setPeriod} />}
+      <HeadlineLine facilityId={facilityId} ownerId={ownerId} />
+
+      {usesPeriod && (
+        <PeriodSelector
+          value={period}
+          onChange={setPeriod}
+          compare={compare}
+          onCompareChange={setCompare}
+          closedOnly={closedOnly}
+          onClosedOnlyChange={setClosedOnly}
+        />
+      )}
 
       {shownTab && (
         <Tabs value={shownTab} onValueChange={handleTabChange} className="w-full">
@@ -219,7 +319,12 @@ export default function AnalyticsPage() {
           </TabsList>
           {moneyVisible && (
             <TabsContent value="revenue" className="mt-4">
-              <MonthlyRevenuePanel facilityId={facilityId} period={period} ownerId={ownerId} />
+              <MonthlyRevenuePanel
+                facilityId={facilityId}
+                period={shownPeriod}
+                ownerId={ownerId}
+                compare={compare}
+              />
             </TabsContent>
           )}
           <TabsContent value="occupancy" className="mt-4">
@@ -227,10 +332,11 @@ export default function AnalyticsPage() {
               facilityId={facilityId}
               months={occupancyMonths}
               onMonthsChange={setOccupancyMonths}
+              moneyVisible={moneyVisible}
             />
           </TabsContent>
           <TabsContent value="churn" className="mt-4">
-            <ChurnPanel facilityId={facilityId} period={period} />
+            <ChurnPanel facilityId={facilityId} period={shownPeriod} compare={compare} />
           </TabsContent>
           <TabsContent value="cohorts" className="mt-4">
             <CohortsPanel
@@ -246,7 +352,7 @@ export default function AnalyticsPage() {
             </TabsContent>
           )}
           <TabsContent value="leads" className="mt-4">
-            <LeadsPanel facilityId={facilityId} period={period} />
+            <LeadsPanel facilityId={facilityId} period={shownPeriod} compare={compare} />
           </TabsContent>
           <TabsContent value="churn-risk" className="mt-4">
             <ChurnRiskPanel facilityId={facilityId} />
@@ -262,6 +368,9 @@ export default function AnalyticsPage() {
                   <TabsTrigger value="by-type">Por tipo de trastero</TabsTrigger>
                   <TabsTrigger value="by-unit">Por trastero</TabsTrigger>
                   <TabsTrigger value="effects">Efecto de tus cambios</TabsTrigger>
+                  {moneyVisible && (
+                    <TabsTrigger value="portfolio">Inquilinos por debajo del precio</TabsTrigger>
+                  )}
                 </TabsList>
                 <PricingStrategyButton />
               </div>
@@ -278,10 +387,18 @@ export default function AnalyticsPage() {
               <TabsContent value="effects" className="mt-4">
                 <PriceChangeEffectsPanel facilityId={facilityId} />
               </TabsContent>
+              {moneyVisible && (
+                <TabsContent value="portfolio" className="mt-4">
+                  <PortfolioGapPanel facilityId={facilityId} />
+                </TabsContent>
+              )}
             </Tabs>
           </TabsContent>
           <TabsContent value="forecast" className="mt-4">
             <ForecastPanel facilityId={facilityId} />
+            <div className="mt-4">
+              <ForecastScenariosCards facilityId={facilityId} />
+            </div>
           </TabsContent>
           <TabsContent value="market" className="mt-4">
             <BenchmarkPanel />
@@ -326,16 +443,18 @@ function MonthlyRevenuePanel({
   facilityId,
   period,
   ownerId,
+  compare,
 }: {
   facilityId?: string;
   period: Period;
   ownerId?: string;
+  compare: CompareMode;
 }) {
   const revenue = useMonthlyRevenue({ from: period.from, to: period.to, facilityId, ownerId });
-  const prev = previousPeriod(period);
+  const prev = previousPeriod(period, compare);
   const previous = useMonthlyRevenue({ from: prev.from, to: prev.to, facilityId, ownerId });
   const partial = includesCurrentMonth(period);
-  const suffix = partial ? 'vs periodo anterior (meses cerrados)' : 'vs periodo anterior';
+  const suffix = compareLabel(compare, { closed: partial });
 
   return (
     <QueryState query={revenue}>
@@ -343,7 +462,7 @@ function MonthlyRevenuePanel({
         const points = data.points;
         const totalInvoiced = points.reduce((acc, p) => acc + p.invoiced, 0);
         const totalCollected = points.reduce((acc, p) => acc + p.collected, 0);
-        const compare = comparableTotals(points, previous.data?.points, partial);
+        const totals = comparableTotals(points, previous.data?.points, partial);
         const chartData = points.map((p) => ({
           mes: p.label,
           Facturado: p.invoiced,
@@ -354,19 +473,19 @@ function MonthlyRevenuePanel({
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <KpiCard title={`Facturado (${periodLabel}, con IVA)`} value={eur(totalInvoiced)}>
-                {compare && (
+                {totals && (
                   <Delta
-                    current={compare.invoiced[0]}
-                    previous={compare.invoiced[1]}
+                    current={totals.invoiced[0]}
+                    previous={totals.invoiced[1]}
                     suffix={suffix}
                   />
                 )}
               </KpiCard>
               <KpiCard title={`Cobrado (${periodLabel})`} value={eur(totalCollected)}>
-                {compare && (
+                {totals && (
                   <Delta
-                    current={compare.collected[0]}
-                    previous={compare.collected[1]}
+                    current={totals.collected[0]}
+                    previous={totals.collected[1]}
                     suffix={suffix}
                   />
                 )}
@@ -405,7 +524,12 @@ function MonthlyRevenuePanel({
               </CardContent>
             </Card>
 
-            <RevenueBreakdownCard facilityId={facilityId} period={period} ownerId={ownerId} />
+            <RevenueBreakdownCard
+              facilityId={facilityId}
+              period={period}
+              ownerId={ownerId}
+              compare={compare}
+            />
 
             <Card>
               <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
@@ -459,10 +583,12 @@ function OccupancyPanel({
   facilityId,
   months,
   onMonthsChange,
+  moneyVisible,
 }: {
   facilityId?: string;
   months: number;
   onMonthsChange: (n: number) => void;
+  moneyVisible: boolean;
 }) {
   const occupancy = useOccupancy({ facilityId });
 
@@ -558,6 +684,7 @@ function OccupancyPanel({
           );
         }}
       </QueryState>
+      {moneyVisible && <UnitEconomicsCard facilityId={facilityId} />}
       <PreOpeningCard facilityId={facilityId} />
       <OccupancyHistoryCard
         facilityId={facilityId}
@@ -572,18 +699,32 @@ function OccupancyPanel({
 // Bajas
 // ============================================================================
 
-function ChurnPanel({ facilityId, period }: { facilityId?: string; period: Period }) {
+function ChurnPanel({
+  facilityId,
+  period,
+  compare,
+}: {
+  facilityId?: string;
+  period: Period;
+  compare: CompareMode;
+}) {
   const churn = useChurn({ from: period.from, to: period.to, facilityId });
-  const prev = previousPeriod(period);
+  const prev = previousPeriod(period, compare);
   const previous = useChurn({ from: prev.from, to: prev.to, facilityId });
 
   return (
     <div className="space-y-4">
       <QueryState query={churn}>
         {(data) => (
-          <ChurnBody months={data.months} previous={previous.data?.months} period={period} />
+          <ChurnBody
+            months={data.months}
+            previous={previous.data?.months}
+            period={period}
+            compare={compare}
+          />
         )}
       </QueryState>
+      <ChurnBreakdownCards facilityId={facilityId} period={period} />
       <ExitReasonsCard facilityId={facilityId} period={period} />
     </div>
   );
@@ -593,10 +734,12 @@ function ChurnBody({
   months,
   previous,
   period,
+  compare,
 }: {
   months: ChurnKpiDto['months'];
   previous: ChurnKpiDto['months'] | undefined;
   period: Period;
+  compare: CompareMode;
 }) {
   // El mes en curso aún no ha terminado: las medias y la comparación van con
   // los meses cerrados.
@@ -643,7 +786,7 @@ function ChurnBody({
             previous={prevEnded}
             goodWhenUp={false}
             kind="count"
-            suffix={partial ? 'vs periodo anterior (meses cerrados)' : 'vs periodo anterior'}
+            suffix={compareLabel(compare, { closed: partial })}
           />
         </KpiCard>
         <KpiCard
@@ -840,6 +983,7 @@ function AgingPanel({ facilityId, ownerId }: { facilityId?: string; ownerId?: st
                 )}
               </CardContent>
             </Card>
+            <ArrearsBreakdownCard facilityId={facilityId} ownerId={ownerId} />
           </div>
         );
       }}
@@ -851,11 +995,19 @@ function AgingPanel({ facilityId, ownerId }: { facilityId?: string; ownerId?: st
 // Contactos
 // ============================================================================
 
-function LeadsPanel({ facilityId, period }: { facilityId?: string; period: Period }) {
+function LeadsPanel({
+  facilityId,
+  period,
+  compare,
+}: {
+  facilityId?: string;
+  period: Period;
+  compare: CompareMode;
+}) {
   const range = { ...periodDays(period), facilityId };
   const funnel = useLeadsFunnel(range);
-  // El anterior hasta el mismo día: el mes en curso va a medias.
-  const previous = useLeadsFunnel({ ...previousPeriodDays(period), facilityId });
+  // El de comparación, hasta el mismo día: el mes en curso va a medias.
+  const previous = useLeadsFunnel({ ...previousPeriodDays(period, compare), facilityId });
 
   return (
     <QueryState query={funnel}>
@@ -871,7 +1023,7 @@ function LeadsPanel({ facilityId, period }: { facilityId?: string; period: Perio
           source: s.source ? leadSourceLabel(s.source) : 'Sin origen',
           Contactos: s.count,
         }));
-        const suffix = 'vs periodo anterior hasta el mismo día';
+        const suffix = compareLabel(compare, { sameDay: true });
         return (
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1019,6 +1171,8 @@ function LeadsPanel({ facilityId, period }: { facilityId?: string; period: Perio
               </CardContent>
             </Card>
 
+            <LeadsTimingCards timing={d.timing} />
+            <ChannelCostCard from={range.from} to={range.to} facilityId={facilityId} />
             <LeadsUtmCard range={range} />
           </div>
         );
@@ -1128,7 +1282,7 @@ function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
         const showFee = d.items.some((i) => i.priceMonthly !== null);
         return (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard title="Riesgo alto" value={String(d.summary.high)}>
                 Inquilinos con los que conviene hablar ya
               </KpiCard>
@@ -1138,6 +1292,11 @@ function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
               <KpiCard title="Inquilinos con contrato" value={String(d.summary.total)}>
                 Analizados en total
               </KpiCard>
+              {d.summary.atStakeMonthly !== null && (
+                <KpiCard title="Cuotas en juego" value={eur(d.summary.atStakeMonthly)}>
+                  Lo que pagan al mes los de riesgo alto y medio
+                </KpiCard>
+              )}
             </div>
 
             <Card>
@@ -1233,15 +1392,7 @@ function ChurnRiskPanel({ facilityId }: { facilityId?: string }) {
                             )}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button asChild size="sm" variant="outline">
-                              {item.contractStatus === 'ending' ? (
-                                <Link href={`/contracts/${item.contractId}`}>
-                                  Ofrecer retención
-                                </Link>
-                              ) : (
-                                <Link href={`/customers/${item.customerId}`}>Ver ficha</Link>
-                              )}
-                            </Button>
+                            <ChurnRiskActions item={item} />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1361,91 +1512,134 @@ function PricingSuggestionsPanel({ facilityId }: { facilityId?: string }) {
                 Aún no hay tipos de trastero con datos suficientes.
               </p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead className="text-right">Ocupación</TableHead>
-                    <TableHead className="text-right">Mercado</TableHead>
-                    <TableHead className="text-right">Precio actual</TableHead>
-                    <TableHead className="text-right">Sugerido</TableHead>
-                    <TableHead>Acción</TableHead>
-                    <TableHead>Motivo</TableHead>
-                    {canApply && <TableHead className="text-right">Aplicar</TableHead>}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.items.map((item) => (
-                    <TableRow key={item.unitTypeId}>
-                      <TableCell className="font-medium">
-                        {item.unitTypeName}
-                        <span className="block text-xs text-muted-foreground">
-                          {item.occupiedUnits} de {item.totalUnits} ocupados
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatPct(item.occupancy / 100, 0)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {item.marketPrice != null ? eur(item.marketPrice) : '—'}
-                        {item.marketTrend && <TrendNote trend={item.marketTrend} />}
-                        <span
-                          className="block text-xs text-muted-foreground"
-                          title={CONFIDENCE[item.confidence].title}
-                        >
-                          {CONFIDENCE[item.confidence].label}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right">{eur(item.currentPrice)}</TableCell>
-                      <TableCell className="text-right font-medium">
-                        {eur(item.suggestedPrice)}
-                        {item.changePct !== 0 && (
-                          <span
-                            className={`ml-1 text-xs ${
-                              item.changePct > 0 ? 'text-emerald-600' : 'text-amber-600'
-                            }`}
-                          >
-                            ({item.changePct > 0 ? '+' : ''}
-                            {item.changePct.toLocaleString('es-ES')} %)
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={PRICING_BADGE[item.action].className} variant="secondary">
-                          {PRICING_BADGE[item.action].label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {item.rationale}
-                      </TableCell>
-                      {canApply && (
-                        <TableCell className="text-right">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={apply.isPending || item.action === 'hold'}
-                            onClick={() =>
-                              void applySuggestion(
-                                item.unitTypeId,
-                                item.unitTypeName,
-                                item.suggestedPrice,
-                                item.availableUnitsAll,
-                              )
-                            }
-                          >
-                            Aplicar
-                          </Button>
-                        </TableCell>
-                      )}
+              <>
+                <TypePricingSummary items={data.items} />
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead className="text-right">Ocupación</TableHead>
+                      <TableHead className="text-right">Mercado</TableHead>
+                      <TableHead className="text-right">Precio actual</TableHead>
+                      <TableHead className="text-right">Sugerido</TableHead>
+                      <TableHead className="text-right">Libres</TableHead>
+                      <TableHead>Acción</TableHead>
+                      <TableHead>Motivo</TableHead>
+                      {canApply && <TableHead className="text-right">Aplicar</TableHead>}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {data.items.map((item) => (
+                      <TableRow key={item.unitTypeId}>
+                        <TableCell className="font-medium">
+                          {item.unitTypeName}
+                          <span className="block text-xs text-muted-foreground">
+                            {item.occupiedUnits} de {item.totalUnits} ocupados
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPct(item.occupancy / 100, 0)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.marketPrice != null ? eur(item.marketPrice) : '—'}
+                          {item.marketTrend && <TrendNote trend={item.marketTrend} />}
+                          <span
+                            className="block text-xs text-muted-foreground"
+                            title={CONFIDENCE[item.confidence].title}
+                          >
+                            {CONFIDENCE[item.confidence].label}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{eur(item.currentPrice)}</TableCell>
+                        <TableCell className="text-right font-medium">
+                          {eur(item.suggestedPrice)}
+                          {item.changePct !== 0 && (
+                            <span
+                              className={`ml-1 text-xs ${
+                                item.changePct > 0 ? 'text-emerald-600' : 'text-amber-600'
+                              }`}
+                            >
+                              ({item.changePct > 0 ? '+' : ''}
+                              {item.changePct.toLocaleString('es-ES')} %)
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">{item.availableUnitsAll}</TableCell>
+                        <TableCell>
+                          <Badge
+                            className={PRICING_BADGE[item.action].className}
+                            variant="secondary"
+                          >
+                            {PRICING_BADGE[item.action].label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {item.rationale}
+                        </TableCell>
+                        {canApply && (
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={apply.isPending || item.action === 'hold'}
+                              onClick={() =>
+                                void applySuggestion(
+                                  item.unitTypeId,
+                                  item.unitTypeName,
+                                  item.suggestedPrice,
+                                  item.availableUnitsAll,
+                                )
+                              }
+                            >
+                              Aplicar
+                            </Button>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </>
             )
           }
         </QueryState>
       </CardContent>
     </Card>
+  );
+}
+
+/** Lo que cambiaría si se aplican todas las sugerencias por tipo. */
+function TypePricingSummary({ items }: { items: PricingSuggestionItemDto[] }) {
+  const actionable = items.filter((i) => i.action !== 'hold');
+  if (actionable.length === 0) return null;
+  const free = actionable.reduce((s, i) => s + i.availableUnitsAll, 0);
+  const delta = actionable.reduce(
+    (s, i) => s + (i.suggestedPrice - i.currentPrice) * i.availableUnitsAll,
+    0,
+  );
+  return (
+    <p className="mb-3 rounded-lg border bg-muted/40 p-3 text-sm">
+      {actionable.length} {actionable.length === 1 ? 'tipo con cambio' : 'tipos con cambio'}{' '}
+      sugerido. Si los aplicas todos, cambia el precio de {free}{' '}
+      {free === 1 ? 'trastero libre' : 'trasteros libres'}
+      {free > 0 && (
+        <>
+          : si se alquilan a ese precio,{' '}
+          <strong
+            className={
+              delta >= 0
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-amber-700 dark:text-amber-400'
+            }
+          >
+            {delta >= 0 ? '+' : '−'}
+            {eur(Math.abs(delta))} al mes
+          </strong>{' '}
+          frente a su precio de hoy
+        </>
+      )}
+      .
+    </p>
   );
 }
 

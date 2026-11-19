@@ -39,7 +39,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useApplyUnitPricing, useUnitPricingSuggestions } from '@/lib/analytics/hooks';
+import {
+  useApplyUnitPricing,
+  useApplyUnitPricingMany,
+  useUnitPricingSuggestions,
+} from '@/lib/analytics/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { formatDate } from '@/lib/format';
@@ -78,6 +82,7 @@ export function UnitPricingPanel({
   const suggestions = useUnitPricingSuggestions(facilityId, includeCompetition);
   const { data, isLoading, isError } = suggestions;
   const apply = useApplyUnitPricing();
+  const applyMany = useApplyUnitPricingMany();
   const canApply = useHasPermission('units:manage');
   const canManageOffers = useHasPermission('promotions:manage');
   const cancelOffer = useCancelUnitOffer();
@@ -109,6 +114,29 @@ export function UnitPricingPanel({
   }
 
   const items = data?.items ?? [];
+  // Lo que cambiaría si se aplican todas las sugerencias de una vez.
+  const actionable = items.filter((s) => s.action !== 'hold');
+  const delta = actionable.reduce((sum, s) => sum + (s.suggestedPrice - s.currentPrice), 0);
+
+  async function onApplyAll() {
+    const ok = await ask({
+      title: `¿Aplicar las ${actionable.length} sugerencias?`,
+      description: `Cambia el precio de ${actionable.length} ${actionable.length === 1 ? 'trastero libre' : 'trasteros libres'} (sin IVA). Si se alquilan a ese precio, ingresarías ${eur(Math.abs(delta))} al mes ${delta >= 0 ? 'más' : 'menos'} que a su precio de hoy. Los contratos en vigor no cambian.`,
+    });
+    if (!ok) return;
+    try {
+      const res = await applyMany.mutateAsync(
+        actionable.map((s) => ({ unitId: s.unitId, price: s.suggestedPrice })),
+      );
+      if (res.failed.length === 0) toast.success(`Precio actualizado en ${res.applied} trasteros.`);
+      else
+        toast.warning(
+          `Actualizados ${res.applied}; ${res.failed.length} no se han podido cambiar.`,
+        );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo aplicar.');
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -146,6 +174,32 @@ export function UnitPricingPanel({
           />
         </div>
       </div>
+
+      {actionable.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+          <p>
+            {actionable.length}{' '}
+            {actionable.length === 1 ? 'trastero libre con cambio' : 'trasteros libres con cambio'}{' '}
+            sugerido. Si aplicas todo y se alquilan a ese precio:{' '}
+            <strong
+              className={
+                delta >= 0
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-amber-700 dark:text-amber-400'
+              }
+            >
+              {delta >= 0 ? '+' : '−'}
+              {eur(Math.abs(delta))} al mes
+            </strong>{' '}
+            frente a su precio de hoy.
+          </p>
+          {canApply && (
+            <Button size="sm" disabled={applyMany.isPending} onClick={() => void onApplyAll()}>
+              Aplicar todas
+            </Button>
+          )}
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">

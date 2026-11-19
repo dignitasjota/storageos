@@ -126,6 +126,13 @@ function resolveMonthList(
 }
 
 /** `YYYY-MM-DD` de un día guardado como medianoche UTC. */
+function median(list: number[]): number | null {
+  if (list.length === 0) return null;
+  const sorted = [...list].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
 function dayKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -335,38 +342,51 @@ export class AnalyticsService {
         ...leadWhere(scope),
       };
 
-      const [byStatus, reachedContacted, reachedQualified, bySourceRows, lostReasonRows] =
-        await Promise.all([
-          tx.lead.groupBy({ by: ['status'], where: rangeWhere, _count: { _all: true } }),
-          // Llegó a «contactado» aunque luego avanzara o se perdiera.
-          tx.lead.count({
-            where: {
-              ...rangeWhere,
-              AND: [
-                {
-                  OR: [
-                    { contactedAt: { not: null } },
-                    { status: { in: ['contacted', 'qualified', 'won'] } },
-                  ],
-                },
-              ],
-            },
-          }),
-          tx.lead.count({
-            where: {
-              ...rangeWhere,
-              AND: [
-                { OR: [{ qualifiedAt: { not: null } }, { status: { in: ['qualified', 'won'] } }] },
-              ],
-            },
-          }),
-          tx.lead.groupBy({ by: ['source'], where: rangeWhere, _count: { _all: true } }),
-          tx.lead.groupBy({
-            by: ['lostReasonCode'],
-            where: { ...rangeWhere, status: 'lost' },
-            _count: { _all: true },
-          }),
-        ]);
+      const [
+        byStatus,
+        reachedContacted,
+        reachedQualified,
+        bySourceRows,
+        lostReasonRows,
+        timingRows,
+      ] = await Promise.all([
+        tx.lead.groupBy({ by: ['status'], where: rangeWhere, _count: { _all: true } }),
+        // Llegó a «contactado» aunque luego avanzara o se perdiera.
+        tx.lead.count({
+          where: {
+            ...rangeWhere,
+            AND: [
+              {
+                OR: [
+                  { contactedAt: { not: null } },
+                  { status: { in: ['contacted', 'qualified', 'won'] } },
+                ],
+              },
+            ],
+          },
+        }),
+        tx.lead.count({
+          where: {
+            ...rangeWhere,
+            AND: [
+              { OR: [{ qualifiedAt: { not: null } }, { status: { in: ['qualified', 'won'] } }] },
+            ],
+          },
+        }),
+        tx.lead.groupBy({ by: ['source'], where: rangeWhere, _count: { _all: true } }),
+        tx.lead.groupBy({
+          by: ['lostReasonCode'],
+          where: { ...rangeWhere, status: 'lost' },
+          _count: { _all: true },
+        }),
+        tx.lead.findMany({
+          where: {
+            ...rangeWhere,
+            OR: [{ contactedAt: { not: null } }, { wonAt: { not: null } }],
+          },
+          select: { createdAt: true, contactedAt: true, wonAt: true },
+        }),
+      ]);
 
       const of = (status: string) => byStatus.find((r) => r.status === status)?._count._all ?? 0;
       const totals = {
@@ -383,10 +403,26 @@ export class AnalyticsService {
         won: totals.won,
       };
 
+      const hours = (from: Date, to: Date) =>
+        Math.max(0, to.getTime() - from.getTime()) / 3_600_000;
+      const responses = timingRows
+        .filter((r) => r.contactedAt)
+        .map((r) => hours(r.createdAt, r.contactedAt!));
+      const wins = timingRows.filter((r) => r.wonAt).map((r) => hours(r.createdAt, r.wonAt!) / 24);
+      const medianOf = (list: number[]) => {
+        const m = median(list);
+        return m === null ? null : Math.round(m * 10) / 10;
+      };
+
       return {
         totals,
         reached,
         total,
+        timing: {
+          firstResponseHours: medianOf(responses),
+          responded: responses.length,
+          daysToWin: medianOf(wins),
+        },
         from: fromDate.toISOString().slice(0, 10),
         to: toDay.toISOString().slice(0, 10),
         conversion: {

@@ -120,6 +120,15 @@ export interface LeadsFunnelKpiDto {
   bySource: { source: string; count: number }[];
   /** Perdidos del periodo por motivo (`unknown` = sin motivo, de antes de pedirlo). */
   lostReasons: { reason: string; count: number }[];
+  /** Cuánto se tarda en atender y en cerrar los contactos del periodo. */
+  timing: {
+    /** Mediana de horas desde que llega hasta que se le contacta (null si nadie). */
+    firstResponseHours: number | null;
+    /** Contactos del periodo ya contactados (con su hora). */
+    responded: number;
+    /** Mediana de días desde que llega hasta que se gana. */
+    daysToWin: number | null;
+  };
 }
 
 export interface CustomerStatsKpiDto {
@@ -171,10 +180,19 @@ export interface ChurnRiskItemDto {
   contractStatus: 'active' | 'ending';
   /** Último acceso al local con su código (null = nunca o sin control de accesos). */
   lastAccessAt: string | null;
+  /** Teléfono del inquilino, para llamarle o escribirle por WhatsApp. */
+  phone: string | null;
 }
 
 export interface ChurnRiskKpiDto {
-  summary: { high: number; medium: number; low: number; total: number };
+  summary: {
+    high: number;
+    medium: number;
+    low: number;
+    total: number;
+    /** Cuotas al mes de los inquilinos en riesgo alto y medio; null sin permiso. */
+    atStakeMonthly: number | null;
+  };
   /** Contratos ordenados por riesgo descendente (los `low` se omiten del detalle). */
   items: ChurnRiskItemDto[];
 }
@@ -644,4 +662,157 @@ export interface ExitReasonRowDto {
   count: number;
   /** Sobre las respondidas (0-100). */
   pct: number;
+}
+
+// ---------------------------------------------------------------------------
+// Mejoras de Analítica (2026-11-19)
+// ---------------------------------------------------------------------------
+
+/** Una línea con cómo va el mes en curso frente al anterior hasta el mismo día. */
+export interface AnalyticsHeadlineDto {
+  /** Mes en curso (AAAA-MM) y día de hoy en la hora del negocio. */
+  yearMonth: string;
+  day: number;
+  /** Facturado (con IVA) este mes y el mes pasado hasta el mismo día; null sin permiso. */
+  invoiced: number | null;
+  invoicedPrev: number | null;
+  /** Ocupación de hoy y al cerrar el mes pasado (0-1). */
+  occupancy: number;
+  occupancyPrev: number | null;
+  moveIns: number;
+  moveOuts: number;
+  /** Contactos recibidos este mes y el mes pasado hasta el mismo día. */
+  leads: number;
+  leadsPrev: number;
+  /** Vencido sin cobrar hoy; null sin permiso. */
+  overdue: number | null;
+}
+
+/** De quién y de qué local es la deuda vencida, y cuánto se tarda en cobrar. */
+export interface ArrearsBreakdownDto {
+  byCustomer: {
+    customerId: string;
+    customerName: string;
+    amount: number;
+    invoices: number;
+    /** Días desde el vencimiento de su factura más antigua sin cobrar. */
+    oldestDays: number;
+  }[];
+  /** Inquilinos con deuda vencida (la lista enseña los 10 que más deben). */
+  customerCount: number;
+  byFacility: {
+    facilityId: string | null;
+    facilityName: string;
+    amount: number;
+    invoices: number;
+  }[];
+  /** Media de días desde la emisión hasta el cobro de las facturas cobradas en 90 días. */
+  avgDaysToCollect: number | null;
+  /** Media de días de retraso sobre el vencimiento de esas mismas facturas. */
+  avgDaysLate: number | null;
+  collectedInvoices: number;
+}
+
+/** Contratos que pagan menos que el precio de hoy de su trastero. */
+export interface PortfolioGapRowDto {
+  contractId: string;
+  contractNumber: string;
+  customerId: string;
+  customerName: string;
+  unitCode: string;
+  facilityName: string;
+  /** Cuota del contrato (sin IVA, antes de descuentos puntuales). */
+  paying: number;
+  /** Precio de hoy del trastero. */
+  listPrice: number;
+  gap: number;
+  gapPct: number;
+  /** Fecha de la firma o del último cambio de cuota (AAAA-MM-DD). */
+  since: string;
+  monthsSince: number;
+}
+
+export interface PortfolioGapDto {
+  rows: PortfolioGapRowDto[];
+  /** Lo que se ingresaría al mes si todos pagaran el precio de hoy. */
+  totalGapMonthly: number;
+  liveContracts: number;
+}
+
+export type ForecastScenarioKey = 'low' | 'expected' | 'high';
+
+export interface ForecastScenarioDto {
+  key: ForecastScenarioKey;
+  churnRate: number;
+  adds: number;
+  points: {
+    yearMonth: string;
+    contracts: number;
+    occupancy: number;
+    mrr: number | null;
+  }[];
+  /** Mes (AAAA-MM) en que se llenaría, en los próximos 5 años; null si no. */
+  fullBy: string | null;
+}
+
+export interface ForecastSegmentDto {
+  kind: 'facility' | 'unitType';
+  id: string;
+  name: string;
+  capacity: number;
+  occupied: number;
+  /** Altas menos bajas al mes (media de los meses cerrados). */
+  netPerMonth: number;
+  fullBy: string | null;
+}
+
+export interface ForecastScenariosDto {
+  scenarios: ForecastScenarioDto[];
+  segments: ForecastSegmentDto[];
+  /** Meses cerrados en los que se basan las medias. */
+  historyMonths: number;
+}
+
+/** Rendimiento de cada tipo de trastero: por m² y frente al precio de catálogo. */
+export interface UnitEconomicsRowDto {
+  unitTypeId: string;
+  name: string;
+  units: number;
+  occupied: number;
+  areaM2: number;
+  occupiedAreaM2: number;
+  /** Cuotas al mes de los contratos en vigor (sin IVA). */
+  revenueMonthly: number;
+  /** Cuotas al mes entre los m² alquilados y entre todos los m². */
+  revenuePerRentedM2: number | null;
+  revenuePerM2: number | null;
+  /** Cuota media de los contratos y precio medio de hoy de esos trasteros. */
+  avgFee: number | null;
+  avgListPrice: number | null;
+  /** Cuánto pagan de media por encima (+) o por debajo (−) del precio de hoy, en %. */
+  feeVsListPct: number | null;
+}
+
+export interface UnitEconomicsDto {
+  rows: UnitEconomicsRowDto[];
+  totals: Omit<UnitEconomicsRowDto, 'unitTypeId' | 'name'>;
+}
+
+export type TenureBucket = 'lt3' | '3to6' | '6to12' | '12to24' | 'gt24';
+
+/** Cuotas que entran y salen cada mes, y cuánto llevaban los que se van. */
+export interface ChurnBreakdownDto {
+  months: {
+    yearMonth: string;
+    /** Cuotas al mes de las altas y de las bajas del mes; null sin permiso. */
+    mrrGained: number | null;
+    mrrLost: number | null;
+  }[];
+  tenure: { bucket: TenureBucket; ended: number }[];
+  ended: number;
+}
+
+export interface ApplyUnitPricingManyResultDto {
+  applied: number;
+  failed: { unitId: string; message: string }[];
 }

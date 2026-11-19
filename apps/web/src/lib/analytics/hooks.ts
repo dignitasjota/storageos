@@ -29,6 +29,13 @@ import type {
   OccupancyHistoryDto,
   PreOpeningAnalyticsDto,
   RevenueBreakdownDto,
+  AnalyticsHeadlineDto,
+  ArrearsBreakdownDto,
+  ApplyUnitPricingManyResultDto,
+  ChurnBreakdownDto,
+  ForecastScenariosDto,
+  PortfolioGapDto,
+  UnitEconomicsDto,
 } from '@storageos/shared';
 
 export const analyticsKey = (
@@ -55,7 +62,13 @@ export const analyticsKey = (
     | 'revenue-breakdown'
     | 'cohorts'
     | 'exit-reasons'
-    | 'competition-alerts',
+    | 'competition-alerts'
+    | 'headline'
+    | 'arrears-breakdown'
+    | 'portfolio-gap'
+    | 'unit-economics'
+    | 'churn-breakdown'
+    | 'forecast-scenarios',
   params?: Record<string, string | undefined>,
 ) => ['analytics', scope, params ?? {}] as const;
 
@@ -65,6 +78,70 @@ function query(params: Record<string, string | undefined>): string {
   for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
   const str = qs.toString();
   return str ? `?${str}` : '';
+}
+
+/** Una línea con cómo va el mes en curso. */
+export function useAnalyticsHeadline(params: { facilityId?: string; ownerId?: string }) {
+  return useQuery({
+    queryKey: analyticsKey('headline', params),
+    queryFn: () => apiFetch<AnalyticsHeadlineDto>(`/analytics/headline${query(params)}`),
+  });
+}
+
+/** Deuda vencida por inquilino y por local, y días que se tarda en cobrar. */
+export function useArrearsBreakdown(params: { facilityId?: string; ownerId?: string }) {
+  return useQuery({
+    queryKey: analyticsKey('arrears-breakdown', params),
+    queryFn: () => apiFetch<ArrearsBreakdownDto>(`/analytics/arrears-breakdown${query(params)}`),
+  });
+}
+
+/** Contratos que pagan menos que el precio de hoy de su trastero. */
+export function usePortfolioGap(facilityId?: string, enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: analyticsKey('portfolio-gap', { facilityId }),
+    queryFn: () => apiFetch<PortfolioGapDto>(`/analytics/portfolio-gap${query({ facilityId })}`),
+  });
+}
+
+/** Cuotas por m² de cada tipo de trastero y frente a su precio de hoy. */
+export function useUnitEconomics(facilityId?: string, enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: analyticsKey('unit-economics', { facilityId }),
+    queryFn: () => apiFetch<UnitEconomicsDto>(`/analytics/unit-economics${query({ facilityId })}`),
+  });
+}
+
+/** Cuotas que entran y salen cada mes y antigüedad de las bajas. */
+export function useChurnBreakdown(params: Range = {}) {
+  return useQuery({
+    queryKey: analyticsKey('churn-breakdown', params),
+    queryFn: () => apiFetch<ChurnBreakdownDto>(`/analytics/churn-breakdown${query(params)}`),
+  });
+}
+
+/** Escenarios de la previsión y cuándo se llenaría cada local y tipo. */
+export function useForecastScenarios(facilityId?: string) {
+  return useQuery({
+    queryKey: analyticsKey('forecast-scenarios', { facilityId }),
+    queryFn: () =>
+      apiFetch<ForecastScenariosDto>(`/analytics/forecast-scenarios${query({ facilityId })}`),
+  });
+}
+
+/** Aplica de una vez el precio sugerido de varios trasteros. */
+export function useApplyUnitPricingMany() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (items: { unitId: string; price: number }[]) =>
+      apiFetch<ApplyUnitPricingManyResultDto>('/analytics/unit-pricing-suggestions/apply-many', {
+        method: 'POST',
+        json: { items },
+      }),
+    onSuccess: () => invalidatePrices(qc),
+  });
 }
 
 export function useBenchmark() {
@@ -190,6 +267,8 @@ function invalidatePrices(qc: ReturnType<typeof useQueryClient>) {
     'price-change-effects',
     'occupancy',
     'suggested-actions',
+    'portfolio-gap',
+    'unit-economics',
   ] as const) {
     void qc.invalidateQueries({ queryKey: analyticsKey(scope) });
   }

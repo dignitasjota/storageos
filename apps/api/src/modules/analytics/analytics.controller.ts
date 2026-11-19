@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post, Put, Query, Req } from '@nestjs/common';
 import {
   ApplyPricingSchema,
+  ApplyUnitPricingManySchema,
   ApplyUnitPricingSchema,
   permissionsForRole,
   UpdatePricingStrategySchema,
@@ -14,6 +15,7 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { AnalyticsExtrasService } from './analytics-extras.service';
 import { parseIssuer, resolveAnalyticsScope, type AnalyticsScope } from './analytics-scope';
 import { AnalyticsTrendsService } from './analytics-trends.service';
 import { AnalyticsService } from './analytics.service';
@@ -24,6 +26,13 @@ import { SuggestedActionsService } from './suggested-actions.service';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
   AgingKpiDto,
+  AnalyticsHeadlineDto,
+  ApplyUnitPricingManyResultDto,
+  ArrearsBreakdownDto,
+  ChurnBreakdownDto,
+  ForecastScenariosDto,
+  PortfolioGapDto,
+  UnitEconomicsDto,
   CohortsDto,
   ExitReasonsDto,
   CompetitionAlertsDto,
@@ -54,6 +63,7 @@ import type { Request } from 'express';
 
 class ApplyPricingDto extends createZodDto(ApplyPricingSchema) {}
 class ApplyUnitPricingDto extends createZodDto(ApplyUnitPricingSchema) {}
+class ApplyUnitPricingManyDto extends createZodDto(ApplyUnitPricingManySchema) {}
 class UpdatePricingStrategyDto extends createZodDto(UpdatePricingStrategySchema) {}
 
 /** Local de la consulta: el pedido (si el usuario lo ve) o los de su alcance. */
@@ -97,7 +107,83 @@ export class AnalyticsController {
     private readonly benchmark: BenchmarkService,
     private readonly suggestedActions: SuggestedActionsService,
     private readonly trends: AnalyticsTrendsService,
+    private readonly extras: AnalyticsExtrasService,
   ) {}
+
+  /** Una línea con cómo va el mes en curso frente al pasado hasta el mismo día. */
+  @Get('headline')
+  getHeadline(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+    @Query('ownerId') ownerId?: string,
+  ): Promise<AnalyticsHeadlineDto> {
+    return this.extras.getHeadline(
+      user.tenantId,
+      scopeOf(user, facilityId),
+      moneyScopeOf(user, facilityId, ownerId),
+      moneyVisible(user),
+    );
+  }
+
+  /** Deuda vencida por inquilino y por local, y días que se tarda en cobrar. */
+  @RequirePermission(...MONEY_PERMISSIONS)
+  @Get('arrears-breakdown')
+  getArrearsBreakdown(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+    @Query('ownerId') ownerId?: string,
+  ): Promise<ArrearsBreakdownDto> {
+    return this.extras.getArrearsBreakdown(user.tenantId, moneyScopeOf(user, facilityId, ownerId));
+  }
+
+  /** Contratos que pagan menos que el precio de hoy de su trastero. */
+  @RequirePermission(...MONEY_PERMISSIONS)
+  @Get('portfolio-gap')
+  getPortfolioGap(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<PortfolioGapDto> {
+    return this.extras.getPortfolioGap(user.tenantId, scopeOf(user, facilityId));
+  }
+
+  /** Cuotas por m² de cada tipo y frente a su precio de hoy. */
+  @RequirePermission(...MONEY_PERMISSIONS)
+  @Get('unit-economics')
+  getUnitEconomics(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<UnitEconomicsDto> {
+    return this.extras.getUnitEconomics(user.tenantId, scopeOf(user, facilityId));
+  }
+
+  /** Cuotas que entran y salen cada mes y antigüedad de las bajas. */
+  @Get('churn-breakdown')
+  getChurnBreakdown(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<ChurnBreakdownDto> {
+    return this.extras.getChurnBreakdown(
+      user.tenantId,
+      { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      scopeOf(user, facilityId),
+      moneyVisible(user),
+    );
+  }
+
+  /** Escenarios de la previsión y cuándo se llenaría cada local y tipo. */
+  @Get('forecast-scenarios')
+  getForecastScenarios(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<ForecastScenariosDto> {
+    return this.extras.getForecastScenarios(
+      user.tenantId,
+      scopeOf(user, facilityId),
+      moneyVisible(user),
+    );
+  }
 
   /** Comparativa anónima del tenant frente al sector (ocupación / precio / €m²). */
   @Get('benchmark')
@@ -338,7 +424,10 @@ export class AnalyticsController {
   ): Promise<ChurnRiskKpiDto> {
     const dto = await this.insights.getChurnRisk(user.tenantId, scopeOf(user, facilityId));
     if (moneyVisible(user)) return dto;
-    return { ...dto, items: dto.items.map((i) => ({ ...i, priceMonthly: null })) };
+    return {
+      summary: { ...dto.summary, atStakeMonthly: null },
+      items: dto.items.map((i) => ({ ...i, priceMonthly: null })),
+    };
   }
 
   /** «Sugerencias de hoy»: acciones concretas priorizadas para el dashboard. */
@@ -418,6 +507,23 @@ export class AnalyticsController {
       tenantId: user.tenantId,
       userId: user.sub,
       input: body,
+      meta: extractMeta(req),
+      facilityScope: user.facilityScope ?? null,
+    });
+  }
+
+  /** Aplica de una vez el precio sugerido de varios trasteros. */
+  @RequirePermission('units:manage')
+  @Post('unit-pricing-suggestions/apply-many')
+  applyUnitPricingMany(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: ApplyUnitPricingManyDto,
+    @Req() req: Request,
+  ): Promise<ApplyUnitPricingManyResultDto> {
+    return this.insights.applyUnitPricingMany({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      items: body.items,
       meta: extractMeta(req),
       facilityScope: user.facilityScope ?? null,
     });

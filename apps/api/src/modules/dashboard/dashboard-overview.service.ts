@@ -183,7 +183,10 @@ export class DashboardOverviewService {
         const dto = await this.insights.getChurnRisk(tenantId, scope);
         return moneyVisible
           ? dto
-          : { ...dto, items: dto.items.map((i) => ({ ...i, priceMonthly: null })) };
+          : {
+              summary: { ...dto.summary, atStakeMonthly: null },
+              items: dto.items.map((i) => ({ ...i, priceMonthly: null })),
+            };
       }),
       section('leads', () => this.analytics.getLeadsFunnel(tenantId, undefined, scope)),
     ]);

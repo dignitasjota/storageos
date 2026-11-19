@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { AiModule } from '../ai/ai.module';
 import { AuthModule } from '../auth/auth.module';
 
+import { AnalyticsExtrasService } from './analytics-extras.service';
 import { AnalyticsTrendsService } from './analytics-trends.service';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
@@ -19,7 +20,8 @@ import { SuggestedActionsService } from './suggested-actions.service';
     InsightsService,
     BenchmarkService,
     SuggestedActionsService,
+    AnalyticsExtrasService,
   ],
-  exports: [AnalyticsService, AnalyticsTrendsService, InsightsService],
+  exports: [AnalyticsService, AnalyticsTrendsService, InsightsService, AnalyticsExtrasService],
 })
 export class AnalyticsModule {}
