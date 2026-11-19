@@ -6,6 +6,7 @@ import { claimDailyCronRun } from '../../../common/cron-claim';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 
 import { SalesAlertsService } from './sales-alerts.service';
+import { SalesAppointmentsService } from './sales-appointments.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesDemoService } from './sales-demo.service';
@@ -24,7 +25,24 @@ export class SalesCron {
     private readonly assignment: SalesAssignmentService,
     private readonly alerts: SalesAlertsService,
     private readonly demo: SalesDemoService,
+    private readonly appointments: SalesAppointmentsService,
   ) {}
+
+  /**
+   * Cada 5 minutos: recordatorios de las citas (el día antes y una hora antes).
+   * Cada aviso se reserva en la cita, así que no hace falta reservar la ejecución.
+   */
+  @Cron('*/5 * * * *', { name: 'sales.appointments', timeZone: 'Europe/Madrid' })
+  async appointmentReminders(): Promise<void> {
+    try {
+      const sent = await this.appointments.runReminders();
+      if (sent.day || sent.hour) {
+        this.logger.log(`[sales] recordatorios de citas: ${JSON.stringify(sent)}`);
+      }
+    } catch (err) {
+      this.logger.error(`[sales] recordatorios de citas: ${String(err)}`);
+    }
+  }
 
   /** Cada hora: extras de sus clientes, comisiones y avisos de venta. */
   @Cron('25 * * * *', { name: 'sales.hourly', timeZone: 'Europe/Madrid' })

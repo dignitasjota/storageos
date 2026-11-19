@@ -95,6 +95,7 @@ import { PlatformSecurityController } from './platform-security.controller';
 import { PlatformSecurityService } from './platform-security.service';
 import { SalesAccountsService } from './sales/sales-accounts.service';
 import { SalesAlertsService } from './sales/sales-alerts.service';
+import { SalesAppointmentsService } from './sales/sales-appointments.service';
 import { SalesAssignmentService } from './sales/sales-assignment.service';
 import { SalesCommissionsService } from './sales/sales-commissions.service';
 import { SalesContentService } from './sales/sales-content.service';
@@ -226,6 +227,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
   providers: [
     SalesNotifyService,
     SalesAssignmentService,
+    SalesAppointmentsService,
     SalesCommissionsService,
     SalesInsightsService,
     SalesAccountsService,

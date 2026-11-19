@@ -14,6 +14,10 @@
 > (Fase 13) e integraciones API keys + webhooks salientes HMAC
 > (Fase 14).
 
+### Citas de los comerciales (2026-11-18)
+
+Comercial (su cartera): `GET /admin/sales/appointments?leadId=&scope=upcoming|past|all` (sin `leadId`, las próximas), `POST /admin/sales/accounts/:leadId/appointments` (`kind` in_person|call|video, `title`, `startsAt` ISO con zona, `durationMinutes`, `location`, `notes`), `PATCH /admin/sales/appointments/:id` (también `status` scheduled|done|cancelled|no_show), `DELETE /admin/sales/appointments/:id`. Dirección (superadmin): `GET /admin/sales-team/appointments?repId=&leadId=&scope=`, `POST /admin/sales-team/appointments` (+ `leadId` y `repId`; sin `repId`, el comercial del lead), `PATCH|DELETE /admin/sales-team/appointments/:id`. Errores: 400 `appointment_in_past`, `appointment_too_far`, `appointment_rep_required`, `appointment_rep_mismatch`, `invalid_rep`; 404 `appointment_not_found`. `SalesTodayDto.appointments` (las pendientes de hoy).
+
 ## Convenciones
 
 - **Base path actual:** todas las rutas viven bajo el prefijo `/v1/` —

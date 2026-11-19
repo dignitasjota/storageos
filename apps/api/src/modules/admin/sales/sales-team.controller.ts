@@ -18,7 +18,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  AdminCreateSalesAppointmentSchema,
   AssignSalesAccountSchema,
+  UpdateSalesAppointmentSchema,
+  type SalesAppointmentDto,
   CreateSalesCommissionItemSchema,
   CreateSalesRepSchema,
   CreateSalesSettlementSchema,
@@ -56,6 +59,7 @@ import { AdminGuard } from '../admin.guard';
 import { CurrentSuperAdmin } from '../current-super-admin.decorator';
 import { RequireSuperadmin } from '../require-superadmin.decorator';
 
+import { type AppointmentScope, SalesAppointmentsService } from './sales-appointments.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesContentService } from './sales-content.service';
@@ -67,6 +71,8 @@ import type { SalesTeamComparisonDto, SalesTeamForecastDto } from '@storageos/sh
 import type { Request, Response } from 'express';
 
 class CreateRepDto extends createZodDto(CreateSalesRepSchema) {}
+class AppointmentDto extends createZodDto(AdminCreateSalesAppointmentSchema) {}
+class UpdateAppointmentDto extends createZodDto(UpdateSalesAppointmentSchema) {}
 class UpdateRepDto extends createZodDto(UpdateSalesRepSchema) {}
 class PlanDto extends createZodDto(UpdateSalesCommissionPlanSchema) {}
 class ConceptDto extends createZodDto(UpsertSalesCommissionConceptSchema) {}
@@ -102,7 +108,53 @@ export class SalesTeamController {
     private readonly content: SalesContentService,
     private readonly demo: SalesDemoService,
     private readonly insights: SalesInsightsService,
+    private readonly appointments: SalesAppointmentsService,
   ) {}
+
+  // ------------------------------------------------------------------ citas
+
+  /** Citas de los comerciales (`repId`, `leadId`, `scope` upcoming|past|all). */
+  @Get('appointments')
+  listAppointments(
+    @Query('repId') repId?: string,
+    @Query('leadId') leadId?: string,
+    @Query('scope') scope?: string,
+  ): Promise<SalesAppointmentDto[]> {
+    const uuid = /^[0-9a-f-]{36}$/i;
+    return this.appointments.listAll({
+      ...(repId && uuid.test(repId) ? { repId } : {}),
+      ...(leadId && uuid.test(leadId) ? { leadId } : {}),
+      ...(scope === 'upcoming' || scope === 'past' || scope === 'all'
+        ? { scope: scope as AppointmentScope }
+        : {}),
+    });
+  }
+
+  @Post('appointments')
+  createAppointment(
+    @Body() body: AppointmentDto,
+    @CurrentSuperAdmin('sub') byId: string,
+  ): Promise<SalesAppointmentDto> {
+    return this.appointments.createByAdmin(body, byId);
+  }
+
+  @Patch('appointments/:id')
+  updateAppointment(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateAppointmentDto,
+    @CurrentSuperAdmin('sub') byId: string,
+  ): Promise<SalesAppointmentDto> {
+    return this.appointments.updateByAdmin(id, body, byId);
+  }
+
+  @Delete('appointments/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteAppointment(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentSuperAdmin('sub') byId: string,
+  ): Promise<void> {
+    await this.appointments.deleteByAdmin(id, byId);
+  }
 
   @Get()
   overview(): Promise<SalesTeamDto> {

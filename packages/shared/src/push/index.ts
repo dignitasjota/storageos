@@ -114,6 +114,8 @@ export const SUPER_ADMIN_PUSH_TYPES: Record<string, string> = {
   'sales.approval_decided': 'Decisión sobre tu solicitud',
   'sales.lead_released': 'Un prospecto tuyo queda libre por inactividad',
   'sales.assigned': 'Te asignan una cuenta',
+  'sales.appointment': 'Te ponen una cita con un cliente',
+  'sales.appointment_reminder': 'Recordatorio de una cita',
   'sales.settlement': 'Liquidación de comisiones',
   'sales.month_closed': 'Tramo o bonus por objetivo del mes',
 };

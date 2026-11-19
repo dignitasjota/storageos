@@ -2737,3 +2737,11 @@ Sin migración ni variables nuevas. Arreglos tras analizar el plan Basic y la pr
 ## 158. Leads del admin asignados a un comercial (2026-11-18)
 
 🐛 Un lead creado o editado en Leads del panel admin y asignado a un comercial solo guardaba «quién lo lleva» en el tablero, no el comercial (`sales_rep_id`), así que no salía en el panel del comercial. Ahora, si el asignado tiene el rol comercial, el lead pasa a su cartera con su asignación (y su cuenta, si ya la tiene y no tiene comercial) y se le avisa; reasignarlo a otro comercial lo cambia de cartera. La migración `20270209100000_lead_sales_rep_backfill` arregla los leads ya afectados (activos, sin comercial y asignados a un comercial activo). Sin variables nuevas.
+
+## 159. Citas de los comerciales (2026-11-18)
+
+Migración `20270210100000_sales_appointments` (tabla global `sales_appointments`, con REVOKE). Sin variables nuevas.
+
+- **Comercial**: tarjeta «Citas» en la ficha de cada prospecto o cliente (llamada, videollamada o visita, con día, hora, duración, lugar o enlace y notas), página **Mis citas** (próximas y pasadas) y «Citas de hoy» en su «Hoy». Cada cita se marca como hecha, cancelada o «no se presentó».
+- **Dirección**: pestaña «Citas» en la ficha del lead (Leads del panel admin) para ponerle una cita a un comercial, y **Equipo comercial → Citas** con las de todos y filtro por comercial. Si el lead aún no tiene comercial, pasa a la cartera del elegido; si es de otro, hay que reasignarlo antes.
+- **Avisos al comercial** (campana y notificación en el móvil): al ponérsela otra persona (también al cambiarla o cancelarla), el día antes (24 h) y una hora antes. La tarea `sales.appointments` corre cada 5 minutos en el API; cada aviso se reserva en la propia cita. La dirección no recibe avisos de citas.

@@ -21,6 +21,7 @@ import { ClientPanel } from './client-panel';
 import { CreateTenantDialog, EmailDialog, QuoteDialog, WhatsappDialog } from './dialogs';
 import { ActivityCard, CadenceCard, FollowupsCard, OffersCard, StageCard } from './pipeline-panel';
 
+import { AccountAppointmentsCard } from '@/components/admin/sales/appointments-views';
 import {
   CopyButton,
   Empty,
@@ -199,6 +200,7 @@ export default function SalesAccountPage() {
               </div>
             )
           )}
+          <AccountAppointmentsCard leadId={a.lead.id} />
           <FollowupsCard account={a} />
           <OffersCard account={a} />
           <CadenceCard account={a} />
