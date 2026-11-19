@@ -122,6 +122,12 @@ describe('Mejoras de Contratos (e2e)', () => {
 
   it('liquida la fianza aplicando lo retenido a las facturas pendientes', async () => {
     const { owner, auth, unitIds } = await setup('ctf-dep');
+    // Sin el «primer pago al entrar a final de mes»: según el día en que se pase
+    // la prueba, la primera factura incluiría también el mes siguiente.
+    await db.tenant.update({
+      where: { slug: owner.slug },
+      data: { firstPaymentNextMonthFromDay: null },
+    });
     await ensureDefaultSeries(app, owner.accessToken);
     const c = await signed(auth, owner.accessToken, unitIds[0]!, { depositAmount: 100 });
     await http()
