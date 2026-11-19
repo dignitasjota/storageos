@@ -86,6 +86,11 @@ export class AiController {
     const send = (event: Record<string, unknown>) => {
       if (!res.writableEnded && !res.destroyed) res.write(`data: ${JSON.stringify(event)}\n\n`);
     };
+    // Si el usuario se va (o pulsa «Detener»), se deja de llamar al modelo.
+    const abort = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) abort.abort();
+    });
     // Latido: mientras el modelo piensa no viaja nada y un proxy cortaría la conexión.
     const heartbeat = setInterval(() => {
       if (!res.writableEnded && !res.destroyed) res.write(': ping\n\n');
@@ -96,6 +101,7 @@ export class AiController {
         {
           onText: (delta) => send({ type: 'text', delta }),
           onTool: (name) => send({ type: 'tool', name }),
+          signal: abort.signal,
         },
         reservation,
       );

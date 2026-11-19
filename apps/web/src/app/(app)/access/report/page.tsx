@@ -7,7 +7,7 @@ import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
-import { formatDate, formatNumber } from '@/lib/format';
+import { formatDate, formatCount } from '@/lib/format';
 import { useAccessReport } from '@/lib/operations/features-hooks';
 
 const REASONS: Record<string, string> = {
@@ -49,11 +49,11 @@ export default function AccessReportPage() {
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-3">
-            <Stat label="Entradas" value={r ? formatNumber(r.totals.allowed) : '—'} />
-            <Stat label="Denegadas" value={r ? formatNumber(r.totals.denied) : '—'} />
+            <Stat label="Entradas" value={r ? formatCount(r.totals.allowed) : '—'} />
+            <Stat label="Denegadas" value={r ? formatCount(r.totals.denied) : '—'} />
             <Stat
               label="Inquilinos distintos"
-              value={r ? formatNumber(r.totals.uniqueCustomers) : '—'}
+              value={r ? formatCount(r.totals.uniqueCustomers) : '—'}
             />
           </div>
 

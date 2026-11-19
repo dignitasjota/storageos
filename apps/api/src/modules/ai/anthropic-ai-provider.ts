@@ -4,8 +4,9 @@ import {
   type AiCompletion,
   type AiEffort,
   type AiContentBlock,
-  type AiMessageParam,
   AiProvider,
+  AiProviderError,
+  type AiRequest,
   type AiSystemPrompt,
   type AiToolDef,
 } from './ai-provider';
@@ -40,7 +41,15 @@ function inputTokensOf(u: Record<string, unknown> | undefined): number {
 /** Modelo por defecto si ni el panel ni `AI_MODEL` dicen otro. */
 export const DEFAULT_AI_MODEL = 'claude-sonnet-4-6';
 
-const MAX_TOKENS = 2048;
+/**
+ * Tope de la respuesta. Los modelos recientes razonan antes de contestar y ese
+ * razonamiento cuenta dentro del tope: con 2048 las respuestas largas (tablas,
+ * listados) salían cortadas.
+ */
+const MAX_TOKENS = 4096;
+
+/** Una respuesta no tarda más de esto; pasado, se corta (antes esperaba sin fin). */
+const REQUEST_TIMEOUT_MS = 120_000;
 
 /**
  * Modelos que admiten `output_config.effort` (los de la generación 5 y los
@@ -79,12 +88,23 @@ export class AnthropicAiProvider extends AiProvider {
     return this.apiKey.length > 0;
   }
 
-  private request(
-    args: { system: AiSystemPrompt; messages: AiMessageParam[]; tools: AiToolDef[] },
-    stream: boolean,
-  ): Promise<Response> {
+  private async request(args: AiRequest, stream: boolean): Promise<Response> {
+    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const signal = args.signal ? AbortSignal.any([timeout, args.signal]) : timeout;
+    try {
+      return await this.send(args, stream, signal);
+    } catch (err) {
+      if (args.signal?.aborted) throw new AiProviderError('aborted');
+      if (timeout.aborted) throw new AiProviderError('busy');
+      this.logger.error(`Anthropic sin respuesta: ${err instanceof Error ? err.message : err}`);
+      throw new AiProviderError('failed');
+    }
+  }
+
+  private send(args: AiRequest, stream: boolean, signal: AbortSignal): Promise<Response> {
     return fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      signal,
       headers: {
         'content-type': 'application/json',
         'x-api-key': this.apiKey,
@@ -107,14 +127,11 @@ export class AnthropicAiProvider extends AiProvider {
     if (res.ok) return;
     const body = await res.text();
     this.logger.error(`Anthropic API ${res.status}: ${body.slice(0, 500)}`);
-    throw new Error(`anthropic_api_error_${res.status}`);
+    // 429 (demasiadas peticiones) y 529/503 (saturado): se puede reintentar enseguida.
+    throw new AiProviderError([429, 503, 529].includes(res.status) ? 'busy' : 'failed');
   }
 
-  async createMessage(args: {
-    system: AiSystemPrompt;
-    messages: AiMessageParam[];
-    tools: AiToolDef[];
-  }): Promise<AiCompletion> {
+  async createMessage(args: AiRequest): Promise<AiCompletion> {
     const res = await this.request(args, false);
     await this.assertOk(res);
     const data = (await res.json()) as {
@@ -149,7 +166,7 @@ export class AnthropicAiProvider extends AiProvider {
    * texto a `onText` según llega y se reconstruyen los bloques completos.
    */
   override async streamMessage(
-    args: { system: AiSystemPrompt; messages: AiMessageParam[]; tools: AiToolDef[] },
+    args: AiRequest,
     onText: (delta: string) => void,
   ): Promise<AiCompletion> {
     const res = await this.request(args, true);
@@ -161,7 +178,14 @@ export class AnthropicAiProvider extends AiProvider {
     const decoder = new TextDecoder();
     let buffer = '';
     for (;;) {
-      const { done, value } = await reader.read();
+      let chunk: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        chunk = await reader.read();
+      } catch {
+        // Se cortó a mitad: el usuario se fue, el tiempo se acabó o la red.
+        throw new AiProviderError(args.signal?.aborted ? 'aborted' : 'failed');
+      }
+      const { done, value } = chunk;
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       let sep: number;
@@ -249,7 +273,9 @@ export class AnthropicStreamAccumulator {
       }
       case 'error': {
         const err = event.error as Record<string, unknown> | undefined;
-        throw new Error(`anthropic_stream_error_${String(err?.type ?? 'unknown')}`);
+        throw new AiProviderError(
+          err?.type === 'overloaded_error' || err?.type === 'rate_limit_error' ? 'busy' : 'failed',
+        );
       }
       default:
         break;

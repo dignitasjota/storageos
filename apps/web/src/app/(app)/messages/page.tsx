@@ -52,7 +52,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useCustomer } from '@/lib/customers/hooks';
 import { useHeaderFacilityId } from '@/lib/facilities/store';
-import { formatNumber } from '@/lib/format';
+import { formatCount } from '@/lib/format';
 import { useBroadcastMessage, useConversationStats, useInbox } from '@/lib/messages/hooks';
 import { useDebouncedSearch } from '@/lib/pagination';
 
@@ -69,7 +69,7 @@ function duration(minutes: number | null): string {
   if (minutes === null) return '—';
   if (minutes < 60) return `${minutes} min`;
   const hours = minutes / 60;
-  return hours < 48 ? `${formatNumber(Math.round(hours))} h` : `${Math.round(hours / 24)} días`;
+  return hours < 48 ? `${formatCount(Math.round(hours))} h` : `${Math.round(hours / 24)} días`;
 }
 
 const CHANNELS: { value: InboxChannel; label: string }[] = [
@@ -385,13 +385,13 @@ function StatsCard() {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Figure label="Respuestas" value={formatNumber(d.answered)} />
+              <Figure label="Respuestas" value={formatCount(d.answered)} />
               <Figure label="Tarda (mediana)" value={duration(d.medianMinutes)} />
               <Figure
                 label="En menos de 1 hora"
                 value={d.withinHourPct === null ? '—' : `${d.withinHourPct} %`}
               />
-              <Figure label="Sin responder ahora" value={formatNumber(d.pending)} />
+              <Figure label="Sin responder ahora" value={formatCount(d.pending)} />
             </div>
             {d.byPerson.length > 0 && (
               <ul className="divide-y text-sm">

@@ -19,7 +19,7 @@ import { useAdminTenantAiUsage, useUpdateAdminTenantAiLimit } from '@/lib/admin/
 import { useAdminTenantFeatures } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
-import { formatDate, formatNumber } from '@/lib/format';
+import { formatDate, formatCount } from '@/lib/format';
 
 /** Consultas del asistente IA del tenant este mes y su límite propio. */
 export function AiUsageCard({ tenantId }: { tenantId: string }) {
@@ -73,14 +73,14 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
           Asistente IA
         </CardTitle>
         <CardDescription>
-          {formatNumber(u.used)} de {formatNumber(u.limit)} consultas este mes
-          {u.extra > 0 ? ` (${formatNumber(u.extra)} de extras)` : ''}
+          {formatCount(u.used)} de {formatCount(u.limit)} consultas este mes
+          {u.extra > 0 ? ` (${formatCount(u.extra)} de extras)` : ''}
           {u.customLimit ? ', con límite propio' : ''}. Se reinicia el {formatDate(u.resetsOn)}.
-          {u.ownQueries > 0 && ` ${formatNumber(u.ownQueries)} con su propia clave.`}
+          {u.ownQueries > 0 && ` ${formatCount(u.ownQueries)} con su propia clave.`}
           {u.ownKeyConfigured
             ? ' Tiene su propia clave (se usa al gastar el límite).'
             : ' No tiene clave propia.'}{' '}
-          Chat de su web: {formatNumber(u.webUsed)} de {formatNumber(u.webLimit)} respuestas
+          Chat de su web: {formatCount(u.webUsed)} de {formatCount(u.webLimit)} respuestas
           {u.webCustomLimit ? ' (límite propio)' : ''}.
         </CardDescription>
       </CardHeader>

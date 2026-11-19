@@ -21,7 +21,7 @@ export interface AiMessageDto {
 export const AI_ACTION_TYPES = ['create_task', 'payment_reminder', 'customer_message'] as const;
 export type AiActionType = (typeof AI_ACTION_TYPES)[number];
 
-export type AiActionStatus = 'proposed' | 'confirmed' | 'discarded' | 'failed';
+export type AiActionStatus = 'proposed' | 'executing' | 'confirmed' | 'discarded' | 'failed';
 
 export interface AiPendingActionDto {
   id: string;

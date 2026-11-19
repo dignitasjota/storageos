@@ -298,28 +298,33 @@ export class AiBusinessTools {
 
   async execute(ctx: Ctx, name: string, input: Input): Promise<unknown> {
     const tz = await this.timezone(ctx.tenantId);
-    return this.prisma.withTenant(async (tx) => {
-      switch (name) {
-        case 'search_records':
-          return this.search(tx, ctx, str(input.query));
-        case 'get_record':
-          return this.record(tx, ctx, input.type as RecordType, str(input.id), tz);
-        case 'list_records':
-          return this.list(tx, ctx, input.type as ListType, input, tz);
-        case 'get_collections_month':
-          return this.collectionsMonth(tx, ctx, str(input.month), tz);
-        case 'list_debtors':
-          return this.debtors(tx, ctx);
-        case 'get_calendar':
-          return this.calendar(tx, ctx, input, tz);
-        case 'get_business_settings':
-          return this.settings(tx, ctx);
-        case 'get_contracts_trend':
-          return this.trend(tx, ctx, input.months);
-        default:
-          return { error: `Herramienta desconocida: ${name}` };
-      }
-    }, ctx.tenantId);
+    return this.prisma.withTenant(
+      async (tx) => {
+        switch (name) {
+          case 'search_records':
+            return this.search(tx, ctx, str(input.query));
+          case 'get_record':
+            return this.record(tx, ctx, input.type as RecordType, str(input.id), tz);
+          case 'list_records':
+            return this.list(tx, ctx, input.type as ListType, input, tz);
+          case 'get_collections_month':
+            return this.collectionsMonth(tx, ctx, str(input.month), tz);
+          case 'list_debtors':
+            return this.debtors(tx, ctx);
+          case 'get_calendar':
+            return this.calendar(tx, ctx, input, tz);
+          case 'get_business_settings':
+            return this.settings(tx, ctx);
+          case 'get_contracts_trend':
+            return this.trend(tx, ctx, input.months);
+          default:
+            return { error: `Herramienta desconocida: ${name}` };
+        }
+        // Deudores y evolución leen todo el historial: 5 s no siempre bastan.
+      },
+      ctx.tenantId,
+      { timeout: 15_000 },
+    );
   }
 
   private async timezone(tenantId: string): Promise<string> {
