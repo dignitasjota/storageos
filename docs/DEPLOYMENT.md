@@ -2755,3 +2755,17 @@ Sin migración ni variables nuevas. El primer pago de un contrato (la factura de
 - **Un solo «Pago recibido»**: con Redsys llegaban «Pago recibido» y «Fianza recibida»; el correo de la transferencia, el recordatorio de reserva sin pagar, «Enviar por correo» y los recordatorios de una factura con fianza pendiente dicen el total.
 - **«Registrar cobro»** de una factura con fianza pendiente: casilla «Incluye la fianza», marcada por defecto, que registra las dos con la misma forma de pago.
 - **Panel**: filtro «Pendiente de pago» en Facturas (`?awaiting=1`), búsqueda por número de contrato, «Contrato …» y «+ fianza … en el mismo pago» bajo el número, lo pendiente cuenta el primer pago, el primer pago se ve en la ficha del contrato y en «Hoy» hay una tarjeta «Primeros pagos pendientes» con el total y el plazo.
+
+## 165. Cuenta de demostración con datos de todo tipo (2026-11-19)
+
+Sin migración ni variables nuevas. El reinicio de cada noche (y «Reiniciar» en Equipo comercial → Demo) rellena la cuenta de demostración con datos para enseñar todas las pantallas (`apps/api/src/modules/admin/sales/sales-demo-data.ts`):
+
+- **Inquilinos y contratos**: ~75 % de ocupación, con contratos en marcha, con baja pedida, terminados (fianza devuelta), altas y bajas de este mes y dos borradores esperando la firma. Seguro en ~30 %. Correos `@example.com`.
+- **Facturas de los últimos seis meses** numeradas en orden (`FA/<año>/…`; la serie sigue desde la última), casi todas cobradas (tarjeta, domiciliación, transferencia y efectivo), las de este mes por cobrar, deudores con facturas vencidas, un cobro rechazado, un pago a cuenta y los justificantes de fianza.
+- **El resto**: un trastero en mantenimiento y otro bloqueado, reservas y lista de espera, 12 contactos en todas las fases con seguimientos y llamadas, tareas, incidencias, seis meses de gastos (uno pendiente), puertas con PIN y una semana de entradas (los deudores, con el acceso cortado), valoraciones, mensajes, avisos y comunicaciones ya enviadas.
+- **Lo que el vaciado conserva** (competencia, productos, plan de seguro y promoción) se crea solo si falta; los contactos de la demo (`metadata.demo`) se rehacen cada vez.
+- La cuenta queda con la puesta en marcha completa (IBAN de transferencia, pago en el local y emisión automática de las facturas del mes).
+
+**La cuenta de demostración nunca envía correos ni WhatsApp**: `CommunicationsService.dispatch` deja `skipped` cualquier envío de ese tenant («Cuenta de demostración: no se envía»).
+
+Tras desplegar, **pulsar «Reiniciar» en Equipo comercial → Demo** para ver los datos sin esperar a la noche.

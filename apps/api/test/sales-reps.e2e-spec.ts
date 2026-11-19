@@ -5,6 +5,7 @@ import request from 'supertest';
 import { AdminQuoteService } from '../src/modules/admin/admin-quote.service';
 import { SalesAssignmentService } from '../src/modules/admin/sales/sales-assignment.service';
 import { BillingSaasService } from '../src/modules/billing-saas/billing-saas.service';
+import { CommunicationsService } from '../src/modules/communications/communications.service';
 
 import { extractToken, waitForEmail } from './helpers/mailpit';
 import { cleanupTestTenants, uniqueTestIds } from './helpers/tenant-fixtures';
@@ -781,6 +782,63 @@ describe('Comerciales (e2e)', () => {
       expect(contracts).toBeGreaterThan(10);
       const tenant = await db.tenant.findUniqueOrThrow({ where: { id: demoId } });
       expect(tenant.billingExempt).toBe(true);
+      // Un poco de todo para enseñar.
+      const inv = (status: 'paid' | 'overdue' | 'issued') =>
+        db.invoice.count({ where: { tenantId: demoId, kind: 'invoice', status } });
+      expect(await inv('paid')).toBeGreaterThan(20);
+      expect((await inv('overdue')) + (await inv('issued'))).toBeGreaterThan(0);
+      expect(
+        await db.invoice.count({ where: { tenantId: demoId, kind: 'deposit_receipt' } }),
+      ).toBeGreaterThan(5);
+      expect(
+        await db.payment.count({ where: { tenantId: demoId, status: 'succeeded' } }),
+      ).toBeGreaterThan(20);
+      expect(
+        await db.contract.count({
+          where: { tenantId: demoId, status: { in: ['ended', 'draft'] } },
+        }),
+      ).toBeGreaterThanOrEqual(8);
+      const demoLeads = { tenantId: demoId, metadata: { path: ['demo'], equals: true } };
+      expect(await db.lead.count({ where: demoLeads })).toBeGreaterThanOrEqual(10);
+      expect(await db.task.count({ where: { tenantId: demoId } })).toBe(7);
+      expect(await db.incident.count({ where: { tenantId: demoId } })).toBe(4);
+      expect(await db.expense.count({ where: { tenantId: demoId } })).toBeGreaterThan(20);
+      expect(await db.accessLog.count({ where: { tenantId: demoId } })).toBeGreaterThan(20);
+      expect(await db.review.count({ where: { tenantId: demoId } })).toBeGreaterThan(3);
+      expect(await db.competitorFacility.count({ where: { tenantId: demoId } })).toBe(2);
+      expect(await db.reservation.count({ where: { tenantId: demoId } })).toBe(2);
+      expect(await db.waitlistEntry.count({ where: { tenantId: demoId } })).toBe(3);
+      // La serie sigue desde la última factura.
+      const series = await db.invoiceSeries.findFirstOrThrow({
+        where: { tenantId: demoId, isDefault: true },
+      });
+      const year = new Date().getUTCFullYear();
+      const lastNumber = await db.invoice.count({
+        where: {
+          tenantId: demoId,
+          kind: 'invoice',
+          issueDate: { gte: new Date(Date.UTC(year, 0, 1)) },
+        },
+      });
+      expect(series.nextNumber).toBe(lastNumber + 1);
+      // A los inquilinos de la demo no se les escribe.
+      const customer = await db.customer.findFirstOrThrow({
+        where: { tenantId: demoId, email: { not: null } },
+      });
+      const comm = await db.communication.create({
+        data: {
+          tenantId: demoId,
+          customerId: customer.id,
+          channel: 'email',
+          recipient: customer.email!,
+          subject: 'Prueba',
+          bodyText: 'Prueba',
+        },
+      });
+      await app.get(CommunicationsService).dispatch(demoId, comm.id);
+      expect((await db.communication.findUniqueOrThrow({ where: { id: comm.id } })).status).toBe(
+        'skipped',
+      );
       // Lo que el comercial toque de la estructura vuelve con el reinicio.
       await db.unitType.updateMany({
         where: { tenantId: demoId, name: 'Taquilla' },
@@ -803,6 +861,10 @@ describe('Comerciales (e2e)', () => {
       expect(
         await db.contract.count({ where: { tenantId: demoId, status: 'active' } }),
       ).toBeGreaterThan(10);
+      // El reinicio no duplica lo que se conserva (contactos y competencia).
+      expect(await db.lead.count({ where: demoLeads })).toBeLessThanOrEqual(12);
+      expect(await db.competitorFacility.count({ where: { tenantId: demoId } })).toBe(2);
+      expect(await db.task.count({ where: { tenantId: demoId } })).toBe(7);
       expect(
         Number(
           (await db.unitType.findFirstOrThrow({ where: { tenantId: demoId, name: 'Taquilla' } }))
@@ -818,6 +880,11 @@ describe('Comerciales (e2e)', () => {
       expect(open.status).toBe(200);
       expect(open.body.accessToken).toBeTruthy();
       expect(open.body.readOnly).toBe(false);
+      // Las facturas se ven en el panel de la demo.
+      const invoices = await http()
+        .get('/invoices?status=overdue')
+        .set('Authorization', `Bearer ${open.body.accessToken}`);
+      expect(invoices.status).toBe(200);
     } finally {
       await db.platformSalesSettings.updateMany({ data: { demoTenantId: null } });
       await db.tenant.update({ where: { id: demoId }, data: { slug: `test-sales-demo-${STAMP}` } });

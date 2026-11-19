@@ -441,12 +441,29 @@ export class CommunicationsService {
   }
 
   /** Llamado por el worker (BullMQ) o por retry manual. */
+  /** ¿Es la cuenta de demostración de los comerciales? */
+  private async isDemoTenant(tenantId: string): Promise<boolean> {
+    const settings = await this.admin.platformSalesSettings.findFirst({
+      select: { demoTenantId: true },
+    });
+    return settings?.demoTenantId === tenantId;
+  }
+
   async dispatch(tenantId: string, communicationId: string): Promise<void> {
     const comm = await this.admin.communication.findFirst({
       where: { id: communicationId, tenantId },
     });
     if (!comm) {
       this.logger.warn(`dispatch: communication ${communicationId} no existe`);
+      return;
+    }
+    // La cuenta de demostración de los comerciales tiene inquilinos de ejemplo
+    // (direcciones @example.com): no se les escribe nunca.
+    if (comm.status === 'pending' && (await this.isDemoTenant(tenantId))) {
+      await this.admin.communication.updateMany({
+        where: { id: comm.id, status: 'pending' },
+        data: { status: 'skipped', errorMessage: 'Cuenta de demostración: no se envía' },
+      });
       return;
     }
     // Tenant suspendido: no se escribe a sus inquilinos. El envío queda en
