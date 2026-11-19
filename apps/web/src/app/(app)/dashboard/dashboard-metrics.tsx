@@ -51,6 +51,10 @@ export function DashboardMetrics() {
   const hasCollections = useHasFeature('collections');
   const canSeeExpenses = useHasPermission('expenses:read');
   const canSeeContracts = useHasPermission('contracts:read');
+  // El dinero (facturas y cobros) solo con permiso para verlo.
+  const canSeeInvoices = useHasPermission('invoices:read');
+  const canSeePayments = useHasPermission('payments:read');
+  const canSeeMoney = canSeeInvoices && canSeePayments;
   const [period, setPeriod] = useState<DashboardPeriod>('month');
   const [customizing, setCustomizing] = useState(false);
 
@@ -84,13 +88,14 @@ export function DashboardMetrics() {
     if (id === 'collections') return hasCollections;
     if (id === 'result') return canSeeExpenses;
     if (id === 'moves') return canSeeContracts;
+    if (id === 'revenue' || id === 'aging' || id === 'cash') return canSeeMoney;
     return true;
   };
 
   const cards: Record<DashboardCardId, ReactNode> = {
     suggestions: <SuggestedActionsCard />,
     seo: <SeoNudgeCard />,
-    kpis: <KpiTiles data={d} loading={q.isLoading} />,
+    kpis: <KpiTiles data={d} loading={q.isLoading} moneyVisible={canSeeMoney} />,
     period: <PeriodStrip data={d?.period} {...section} />,
     cash: <CashCard data={d?.cash} {...section} />,
     result: <ResultCard data={d?.result} {...section} />,

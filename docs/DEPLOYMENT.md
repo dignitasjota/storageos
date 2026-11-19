@@ -2755,3 +2755,19 @@ Sin migración ni variables nuevas. El primer pago de un contrato (la factura de
 - **Un solo «Pago recibido»**: con Redsys llegaban «Pago recibido» y «Fianza recibida»; el correo de la transferencia, el recordatorio de reserva sin pagar, «Enviar por correo» y los recordatorios de una factura con fianza pendiente dicen el total.
 - **«Registrar cobro»** de una factura con fianza pendiente: casilla «Incluye la fianza», marcada por defecto, que registra las dos con la misma forma de pago.
 - **Panel**: filtro «Pendiente de pago» en Facturas (`?awaiting=1`), búsqueda por número de contrato, «Contrato …» y «+ fianza … en el mismo pago» bajo el número, lo pendiente cuenta el primer pago, el primer pago se ve en la ficha del contrato y en «Hoy» hay una tarjeta «Primeros pagos pendientes» con el total y el plazo.
+## 161. Revisión de Analítica (2026-11-19)
+
+Sin migración ni variables nuevas. Arreglos tras analizar Analítica entera; decisiones de Jota: aplicar el precio de un tipo cambia también sus trasteros libres, las facturas de los propietarios van aparte (como en Fiscalidad) y los locales por abrir no cuentan hasta que abren.
+
+- **Cambian cifras que ya se veían** (no es un error al desplegar):
+  - **Ocupación y cuotas con todo alquilado** de toda la empresa sin los locales por abrir.
+  - **Cobrado** sin la fianza aplicada a una factura (como la caja).
+  - **Cuotas al mes** con el descuento por prepago de los contratos semestrales y anuales.
+  - **Ingresos y deudas** solo de tu empresa si hay propietarios (selector «Facturas de…» para verlos o verlo todo).
+  - **Bajas**: cuenta también quien entra y se va el mismo mes; la tasa va sobre los activos al empezar más las altas.
+  - **Riesgo de baja** por inquilino (no por contrato); «sin método de pago» solo si el negocio cobra solo y «nunca ha entrado» solo con puertas conectadas.
+  - **Ocupación mes a mes** desde quién tuvo cada trastero (los meses de una cartera importada dejan de salir a 0 %).
+  - **Previsión** sin redondear mes a mes y con las medias de los meses que el negocio lleva funcionando.
+  - **Comparativa del sector**: mínimo 10 negocios, sin demos ni cuentas exentas (puede dejar de salir hasta que haya suficientes).
+- **Permisos**: Ingresos y Deudas solo para quien ve facturas y cobros; sin ese permiso el resto de Analítica y el Resumen no enseñan importes.
+- **Aplicar el precio de un tipo** cambia también el de sus trasteros libres en todos los locales (antes solo el de catálogo, que no usaba la reserva online).

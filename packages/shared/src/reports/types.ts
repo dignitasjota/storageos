@@ -51,10 +51,11 @@ export interface OccupancyKpiDto {
   /**
    * MRR real (cuotas de los contratos vivos menos su descuento) / MRR potencial
    * (precio de cada trastero que se puede alquilar: libre, reservado u ocupado).
+   * Null sin permiso para ver el dinero (facturas y cobros).
    */
-  economicOccupancy: number;
-  mrrActual: number;
-  mrrPotential: number;
+  economicOccupancy: number | null;
+  mrrActual: number | null;
+  mrrPotential: number | null;
   /** Trasteros en mantenimiento o bloqueados (no se pueden alquilar). */
   outOfServiceUnits: number;
   /** Trasteros por cada estado. */
@@ -72,7 +73,15 @@ export interface OccupancyKpiDto {
 
 export interface ChurnKpiDto {
   /** Periodo agregado. */
-  months: { yearMonth: string; activeAtStart: number; ended: number; churnRate: number }[];
+  months: {
+    yearMonth: string;
+    activeAtStart: number;
+    /** Altas del mes (cuentan en la base: quien entra y se va el mismo mes es una baja). */
+    started: number;
+    ended: number;
+    /** Bajas sobre los activos al empezar el mes más las altas del mes. */
+    churnRate: number;
+  }[];
 }
 
 export type AgingBucketRange = '0-30' | '30-60' | '60-90' | '+90';
@@ -131,7 +140,7 @@ export interface RevenueKpiDto {
   revPau: number;
   /** Duración media de estancia en días (contratos firmados). */
   avgLengthOfStayDays: number;
-  /** LTV medio: total facturado (pagado) por inquilino con facturación. */
+  /** Valor medio por inquilino: lo cobrado de verdad (neto de devoluciones). */
   avgCustomerLtv: number;
 }
 
@@ -146,9 +155,13 @@ export interface ChurnRiskItemDto {
   contractNumber: string;
   customerId: string;
   customerName: string;
+  /** Trasteros del inquilino (separados por comas si tiene varios). */
   unitCode: string;
   facilityName: string;
-  priceMonthly: number;
+  /** Lo que paga al mes entre todos sus trasteros; null sin permiso para ver el dinero. */
+  priceMonthly: number | null;
+  /** Contratos vivos del inquilino (el riesgo es por inquilino, no por contrato). */
+  contractCount: number;
   /** Puntuación 0-100 (mayor = más riesgo de baja). */
   score: number;
   level: ChurnRiskLevel;
@@ -189,6 +202,8 @@ export interface PricingSuggestionItemDto {
   marketPrice: number | null;
   confidence: PricingConfidence;
   marketTrend: MarketTrendDto | null;
+  /** Trasteros libres de este tipo en todos los locales (aplicar les cambia el precio). */
+  availableUnitsAll: number;
 }
 
 /** Tendencia de precios de la competencia (informativa, no mueve la sugerencia). */
@@ -209,6 +224,8 @@ export interface ApplyPricingResultDto {
   unitTypeId: string;
   previousPrice: number;
   newPrice: number;
+  /** Trasteros libres de ese tipo a los que también se les ha cambiado el precio. */
+  unitsUpdated: number;
 }
 
 // ============================================================================
@@ -219,7 +236,8 @@ export interface RevenueForecastPointDto {
   /** Mes proyectado (YYYY-MM). */
   yearMonth: string;
   projectedActiveContracts: number;
-  projectedMrr: number;
+  /** Null sin permiso para ver el dinero. */
+  projectedMrr: number | null;
   /** Ocupación física proyectada (0-1). */
   projectedOccupancy: number;
 }
@@ -243,7 +261,9 @@ export interface MonthlyRevenueKpiDto {
 export interface RevenueForecastDto {
   current: {
     activeContracts: number;
-    mrr: number;
+    /** Null sin permiso para ver el dinero. */
+    mrr: number | null;
+    /** Trasteros que se pueden alquilar (sin los que están fuera de servicio). */
     totalUnits: number;
     /** Ocupación física actual (0-1). */
     occupancy: number;
@@ -254,10 +274,12 @@ export interface RevenueForecastDto {
     monthlyChurnRate: number;
     /** Altas medias de contratos al mes. */
     avgMonthlyNewContracts: number;
-    /** Valor medio por contrato (€/mes). */
-    avgContractValue: number;
+    /** Valor medio por contrato (€/mes); null sin permiso para ver el dinero. */
+    avgContractValue: number | null;
     /** Nº de meses de histórico usados para las medias. */
     trailingMonths: number;
+    /** Meses cerrados con actividad de verdad (si el negocio es más nuevo, menos). */
+    historyMonths: number;
     /** La tendencia pasaba de los trasteros que hay y se ha cortado ahí. */
     cappedAtCapacity: boolean;
   };
@@ -494,8 +516,10 @@ export interface CompetitionPriceDropDto {
   areaM2: number;
   previousPrice: number;
   newPrice: number;
+  /** El precio nuevo comparable con el tuyo: sin IVA, con seguro, alta y promoción. */
+  comparablePrice: number;
   observedAt: string;
-  /** Precio medio de tus trasteros de un tamaño parecido (±25 % de m²). */
+  /** Precio medio de tus trasteros de un tamaño parecido (±25 % de m², sin IVA). */
   myPrice: number;
 }
 
@@ -515,8 +539,8 @@ export interface OccupancyHistoryPointDto {
   totalUnits: number;
   occupiedUnits: number;
   occupancy: number;
-  /** Cuota de los contratos vivos ese mes (con su precio actual). */
-  mrr: number;
+  /** Cuotas de los trasteros alquilados ese mes; null sin permiso para ver el dinero. */
+  mrr: number | null;
 }
 
 export interface OccupancyHistorySeriesDto {
@@ -559,6 +583,8 @@ export interface PreOpeningAnalyticsDto {
 
 export interface OccupancyHistoryDto {
   points: OccupancyHistoryPointDto[];
+  /** El mismo mes del año pasado (null si aún no había trasteros). */
+  yearAgo: OccupancyHistoryPointDto | null;
   byFacility: OccupancyHistorySeriesDto[];
   byUnitType: OccupancyHistorySeriesDto[];
 }
@@ -592,8 +618,8 @@ export interface CohortRowDto {
   retained12: number | null;
   /** Meses de media que han durado (los vivos, hasta hoy). */
   avgStayMonths: number;
-  /** Facturado de media por contrato (con IVA). */
-  revenuePerContract: number;
+  /** Facturado de media por contrato (con IVA); null sin permiso para ver el dinero. */
+  revenuePerContract: number | null;
 }
 
 export interface CohortsDto {

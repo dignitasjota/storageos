@@ -12,7 +12,7 @@ export type PricingConfidence = 'high' | 'medium' | 'low';
 const DAY_MS = 86_400_000;
 /** A los 60 días un dato de la competencia pesa la mitad; a partir de 180 no cuenta. */
 const FRESHNESS_HALF_LIFE_DAYS = 60;
-const FRESHNESS_CUTOFF_DAYS = 180;
+export const FRESHNESS_CUTOFF_DAYS = 180;
 /** Exponente de la curva precio-tamaño: el precio crece menos que los m². */
 const MIN_EXPONENT = 0.3;
 const MAX_EXPONENT = 1.1;
@@ -365,14 +365,19 @@ export function decidePrice(args: {
   // Con pocos datos, movimientos más pequeños.
   const step = args.confidence === 'low' ? args.maxStepPct / 2 : args.maxStepPct;
   const wanted = (targetPrice / current - 1) * 100;
-  let suggested = Math.round(current * (1 + clamp(wanted, -step, step) / 100));
+  // A euros enteros, pero sin pasarse del paso permitido: al subir se redondea
+  // hacia abajo y al bajar hacia arriba (13 € con un 4 % no puede dar 14 €).
+  const raw = current * (1 + clamp(wanted, -step, step) / 100);
+  let suggested = raw >= current ? Math.floor(raw) : Math.ceil(raw);
+  if (Math.abs(raw - Math.round(raw)) < 1e-9) suggested = Math.round(raw);
   let outOfBounds = false;
+  // Los límites del tipo se respetan también al redondear.
   if (args.minPrice != null && suggested < args.minPrice) {
-    suggested = Math.round(args.minPrice);
+    suggested = Math.ceil(args.minPrice);
     outOfBounds = current < args.minPrice;
   }
   if (args.maxPrice != null && suggested > args.maxPrice) {
-    suggested = Math.round(args.maxPrice);
+    suggested = Math.floor(args.maxPrice);
     outOfBounds = current > args.maxPrice;
   }
 
@@ -381,11 +386,16 @@ export function decidePrice(args: {
     if (args.daysSinceLastChange != null && args.daysSinceLastChange < args.minDaysBetweenChanges) {
       return hold(`Su precio cambió hace ${args.daysSinceLastChange} días.`);
     }
-    if (Math.abs((suggested / current - 1) * 100) < MIN_CHANGE_PCT) {
+    // Con un paso máximo pequeño, el mínimo para moverse no puede ser mayor que él.
+    if (Math.abs((raw / current - 1) * 100) < Math.min(MIN_CHANGE_PCT, step) - 1e-9) {
       return hold('El precio ya está cerca del objetivo.');
     }
   }
-  if (suggested === current) return hold('El precio ya está en su límite.');
+  if (suggested === current) {
+    return hold(
+      outOfBounds ? 'El precio ya está en su límite.' : 'El precio ya está cerca del objetivo.',
+    );
+  }
 
   const changePct = round1((suggested / current - 1) * 100);
   return {
@@ -450,8 +460,8 @@ export function marketTrend(
 
 /**
  * Periodos libres de un trastero propio que terminaron en alquiler, a partir
- * de su historial de estados (empieza libre desde el alta). Un reservado ya
- * cuenta como alquilado.
+ * de su historial de estados (empieza libre desde el alta). Solo cuenta como
+ * alquilado al ocuparse: una reserva que caduca sin pagar no corta el periodo.
  */
 export function rentalIntervals(
   createdAt: Date,
@@ -463,15 +473,35 @@ export function rentalIntervals(
   for (const h of sorted) {
     if (h.newStatus === 'available') {
       freeSince ??= h.occurredAt;
-    } else if (h.newStatus === 'occupied' || h.newStatus === 'reserved') {
+    } else if (h.newStatus === 'occupied') {
       if (freeSince) intervals.push({ from: freeSince, to: h.occurredAt });
       freeSince = null;
+    } else if (h.newStatus === 'reserved') {
+      // Sigue a la venta en la práctica hasta que se ocupa.
     } else {
       // Mantenimiento / bloqueado: no está a la venta, no cuenta.
       freeSince = null;
     }
   }
   return intervals;
+}
+
+/**
+ * Desde cuándo está libre un trastero: el último momento en que dejó de estar
+ * ocupado o volvió de mantenimiento. Una reserva que caduca no lo reinicia.
+ */
+export function freeSince(
+  createdAt: Date,
+  history: { occurredAt: Date; newStatus: string }[],
+): Date {
+  const sorted = [...history].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
+  let since: Date | null = createdAt;
+  for (const h of sorted) {
+    if (h.newStatus === 'available') since ??= h.occurredAt;
+    else if (h.newStatus === 'reserved') continue;
+    else since = null;
+  }
+  return since ?? createdAt;
 }
 
 /** Estado de un trastero en una fecha según su historial (libre si no hay nada antes). */

@@ -2,6 +2,7 @@
 
 import type { PriceChangeEffectsSummaryDto } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -25,9 +26,11 @@ const days = (n: number) => `${Math.round(n)} ${Math.round(n) === 1 ? 'día' : '
  * cambio máximo y la ocupación objetivo de la estrategia.
  */
 export function PriceChangeEffectsPanel({ facilityId }: { facilityId?: string }) {
-  const { data, isLoading } = usePriceChangeEffects(facilityId);
+  const query = usePriceChangeEffects(facilityId);
+  const data = query.data;
 
-  if (isLoading || !data) {
+  if (!data && query.isError) return <SectionError onRetry={() => void query.refetch()} />;
+  if (!data) {
     return (
       <div className="space-y-2">
         {Array.from({ length: 3 }).map((_, i) => (

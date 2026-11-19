@@ -15,7 +15,13 @@ interface TxMock {
   paymentMethod: { findMany: jest.Mock };
   sepaMandate: { findMany: jest.Mock };
   unitType: { findMany: jest.Mock };
-  unit: { groupBy: jest.Mock; count: jest.Mock };
+  unit: { groupBy: jest.Mock; count: jest.Mock; findMany: jest.Mock };
+  unitPriceHistory: { findMany: jest.Mock };
+  accessDevice: { count: jest.Mock };
+  tenantStripeAccount: { count: jest.Mock };
+  redsysSettings: { count: jest.Mock };
+  sepaSettings: { count: jest.Mock };
+  goCardlessSettings: { count: jest.Mock };
   tenant: { findUnique: jest.Mock; findFirst: jest.Mock };
   facility: { findMany: jest.Mock };
   competitorFacility: { findMany: jest.Mock };
@@ -34,7 +40,18 @@ function buildTx(): TxMock {
     paymentMethod: { findMany: jest.fn().mockResolvedValue([]) },
     sepaMandate: { findMany: jest.fn().mockResolvedValue([]) },
     unitType: { findMany: jest.fn().mockResolvedValue([]) },
-    unit: { groupBy: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    unit: {
+      groupBy: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    unitPriceHistory: { findMany: jest.fn().mockResolvedValue([]) },
+    accessDevice: { count: jest.fn().mockResolvedValue(0) },
+    // El negocio cobra solo con tarjeta: no tener método de pago cuenta.
+    tenantStripeAccount: { count: jest.fn().mockResolvedValue(1) },
+    redsysSettings: { count: jest.fn().mockResolvedValue(0) },
+    sepaSettings: { count: jest.fn().mockResolvedValue(0) },
+    goCardlessSettings: { count: jest.fn().mockResolvedValue(0) },
     tenant: {
       findUnique: jest.fn().mockResolvedValue(null),
       findFirst: jest.fn().mockResolvedValue({ timezone: 'Europe/Madrid' }),
@@ -60,6 +77,9 @@ function activeContract(overrides: Record<string, unknown> = {}) {
     contractNumber: 'CT-2026-00001',
     customerId: CUSTOMER_ID,
     priceMonthly: 100,
+    discountAmount: 0,
+    billingIntervalMonths: 1,
+    prepayDiscountPct: 0,
     endDate: null,
     autoRenew: true,
     customer: {
@@ -138,19 +158,24 @@ describe('InsightsService.getPricingSuggestions', () => {
       { id: 'ut-empty', name: 'Vacío', defaultPriceMonthly: 30 },
     ]);
     tx.unit.groupBy.mockImplementation(
-      ({ where, _avg }: { where?: { status?: unknown }; _avg?: unknown }) => {
+      ({ where, _avg }: { where?: { status?: string | { in: string[] } }; _avg?: unknown }) => {
         if (_avg) {
           return Promise.resolve([
             { unitTypeId: 'ut-high', _avg: { areaM2: 2 } },
             { unitTypeId: 'ut-low', _avg: { areaM2: 10 } },
           ]);
         }
-        if (where?.status) {
+        const status = where?.status;
+        // Ocupados (y reservados).
+        if (typeof status === 'object' && !status.in.includes('available')) {
           return Promise.resolve([
             { facilityId: 'f1', unitTypeId: 'ut-high', _count: { _all: 10 } }, // 100%
             { facilityId: 'f1', unitTypeId: 'ut-low', _count: { _all: 3 } }, // 30%
           ]);
         }
+        // Libres.
+        if (status === 'available') return Promise.resolve([]);
+        // Los que se pueden alquilar.
         return Promise.resolve([
           { facilityId: 'f1', unitTypeId: 'ut-high', _count: { _all: 10 } },
           { facilityId: 'f1', unitTypeId: 'ut-low', _count: { _all: 10 } },

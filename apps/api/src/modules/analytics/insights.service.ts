@@ -15,6 +15,8 @@ import {
   LIFECYCLE_SELECT,
   LIVE_CONTRACT_WHERE,
   liveMrr,
+  monthlyFee,
+  MONTHLY_FEE_SELECT,
   SIGNED_CONTRACT_WHERE,
   unitWhere,
   type AnalyticsScope,
@@ -23,6 +25,7 @@ import {
   currentYearMonth,
   receivables,
   tenantTimezone,
+  testRunUnits,
   unitCounts,
   zonedMonthStart,
 } from './business-metrics';
@@ -41,6 +44,8 @@ import {
   rentalIntervals,
   statusAt,
   featureMultiplier,
+  freeSince,
+  FRESHNESS_CUTOFF_DAYS,
   type MarketCurve,
 } from './pricing-engine';
 
@@ -97,6 +102,8 @@ const INACTIVE_ACCESS_DAYS = 90;
 const COMPETITOR_STALE_DAYS = 30;
 /** Ventana de las bajadas de precio de la competencia que se avisan. */
 const COMPETITOR_DROP_DAYS = 30;
+/** Así empieza el motivo de un cobro registrado por error y deshecho. */
+const UNDONE_PAYMENT_PREFIX = 'Registrado por error';
 
 function levelFor(score: number): ChurnRiskLevel {
   if (score >= 60) return 'high';
@@ -144,7 +151,7 @@ export class InsightsService {
           id: true,
           contractNumber: true,
           customerId: true,
-          priceMonthly: true,
+          ...MONTHLY_FEE_SELECT,
           endDate: true,
           autoRenew: true,
           status: true,
@@ -160,6 +167,7 @@ export class InsightsService {
           },
           unit: { select: { code: true, facility: { select: { name: true } } } },
         },
+        orderBy: { priceMonthly: 'desc' },
       });
 
       if (contracts.length === 0) {
@@ -170,49 +178,70 @@ export class InsightsService {
 
       // Los cobros fallidos y las reclamaciones solo cuentan si son del último año.
       const since = new Date(Date.now() - RISK_LOOKBACK_DAYS * 86_400_000);
-      const [overdue, failedPayments, dunning, defaultPms, mandates, credentials, accesses] =
-        await Promise.all([
-          tx.invoice.groupBy({
-            by: ['customerId'],
-            where: { ...overdueInvoiceWhere(startOfToday), customerId: { in: customerIds } },
-            _count: { _all: true },
-            _sum: { total: true, amountPaid: true },
-          }),
-          tx.payment.findMany({
-            where: { status: 'failed', customerId: { in: customerIds }, createdAt: { gte: since } },
-            select: { customerId: true, createdAt: true },
-          }),
-          tx.dunningAction.findMany({
-            where: {
-              status: 'executed',
-              executedAt: { gte: since },
-              invoice: { customerId: { in: customerIds } },
-            },
-            select: { executedAt: true, invoice: { select: { customerId: true } } },
-          }),
-          tx.paymentMethod.findMany({
-            where: { customerId: { in: customerIds }, isDefault: true, deletedAt: null },
-            select: { customerId: true },
-          }),
-          // Quien paga por la remesa SEPA del negocio también tiene cómo pagar.
-          tx.sepaMandate.findMany({
-            where: {
-              customerId: { in: customerIds },
-              ...CHARGEABLE_MANDATE_WHERE,
-            },
-            select: { customerId: true },
-          }),
-          // Quién tiene un código de acceso activo y cuándo entró por última vez.
-          tx.accessCredential.findMany({
-            where: { customerId: { in: customerIds }, status: 'active' },
-            select: { customerId: true },
-          }),
-          tx.accessLog.groupBy({
-            by: ['customerId'],
-            where: { customerId: { in: customerIds }, result: 'allowed' },
-            _max: { occurredAt: true },
-          }),
-        ]);
+      const [
+        overdue,
+        failedPayments,
+        dunning,
+        defaultPms,
+        mandates,
+        credentials,
+        accesses,
+        devices,
+        autoCharge,
+      ] = await Promise.all([
+        tx.invoice.groupBy({
+          by: ['customerId'],
+          where: { ...overdueInvoiceWhere(startOfToday), customerId: { in: customerIds } },
+          _count: { _all: true },
+          _sum: { total: true, amountPaid: true },
+        }),
+        tx.payment.findMany({
+          where: {
+            status: 'failed',
+            customerId: { in: customerIds },
+            createdAt: { gte: since },
+            // Un cobro registrado por error y deshecho no es un cobro fallido.
+            OR: [
+              { failureReason: null },
+              { NOT: { failureReason: { startsWith: UNDONE_PAYMENT_PREFIX } } },
+            ],
+          },
+          select: { customerId: true, createdAt: true },
+        }),
+        tx.dunningAction.findMany({
+          where: {
+            status: 'executed',
+            executedAt: { gte: since },
+            invoice: { customerId: { in: customerIds } },
+          },
+          select: { executedAt: true, invoice: { select: { customerId: true } } },
+        }),
+        tx.paymentMethod.findMany({
+          where: { customerId: { in: customerIds }, isDefault: true, deletedAt: null },
+          select: { customerId: true },
+        }),
+        // Quien paga por la remesa SEPA del negocio también tiene cómo pagar.
+        tx.sepaMandate.findMany({
+          where: {
+            customerId: { in: customerIds },
+            ...CHARGEABLE_MANDATE_WHERE,
+          },
+          select: { customerId: true },
+        }),
+        // Quién tiene un código de acceso activo y cuándo entró por última vez.
+        tx.accessCredential.findMany({
+          where: { customerId: { in: customerIds }, status: 'active' },
+          select: { customerId: true },
+        }),
+        tx.accessLog.groupBy({
+          by: ['customerId'],
+          where: { customerId: { in: customerIds }, result: 'allowed' },
+          _max: { occurredAt: true },
+        }),
+        // Sin puertas conectadas no se sabe quién entra.
+        tx.accessDevice.count({ where: { isActive: true } }),
+        this.chargesAutomatically(tx),
+      ]);
 
       const overdueByCustomer = new Map(
         overdue.map((o) => [
@@ -253,13 +282,20 @@ export class InsightsService {
         ...mandates.map((m) => m.customerId),
       ]);
 
+      // Un inquilino, una fila: sus contratos se miran juntos.
+      const byCustomer = new Map<string, typeof contracts>();
+      for (const c of contracts) {
+        byCustomer.set(c.customerId, [...(byCustomer.get(c.customerId) ?? []), c]);
+      }
+
       const now = Date.now();
-      const items: ChurnRiskItemDto[] = contracts.map((c) => {
-        const price = toNumber(c.priceMonthly);
+      const items: ChurnRiskItemDto[] = [...byCustomer.entries()].map(([cid, list]) => {
+        const main = list.find((c) => c.status === 'ending') ?? list[0]!;
+        const price = round2(list.reduce((sum, c) => sum + monthlyFee(c), 0));
         const factors: string[] = [];
         let score = 0;
 
-        const od = overdueByCustomer.get(c.customerId);
+        const od = overdueByCustomer.get(cid);
         if (od && od.count > 0) {
           score += 35;
           factors.push(od.count === 1 ? '1 factura vencida' : `${od.count} facturas vencidas`);
@@ -270,25 +306,27 @@ export class InsightsService {
           }
         }
 
-        const failed = failedByCustomer.get(c.customerId);
+        const failed = failedByCustomer.get(cid);
         if (failed) {
           score += failed.recent > 0 ? 20 : 10;
           const label = failed.count === 1 ? '1 cobro fallido' : `${failed.count} cobros fallidos`;
           factors.push(failed.recent > 0 ? `${label} (reciente)` : `${label} en el último año`);
         }
 
-        const dun = dunningByCustomer.get(c.customerId);
+        const dun = dunningByCustomer.get(cid);
         if (dun) {
           score += dun.recent > 0 ? 15 : 8;
           factors.push(dun.recent > 0 ? 'reclamado hace poco' : 'reclamado en el último año');
         }
 
-        // Quien no usa su trastero suele acabar dándose de baja.
-        const seen = lastAccess.get(c.customerId) ?? null;
-        const signedLongAgo =
-          c.signedAt && now - c.signedAt.getTime() > INACTIVE_ACCESS_DAYS * 86_400_000;
+        // Quien no usa su trastero suele acabar dándose de baja (solo con puertas
+        // conectadas: sin ellas no se sabe quién entra).
+        const seen = lastAccess.get(cid) ?? null;
+        const firstSigned = Math.min(...list.map((c) => c.signedAt?.getTime() ?? now));
+        const signedLongAgo = now - firstSigned > INACTIVE_ACCESS_DAYS * 86_400_000;
         if (
-          withCredential.has(c.customerId) &&
+          devices > 0 &&
+          withCredential.has(cid) &&
           signedLongAgo &&
           (!seen || now - seen.getTime() > INACTIVE_ACCESS_DAYS * 86_400_000)
         ) {
@@ -298,36 +336,45 @@ export class InsightsService {
           );
         }
 
-        if (c.endDate) {
-          const daysToEnd = Math.ceil((c.endDate.getTime() - now) / 86_400_000);
-          if (daysToEnd >= 0 && daysToEnd <= 60 && !c.autoRenew) {
+        // El contrato que vence antes (sin renovación automática pesa más).
+        const ending = list
+          .filter((c) => c.endDate && c.endDate.getTime() >= startOfToday.getTime())
+          .sort((a, b) => a.endDate!.getTime() - b.endDate!.getTime())[0];
+        if (ending?.endDate) {
+          const daysToEnd = Math.ceil(
+            (ending.endDate.getTime() - startOfToday.getTime()) / 86_400_000,
+          );
+          if (daysToEnd <= 60 && !ending.autoRenew) {
             score += 25;
             factors.push(`vence en ${daysToEnd} días sin renovación automática`);
-          } else if (daysToEnd >= 0 && daysToEnd <= 30) {
+          } else if (daysToEnd <= 30) {
             score += 10;
             factors.push(`vence en ${daysToEnd} días`);
           }
         }
 
-        if (!customersWithPm.has(c.customerId)) {
+        // Sin forma de cobrar sola en el negocio, no tener tarjeta no dice nada.
+        if (autoCharge && !customersWithPm.has(cid)) {
           score += 15;
           factors.push('sin método de pago guardado');
         }
 
         score = Math.min(100, score);
+        const facilities = [...new Set(list.map((c) => c.unit.facility.name))];
 
         return {
-          contractId: c.id,
-          contractNumber: c.contractNumber,
-          customerId: c.customerId,
-          customerName: customerName(c.customer),
-          unitCode: c.unit.code,
-          facilityName: c.unit.facility.name,
+          contractId: main.id,
+          contractNumber: main.contractNumber,
+          customerId: cid,
+          customerName: customerName(main.customer),
+          unitCode: list.map((c) => c.unit.code).join(', '),
+          facilityName: facilities.join(', '),
           priceMonthly: price,
+          contractCount: list.length,
           score,
           level: levelFor(score),
           factors,
-          contractStatus: c.status === 'ending' ? 'ending' : 'active',
+          contractStatus: main.status === 'ending' ? 'ending' : 'active',
           lastAccessAt: seen ? seen.toISOString() : null,
         };
       });
@@ -347,6 +394,17 @@ export class InsightsService {
 
       return { summary, items: detail };
     }, tenantId);
+  }
+
+  /** ¿Puede el negocio cobrar solo (tarjeta guardada, domiciliación o SEPA)? */
+  private async chargesAutomatically(tx: Prisma.TransactionClient): Promise<boolean> {
+    const [stripe, redsys, sepa, gocardless] = await Promise.all([
+      tx.tenantStripeAccount.count({ where: { chargesEnabled: true } }),
+      tx.redsysSettings.count({ where: { enabled: true, cardOnFileEnabled: true } }),
+      tx.sepaSettings.count({ where: { enabled: true } }),
+      tx.goCardlessSettings.count({ where: { enabled: true } }),
+    ]);
+    return stripe + redsys + sepa + gocardless > 0;
   }
 
   /**
@@ -381,13 +439,20 @@ export class InsightsService {
             name: true,
             facilityId: true,
             lastReviewedAt: true,
+            priceIncludesVat: true,
+            mandatoryInsuranceMonthly: true,
+            setupFee: true,
+            promoFreeMonths: true,
+            promoDiscountPct: true,
+            promoDiscountMonths: true,
             units: {
               select: {
                 id: true,
                 areaM2: true,
+                // Las dos últimas revisiones: la de ahora y la anterior, sea cuando sea.
                 observations: {
-                  where: { observedAt: { gte: since } },
-                  orderBy: { observedAt: 'asc' },
+                  orderBy: { observedAt: 'desc' },
+                  take: 2,
                   select: { priceMonthly: true, observedAt: true },
                 },
               },
@@ -422,27 +487,40 @@ export class InsightsService {
 
       const priceDrops: CompetitionPriceDropDto[] = [];
       for (const c of competitors) {
+        // Su precio comparable con el tuyo: sin IVA, con seguro, alta y promoción.
+        const comparable = (price: number) => {
+          const gross = effectiveMonthlyPrice({
+            price,
+            insuranceMonthly: toNumber(c.mandatoryInsuranceMonthly),
+            setupFee: toNumber(c.setupFee),
+            promoFreeMonths: c.promoFreeMonths ?? 0,
+            promoDiscountPct: c.promoDiscountPct ?? 0,
+            promoDiscountMonths: c.promoDiscountMonths ?? 0,
+          });
+          return round2(c.priceIncludesVat ? gross / 1.21 : gross);
+        };
         for (const u of c.units) {
-          const obs = u.observations;
-          for (let i = obs.length - 1; i >= 1; i--) {
-            const prev = toNumber(obs[i - 1]!.priceMonthly);
-            const next = toNumber(obs[i]!.priceMonthly);
-            if (next >= prev) continue;
-            const area = toNumber(u.areaM2);
-            const mine = myPriceFor(area, c.facilityId);
-            if (mine !== null && mine > next) {
-              priceDrops.push({
-                competitorFacilityId: c.id,
-                competitorName: c.name,
-                competitorUnitId: u.id,
-                areaM2: area,
-                previousPrice: prev,
-                newPrice: next,
-                observedAt: obs[i]!.observedAt.toISOString(),
-                myPrice: mine,
-              });
-            }
-            break;
+          const [latest, previous] = u.observations;
+          // Solo una bajada reciente que sigue vigente (la última revisión).
+          if (!latest || !previous || latest.observedAt < since) continue;
+          const prev = toNumber(previous.priceMonthly);
+          const next = toNumber(latest.priceMonthly);
+          if (next >= prev) continue;
+          const area = toNumber(u.areaM2);
+          const mine = myPriceFor(area, c.facilityId);
+          const comparablePrice = comparable(next);
+          if (mine !== null && mine > comparablePrice) {
+            priceDrops.push({
+              competitorFacilityId: c.id,
+              competitorName: c.name,
+              competitorUnitId: u.id,
+              areaM2: area,
+              previousPrice: prev,
+              newPrice: next,
+              comparablePrice,
+              observedAt: latest.observedAt.toISOString(),
+              myPrice: mine,
+            });
           }
         }
       }
@@ -454,15 +532,17 @@ export class InsightsService {
   async getSuggestedActions(
     tenantId: string,
     scope: AnalyticsScope = ALL_FACILITIES,
+    opts: { moneyVisible?: boolean } = {},
   ): Promise<SuggestedActionsDto> {
+    const moneyVisible = opts.moneyVisible ?? true;
     const [churn, pricing, competition, extra] = await Promise.all([
       this.getChurnRisk(tenantId, scope),
       this.getUnitPricingSuggestions(tenantId, scope),
       this.getCompetitionAlerts(tenantId, scope),
       this.prisma.withTenant(async (tx) => {
-        const now = new Date();
-        const in30 = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
         const startOfToday = todayInTimezone(await tenantTimezone(tx, tenantId));
+        // Desde hoy (también lo que vence hoy) hasta dentro de 30 días.
+        const in30 = new Date(startOfToday.getTime() + 30 * 24 * 3600 * 1000);
         const [debt, endingSoon] = await Promise.all([
           receivables(tx, scope, startOfToday),
           tx.contract.findMany({
@@ -470,7 +550,7 @@ export class InsightsService {
               AND: [
                 LIVE_CONTRACT_WHERE,
                 contractWhere(scope),
-                { autoRenew: false, endDate: { not: null, gte: now, lte: in30 } },
+                { autoRenew: false, endDate: { not: null, gte: startOfToday, lte: in30 } },
               ],
             },
             select: {
@@ -507,7 +587,9 @@ export class InsightsService {
         title: `Reclama ${overdueCount} factura${overdueCount === 1 ? '' : 's'} vencida${
           overdueCount === 1 ? '' : 's'
         }`,
-        detail: `${formatEur(pending)} pendientes de cobro`,
+        detail: moneyVisible
+          ? `${formatEur(pending)} pendientes de cobro`
+          : 'Revisa quién debe y desde cuándo',
         href: '/arrears',
         cta: 'Ver deudores',
       });
@@ -568,7 +650,7 @@ export class InsightsService {
         category: 'competition',
         priority: 'medium',
         title: `${drop.competitorName} ha bajado precios`,
-        detail: `${drop.areaM2} m² a ${formatEur(drop.newPrice)} (antes ${formatEur(drop.previousPrice)}); tú, ${formatEur(drop.myPrice)}`,
+        detail: `${drop.areaM2} m² a ${formatEur(drop.newPrice)} (antes ${formatEur(drop.previousPrice)}); equivale a ${formatEur(drop.comparablePrice)} sin IVA y tú cobras ${formatEur(drop.myPrice)}`,
         href: '/competitors',
         cta: 'Ver competencia',
       });
@@ -631,6 +713,7 @@ export class InsightsService {
           city: true,
           pricingPositioningPct: true,
           features: true,
+          preOpening: true,
         },
       }),
       tx.unitType.findMany({
@@ -669,7 +752,12 @@ export class InsightsService {
           },
         },
       }),
-      tx.unit.groupBy({ by: ['facilityId', 'unitTypeId'], _count: { _all: true } }),
+      // Los que se pueden alquilar: los que están en mantenimiento o bloqueados no.
+      tx.unit.groupBy({
+        by: ['facilityId', 'unitTypeId'],
+        where: { status: { in: ['available', 'reserved', 'occupied'] } },
+        _count: { _all: true },
+      }),
       // Un reservado ya no está a la venta: cuenta como ocupado.
       tx.unit.groupBy({
         by: ['facilityId', 'unitTypeId'],
@@ -686,9 +774,10 @@ export class InsightsService {
         where: { status: 'available' },
         _count: { _all: true },
       }),
-      // Mis alquileres de los últimos 90 días (contratos firmados), por tamaño.
+      // Mis alquileres de los últimos 90 días (de verdad: sin el inquilino de
+      // prueba, reservas online sin pagar ni preventas sin empezar), por tamaño.
       tx.contract.findMany({
-        where: { signedAt: { gte: since90 }, deletedAt: null, status: { not: 'cancelled' } },
+        where: { AND: [SIGNED_CONTRACT_WHERE, { signedAt: { gte: since90 } }] },
         select: { unit: { select: { facilityId: true, unitTypeId: true } } },
       }),
       // Contactos que piden un tamaño: abiertos recientes y perdidos por precio.
@@ -708,6 +797,22 @@ export class InsightsService {
     const key = (f: string, t: string) => `${f}:${t}`;
     const totalMap = new Map(totals.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
     const occMap = new Map(occupied.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
+    // Los trasteros del inquilino de prueba siguen libres para las cifras.
+    const testUnits = await testRunUnits(tx, {});
+    const testTypes = new Map(
+      (
+        await tx.unit.findMany({
+          where: { id: { in: testUnits.map((u) => u.id) } },
+          select: { id: true, unitTypeId: true },
+        })
+      ).map((u) => [u.id, u.unitTypeId]),
+    );
+    for (const u of testUnits) {
+      if (u.status !== 'occupied' && u.status !== 'reserved') continue;
+      const k = key(u.facilityId, testTypes.get(u.id) ?? '');
+      const n = occMap.get(k);
+      if (n) occMap.set(k, n - 1);
+    }
     const waitMap = new Map(waitlist.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]));
     const availMap = new Map(
       available.map((g) => [key(g.facilityId, g.unitTypeId), g._count._all]),
@@ -746,6 +851,8 @@ export class InsightsService {
           price: c.priceIncludesVat ? gross / 1.21 : gross,
           occupied: u.status === 'occupied',
           ageDays: daysBetween(u.lastCheckedAt, now),
+          // Lo revisado hace más de 180 días ya no dice nada de su ocupación ni su ritmo.
+          fresh: daysBetween(u.lastCheckedAt, now) <= FRESHNESS_CUTOFF_DAYS,
           rentals: observedRentals(u.observations),
           priceObservations: u.observations.map((o) => ({
             observedAt: o.observedAt,
@@ -805,7 +912,7 @@ export class InsightsService {
         const near = observationWeight({ ageDays: 0, ...proximityFor(c, facility) }) >= 0.5;
         if (!near) continue;
         for (const u of c.units) {
-          if (Math.abs(u.areaM2 - areaM2) > areaM2 * 0.25) continue;
+          if (!u.fresh || Math.abs(u.areaM2 - areaM2) > areaM2 * 0.25) continue;
           total += 1;
           if (u.occupied) occ += 1;
         }
@@ -826,7 +933,7 @@ export class InsightsService {
         const near = observationWeight({ ageDays: 0, ...proximityFor(c, facility) }) >= 0.5;
         if (!near) continue;
         for (const u of c.units) {
-          if (Math.abs(u.areaM2 - areaM2) > areaM2 * 0.25) continue;
+          if (!u.fresh || Math.abs(u.areaM2 - areaM2) > areaM2 * 0.25) continue;
           durations.push(...u.rentals);
         }
       }
@@ -889,16 +996,41 @@ export class InsightsService {
   ): Promise<PricingSuggestionsDto> {
     return this.prisma.withTenant(async (tx) => {
       const ctx = await this.loadPricingContext(tx, tenantId);
-      const areas = await tx.unit.groupBy({
-        by: ['unitTypeId'],
-        where: unitWhere(scope),
-        _avg: { areaM2: true },
-      });
-      const facilitiesInScope = scope.ids
-        ? ctx.facilities.filter((f) => scope.ids!.includes(f.id))
-        : ctx.facilities;
+      // Los locales por abrir no cuentan hasta que abren (salvo si se mira ese local).
+      const facilitiesInScope = (
+        scope.ids ? ctx.facilities.filter((f) => scope.ids!.includes(f.id)) : ctx.facilities
+      ).filter((f) => scope.explicit || !f.preOpening);
+      const inScopeIds = facilitiesInScope.map((f) => f.id);
+      const [areas, freeAll, lastChanges] = await Promise.all([
+        tx.unit.groupBy({
+          by: ['unitTypeId'],
+          where: { ...unitWhere(scope), facilityId: { in: inScopeIds } },
+          _avg: { areaM2: true },
+        }),
+        // Aplicar cambia el precio de los libres del tipo en todos los locales.
+        tx.unit.groupBy({
+          by: ['unitTypeId'],
+          where: { status: 'available', facility: { deletedAt: null } },
+          _count: { _all: true },
+        }),
+        // Último cambio de precio de un trastero de cada tipo (espera entre cambios).
+        tx.unitPriceHistory.findMany({
+          where: { unit: { facilityId: { in: inScopeIds } } },
+          orderBy: { changedAt: 'desc' },
+          distinct: ['unitId'],
+          select: { changedAt: true, unit: { select: { unitTypeId: true } } },
+        }),
+      ]);
       const avgArea = new Map(areas.map((a) => [a.unitTypeId, toNumber(a._avg.areaM2)]));
-      const curve = ctx.marketCurve(null);
+      const freeAllByType = new Map(freeAll.map((g) => [g.unitTypeId, g._count._all]));
+      const lastChangeByType = new Map<string, Date>();
+      for (const c of lastChanges) {
+        const seen = lastChangeByType.get(c.unit.unitTypeId);
+        if (!seen || c.changedAt > seen) lastChangeByType.set(c.unit.unitTypeId, c.changedAt);
+      }
+      // Con un solo local elegido, su mercado y sus contactos.
+      const only = scope.explicit && facilitiesInScope.length === 1 ? facilitiesInScope[0]! : null;
+      const curve = ctx.marketCurve(only);
 
       const items: PricingSuggestionItemDto[] = [];
       for (const ut of ctx.unitTypes) {
@@ -928,11 +1060,12 @@ export class InsightsService {
           facilityOccupancy: occupied / total,
           targetOccupancy: ctx.targetOccupancy,
           waitlist: waiting,
-          competitorOccupancy: area > 0 ? ctx.competitorOccupancy(null, area) : null,
-          competitorDaysToRent: area > 0 ? ctx.competitorDaysToRent(null, area) : null,
+          competitorOccupancy: area > 0 ? ctx.competitorOccupancy(only, area) : null,
+          competitorDaysToRent: area > 0 ? ctx.competitorDaysToRent(only, area) : null,
           ownRentals: { rentals90, available: free },
-          leads: ctx.leadsFor(null, ut.id),
+          leads: ctx.leadsFor(only?.id ?? null, ut.id),
         });
+        const changedAt = lastChangeByType.get(ut.id);
         const demandPct = factors.reduce((s, f) => s + f.contribution, 0);
         const currentPrice = toNumber(ut.defaultPriceMonthly);
         const decision = decidePrice({
@@ -946,7 +1079,7 @@ export class InsightsService {
           maxStepPct: ctx.maxStepPct,
           minPrice: ut.minPriceMonthly != null ? toNumber(ut.minPriceMonthly) : null,
           maxPrice: ut.maxPriceMonthly != null ? toNumber(ut.maxPriceMonthly) : null,
-          daysSinceLastChange: null,
+          daysSinceLastChange: changedAt ? daysBetween(changedAt, ctx.now) : null,
           minDaysBetweenChanges: ctx.minDaysBetweenChanges,
         });
 
@@ -970,7 +1103,8 @@ export class InsightsService {
           rationale,
           marketPrice: marketPrice != null ? round2(marketPrice) : null,
           confidence,
-          marketTrend: ctx.marketTrendFor(null),
+          marketTrend: ctx.marketTrendFor(only),
+          availableUnitsAll: freeAllByType.get(ut.id) ?? 0,
         });
       }
 
@@ -1003,11 +1137,11 @@ export class InsightsService {
       const ctx = await this.loadPricingContext(tx, tenantId);
       const unitIds = units.map((u) => u.id);
       const [history, lastChanges, promos] = await Promise.all([
-        // Días vacío: último paso a `available` (si no hay, desde el alta).
+        // Días libre: desde que dejó de estar ocupado (una reserva que caduca no
+        // reinicia la cuenta).
         tx.unitStatusHistory.findMany({
-          where: { unitId: { in: unitIds }, newStatus: 'available' },
-          orderBy: { occurredAt: 'desc' },
-          select: { unitId: true, occurredAt: true },
+          where: { unitId: { in: unitIds } },
+          select: { unitId: true, occurredAt: true, newStatus: true },
         }),
         tx.unitPriceHistory.groupBy({
           by: ['unitId'],
@@ -1029,9 +1163,10 @@ export class InsightsService {
           .filter((o): o is NonNullable<typeof o> => o !== null)
           .map((o) => [o.unitId, o]),
       );
-      const vacantSince = new Map<string, Date>();
-      for (const h of history)
-        if (!vacantSince.has(h.unitId)) vacantSince.set(h.unitId, h.occurredAt);
+      const historyByUnit = new Map<string, { occurredAt: Date; newStatus: string }[]>();
+      for (const h of history) {
+        historyByUnit.set(h.unitId, [...(historyByUnit.get(h.unitId) ?? []), h]);
+      }
       const lastChange = new Map(lastChanges.map((c) => [c.unitId, c._max.changedAt]));
       const facilityById = new Map(ctx.facilities.map((f) => [f.id, f]));
       const typeById = new Map(ctx.unitTypes.map((t) => [t.id, t]));
@@ -1043,6 +1178,7 @@ export class InsightsService {
           city: null,
           pricingPositioningPct: 0,
           features: [] as string[],
+          preOpening: false,
         };
         const type = typeById.get(u.unitTypeId);
         const d = ctx.dim(u.facilityId, u.unitTypeId);
@@ -1101,7 +1237,7 @@ export class InsightsService {
           factors.push({ label: f.label, detail: f.detail, contribution: f.contribution });
         }
 
-        const since = vacantSince.get(u.id) ?? u.createdAt;
+        const since = freeSince(u.createdAt, historyByUnit.get(u.id) ?? []);
         const daysVacant = daysBetween(since, ctx.now);
         const offer = offerByUnit.get(u.id) ?? null;
         const promotionHint =
@@ -1267,7 +1403,10 @@ export class InsightsService {
   }
 
   /** Estrategia de precios del tenant (objetivo, límites y posicionamiento). */
-  async getPricingStrategy(tenantId: string): Promise<PricingStrategyDto> {
+  async getPricingStrategy(
+    tenantId: string,
+    facilityScope: FacilityScope = null,
+  ): Promise<PricingStrategyDto> {
     return this.prisma.withTenant(async (tx) => {
       const [tenant, facilities, unitTypes] = await Promise.all([
         tx.tenant.findUnique({
@@ -1279,7 +1418,7 @@ export class InsightsService {
           },
         }),
         tx.facility.findMany({
-          where: { deletedAt: null },
+          where: { deletedAt: null, ...(facilityScope ? { id: { in: facilityScope } } : {}) },
           orderBy: { name: 'asc' },
           select: { id: true, name: true, pricingPositioningPct: true },
         }),
@@ -1437,77 +1576,90 @@ export class InsightsService {
           select: LIFECYCLE_SELECT,
         }),
       ]);
-      const totalUnits = counts.total;
-      const occupiedUnits = counts.occupied;
+      // El tope son los trasteros que se pueden alquilar (sin los que están en
+      // mantenimiento o bloqueados).
+      const capacity = counts.total - counts.outOfService;
       const history = contracts
         .map((c) => contractLifecycle(c))
         .filter((l): l is NonNullable<typeof l> => l !== null);
 
       const mrr = live.mrr;
       const activeCount = live.contracts;
-      const avgContractValue = activeCount > 0 ? round2(mrr / activeCount) : 0;
-      const currentOccupancy = totalUnits > 0 ? round2(occupiedUnits / totalUnits) : 0;
+      const avgContractValue = activeCount > 0 ? mrr / activeCount : 0;
+      const currentOccupancy = capacity > 0 ? round2(counts.occupied / capacity) : 0;
 
-      // Medias móviles de los `trailing` meses cerrados (excluye el mes en curso).
+      // Medias de los meses cerrados (sin el mes en curso), y solo de los que el
+      // negocio ya existía: un negocio de dos meses no reparte sus altas entre seis.
       const { year, month } = currentYearMonth(timezone);
+      const firstBegin = history.reduce<number | null>(
+        (min, c) => (min === null || c.begin.getTime() < min ? c.begin.getTime() : min),
+        null,
+      );
       let churnRateSum = 0;
       let churnRateCount = 0;
       let addsSum = 0;
+      let monthsWithHistory = 0;
       for (let i = 1; i <= trailing; i++) {
         const startMs = zonedMonthStart(year, month - i, timezone).getTime();
         const endMs = zonedMonthStart(year, month - i + 1, timezone).getTime();
+        if (firstBegin === null || endMs <= firstBegin) continue;
+        monthsWithHistory += 1;
 
         let activeAtStart = 0;
+        let started = 0;
         let ended = 0;
-        let adds = 0;
         for (const c of history) {
-          const signed = c.begin.getTime();
+          const begin = c.begin.getTime();
           const endedAt = c.end?.getTime() ?? null;
-          if (signed < startMs && (endedAt === null || endedAt >= startMs)) activeAtStart += 1;
-          // Solo la baja de quien estaba al empezar el mes, como en Analítica → Bajas.
-          if (signed < startMs && endedAt !== null && endedAt >= startMs && endedAt < endMs) {
-            ended += 1;
-          }
-          if (signed >= startMs && signed < endMs) adds += 1;
+          if (begin < startMs && (endedAt === null || endedAt >= startMs)) activeAtStart += 1;
+          if (begin >= startMs && begin < endMs) started += 1;
+          // Como en Analítica → Bajas: también quien entra y se va el mismo mes.
+          if (endedAt !== null && endedAt >= startMs && endedAt < endMs) ended += 1;
         }
-        if (activeAtStart > 0) {
-          churnRateSum += ended / activeAtStart;
+        const base = activeAtStart + started;
+        if (base > 0) {
+          churnRateSum += ended / base;
           churnRateCount += 1;
         }
-        addsSum += adds;
+        addsSum += started;
       }
-      const monthlyChurnRate = churnRateCount > 0 ? round2(churnRateSum / churnRateCount) : 0;
-      const avgMonthlyNewContracts = round2(addsSum / trailing);
+      // Sin redondear: con tasas pequeñas, redondear a dos decimales las borraba.
+      const churnRate = churnRateCount > 0 ? churnRateSum / churnRateCount : 0;
+      const adds = monthsWithHistory > 0 ? addsSum / monthsWithHistory : 0;
 
-      // Proyección mes a mes: decae por churn, crece por altas medias y no pasa
-      // de los trasteros que hay.
+      // Proyección mes a mes sin redondear entre meses (si no, 23,5 contratos
+      // volvían a 24 cada mes y la previsión se quedaba plana).
       const points: RevenueForecastPointDto[] = [];
       let prevActive = activeCount;
       let cappedAtCapacity = false;
       for (let m = 1; m <= horizon; m++) {
-        const trend = Math.round(
-          prevActive - prevActive * monthlyChurnRate + avgMonthlyNewContracts,
-        );
-        const projected = Math.max(0, Math.min(trend, totalUnits));
-        if (trend > totalUnits) cappedAtCapacity = true;
+        const trend = prevActive - prevActive * churnRate + adds;
+        if (trend > capacity) cappedAtCapacity = true;
+        const projected = Math.max(0, Math.min(trend, capacity));
         const monthDate = new Date(Date.UTC(year, month - 1 + m, 1));
         const yearMonth = `${monthDate.getUTCFullYear()}-${String(monthDate.getUTCMonth() + 1).padStart(2, '0')}`;
         points.push({
           yearMonth,
-          projectedActiveContracts: projected,
+          projectedActiveContracts: Math.round(projected),
           projectedMrr: round2(projected * avgContractValue),
-          projectedOccupancy: totalUnits > 0 ? round2(Math.min(1, projected / totalUnits)) : 0,
+          projectedOccupancy: capacity > 0 ? round2(Math.min(1, projected / capacity)) : 0,
         });
         prevActive = projected;
       }
 
       return {
-        current: { activeContracts: activeCount, mrr, totalUnits, occupancy: currentOccupancy },
+        current: {
+          activeContracts: activeCount,
+          mrr,
+          totalUnits: capacity,
+          occupancy: currentOccupancy,
+        },
         assumptions: {
-          monthlyChurnRate,
-          avgMonthlyNewContracts,
-          avgContractValue,
+          monthlyChurnRate: Math.round(churnRate * 10_000) / 10_000,
+          avgMonthlyNewContracts: round2(adds),
+          avgContractValue: round2(avgContractValue),
           trailingMonths: trailing,
+          historyMonths: monthsWithHistory,
           cappedAtCapacity,
         },
         points,
@@ -1516,9 +1668,10 @@ export class InsightsService {
   }
 
   /**
-   * Aplica el precio sugerido a un tipo de trastero: actualiza su
-   * `defaultPriceMonthly` (precio de catálogo para nuevos contratos). No toca
-   * los contratos activos — para subir la cartera existe ECRI (rent-increases).
+   * Aplica el precio sugerido a un tipo de trastero: su precio de catálogo y el
+   * de los trasteros libres de ese tipo en todos los locales (es el precio al
+   * que se venden). No toca los contratos activos — para subir la cartera
+   * existe ECRI (rent-increases).
    */
   async applyPricing(args: {
     tenantId: string;
@@ -1550,7 +1703,32 @@ export class InsightsService {
         where: { id: args.unitTypeId },
         data: { defaultPriceMonthly: newPrice },
       });
-      return { previousPrice, newPrice };
+      const free = await tx.unit.findMany({
+        where: {
+          unitTypeId: args.unitTypeId,
+          status: 'available',
+          facility: { deletedAt: null },
+          NOT: { basePriceMonthly: newPrice },
+        },
+        select: { id: true, basePriceMonthly: true },
+      });
+      if (free.length > 0) {
+        await tx.unit.updateMany({
+          where: { id: { in: free.map((u) => u.id) } },
+          data: { basePriceMonthly: newPrice },
+        });
+        await tx.unitPriceHistory.createMany({
+          data: free.map((u) => ({
+            tenantId: args.tenantId,
+            unitId: u.id,
+            previousPrice: u.basePriceMonthly,
+            newPrice,
+            source: 'suggestion' as const,
+            changedByUserId: args.userId,
+          })),
+        });
+      }
+      return { previousPrice, newPrice, unitsUpdated: free.length };
     }, args.tenantId);
 
     await this.audit.write({
@@ -1559,7 +1737,11 @@ export class InsightsService {
       action: 'pricing.suggestion_applied',
       entityType: 'UnitType',
       entityId: args.unitTypeId,
-      changes: { from: result.previousPrice, to: result.newPrice },
+      changes: {
+        from: result.previousPrice,
+        to: result.newPrice,
+        unitsUpdated: result.unitsUpdated,
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
@@ -1568,6 +1750,7 @@ export class InsightsService {
       unitTypeId: args.unitTypeId,
       previousPrice: result.previousPrice,
       newPrice: result.newPrice,
+      unitsUpdated: result.unitsUpdated,
     };
   }
 }

@@ -144,20 +144,47 @@ export class DashboardOverviewService {
           : Promise.resolve(null),
       ),
       section('commercial', () => inTx((tx) => this.commercial(tx, tenantId, scope))),
-      section('revenue', () => this.analytics.getRevenue(tenantId, scope)),
-      section('occupancy', () => this.analytics.getOccupancy(tenantId, scope)),
+      // Sin permiso para ver facturas y cobros, nada de dinero (como en Analítica).
+      section('revenue', () =>
+        moneyVisible ? this.analytics.getRevenue(tenantId, scope) : Promise.resolve(null),
+      ),
+      section('occupancy', async () => {
+        const dto = await this.analytics.getOccupancy(tenantId, scope);
+        return moneyVisible
+          ? dto
+          : { ...dto, mrrActual: null, mrrPotential: null, economicOccupancy: null };
+      }),
       section('customers', () => this.analytics.getCustomerStats(tenantId, scope)),
       section('receivables', () =>
-        this.prisma.withTenant(
-          async (tx) => receivables(tx, scope, todayInTimezone(await tenantTimezone(tx, tenantId))),
-          tenantId,
-        ),
+        moneyVisible
+          ? this.prisma.withTenant(
+              async (tx) =>
+                receivables(tx, scope, todayInTimezone(await tenantTimezone(tx, tenantId))),
+              tenantId,
+            )
+          : Promise.resolve(null),
       ),
       section('monthlyRevenue', () =>
-        this.analytics.getMonthlyRevenue(tenantId, { months: 12 }, scope),
+        moneyVisible
+          ? this.analytics.getMonthlyRevenue(tenantId, { months: 12 }, scope)
+          : Promise.resolve(null),
       ),
-      section('forecast', () => this.insights.getRevenueForecast(tenantId, { months: 6 }, scope)),
-      section('churnRisk', () => this.insights.getChurnRisk(tenantId, scope)),
+      section('forecast', async () => {
+        const dto = await this.insights.getRevenueForecast(tenantId, { months: 6 }, scope);
+        return moneyVisible
+          ? dto
+          : {
+              current: { ...dto.current, mrr: null },
+              assumptions: { ...dto.assumptions, avgContractValue: null },
+              points: dto.points.map((p) => ({ ...p, projectedMrr: null })),
+            };
+      }),
+      section('churnRisk', async () => {
+        const dto = await this.insights.getChurnRisk(tenantId, scope);
+        return moneyVisible
+          ? dto
+          : { ...dto, items: dto.items.map((i) => ({ ...i, priceMonthly: null })) };
+      }),
       section('leads', () => this.analytics.getLeadsFunnel(tenantId, undefined, scope)),
     ]);
 

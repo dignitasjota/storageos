@@ -43,9 +43,12 @@ const UNAVAILABLE = 'No disponible';
 export function KpiTiles({
   data,
   loading,
+  moneyVisible = true,
 }: {
   data: DashboardOverviewDto | undefined;
   loading: boolean;
+  /** Sin permiso para ver facturas y cobros, fuera las cifras de dinero. */
+  moneyVisible?: boolean;
 }) {
   if (loading) {
     return (
@@ -63,8 +66,9 @@ export function KpiTiles({
   const d = data?.receivables;
   const target = data?.month?.targetOccupancyPct;
 
-  const tiles: Tile[] = [
+  const tiles: (Tile & { money?: boolean })[] = [
     {
+      money: true,
       icon: Euro,
       label: 'Cuotas al mes',
       value: r ? eur(r.mrr) : '—',
@@ -92,6 +96,7 @@ export function KpiTiles({
       href: '/customers',
     },
     {
+      money: true,
       icon: PiggyBank,
       label: 'Pendiente de cobro',
       value: d ? eur(d.total) : '—',
@@ -113,6 +118,7 @@ export function KpiTiles({
       href: '/customers',
     },
     {
+      money: true,
       icon: TrendingUp,
       label: 'Ingreso por trastero',
       value: r ? eur(r.revPau) : '—',
@@ -124,24 +130,26 @@ export function KpiTiles({
 
   return (
     <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      {tiles.map((t) => (
-        <Link key={t.label} href={t.href} title={t.help} className="block rounded-xl">
-          <Card className="h-full transition-shadow hover:shadow-soft">
-            <CardContent className="space-y-3 p-5">
-              <span
-                className={`flex size-9 items-center justify-center rounded-lg ${TONE[t.tone ?? 'default']}`}
-              >
-                <t.icon className="size-4.5" />
-              </span>
-              <div className="space-y-0.5">
-                <p className="text-xs text-muted-foreground">{t.label}</p>
-                <p className="text-2xl font-semibold tracking-tight tabular-nums">{t.value}</p>
-                <p className="text-xs text-muted-foreground">{t.hint}</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      ))}
+      {tiles
+        .filter((t) => moneyVisible || !t.money)
+        .map((t) => (
+          <Link key={t.label} href={t.href} title={t.help} className="block rounded-xl">
+            <Card className="h-full transition-shadow hover:shadow-soft">
+              <CardContent className="space-y-3 p-5">
+                <span
+                  className={`flex size-9 items-center justify-center rounded-lg ${TONE[t.tone ?? 'default']}`}
+                >
+                  <t.icon className="size-4.5" />
+                </span>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground">{t.label}</p>
+                  <p className="text-2xl font-semibold tracking-tight tabular-nums">{t.value}</p>
+                  <p className="text-xs text-muted-foreground">{t.hint}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
     </section>
   );
 }

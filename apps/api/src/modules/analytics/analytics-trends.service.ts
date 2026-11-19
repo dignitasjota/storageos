@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { REVIEW_EXIT_REASONS, REVIEW_EXIT_REASON_LABELS } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
 import { PrismaService } from '../database/prisma.service';
 
 import {
@@ -10,10 +11,19 @@ import {
   invalidDate,
   invoiceWhere,
   LIFECYCLE_SELECT,
+  monthlyFee,
   SIGNED_CONTRACT_WHERE,
   unitWhere,
   type AnalyticsScope,
 } from './analytics-scope';
+import {
+  INVOICED_SELECT,
+  INVOICED_STATUSES,
+  invoicedAmount,
+  tenantTimezone,
+  zonedMonthKey,
+  zonedMonthStart,
+} from './business-metrics';
 
 import type {
   CohortRowDto,
@@ -44,13 +54,36 @@ function monthKey(idx: number): string {
   return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
 }
 
-/** Primer instante del mes siguiente al índice (año × 12 + mes 0-11). */
-function monthEnd(idx: number): Date {
-  return new Date(Date.UTC(Math.floor((idx + 1) / 12), (idx + 1) % 12, 1));
+/** Último día del mes del índice (año × 12 + mes 0-11), como medianoche UTC. */
+function lastDayOf(idx: number): Date {
+  return new Date(Date.UTC(Math.floor((idx + 1) / 12), (idx + 1) % 12, 0));
 }
+
+/** Índice de mes (año × 12 + mes 0-11) de un instante en la zona del negocio. */
+function monthIdx(date: Date, timezone: string): number {
+  const [y, m] = zonedMonthKey(date, timezone).split('-').map(Number) as [number, number];
+  return y * 12 + (m - 1);
+}
+
+/** Medianoche UTC del día de un instante en la zona del negocio. */
+function dayOf(date: Date, timezone: string): number {
+  return todayInTimezone(timezone, date).getTime();
+}
+
+/** Como mucho tres años de desglose (y las fechas, en orden). */
+const BREAKDOWN_MAX_DAYS = 3 * 366;
 
 function clampMonths(months?: number): number {
   return Math.max(1, Math.min(MONTHS_MAX, Math.floor(months ?? 12) || 12));
+}
+
+/** `YYYY-MM` a índice de mes; null si no viene. */
+function parseMonth(value: string | undefined, field: string): number | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})$/.exec(value.trim());
+  const month = m ? Number(m[2]) : NaN;
+  if (!m || month < 1 || month > 12) throw invalidDate(field, value);
+  return Number(m[1]) * 12 + (month - 1);
 }
 
 function parseDay(value: string, field: string): Date {
@@ -70,9 +103,30 @@ function conceptOf(
   if (invoice.saleId) return 'shop';
   if (/pase nocturno/i.test(description)) return 'night_pass';
   if (/protecci|seguro/i.test(description)) return 'insurance';
+  // Lo que se cobra por un recibo devuelto no es alquiler, aunque lleve el contrato.
+  if (/recibo devuelto|tarjeta rechazada/i.test(description)) return 'other';
   if (invoice.contractId) return 'rent';
   return 'other';
 }
+
+/** Lo que hace falta de una factura para repartir sus líneas. */
+const BREAKDOWN_INVOICE_SELECT = {
+  id: true,
+  contractId: true,
+  lateFeeForInvoiceId: true,
+  facility: { select: { id: true, name: true } },
+  productSale: { select: { id: true, facility: { select: { id: true, name: true } } } },
+  contract: {
+    select: {
+      unit: {
+        select: {
+          facility: { select: { id: true, name: true } },
+          unitType: { select: { id: true, name: true } },
+        },
+      },
+    },
+  },
+} as const;
 
 /**
  * Tendencias de Analítica: cómo evoluciona la ocupación, de dónde sale lo
@@ -92,12 +146,10 @@ export class AnalyticsTrendsService {
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<OccupancyHistoryDto> {
     const count = clampMonths(months);
-    const now = new Date();
-    const curIdx = now.getUTCFullYear() * 12 + now.getUTCMonth();
-    const idxs = Array.from({ length: count }, (_, i) => curIdx - (count - 1) + i);
 
-    const { units, contracts } = await this.prisma.withTenant(async (tx) => {
-      const [units, contracts] = await Promise.all([
+    const { units, tenancies, timezone } = await this.prisma.withTenant(async (tx) => {
+      const timezone = await tenantTimezone(tx, tenantId);
+      const [units, tenancies] = await Promise.all([
         tx.unit.findMany({
           where: unitWhere(scope),
           select: {
@@ -109,42 +161,71 @@ export class AnalyticsTrendsService {
             unitType: { select: { name: true } },
           },
         }),
-        tx.contract.findMany({
-          where: { AND: [SIGNED_CONTRACT_WHERE, contractWhere(scope)] },
-          select: { ...LIFECYCLE_SELECT, unitId: true, priceMonthly: true, discountAmount: true },
+        // Quién tuvo cada trastero y cuándo: un traslado no mueve la historia.
+        tx.unitTenancy.findMany({
+          where: { unit: unitWhere(scope), contract: SIGNED_CONTRACT_WHERE },
+          select: {
+            unitId: true,
+            startedOn: true,
+            endedOn: true,
+            priceMonthly: true,
+            contract: {
+              select: {
+                discountAmount: true,
+                billingIntervalMonths: true,
+                prepayDiscountPct: true,
+              },
+            },
+          },
         }),
       ]);
-      return { units, contracts };
+      return { units, tenancies, timezone };
     }, tenantId);
 
-    const lives = contracts
-      .map((c) => ({ c, life: contractLifecycle(c) }))
-      .filter(
-        (
-          x,
-        ): x is {
-          c: (typeof contracts)[number];
-          life: NonNullable<ReturnType<typeof contractLifecycle>>;
-        } => x.life !== null,
-      );
+    const today = todayInTimezone(timezone);
+    const curIdx = today.getUTCFullYear() * 12 + today.getUTCMonth();
+    const idxs = Array.from({ length: count }, (_, i) => curIdx - (count - 1) + i);
 
-    // Para cada mes: trasteros existentes y los ocupados (con contrato vivo).
-    const snapshots = idxs.map((idx) => {
-      const at = idx === curIdx ? now : monthEnd(idx);
-      const atMs = at.getTime();
-      const existing = units.filter((u) => u.createdAt.getTime() < atMs);
+    // Un trastero existe desde que se dio de alta o desde el primer inquilino de
+    // los que se dieron de alta con él ese mismo día, si es anterior: al importar
+    // una cartera todos nacen el día de la importación (también los libres) y
+    // sus contratos tienen la fecha original.
+    const firstTenancy = new Map<string, number>();
+    for (const t of tenancies) {
+      const at = t.startedOn.getTime();
+      const seen = firstTenancy.get(t.unitId);
+      if (seen === undefined || at < seen) firstTenancy.set(t.unitId, at);
+    }
+    const batchStart = new Map<number, number>();
+    for (const u of units) {
+      const day = dayOf(u.createdAt, timezone);
+      const first = firstTenancy.get(u.id);
+      if (first === undefined) continue;
+      batchStart.set(day, Math.min(batchStart.get(day) ?? Infinity, first));
+    }
+    const bornOn = new Map(
+      units.map((u) => {
+        const day = dayOf(u.createdAt, timezone);
+        return [u.id, Math.min(day, batchStart.get(day) ?? Infinity)];
+      }),
+    );
+
+    /** Foto de un día: trasteros que existían, los alquilados y sus cuotas. */
+    const snapshot = (idx: number) => {
+      const day = (idx === curIdx ? today : lastDayOf(idx)).getTime();
+      const existing = units.filter((u) => (bornOn.get(u.id) ?? Infinity) <= day);
       const occupied = new Set<string>();
       let mrr = 0;
-      for (const { c, life } of lives) {
-        if (life.begin.getTime() >= atMs) continue;
-        if (life.end && life.end.getTime() < atMs) continue;
-        occupied.add(c.unitId);
-        mrr += Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount));
+      for (const t of tenancies) {
+        if (t.startedOn.getTime() > day) continue;
+        if (t.endedOn && t.endedOn.getTime() <= day) continue;
+        if (occupied.has(t.unitId)) continue;
+        occupied.add(t.unitId);
+        mrr += monthlyFee({ ...t.contract, priceMonthly: t.priceMonthly });
       }
       return { idx, existing, occupied, mrr };
-    });
-
-    const points = snapshots.map((s) => {
+    };
+    const toPoint = (s: ReturnType<typeof snapshot>) => {
       const occ = s.existing.filter((u) => s.occupied.has(u.id)).length;
       return {
         yearMonth: monthKey(s.idx),
@@ -153,7 +234,10 @@ export class AnalyticsTrendsService {
         occupancy: s.existing.length === 0 ? 0 : occ / s.existing.length,
         mrr: round2(s.mrr),
       };
-    });
+    };
+
+    const snapshots = idxs.map(snapshot);
+    const yearAgo = toPoint(snapshot(curIdx - 12));
 
     const series = (keyOf: (u: (typeof units)[number]) => [string, string]) => {
       const groups = new Map<string, string>();
@@ -175,7 +259,8 @@ export class AnalyticsTrendsService {
     };
 
     return {
-      points,
+      points: snapshots.map(toPoint),
+      yearAgo: yearAgo.totalUnits > 0 ? yearAgo : null,
       byFacility: series((u) => [u.facilityId, u.facility.name]),
       byUnitType: series((u) => [u.unitTypeId, u.unitType.name]),
     };
@@ -187,68 +272,73 @@ export class AnalyticsTrendsService {
     range: { from?: string; to?: string } = {},
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<RevenueBreakdownDto> {
-    const now = new Date();
-    const defaultFrom = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
-    const from = range.from ? parseDay(range.from, 'from') : defaultFrom;
-    const to = range.to
-      ? parseDay(range.to, 'to')
-      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const toExclusive = new Date(to.getTime() + DAY);
-
-    const items = await this.prisma.withTenant(
-      (tx) =>
-        tx.invoiceItem.findMany({
-          where: {
-            invoice: {
-              kind: 'invoice',
-              deletedAt: null,
-              status: { notIn: ['draft', 'cancelled'] },
-              issueDate: { gte: from, lt: toExclusive },
-              ...invoiceWhere(scope),
-            },
+    const { lines, from, to } = await this.prisma.withTenant(async (tx) => {
+      const timezone = await tenantTimezone(tx, tenantId);
+      const today = todayInTimezone(timezone);
+      const defaultFrom = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 11, 1));
+      let from = range.from ? parseDay(range.from, 'from') : defaultFrom;
+      let to = range.to ? parseDay(range.to, 'to') : today;
+      if (from > to) [from, to] = [to, from];
+      if ((to.getTime() - from.getTime()) / DAY > BREAKDOWN_MAX_DAYS) {
+        from = new Date(to.getTime() - BREAKDOWN_MAX_DAYS * DAY);
+      }
+      const lines = await tx.invoiceItem.findMany({
+        where: {
+          invoice: {
+            kind: 'invoice',
+            deletedAt: null,
+            status: { in: [...INVOICED_STATUSES] },
+            issueDate: { gte: from, lt: new Date(to.getTime() + DAY) },
+            ...invoiceWhere(scope),
           },
-          select: {
-            description: true,
-            total: true,
-            taxAmount: true,
-            invoice: {
-              select: {
-                contractId: true,
-                lateFeeForInvoiceId: true,
-                facility: { select: { id: true, name: true } },
-                productSale: {
-                  select: { id: true, facility: { select: { id: true, name: true } } },
-                },
-                contract: {
-                  select: {
-                    unit: {
-                      select: {
-                        facility: { select: { id: true, name: true } },
-                        unitType: { select: { id: true, name: true } },
-                      },
-                    },
-                  },
+        },
+        select: {
+          description: true,
+          total: true,
+          taxAmount: true,
+          invoice: {
+            select: {
+              ...BREAKDOWN_INVOICE_SELECT,
+              correctionMethod: true,
+              // Un abono se reparte como la factura que corrige; una sustitutiva
+              // cuenta solo la diferencia con la sustituida (como en los libros).
+              rectifiesInvoice: {
+                select: {
+                  ...BREAKDOWN_INVOICE_SELECT,
+                  items: { select: { description: true, total: true, taxAmount: true } },
                 },
               },
             },
           },
-        }),
-      tenantId,
-    );
+        },
+      });
+      return { lines, from, to };
+    }, tenantId);
 
     const concepts = new Map<RevenueConcept, number>();
     const facilities = new Map<string, { label: string; amount: number }>();
     const types = new Map<string, { label: string; amount: number }>();
     let total = 0;
-    for (const it of items) {
-      const inv = it.invoice;
-      const concept = conceptOf(it.description, {
+
+    type Source = {
+      contractId: string | null;
+      lateFeeForInvoiceId: string | null;
+      facility: { id: string; name: string } | null;
+      productSale: { id: string; facility: { id: string; name: string } | null } | null;
+      contract: {
+        unit: {
+          facility: { id: string; name: string };
+          unitType: { id: string; name: string } | null;
+        };
+      } | null;
+    };
+    const add = (description: string, base: number, inv: Source) => {
+      const concept = conceptOf(description, {
         lateFeeForInvoiceId: inv.lateFeeForInvoiceId,
         contractId: inv.contractId,
         saleId: inv.productSale?.id ?? null,
       });
-      if (!concept) continue;
-      const base = Number(it.total) - Number(it.taxAmount);
+      if (!concept) return;
       total += base;
       concepts.set(concept, (concepts.get(concept) ?? 0) + base);
       const facility =
@@ -262,6 +352,19 @@ export class AnalyticsTrendsService {
         const t = types.get(type.id) ?? { label: type.name, amount: 0 };
         t.amount += base;
         types.set(type.id, t);
+      }
+    };
+
+    const substituted = new Set<string>();
+    for (const it of lines) {
+      const inv = it.invoice;
+      const original = inv.rectifiesInvoice;
+      add(it.description, Number(it.total) - Number(it.taxAmount), original ?? inv);
+      if (inv.correctionMethod === 'by_substitution' && original && !substituted.has(inv.id)) {
+        substituted.add(inv.id);
+        for (const o of original.items) {
+          add(o.description, -(Number(o.total) - Number(o.taxAmount)), original);
+        }
       }
     }
 
@@ -289,23 +392,37 @@ export class AnalyticsTrendsService {
   /** Motivos de baja de la encuesta de salida, por las enviadas en el periodo. */
   async getExitReasons(
     tenantId: string,
-    months?: number,
+    range: { months?: number; from?: string; to?: string } = {},
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<ExitReasonsDto> {
-    const since = new Date(Date.now() - clampMonths(months) * 30.44 * DAY);
-    const rows = await this.prisma.withTenant(
-      (tx) =>
-        tx.review.findMany({
-          where: {
-            tenantId,
-            source: 'reviews.exit',
-            requestedAt: { gte: since },
-            ...(scope.ids ? { contract: { unit: { facilityId: { in: scope.ids } } } } : {}),
+    const rows = await this.prisma.withTenant(async (tx) => {
+      const timezone = await tenantTimezone(tx, tenantId);
+      // El periodo elegido en la página (meses `YYYY-MM`), o los últimos N meses.
+      const today = todayInTimezone(timezone);
+      const curIdx = today.getUTCFullYear() * 12 + today.getUTCMonth();
+      const fromIdx = parseMonth(range.from, 'from');
+      const toIdx = parseMonth(range.to, 'to');
+      let startIdx = curIdx - (clampMonths(range.months) - 1);
+      let endIdx = curIdx;
+      if (fromIdx !== null && toIdx !== null) {
+        startIdx = Math.min(fromIdx, toIdx);
+        endIdx = Math.min(curIdx, Math.max(fromIdx, toIdx));
+      }
+      const year = (idx: number) => Math.floor(idx / 12);
+      const month = (idx: number) => (idx % 12) + 1;
+      return tx.review.findMany({
+        where: {
+          tenantId,
+          source: 'reviews.exit',
+          requestedAt: {
+            gte: zonedMonthStart(year(startIdx), month(startIdx), timezone),
+            lt: zonedMonthStart(year(endIdx), month(endIdx) + 1, timezone),
           },
-          select: { status: true, npsScore: true, exitReason: true },
-        }),
-      tenantId,
-    );
+          ...(scope.ids ? { contract: { unit: { facilityId: { in: scope.ids } } } } : {}),
+        },
+        select: { status: true, npsScore: true, exitReason: true },
+      });
+    }, tenantId);
     const answered = rows.filter((r) => r.status === 'submitted');
     const scores = answered.flatMap((r) => (r.npsScore === null ? [] : [r.npsScore]));
     const nps =
@@ -339,48 +456,65 @@ export class AnalyticsTrendsService {
     scope: AnalyticsScope = ALL_FACILITIES,
   ): Promise<CohortsDto> {
     const count = clampMonths(months);
-    const now = new Date();
-    const curIdx = now.getUTCFullYear() * 12 + now.getUTCMonth();
-    const startIdx = curIdx - (count - 1);
 
-    const contracts = await this.prisma.withTenant(
-      (tx) =>
-        tx.contract.findMany({
-          where: { AND: [SIGNED_CONTRACT_WHERE, contractWhere(scope)] },
-          select: {
-            ...LIFECYCLE_SELECT,
-            invoices: {
-              where: {
-                kind: 'invoice',
-                deletedAt: null,
-                status: { notIn: ['draft', 'cancelled'] },
-              },
-              select: { total: true },
+    const { contracts, timezone, today } = await this.prisma.withTenant(async (tx) => {
+      const timezone = await tenantTimezone(tx, tenantId);
+      const today = todayInTimezone(timezone);
+      const curIdx = today.getUTCFullYear() * 12 + today.getUTCMonth();
+      const startIdx = curIdx - (count - 1);
+      const since = zonedMonthStart(Math.floor(startIdx / 12), (startIdx % 12) + 1, timezone);
+      const contracts = await tx.contract.findMany({
+        where: {
+          AND: [
+            SIGNED_CONTRACT_WHERE,
+            contractWhere(scope),
+            // Solo los que empezaron en el periodo (empiezan al firmar o en su
+            // fecha de inicio, lo que sea más tarde).
+            { OR: [{ signedAt: { gte: since } }, { startDate: { gte: since } }] },
+          ],
+        },
+        select: {
+          ...LIFECYCLE_SELECT,
+          invoices: {
+            where: {
+              kind: 'invoice',
+              deletedAt: null,
+              status: { in: [...INVOICED_STATUSES] },
+              ...invoiceWhere(scope),
             },
+            select: INVOICED_SELECT,
           },
-        }),
-      tenantId,
-    );
+        },
+      });
+      return { contracts, timezone, today };
+    }, tenantId);
 
+    const now = new Date();
+    const curIdx = today.getUTCFullYear() * 12 + today.getUTCMonth();
+    const startIdx = curIdx - (count - 1);
     const groups = new Map<number, { begin: Date; end: Date | null; revenue: number }[]>();
     for (const c of contracts) {
       const life = contractLifecycle(c);
       if (!life) continue;
-      const idx = life.begin.getUTCFullYear() * 12 + life.begin.getUTCMonth();
+      const idx = monthIdx(life.begin, timezone);
       if (idx < startIdx || idx > curIdx) continue;
-      const revenue = c.invoices.reduce((sum, i) => sum + Number(i.total), 0);
+      // Lo facturado como en Ingresos: anular resta, una sustitutiva cuenta la diferencia.
+      const revenue = c.invoices.reduce((sum, i) => sum + invoicedAmount(i), 0);
       const list = groups.get(idx) ?? [];
       list.push({ begin: life.begin, end: life.end, revenue });
       groups.set(idx, list);
     }
 
-    const retained = (list: { begin: Date; end: Date | null }[], monthsAfter: number) => {
+    const retained = (
+      idx: number,
+      list: { begin: Date; end: Date | null }[],
+      monthsAfter: number,
+    ) => {
       // Solo si ya ha pasado ese tiempo para todo el mes de alta.
-      const first = list[0]!.begin;
-      const groupEnd = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 1));
-      const reach = new Date(groupEnd);
-      reach.setUTCMonth(reach.getUTCMonth() + monthsAfter);
-      if (reach > now) return null;
+      const reachIdx = idx + 1 + monthsAfter;
+      if (zonedMonthStart(Math.floor(reachIdx / 12), (reachIdx % 12) + 1, timezone) > now) {
+        return null;
+      }
       const alive = list.filter((x) => {
         const at = new Date(x.begin);
         at.setUTCMonth(at.getUTCMonth() + monthsAfter);
@@ -401,9 +535,9 @@ export class AnalyticsTrendsService {
       cohorts.push({
         yearMonth: monthKey(idx),
         contracts: list.length,
-        retained3: retained(list, 3),
-        retained6: retained(list, 6),
-        retained12: retained(list, 12),
+        retained3: retained(idx, list, 3),
+        retained6: retained(idx, list, 6),
+        retained12: retained(idx, list, 12),
         avgStayMonths: Math.round(stay * 10) / 10,
         revenuePerContract: round2(list.reduce((sum, x) => sum + x.revenue, 0) / list.length),
       });

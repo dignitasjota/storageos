@@ -10,6 +10,7 @@ import {
   observedRentals,
   marketTrend,
   rentalIntervals,
+  freeSince,
   statusAt,
 } from '../pricing-engine';
 
@@ -280,11 +281,13 @@ describe('pricing-engine', () => {
         { occurredAt: d(45), newStatus: 'maintenance' },
         { occurredAt: d(50), newStatus: 'available' },
         { occurredAt: d(70), newStatus: 'reserved' },
+        { occurredAt: d(72), newStatus: 'occupied' },
       ];
+      // Solo cuenta como alquilado al ocuparse: la reserva no corta el periodo.
       expect(rentalIntervals(d(0), history).map((i) => [i.from.getTime(), i.to.getTime()])).toEqual(
         [
           [d(0).getTime(), d(10).getTime()],
-          [d(50).getTime(), d(70).getTime()],
+          [d(50).getTime(), d(72).getTime()],
         ],
       );
       expect(statusAt(history, d(20))).toBe('occupied');
@@ -293,7 +296,39 @@ describe('pricing-engine', () => {
     });
   });
 
+  it('una reserva que caduca no reinicia los días libre', () => {
+    const d = (day: number) => new Date(Date.UTC(2026, 0, 1 + day));
+    const history = [
+      { occurredAt: d(10), newStatus: 'occupied' },
+      { occurredAt: d(40), newStatus: 'available' },
+      { occurredAt: d(60), newStatus: 'reserved' },
+      { occurredAt: d(63), newStatus: 'available' },
+    ];
+    expect(freeSince(d(0), history).getTime()).toBe(d(40).getTime());
+    expect(freeSince(d(0), []).getTime()).toBe(d(0).getTime());
+    expect(
+      freeSince(d(0), [
+        { occurredAt: d(5), newStatus: 'maintenance' },
+        { occurredAt: d(9), newStatus: 'available' },
+      ]).getTime(),
+    ).toBe(d(9).getTime());
+  });
+
   describe('decidePrice', () => {
+    it('al redondear a euros no se pasa del paso ni de los límites', () => {
+      // 13 € con un 8 % (4 % con pocos datos) no puede dar 14 € (+7,7 %).
+      const small = decide({ currentPrice: 13, marketPrice: 20, confidence: 'low' });
+      expect(small.action).toBe('hold');
+      const min = decide({ currentPrice: 60, marketPrice: 40, minPrice: 49.4 });
+      expect(min.suggestedPrice).toBeGreaterThanOrEqual(49.4);
+    });
+
+    it('con un paso máximo pequeño sigue sugiriendo', () => {
+      const d = decide({ currentPrice: 100, marketPrice: 120, maxStepPct: 3, confidence: 'low' });
+      expect(d.action).toBe('raise');
+      expect(d.suggestedPrice).toBe(101);
+    });
+
     it('sube hacia el mercado, como mucho el cambio máximo', () => {
       const d = decide({ currentPrice: 80, marketPrice: 100 });
       expect(d.targetPrice).toBe(100);

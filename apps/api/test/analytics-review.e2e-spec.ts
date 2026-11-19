@@ -298,7 +298,14 @@ describe('Revisión de Analítica (e2e)', () => {
       .set(ownerAuth)
       .send({
         name: 'Precios',
-        permissions: ['analytics:read', 'units:read', 'units:manage'],
+        // Con permiso para ver el dinero (facturas y cobros).
+        permissions: [
+          'analytics:read',
+          'units:read',
+          'units:manage',
+          'invoices:read',
+          'payments:read',
+        ],
         baseRole: 'manager',
       })
       .expect(201);

@@ -3342,3 +3342,20 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 - **Comparativa**: `GET /admin/sales-team/comparison?months=1|3|6|12` → `SalesTeamComparisonDto` (por comercial: prospectos asignados, pruebas, ventas, conversión, días hasta pagar, bajas, cuotas al mes de hoy y comisiones del periodo).
 
 **Panel del cliente**: `GET /settings/sales-rep` → `{rep: TenantSalesRepDto | null}` (nombre, email, teléfono, WhatsApp y enlace de reservas de su comercial, si tiene uno activo).
+
+### Analítica: segunda revisión (2026-11-19)
+
+- **Dinero solo con permiso**: `GET /analytics/monthly-revenue`, `/revenue`, `/revenue-breakdown` y `/aging` exigen además `invoices:read` y `payments:read` (403 `insufficient_permission`). Sin ellos, `occupancy` devuelve `mrrActual`, `mrrPotential` y `economicOccupancy` a `null`; `occupancy-history` las cuotas a `null`; `forecast` `current.mrr`, `avgContractValue` y `projectedMrr` a `null`; `cohorts` `revenuePerContract` a `null`; `churn-risk` `priceMonthly` a `null`; `suggested-actions` sin importes. El Resumen (`/dashboard/overview`) igual: `revenue`, `receivables` y `monthlyRevenue` a `null`.
+- **Emisor de las facturas** (plan Administrador): `monthly-revenue`, `revenue`, `revenue-breakdown`, `aging` y `cohorts` aceptan `?ownerId=` — vacío o `self` = tu empresa (por defecto), un id = ese propietario, `all` = todas. Id no válido → 400 `invalid_owner`.
+- `?facilityId=` mal escrito → 400 `invalid_facility_id` (antes, 500).
+- **Locales por abrir**: no cuentan en las cifras de toda la empresa (ocupación, cuotas con todo alquilado, previsión, comparativa, precios por tipo) hasta que abren; con `?facilityId=` de ese local sí.
+- `POST /analytics/pricing-suggestions/apply` cambia el precio del tipo **y el de sus trasteros libres** en todos los locales (con su rastro en el historial de precios); la respuesta lleva `unitsUpdated`. `PricingSuggestionItemDto.availableUnitsAll` dice cuántos son antes de aplicar.
+- `POST /analytics/unit-pricing-suggestions/apply` exige un precio mayor que 0.
+- `GET /analytics/churn` lleva `started` (altas del mes) en cada mes: una baja de quien entró ese mes cuenta, y la tasa va sobre los activos al empezar más las altas.
+- `GET /analytics/exit-reasons?from=&to=` (meses `YYYY-MM`) para el periodo elegido; `months` sigue valiendo.
+- `GET /analytics/occupancy-history` sale de quién tuvo cada trastero (un traslado no mueve la historia; una cartera importada cuenta sus trasteros desde el primer inquilino) y añade `yearAgo` (el mismo mes del año pasado).
+- `GET /analytics/churn-risk` es **por inquilino** (`contractCount`, trasteros y cuota de todos sus contratos).
+- `CompetitionPriceDropDto.comparablePrice`: el precio nuevo del competidor comparable con el tuyo (sin IVA, con seguro, alta y promoción).
+- `RevenueForecastDto`: `assumptions.historyMonths` (meses cerrados con actividad) y `current.totalUnits` = trasteros que se pueden alquilar.
+- `GET /analytics/pricing-strategy` solo lista los locales que ve el usuario.
+- `GET /analytics/benchmark`: mínimo 10 negocios (sin demos ni cuentas exentas) y se reutiliza una hora.

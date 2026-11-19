@@ -128,6 +128,27 @@ describe('Tendencia del mercado y efecto de los cambios de precio (e2e)', () => 
         confirmImmediately: true,
       })
       .expect(201);
+    // Una reserva puede caducar sin pagarse: aún no cuenta como alquilado.
+    const reserved = await request(app.getHttpServer())
+      .get('/analytics/price-change-effects')
+      .set(auth);
+    expect(reserved.body.items[0]).toMatchObject({ daysToRentAfter: null });
+    // Al firmar el contrato, sí.
+    const contract = await request(app.getHttpServer())
+      .post('/contracts')
+      .set(auth)
+      .send({
+        customerId,
+        unitId,
+        startDate: new Date().toISOString().slice(0, 10),
+        priceMonthly: 90,
+      })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/contracts/${contract.body.id}/sign`)
+      .set(auth)
+      .send({})
+      .expect(200);
     const rented = await request(app.getHttpServer())
       .get('/analytics/price-change-effects')
       .set(auth);

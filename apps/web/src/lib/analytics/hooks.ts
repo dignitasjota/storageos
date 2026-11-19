@@ -75,7 +75,10 @@ export function useBenchmark() {
 }
 
 export function useMonthlyRevenue(
-  arg: number | { months?: number; from?: string; to?: string; facilityId?: string } = 12,
+  arg:
+    | number
+    | { months?: number; from?: string; to?: string; facilityId?: string; ownerId?: string } = 12,
+  enabled = true,
 ) {
   const params = typeof arg === 'number' ? { months: arg } : arg;
   const ranged = !!(params.from && params.to);
@@ -84,8 +87,10 @@ export function useMonthlyRevenue(
     to: ranged ? params.to : undefined,
     months: !ranged && params.months ? String(params.months) : undefined,
     facilityId: 'facilityId' in params ? params.facilityId : undefined,
+    ownerId: 'ownerId' in params ? params.ownerId : undefined,
   };
   return useQuery({
+    enabled,
     queryKey: analyticsKey('monthly-revenue', p),
     queryFn: () => apiFetch<MonthlyRevenueKpiDto>(`/analytics/monthly-revenue${query(p)}`),
   });
@@ -124,7 +129,7 @@ export function useChurn(params: Range = {}) {
   });
 }
 
-export function useAging(params: { atDate?: string; facilityId?: string } = {}) {
+export function useAging(params: { atDate?: string; facilityId?: string; ownerId?: string } = {}) {
   return useQuery({
     queryKey: analyticsKey('aging', params),
     queryFn: () => apiFetch<AgingKpiDto>(`/analytics/aging${query(params)}`),
@@ -177,6 +182,21 @@ export function useSuggestedActions(facilityId?: string) {
   });
 }
 
+/** Lo que cambia al aplicar un precio: sugerencias, efectos, ocupación y trasteros. */
+function invalidatePrices(qc: ReturnType<typeof useQueryClient>) {
+  for (const scope of [
+    'pricing-suggestions',
+    'unit-pricing-suggestions',
+    'price-change-effects',
+    'occupancy',
+    'suggested-actions',
+  ] as const) {
+    void qc.invalidateQueries({ queryKey: analyticsKey(scope) });
+  }
+  void qc.invalidateQueries({ queryKey: ['unit-types'] });
+  void qc.invalidateQueries({ queryKey: ['units'] });
+}
+
 export function useApplyPricing() {
   const qc = useQueryClient();
   return useMutation({
@@ -185,10 +205,7 @@ export function useApplyPricing() {
         method: 'POST',
         json: args,
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: analyticsKey('pricing-suggestions') });
-      void qc.invalidateQueries({ queryKey: ['unit-types'] });
-    },
+    onSuccess: () => invalidatePrices(qc),
   });
 }
 
@@ -220,16 +237,14 @@ export function useApplyUnitPricing() {
         method: 'POST',
         json: args,
       }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: analyticsKey('unit-pricing-suggestions') });
-      void qc.invalidateQueries({ queryKey: ['units'] });
-    },
+    onSuccess: () => invalidatePrices(qc),
   });
 }
 
 /** Estrategia de precios: ocupación objetivo, límites y posicionamiento por local. */
-export function usePricingStrategy() {
+export function usePricingStrategy(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: analyticsKey('pricing-strategy'),
     queryFn: () => apiFetch<PricingStrategyDto>('/analytics/pricing-strategy'),
   });
@@ -289,17 +304,20 @@ export function useOccupancyHistory(params: { months?: number; facilityId?: stri
   });
 }
 
-export function useRevenueBreakdown(params: Range = {}) {
+export function useRevenueBreakdown(params: Range & { ownerId?: string } = {}) {
   return useQuery({
     queryKey: analyticsKey('revenue-breakdown', params),
     queryFn: () => apiFetch<RevenueBreakdownDto>(`/analytics/revenue-breakdown${query(params)}`),
   });
 }
 
-export function useCohorts(params: { months?: number; facilityId?: string } = {}) {
+export function useCohorts(
+  params: { months?: number; facilityId?: string; ownerId?: string } = {},
+) {
   const p = {
     months: params.months ? String(params.months) : undefined,
     facilityId: params.facilityId,
+    ownerId: params.ownerId,
   };
   return useQuery({
     queryKey: analyticsKey('cohorts', p),
@@ -308,11 +326,8 @@ export function useCohorts(params: { months?: number; facilityId?: string } = {}
 }
 
 /** Motivos de baja de la encuesta de salida. */
-export function useExitReasons(params: { months?: number; facilityId?: string } = {}) {
-  const p = {
-    months: params.months ? String(params.months) : undefined,
-    facilityId: params.facilityId,
-  };
+export function useExitReasons(params: Range = {}) {
+  const p = { from: params.from, to: params.to, facilityId: params.facilityId };
   return useQuery({
     queryKey: analyticsKey('exit-reasons', p),
     queryFn: () => apiFetch<ExitReasonsDto>(`/analytics/exit-reasons${query(p)}`),

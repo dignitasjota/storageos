@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { CsvButton } from './period';
+import { formatPct } from './ui';
 
 import type { UnitPricingSuggestionDto } from '@storageos/shared';
 
@@ -64,10 +65,18 @@ export const CONFIDENCE: Record<
   low: { label: 'Pocos datos', title: 'Sin datos suficientes: los cambios son más pequeños' },
 };
 
-export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
+export function UnitPricingPanel({
+  facilityId,
+  includeCompetition,
+  onIncludeCompetitionChange,
+}: {
+  facilityId?: string;
+  includeCompetition: boolean;
+  onIncludeCompetitionChange: (v: boolean) => void;
+}) {
   const ask = useConfirm();
-  const [includeCompetition, setIncludeCompetition] = useState(true);
-  const { data, isLoading } = useUnitPricingSuggestions(facilityId, includeCompetition);
+  const suggestions = useUnitPricingSuggestions(facilityId, includeCompetition);
+  const { data, isLoading, isError } = suggestions;
   const apply = useApplyUnitPricing();
   const canApply = useHasPermission('units:manage');
   const canManageOffers = useHasPermission('promotions:manage');
@@ -86,6 +95,11 @@ export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
   }
 
   async function onApply(s: UnitPricingSuggestionDto) {
+    const ok = await ask({
+      title: `¿Cambiar el precio de ${s.code}?`,
+      description: `Pasará de ${eur(s.currentPrice)} a ${eur(s.suggestedPrice)} al mes (sin IVA). Vale para quien lo alquile a partir de ahora; los contratos en vigor no cambian.`,
+    });
+    if (!ok) return;
     try {
       await apply.mutateAsync({ unitId: s.unitId, price: s.suggestedPrice });
       toast.success(`Precio de ${s.code} actualizado a ${eur(s.suggestedPrice)}.`);
@@ -102,15 +116,15 @@ export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
         <p className="max-w-2xl text-sm text-muted-foreground">
           Parte del <strong>precio de mercado</strong> de cada tamaño (competencia cercana y
           reciente), lo ajusta por tu <strong>posicionamiento</strong> y la <strong>demanda</strong>{' '}
-          (ocupación, lista de espera), y respeta los límites de tu estrategia. Aplicar cambia su
-          precio de catálogo (solo afecta a nuevos contratos; para subir a la cartera actual usa las
-          subidas de precio).
+          (ocupación, lista de espera), y respeta los límites de tu estrategia. Precios sin IVA.
+          Aplicar cambia el precio de ese trastero para quien lo alquile a partir de ahora; para
+          subir a quien ya tienes, usa las subidas de precio.
         </p>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
             <Checkbox
               checked={includeCompetition}
-              onCheckedChange={(v) => setIncludeCompetition(v === true)}
+              onCheckedChange={(v) => onIncludeCompetitionChange(v === true)}
             />
             Incluir competencia
           </label>
@@ -135,7 +149,14 @@ export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
 
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
+          {isError && !data ? (
+            <div className="space-y-2 p-8 text-center text-sm text-muted-foreground">
+              <p>No se han podido cargar las sugerencias.</p>
+              <Button size="sm" variant="outline" onClick={() => void suggestions.refetch()}>
+                Reintentar
+              </Button>
+            </div>
+          ) : isLoading ? (
             <div className="space-y-2 p-4">
               {Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} className="h-10" />
@@ -168,7 +189,8 @@ export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
                           {s.facilityName}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Tamaño al {s.occupancyPct}% · {s.daysVacant} d libre
+                          Tamaño al {formatPct(s.occupancyPct / 100, 0)} ·{' '}
+                          {s.daysVacant === 1 ? '1 día libre' : `${s.daysVacant} días libre`}
                         </div>
                       </TableCell>
                       <TableCell className="text-sm">
@@ -264,7 +286,7 @@ export function UnitPricingPanel({ facilityId }: { facilityId?: string }) {
                             variant="outline"
                             size="sm"
                             disabled={apply.isPending}
-                            onClick={() => onApply(s)}
+                            onClick={() => void onApply(s)}
                           >
                             Aplicar
                           </Button>
@@ -323,9 +345,9 @@ function UnitOfferDialog({
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1">
-            <Label>Meses gratis</Label>
+            <Label htmlFor="offer-free-months">Meses gratis</Label>
             <Select value={freeMonths} onValueChange={setFreeMonths}>
-              <SelectTrigger>
+              <SelectTrigger id="offer-free-months">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -338,8 +360,9 @@ function UnitOfferDialog({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label>Válida durante (días)</Label>
+            <Label htmlFor="offer-valid-days">Válida durante (días)</Label>
             <Input
+              id="offer-valid-days"
               inputMode="numeric"
               value={validDays}
               onChange={(e) => setValidDays(e.target.value)}
