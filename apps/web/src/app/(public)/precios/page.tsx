@@ -51,7 +51,7 @@ const PRICING_FAQ = [
   },
   {
     q: '¿Cómo funciona el plan Basic?',
-    a: 'Pagas 1 € al mes por cada trastero, con un mínimo de 19 €. Contamos los trasteros que tienes unos días antes de cada cobro, sin prorrateos. Llega hasta 50 trasteros, 1 local y 1 usuario (el segundo, por 10 € al mes).',
+    a: 'Pagas 1 € al mes por cada trastero, con un mínimo de 19 €. Contamos los trasteros que tienes unos días antes de cada cobro, sin prorrateos. Llega hasta 50 trasteros, 1 local y 1 usuario. Si más adelante necesitas otro usuario, lo añades como extra desde Configuración → Suscripción (10 € al mes).',
   },
   {
     q: '¿Cómo funciona la prueba gratuita?',
@@ -59,7 +59,7 @@ const PRICING_FAQ = [
   },
   {
     q: '¿Qué pasa si supero los trasteros de mi plan?',
-    a: 'No puedes dar de alta más hasta subir de plan; nunca se borra nada de lo que ya tienes. En Basic el segundo usuario va aparte (10 € al mes). En Pro (hasta 1.000 trasteros) y Administrador (hasta 1.500) te contactamos para darte un precio a medida.',
+    a: 'No puedes dar de alta más hasta subir de plan; nunca se borra nada de lo que ya tienes. En Pro (hasta 1.000 trasteros) y Administrador (hasta 1.500) te contactamos para darte un precio a medida.',
   },
   {
     q: '¿Hay cuota de alta o de integración?',
