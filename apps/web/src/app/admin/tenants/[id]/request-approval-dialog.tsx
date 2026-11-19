@@ -62,7 +62,7 @@ export function RequestApprovalDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const create = useCreateApproval();
-  const plans = useAdminSubscriptionPlans();
+  const plans = useAdminSubscriptionPlans({ assignable: true });
   const addons = useAdminAddons();
   const billing = useTenantBillingSummary(tenantId);
   const [action, setAction] = useState<ApprovalAction>('extend_trial');

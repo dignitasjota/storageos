@@ -28,7 +28,7 @@ export function TrialBanner() {
 
   return (
     <div className="border-b border-border bg-primary/5 text-primary">
-      <div className="container flex h-9 items-center gap-2 text-xs font-medium">
+      <div className="container flex min-h-9 flex-wrap items-center gap-x-2 gap-y-1 py-1.5 text-xs font-medium">
         <Clock className="size-3.5" aria-hidden />
         <span>{days > 0 ? t('remaining', { days }) : t('ended')}</span>
         {days <= 7 && (

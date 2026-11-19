@@ -59,7 +59,7 @@ const PRICING_FAQ = [
   },
   {
     q: '¿Qué pasa si supero los trasteros de mi plan?',
-    a: 'No puedes dar de alta más hasta subir de plan o añadir un extra de capacidad; nunca se borra nada de lo que ya tienes. En Pro (hasta 1.000) y Administrador (hasta 1.500) te contactamos para darte un precio a medida.',
+    a: 'No puedes dar de alta más hasta subir de plan; nunca se borra nada de lo que ya tienes. En Basic el segundo usuario va aparte (10 € al mes). En Pro (hasta 1.000 trasteros) y Administrador (hasta 1.500) te contactamos para darte un precio a medida.',
   },
   {
     q: '¿Hay cuota de alta o de integración?',
@@ -80,9 +80,9 @@ const eur = (n: number) =>
 
 /** Precio de cada plan en la comparativa («1 € por trastero, mínimo 19 €» en Basic). */
 const planPrice = (p: SubscriptionPlanDto) =>
-  p.includedUnits != null && p.extraUnitPrice != null
+  (p.includedUnits != null && p.extraUnitPrice != null
     ? `${eur(p.extraUnitPrice)} por trastero (mínimo ${eur(p.priceMonthly)})`
-    : `${eur(p.priceMonthly)} al mes`;
+    : `${eur(p.priceMonthly)} al mes`) + (p.pricesIncludeVat === false ? ' + IVA' : ', IVA incl.');
 
 /** Tabla de lo que incluye cada plan (sale del catálogo: panel admin → Planes). */
 function PlanComparison({ plans }: { plans: SubscriptionPlanDto[] }) {

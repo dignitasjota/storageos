@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   DEFAULT_TRIAL_PLAN_SLUG,
   normalizeSalesCode,
+  REGISTER_PLAN_SLUGS,
   type RegisterInput,
   type RegisterPlanSlug,
   RegisterSchema,
@@ -186,6 +187,11 @@ export function RegisterForm({
   const [salesCodeFromLink, setSalesCodeFromLink] = useState(!!defaults.salesCode);
   const [planSlug, setPlanSlug] = useState(
     plans.find((p) => p.slug === defaults.planSlug)?.slug ??
+      // Sin catálogo (no cargó), el plan del enlace se respeta igual.
+      (plans.length === 0 &&
+      (REGISTER_PLAN_SLUGS as readonly string[]).includes(defaults.planSlug ?? '')
+        ? defaults.planSlug
+        : undefined) ??
       plans.find((p) => p.slug === DEFAULT_TRIAL_PLAN_SLUG)?.slug ??
       plans[0]?.slug ??
       '',
@@ -281,8 +287,8 @@ export function RegisterForm({
               ))}
             </div>
             <p className="text-xs text-muted-foreground">
-              Sin tarjeta. Durante la prueba tienes los límites de ese plan y puedes cambiarlo
-              cuando quieras.
+              Sin tarjeta. Durante la prueba tienes los límites de ese plan; al pagar puedes elegir
+              otro.
             </p>
           </fieldset>
         )}

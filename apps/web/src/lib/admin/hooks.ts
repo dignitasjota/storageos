@@ -801,13 +801,18 @@ export async function downloadPlatformSepaRemittanceXml(id: string): Promise<voi
  * Planes activos para los selectores del admin (cambio de plan, simulador,
  * alta): incluye los ocultos, que solo asigna el super admin.
  */
-export function useAdminSubscriptionPlans() {
+/**
+ * Planes activos. Con `assignable`, sin el plan gratuito (ya no se asigna ni se
+ * propone; sigue en los filtros porque aún hay cuentas que lo tienen).
+ */
+export function useAdminSubscriptionPlans(opts: { assignable?: boolean } = {}) {
   return useQuery({
     queryKey: ['admin', 'subscription-plans', 'active'],
     queryFn: async () =>
       (await adminApiFetch<SubscriptionPlanDto[]>('/subscription-plans/admin')).filter(
         (p) => p.isActive,
       ),
+    select: opts.assignable ? (rows) => rows.filter((p) => p.slug !== 'free') : undefined,
   });
 }
 

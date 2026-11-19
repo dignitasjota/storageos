@@ -3,6 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { hash as argonHash } from '@node-rs/argon2';
 import {
+  EXTRA_UNITS_ADDON_SLUG,
+  extraUnitsFor,
   FEATURE_LABELS,
   TenantFeatures,
   effectiveFeaturesFromList,
@@ -17,6 +19,7 @@ import { attachmentKeysOf } from '../../common/message-attachments';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
+import { billableUnits } from '../billing-saas/billable-units';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { periodsOwed, subscriptionDueDate } from '../billing-saas/platform-due';
 import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
@@ -792,6 +795,9 @@ export class AdminTenantsService {
         subDetail =
           trialDaysLeft > 0 ? `Trial: ${Math.ceil(trialDaysLeft)} d restantes` : 'Trial vencido';
       }
+    } else if (s.subStatus === 'expired') {
+      subscription = 10;
+      subDetail = 'Sin pagar: en solo lectura';
     } else if (s.subStatus === 'active' || s.status === 'active') {
       subscription = 100;
       subDetail = 'Suscripción activa';
@@ -2143,6 +2149,13 @@ export class AdminTenantsService {
         message: 'Ese plan está desactivado; no se puede asignar.',
       });
     }
+    // El plan gratuito ya no se ofrece: quien deja de pagar queda en solo lectura.
+    if (plan.slug === 'free') {
+      throw new BadRequestException({
+        code: 'plan_retired',
+        message: 'El plan gratuito ya no se asigna. Para no cobrarle, márcala como exenta.',
+      });
+    }
     const subscription = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
       include: { plan: true },
@@ -2257,7 +2270,7 @@ export class AdminTenantsService {
     const [newPlan, subscription, units, facilities, users, invites, addons] = await Promise.all([
       this.admin.subscriptionPlan.findUnique({ where: { slug: planSlug } }),
       this.admin.tenantSubscription.findUnique({ where: { tenantId }, include: { plan: true } }),
-      this.admin.unit.count({ where: { tenantId } }),
+      billableUnits(this.admin, tenantId),
       this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
       this.admin.user.count({ where: { tenantId, isActive: true } }),
       // Como el límite real: usuarios activos + invitaciones pendientes.
@@ -2266,7 +2279,9 @@ export class AdminTenantsService {
       }),
       this.admin.tenantSubscriptionAddon.findMany({
         where: { tenantId, suspendedAt: null },
-        include: { addon: { select: { name: true, feature: true } } },
+        include: {
+          addon: { select: { name: true, feature: true, planSlugs: true, isSystem: true } },
+        },
       }),
     ]);
     if (!newPlan) {
@@ -2280,9 +2295,15 @@ export class AdminTenantsService {
     }
 
     const newFeatures = new Set<string>(resolvePlanFeatures(newPlan));
+    // Se dan de baja al cambiar: los que el plan nuevo ya incluye o no admite.
     const redundantAddons = addons
-      .filter((a) => a.addon.feature && newFeatures.has(a.addon.feature))
-      .map((a) => ({ name: a.addon.name, feature: a.addon.feature as string }));
+      .filter(
+        (a) =>
+          !a.addon.isSystem &&
+          ((a.addon.feature && newFeatures.has(a.addon.feature)) ||
+            (a.addon.planSlugs.length > 0 && !a.addon.planSlugs.includes(newPlan.slug))),
+      )
+      .map((a) => ({ name: a.addon.name, feature: a.addon.feature ?? '' }));
 
     const overLimits: { resource: string; used: number; limit: number }[] = [];
     const check = (resource: string, used: number, limit: number | null) => {
@@ -2292,8 +2313,16 @@ export class AdminTenantsService {
     check('facilities', facilities, newPlan.maxFacilities);
     check('users', users + invites, newPlan.maxUsers);
 
-    const currentPrice = Number(subscription.plan.priceMonthly);
-    const newPrice = Number(newPlan.priceMonthly);
+    // Con un plan por trastero, la cuota lleva los trasteros de más.
+    const unitAddon = await this.admin.subscriptionAddon.findUnique({
+      where: { slug: EXTRA_UNITS_ADDON_SLUG },
+      select: { priceMonthly: true },
+    });
+    const unitPrice = Number(unitAddon?.priceMonthly ?? 0);
+    const extraUnits = extraUnitsFor(units, newPlan.includedUnits);
+    const currentExtra = extraUnitsFor(units, subscription.plan.includedUnits);
+    const currentPrice = Number(subscription.plan.priceMonthly) + currentExtra * unitPrice;
+    const newPrice = Number(newPlan.priceMonthly) + extraUnits * unitPrice;
     const chargedByStripe =
       !!subscription.stripeSubscriptionId && subscription.billingMode === 'stripe';
     return {
@@ -2308,6 +2337,7 @@ export class AdminTenantsService {
       newPlanActive: newPlan.isActive,
       redundantAddons,
       overLimits,
+      extraUnits,
     };
   }
 

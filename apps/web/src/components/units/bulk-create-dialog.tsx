@@ -93,7 +93,9 @@ export function BulkCreateUnitsDialog({ facilityId: fixedFacility }: { facilityI
       const notes = [
         ...(res.skipped.length ? [`Ya existían: ${res.skipped.join(', ')}.`] : []),
         ...(res.overLimit.length
-          ? [`No caben en tu plan: ${res.overLimit.join(', ')}. Amplíalo en Suscripción.`]
+          ? [
+              `No caben en tu plan: ${res.overLimit.join(', ')}. Para tener más, elige otro plan en Configuración → Suscripción.`,
+            ]
           : []),
         ...res.failed.map((x) => `Se ha parado en ${x.code}: ${x.error}`),
       ];

@@ -81,6 +81,12 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
     // tardar más de los 30s por defecto de Jest.
     // --- Da de alta el tenant en modo sepa, cobra la remesa. ---
     const owner = await registerVerifiedUser(app, 'sepa-bounce');
+    // Cliente que ya paga a mano: el paso a SEPA lo hace el admin (en prueba,
+    // firmar el mandato ya lo pasaría a domiciliación).
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'active' },
+    });
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')
@@ -220,6 +226,12 @@ describe('Platform SEPA — devoluciones/bounce (e2e)', () => {
 
   it('devolver un item ya pendiente (nunca confirmado) → 400', async () => {
     const owner = await registerVerifiedUser(app, 'sepa-bounce-pending');
+    // Cliente que ya paga a mano: el paso a SEPA lo hace el admin (en prueba,
+    // firmar el mandato ya lo pasaría a domiciliación).
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'active' },
+    });
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')

@@ -106,28 +106,19 @@ describe('Plan Basic (e2e)', () => {
     await createFacilityWithUnits(app, owner.accessToken, { unitsCount: 25 });
     const addons = app.get(SaasAddonsService);
 
-    // Lejos del cobro no se fija nada: lo que se dé de alta aún cuenta.
-    await db.tenantSubscription.update({
-      where: { tenantId: tenant.id },
-      data: { currentPeriodEnd: new Date(Date.now() + 20 * 86_400_000), unitsBilledFor: null },
-    });
-    expect(await addons.syncAllExtraUnits()).toBe(0);
-
-    // A 3 días del cobro se fijan los 6 de más (25 − 19), una sola vez.
-    await db.tenantSubscription.update({
-      where: { tenantId: tenant.id },
-      data: { currentPeriodEnd: new Date(Date.now() + 3 * 86_400_000) },
-    });
+    // Se cuentan los de ahora: 6 de más (25 − 19), sin cobro aparte.
     expect(await addons.syncAllExtraUnits()).toBeGreaterThanOrEqual(1);
     let view = (await http().get('/settings/saas-billing/addons').set(auth).expect(200))
       .body as TenantSelfAddonsDto;
     const extra = view.summary.addons.find((a) => a.slug === EXTRA_UNITS_ADDON_SLUG);
     expect(extra).toMatchObject({ quantity: 6, isSystem: true, billingMode: 'manual' });
     expect(view.summary.effectiveMonthly).toBe(25);
-    // Ya fijado para este cobro: no se vuelve a tocar.
     const before = await db.tenantSubscriptionAddon.findFirstOrThrow({
       where: { tenantId: tenant.id, addon: { slug: EXTRA_UNITS_ADDON_SLUG } },
     });
+    // Nunca sale en «Hoy» como cobro aparte.
+    expect(before.nextChargeAt).toBeNull();
+    // Sin cambios, no hay nada que hacer.
     expect(await addons.syncExtraUnits(tenant.id)).toBe(false);
 
     // En el autoservicio: ni el extra interno ni lo que no es de su plan.

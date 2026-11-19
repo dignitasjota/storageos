@@ -187,7 +187,7 @@ describe('Webhook de Stripe de la suscripción (e2e)', () => {
     });
   });
 
-  it('la suscripción vigente cancelada en Stripe baja al plan Free', async () => {
+  it('la suscripción vigente cancelada en Stripe conserva su plan en solo lectura', async () => {
     const owner = await registerVerifiedUser(app, 'stripewhcancel');
     const stamp = Date.now();
     const subId = `sub_cancel_${stamp}`;
@@ -222,13 +222,13 @@ describe('Webhook de Stripe de la suscripción (e2e)', () => {
       include: { plan: true },
     });
     expect(sub).toMatchObject({
-      status: 'active',
+      status: 'expired',
       stripeSubscriptionId: null,
       stripeCustomerId: cus,
       billingMode: 'manual',
       cancelAtPeriodEnd: false,
     });
-    expect(sub.plan.slug).toBe('free');
+    expect(sub.plan.slug).toBe('starter');
   });
 
   it('una prueba cuyo primer cobro caducó sigue en prueba con su plan', async () => {

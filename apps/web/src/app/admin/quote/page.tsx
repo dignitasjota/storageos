@@ -35,6 +35,7 @@ import {
   useSendAdminQuote,
   useSetQuoteOfferStatus,
   useTenantBillingSummary,
+  useTenantLimits,
 } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
@@ -56,7 +57,7 @@ export default function QuotePage() {
 
 function QuoteSimulator() {
   const initialTenantId = useSearchParams().get('tenantId');
-  const plans = useAdminSubscriptionPlans();
+  const plans = useAdminSubscriptionPlans({ assignable: true });
   const catalog = useAdminAddons();
   const calc = useAdminQuote();
   const send = useSendAdminQuote();
@@ -76,19 +77,38 @@ function QuoteSimulator() {
   // Arranque con un tenant: su plan y sus extras.
   const tenantDetail = useAdminTenant(initialTenantId ?? undefined);
   const tenantSummary = useTenantBillingSummary(initialTenantId ?? '');
+  const tenantLimits = useTenantLimits(initialTenantId ?? '');
   const [prefilled, setPrefilled] = useState(false);
   useEffect(() => {
-    if (prefilled || !initialTenantId || !tenantDetail.data || !plans.data || !tenantSummary.data)
+    if (
+      prefilled ||
+      !initialTenantId ||
+      !tenantDetail.data ||
+      !plans.data ||
+      !tenantSummary.data ||
+      !tenantLimits.data
+    )
       return;
     const slug = tenantDetail.data.subscription?.planSlug;
     const plan = plans.data.find((p) => p.slug === slug);
     if (plan) setPlanId(plan.id);
     const next: Record<string, number> = {};
-    for (const a of tenantSummary.data.addons) if (!a.suspended) next[a.addonId] = a.quantity;
+    // Los trasteros de más no se eligen: salen de los trasteros que tiene.
+    for (const a of tenantSummary.data.addons) {
+      if (!a.suspended && !a.isSystem) next[a.addonId] = a.quantity;
+    }
     setQty(next);
+    setUnits(String(tenantLimits.data.units.used));
     setTenant({ id: initialTenantId, name: tenantDetail.data.name });
     setPrefilled(true);
-  }, [prefilled, initialTenantId, tenantDetail.data, plans.data, tenantSummary.data]);
+  }, [
+    prefilled,
+    initialTenantId,
+    tenantDetail.data,
+    plans.data,
+    tenantSummary.data,
+    tenantLimits.data,
+  ]);
 
   // Plan por defecto: el primero de pago.
   useEffect(() => {
@@ -97,17 +117,36 @@ function QuoteSimulator() {
     }
   }, [planId, initialTenantId, plans.data]);
 
+  const selectedPlan = (plans.data ?? []).find((p) => p.id === planId);
+  const perUnitPlan = selectedPlan?.includedUnits != null;
+  const addons = (catalog.data ?? []).filter(
+    (a) =>
+      a.isActive &&
+      !a.isSystem &&
+      (a.planSlugs.length === 0 || (!!selectedPlan && a.planSlugs.includes(selectedPlan.slug))),
+  );
+  // Clave estable (la lista se recalcula en cada render).
+  const allowedKey = addons
+    .map((a) => a.id)
+    .sort()
+    .join(',');
+  // Un plan por trastero solo se paga cada mes.
+  useEffect(() => {
+    if (perUnitPlan && cycle === 'yearly') setCycle('monthly');
+  }, [perUnitPlan, cycle]);
+
   const input = useMemo(
     () => ({
       planId,
       cycle,
+      // Solo los extras que se pueden tener en el plan elegido.
       addons: Object.entries(qty)
-        .filter(([, n]) => n > 0)
+        .filter(([id, n]) => n > 0 && allowedKey.split(',').includes(id))
         .map(([addonId, quantity]) => ({ addonId, quantity })),
       ...(coupon.trim() ? { couponCode: coupon.trim() } : {}),
       ...(units.trim() !== '' && Number(units) >= 0 ? { units: Math.floor(Number(units)) } : {}),
     }),
-    [planId, cycle, qty, coupon, units],
+    [planId, cycle, qty, coupon, units, allowedKey],
   );
 
   // Recalcula al cambiar algo (con una pequeña espera por el cupón).
@@ -129,13 +168,6 @@ function QuoteSimulator() {
   }, [tenantSearch]);
   const search = useAdminTenants(debounced.length >= 2 ? { search: debounced } : {});
   const found = debounced.length >= 2 ? (search.data?.pages[0]?.items ?? []).slice(0, 6) : [];
-  const selectedPlan = (plans.data ?? []).find((p) => p.id === planId);
-  const addons = (catalog.data ?? []).filter(
-    (a) =>
-      a.isActive &&
-      !a.isSystem &&
-      (a.planSlugs.length === 0 || (!!selectedPlan && a.planSlugs.includes(selectedPlan.slug))),
-  );
   const planFeatures = selectedPlan ? resolvePlanFeatures(selectedPlan) : [];
   const vatMode = plans.data?.[0]?.pricesIncludeVat === false ? '+ IVA' : 'IVA incl.';
 
@@ -199,7 +231,13 @@ function QuoteSimulator() {
                       key={c}
                       type="button"
                       onClick={() => setCycle(c)}
-                      className={`flex-1 rounded px-3 py-1.5 text-sm ${
+                      disabled={c === 'yearly' && perUnitPlan}
+                      title={
+                        c === 'yearly' && perUnitPlan
+                          ? 'Este plan solo se paga cada mes'
+                          : undefined
+                      }
+                      className={`flex-1 rounded px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                         cycle === c
                           ? 'bg-primary text-primary-foreground'
                           : 'text-muted-foreground hover:bg-accent'

@@ -130,6 +130,8 @@ export class PlatformSepaRemittanceService {
    * en billingMode='stripe' se cobra aparte, no aquí).
    */
   private async eligibleAmount(tenantId: string): Promise<number> {
+    // Trasteros de más (plan por trastero), contados al preparar la remesa.
+    await this.saasAddons.syncExtraUnits(tenantId);
     const summary = await this.saasAddons.billingSummary(tenantId);
     const nonStripeAddons = summary.addons
       .filter((a) => !a.suspended && a.billingMode !== 'stripe')
@@ -147,7 +149,9 @@ export class PlatformSepaRemittanceService {
     const subs = await this.admin.tenantSubscription.findMany({
       where: {
         billingMode: 'sepa',
-        status: { in: ['active', 'past_due'] },
+        // También en solo lectura (prueba o plan gratuito terminados): domiciliar
+        // es su forma de pagar, y al cobrarse vuelve a la normalidad.
+        status: { in: ['active', 'past_due', 'expired'] },
         currentPeriodEnd: { lte: graceDate },
         // Una cuenta exenta no paga y una anonimizada ya no es cliente: no se
         // les domicilia aunque sigan en modo SEPA.

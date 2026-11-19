@@ -978,6 +978,8 @@ export interface TenantLifecycleRunResultDto {
   trialsEnded: number;
   /** Cuentas del plan gratuito avisadas (30 días antes) o pasadas a Basic. */
   freePlanMoves: number;
+  /** Cuentas suspendidas tras 30 días en solo lectura sin pagar. */
+  readOnlySuspended: number;
   /** Correos de ayuda para arrancar enviados (prueba sin local, inquilinos o facturas). */
   activationNudges: number;
   /** Avisos de cuenta suspendida enviados (días 0, 7 y 14). */
@@ -1268,6 +1270,7 @@ export interface TenantAddonDto {
 /** Resumen de la facturación efectiva del tenant (plan + add-ons). */
 export interface TenantBillingSummaryDto {
   planName: string | null;
+  planSlug: string | null;
   planMonthly: number;
   addons: TenantAddonDto[];
   addonsMonthly: number;
@@ -1569,8 +1572,10 @@ export interface AdminChangePlanPreviewDto {
   priceDelta: number;
   isDowngrade: boolean;
   newPlanActive: boolean;
-  /** Add-ons cuya feature ya incluye el plan nuevo (pago redundante). */
+  /** Extras que se dan de baja al cambiar: el plan nuevo ya los incluye o no los admite. */
   redundantAddons: { name: string; feature: string }[];
+  /** Plan por trastero: trasteros de más que se cobrarán con la cuota (incluidos en el precio). */
+  extraUnits: number;
   /** Recursos cuyo uso supera el límite del plan nuevo. */
   overLimits: { resource: string; used: number; limit: number }[];
   /** Paga por Stripe: el cambio se aplica también allí, con prorrateo. */

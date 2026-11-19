@@ -1,6 +1,7 @@
 'use client';
 
-import { FEATURE_LABELS } from '@storageos/shared';
+import { BASIC_PLAN_SLUG, BASIC_USER_ADDON_SLUG, FEATURE_LABELS } from '@storageos/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -70,6 +71,22 @@ export default function SaasBillingPage() {
   const [offeredPlanId, setOfferedPlanId] = useState<string | null>(null);
   // Enlace de una propuesta (`?offer=&plan=&cycle=&coupon=`): deja elegidos el
   // plan, la periodicidad y el cupón.
+  const qc = useQueryClient();
+  // Vuelta del pago con tarjeta: el webhook ya pudo cambiar la suscripción.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('status') !== 'success') return;
+    toast.success('Pago recibido. En unos segundos tu cuenta queda al día.');
+    const refresh = () => {
+      void qc.invalidateQueries({ queryKey: ['saas-billing'] });
+      void qc.invalidateQueries({ queryKey: ['billing-status'] });
+      void qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+    };
+    refresh();
+    // El aviso de Stripe puede tardar un poco.
+    const t = setTimeout(refresh, 8_000);
+    return () => clearTimeout(t);
+  }, [qc]);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (!q.get('offer') && !q.get('plan')) return;
@@ -156,18 +173,20 @@ export default function SaasBillingPage() {
         ...(couponCode ? { couponCode } : {}),
       });
       toast.success('Plan cambiado. Stripe ajustará la diferencia en tu próxima factura.');
-      // Extras que el plan nuevo ya incluye: se siguen cobrando hasta que se cancelen.
-      const included = new Set<string>(
-        plans.data?.find((p) => p.id === planId)?.tenantFeatures ?? [],
+      // El servidor da de baja los extras que el plan nuevo ya incluye o no admite.
+      const newPlan = plans.data?.find((p) => p.id === planId);
+      const included = new Set<string>(newPlan?.tenantFeatures ?? []);
+      const removed = (selfAddons.data?.summary.addons ?? []).filter(
+        (a) =>
+          !a.isSystem &&
+          ((a.feature && included.has(a.feature)) ||
+            (a.slug === BASIC_USER_ADDON_SLUG && newPlan?.slug !== BASIC_PLAN_SLUG)),
       );
-      const redundant = (selfAddons.data?.summary.addons ?? []).filter(
-        (a) => !a.suspended && a.feature && included.has(a.feature),
-      );
-      if (redundant.length > 0) {
+      if (removed.length > 0) {
         toast.info(
-          `Tu plan nuevo ya incluye ${redundant.map((a) => a.name).join(', ')}. Puedes cancelar ${
-            redundant.length > 1 ? 'esos extras' : 'ese extra'
-          } en «Extras de tu cuenta» para no pagarlo dos veces.`,
+          `Con tu plan nuevo ya no pagas aparte ${removed.map((a) => a.name).join(', ')}: ${
+            removed.length > 1 ? 'esos extras se han dado' : 'ese extra se ha dado'
+          } de baja.`,
           { duration: 12_000 },
         );
       }
@@ -416,7 +435,10 @@ export default function SaasBillingPage() {
                       )}
 
                       <PlanCta
-                        isCurrent={isCurrent}
+                        // Sin pagar todavía (prueba, solo lectura), su propio plan también
+                        // se puede pagar.
+                        isCurrent={isCurrent && !canSubscribe}
+                        monthlyOnly={cycle === 'yearly' && p.includedUnits != null}
                         hasStripePrice={
                           cycle === 'yearly'
                             ? p.stripePriceIdYearly !== null
@@ -452,6 +474,7 @@ export default function SaasBillingPage() {
 /** Botón de un plan según el estado del tenant. */
 function PlanCta({
   isCurrent,
+  monthlyOnly,
   hasStripePrice,
   pending,
   mode,
@@ -459,6 +482,7 @@ function PlanCta({
   onChange,
 }: {
   isCurrent: boolean;
+  monthlyOnly: boolean;
   hasStripePrice: boolean;
   pending: boolean;
   mode: 'subscribe' | 'change' | 'manual';
@@ -469,6 +493,13 @@ function PlanCta({
     return (
       <Button className="w-full" variant="outline" disabled>
         Plan actual
+      </Button>
+    );
+  }
+  if (monthlyOnly) {
+    return (
+      <Button className="w-full" variant="outline" disabled>
+        Solo pago mensual
       </Button>
     );
   }
@@ -652,8 +683,8 @@ function SelfAddonsSection() {
     try {
       await cancel.mutateAsync(assignmentId);
       toast.success('Extra cancelado.');
-    } catch {
-      toast.error('No se pudo cancelar.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cancelar.');
     }
   }
 

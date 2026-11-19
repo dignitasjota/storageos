@@ -771,7 +771,9 @@ export class SalesCommissionsService {
           })),
           planMonthly,
           addons: tenant.subscriptionAddons
-            .filter((a) => a.createdAt.getTime() <= paidAt.getTime())
+            // Los trasteros de más pueden crearse justo después del primer pago
+            // (al enlazar el Checkout): cuentan como cuota igualmente.
+            .filter((a) => a.addon.isSystem || a.createdAt.getTime() <= paidAt.getTime())
             .map(
               (a): SplitAddon => ({
                 addonId: a.addonId,

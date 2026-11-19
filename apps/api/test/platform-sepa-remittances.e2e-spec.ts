@@ -73,6 +73,12 @@ describe('Platform SEPA — remesas (e2e)', () => {
    */
   async function setupSepaTenant(prefix: string) {
     const owner = await registerVerifiedUser(app, prefix);
+    // Cliente que ya paga a mano: el paso a SEPA lo hace el admin (en prueba,
+    // firmar el mandato ya lo pasaría a domiciliación).
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'active' },
+    });
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
     await request(app.getHttpServer())
       .post('/settings/saas-billing/sepa-mandate')

@@ -218,6 +218,19 @@ export class PlatformSepaMandateService {
         },
       });
     });
+    // En prueba o en solo lectura, firmar es elegir cómo pagar: la cuota pasa a
+    // domiciliarse (al vencer la prueba no queda en solo lectura, y desde el
+    // solo lectura sale en cuanto se cobre la remesa).
+    await this.admin.tenantSubscription.updateMany({
+      where: {
+        tenantId,
+        billingMode: 'manual',
+        stripeSubscriptionId: null,
+        status: { in: ['trial', 'expired'] },
+        tenant: { billingExempt: false },
+      },
+      data: { billingMode: 'sepa' },
+    });
     return this.toDto(created);
   }
 

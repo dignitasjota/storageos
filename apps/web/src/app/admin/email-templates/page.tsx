@@ -29,6 +29,10 @@ const SAMPLE: Record<string, string> = {
   '{enlace_pago}': 'https://trasteros.pro/settings/saas-billing',
   '{dias}': '3 días',
   '{limites}': '',
+  '{fecha}': '18 de diciembre de 2026',
+  '{plan}': 'Starter',
+  '{importe}': '79,00 €',
+  '{trasteros}': '40',
 };
 
 function sample(text: string): string {

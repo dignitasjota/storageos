@@ -77,6 +77,9 @@ export function useChangePlan() {
     onSuccess: (data) => {
       qc.setQueryData(saasSubscriptionKey, data);
       void qc.invalidateQueries({ queryKey: ['auth', 'me'] }); // features del plan
+      // El servidor quita los extras que el plan nuevo ya incluye o no admite.
+      void qc.invalidateQueries({ queryKey: ['saas-billing', 'addons'] });
+      void qc.invalidateQueries({ queryKey: ['billing-status'] });
     },
   });
 }

@@ -315,6 +315,7 @@ function SizesStep({
     }
     setSaving(true);
     try {
+      let overLimit = 0;
       for (const [i, r] of parsed.entries()) {
         const type = await apiFetch<UnitTypeDto>('/unit-types', {
           method: 'POST',
@@ -333,10 +334,20 @@ function SizesStep({
           heightM: 2.5,
           basePriceMonthly: r.price,
         };
-        await apiFetch('/units/bulk-create', { method: 'POST', json: input });
+        const res = await apiFetch<{ overLimit: string[] }>('/units/bulk-create', {
+          method: 'POST',
+          json: input,
+        });
+        overLimit += res.overLimit.length;
       }
       await qc.invalidateQueries({ queryKey: ['units'] });
       await qc.invalidateQueries({ queryKey: ['unit-types'] });
+      if (overLimit > 0) {
+        toast.warning(
+          `${overLimit} ${overLimit === 1 ? 'trastero no cabe' : 'trasteros no caben'} en tu plan: no se han creado. Para tener más, elige otro plan en Configuración → Suscripción.`,
+          { duration: 12_000 },
+        );
+      }
       onDone();
     } catch (err) {
       toast.error(errorText(err));

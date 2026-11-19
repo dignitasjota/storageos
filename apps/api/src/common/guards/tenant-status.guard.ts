@@ -17,7 +17,23 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * como leídos. Todo lo demás queda en solo lectura.
  */
 const SUSPENDED_WRITABLE_PATHS =
-  /^\/(?:v\d+\/)?(?:settings\/saas-billing(?:\/|$)|support\/(?:tickets|platform-messages)(?:\/|$)|me(?:\/|$)|auth\/|notifications(?:\/|$)|product-updates\/seen)/;
+  /^\/(?:v\d+\/)?(?:settings\/saas-billing(?:\/|$)|support\/(?:tickets|platform-messages)(?:\/|$)|me(?:\/|$)|auth\/|notifications(?:\/|$)|product-updates\/seen|platform-legal-pending(?:\/|$)|settings\/data-export$)/;
+
+/**
+ * Para poder caber en un plan más pequeño: desactivar a un usuario y retirar
+ * una invitación también se pueden en solo lectura.
+ */
+const SUSPENDED_WRITABLE_ACTIONS: { method: string; path: RegExp }[] = [
+  { method: 'DELETE', path: /^\/(?:v\d+\/)?users\/[^/]+$/ },
+  { method: 'POST', path: /^\/(?:v\d+\/)?invitations\/[^/]+\/revoke$/ },
+];
+
+function writableWhenReadOnly(method: string, path: string): boolean {
+  return (
+    SUSPENDED_WRITABLE_PATHS.test(path) ||
+    SUSPENDED_WRITABLE_ACTIONS.some((a) => a.method === method && a.path.test(path))
+  );
+}
 
 type TenantState = 'alive' | 'suspended' | 'expired' | 'gone';
 
@@ -65,13 +81,13 @@ export class TenantStatusGuard implements CanActivate {
     }
     if ((state === 'suspended' || state === 'expired') && !SAFE_METHODS.has(request.method)) {
       const path = (request.originalUrl ?? request.url ?? '').split('?')[0] ?? '';
-      if (!SUSPENDED_WRITABLE_PATHS.test(path)) {
+      if (!writableWhenReadOnly(request.method, path)) {
         throw new ForbiddenException(
           state === 'expired'
             ? {
                 code: 'subscription_expired_read_only',
                 message:
-                  'Tu prueba ha terminado: puedes consultar todo, pero para seguir trabajando elige cómo pagar en Configuración → Suscripción.',
+                  'Tu cuenta está en solo lectura porque tu suscripción no está pagada: puedes consultar todo, pero para seguir trabajando elige cómo pagar en Configuración → Suscripción.',
               }
             : {
                 code: 'tenant_suspended_read_only',
@@ -103,7 +119,9 @@ export class TenantStatusGuard implements CanActivate {
             tenant.subscription?.status === 'expired' && !tenant.billingExempt
             ? 'expired'
             : 'alive';
-    this.cache.set(tenantId, { state, exp: now + TENANT_STATUS_TTL_MS });
+    // Lo que bloquea se vuelve a mirar antes: al pagar se nota enseguida.
+    const ttl = state === 'alive' ? TENANT_STATUS_TTL_MS : Math.min(TENANT_STATUS_TTL_MS, 10_000);
+    this.cache.set(tenantId, { state, exp: now + ttl });
     return state;
   }
 }

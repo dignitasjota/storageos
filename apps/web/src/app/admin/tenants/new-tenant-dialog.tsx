@@ -35,7 +35,7 @@ import { ApiError } from '@/lib/auth/api';
  */
 export function NewTenantDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
-  const plans = useAdminSubscriptionPlans();
+  const plans = useAdminSubscriptionPlans({ assignable: true });
   const create = useCreateTenant();
   const [tenantName, setTenantName] = useState('');
   const [tenantSlug, setTenantSlug] = useState('');

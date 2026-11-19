@@ -131,6 +131,12 @@ describe('Platform SEPA — billingMode (e2e)', () => {
 
   it('mandato SEPA del tenant: autoservicio, guarda solo un activo a la vez, bloquea cancelar en modo sepa', async () => {
     const owner = await registerVerifiedUser(app, 'sepa-mandate');
+    // Cliente que ya paga a mano: el paso a SEPA lo hace el admin (en prueba,
+    // firmar el mandato ya lo pasaría a domiciliación).
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'active' },
+    });
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
     // Sin mandato al principio.
@@ -210,9 +216,28 @@ describe('Platform SEPA — billingMode (e2e)', () => {
     expect(afterCancel.body.mandate).toBeNull();
   });
 
+  it('en prueba, firmar el mandato pasa la cuota a domiciliación', async () => {
+    const owner = await registerVerifiedUser(app, 'sepa-trial-sign');
+    await request(app.getHttpServer())
+      .post('/settings/saas-billing/sepa-mandate')
+      .set({ Authorization: `Bearer ${owner.accessToken}` })
+      .send(platformMandateBody('ES9121000418450200051332'))
+      .expect(200);
+    const sub = await adminClient.tenantSubscription.findUniqueOrThrow({
+      where: { tenantId: owner.tenantId },
+    });
+    expect(sub.billingMode).toBe('sepa');
+  });
+
   it('setBillingMode: exige mandato para pasar a sepa, guarda already_in_mode, admin ve/cancela el mandato', async () => {
     const owner = await registerVerifiedUser(app, 'billing-mode');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
+    // Cliente que ya paga a mano: el paso a SEPA lo hace el admin (en prueba,
+    // firmar el mandato ya lo pasaría a domiciliación).
+    await adminClient.tenantSubscription.update({
+      where: { tenantId: owner.tenantId },
+      data: { status: 'active' },
+    });
 
     // Recién registrado: manual por defecto (sin Stripe).
     const detail0 = await request(app.getHttpServer())
