@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Post, Put, Query } from '@nestjs/common';
+import {
+  BadGatewayException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import {
   ConnectSearchConsoleSchema,
   SeoMonthlyReportToggleSchema,
@@ -30,7 +39,8 @@ export class SearchConsoleController {
     private readonly report: SeoReportService,
   ) {}
 
-  @RequirePermission('settings:read')
+  // Quien ve la analítica ve si está conectado (la página depende de ello).
+  @RequirePermission('analytics:read')
   @Get('search-console')
   settings(@CurrentUser() user: AuthenticatedUser): Promise<SearchConsoleSettingsDto> {
     return this.gsc.settings(user.tenantId);
@@ -55,8 +65,15 @@ export class SearchConsoleController {
   @RequirePermission('settings:manage')
   @Post('search-console/sync')
   async sync(@CurrentUser() user: AuthenticatedUser): Promise<SearchConsoleSettingsDto> {
-    await this.gsc.sync(user.tenantId);
-    return this.gsc.settings(user.tenantId);
+    const { ok } = await this.gsc.sync(user.tenantId);
+    const settings = await this.gsc.settings(user.tenantId);
+    if (!ok) {
+      throw new BadGatewayException({
+        code: 'search_console_sync_failed',
+        message: settings.lastError ?? 'No se pudieron descargar los datos de Google.',
+      });
+    }
+    return settings;
   }
 
   @RequirePermission('analytics:read')
@@ -78,13 +95,13 @@ export class SearchConsoleController {
     return this.report.build(user.tenantId, month || undefined);
   }
 
-  /** Envía ya el informe del mes pasado a los propietarios. */
-  @RequirePermission('settings:manage')
+  /** Envía ya el informe del mes pasado a quien lo pide. */
+  @RequirePermission('analytics:read')
   @Post('report/send')
   sendReport(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ recipients: number; month: string }> {
-    return this.report.send(user.tenantId);
+    return this.report.send(user.tenantId, { toUserId: user.sub });
   }
 
   @RequirePermission('settings:manage')

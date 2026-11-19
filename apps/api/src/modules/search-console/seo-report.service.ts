@@ -50,7 +50,7 @@ export class SeoReportService {
       ? previousMonthRange(shiftDate(`${month}-01`, 32).slice(0, 8) + '01')
       : previousMonthRange(today);
     const prev = previousMonthRange(range.from);
-    const [rows, settings] = await Promise.all([
+    const [rows, dayRows, settings] = await Promise.all([
       this.prisma.withTenant(
         (tx) =>
           tx.searchConsoleRow.findMany({
@@ -72,6 +72,20 @@ export class SeoReportService {
           }),
         tenantId,
       ),
+      this.prisma.withTenant(
+        (tx) =>
+          tx.searchConsoleDay.findMany({
+            where: {
+              tenantId,
+              date: {
+                gte: new Date(`${prev.from}T00:00:00Z`),
+                lte: new Date(`${range.to}T00:00:00Z`),
+              },
+            },
+            select: { date: true, clicks: true, impressions: true, position: true },
+          }),
+        tenantId,
+      ),
       this.areaPages.settings(tenantId),
     ]);
     const summary = summarizeRange(
@@ -84,6 +98,15 @@ export class SeoReportService {
         position: Number(r.position),
       })),
       { from: range.from, to: range.to, previousFrom: prev.from, previousTo: prev.to },
+      null,
+      {
+        days: dayRows.map((d) => ({
+          date: d.date.toISOString().slice(0, 10),
+          clicks: d.clicks,
+          impressions: d.impressions,
+          position: Number(d.position),
+        })),
+      },
     );
     return {
       month: range.from.slice(0, 7),
@@ -108,14 +131,46 @@ export class SeoReportService {
     );
   }
 
-  /** Envía el informe del mes pasado a los propietarios. */
-  async send(tenantId: string): Promise<{ recipients: number; month: string }> {
+  /**
+   * Envía el informe del mes pasado: a los propietarios (cron) o solo a quien
+   * lo pide (`toUserId`). Sin Search Console conectado o sin datos del mes no
+   * se envía (manual → 400; cron → se marca el mes y no se manda).
+   */
+  async send(
+    tenantId: string,
+    opts: { toUserId?: string } = {},
+  ): Promise<{ recipients: number; month: string }> {
+    const connection = await this.prisma.withTenant(
+      (tx) => tx.tenantSearchConsole.findUnique({ where: { tenantId }, select: { id: true } }),
+      tenantId,
+    );
+    if (!connection) {
+      throw new BadRequestException({
+        code: 'search_console_not_connected',
+        message: 'Conecta Search Console para recibir el informe.',
+      });
+    }
     const report = await this.build(tenantId);
-    const owners = await this.admin.user.findMany({
-      where: { tenantId, role: 'owner', isActive: true, emailVerifiedAt: { not: null } },
-      select: { email: true },
-    });
-    const to = [...new Set(owners.map((o) => o.email.toLowerCase()))];
+    const empty =
+      report.summary.totals.impressions === 0 && report.summary.previousTotals.impressions === 0;
+    if (empty && opts.toUserId) {
+      throw new BadRequestException({
+        code: 'seo_report_empty',
+        message: `Todavía no hay datos de Google de ${report.label}.`,
+      });
+    }
+    const users = empty
+      ? []
+      : await this.admin.user.findMany({
+          where: {
+            tenantId,
+            isActive: true,
+            emailVerifiedAt: { not: null },
+            ...(opts.toUserId ? { id: opts.toUserId } : { role: 'owner' }),
+          },
+          select: { email: true },
+        });
+    const to = [...new Set(users.map((o) => o.email.toLowerCase()))];
     if (to.length > 0) {
       const { html, text, subject } = this.render(report);
       await this.emailQueue.addBulk(
@@ -125,14 +180,17 @@ export class SeoReportService {
         })),
       );
     }
-    await this.prisma.withTenant(
-      (tx) =>
-        tx.tenantSearchConsole.updateMany({
-          where: { tenantId },
-          data: { lastReportMonth: report.month },
-        }),
-      tenantId,
-    );
+    // El envío a una sola persona no cuenta como el informe del mes.
+    if (!opts.toUserId) {
+      await this.prisma.withTenant(
+        (tx) =>
+          tx.tenantSearchConsole.updateMany({
+            where: { tenantId },
+            data: { lastReportMonth: report.month },
+          }),
+        tenantId,
+      );
+    }
     return { recipients: to.length, month: report.month };
   }
 
@@ -144,6 +202,7 @@ export class SeoReportService {
         status: { in: ['connected', 'error'] },
         monthlyReport: true,
         OR: [{ lastReportMonth: null }, { lastReportMonth: { not: month } }],
+        tenant: { deletedAt: null, status: { notIn: ['cancelled', 'suspended'] } },
       },
       select: { tenantId: true },
     });

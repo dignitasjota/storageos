@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   CreateCompetitorFacilitySchema,
@@ -29,7 +31,24 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
-import { CompetitorsService } from './competitors.service';
+import { CompetitorsService, type CompetitorActor } from './competitors.service';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function facilityParam(facilityId?: string): string | null {
+  if (!facilityId) return null;
+  if (!UUID_RE.test(facilityId)) {
+    throw new BadRequestException({
+      code: 'invalid_facility_id',
+      message: 'El local indicado no es válido',
+    });
+  }
+  return facilityId;
+}
+
+function actorOf(user: AuthenticatedUser): CompetitorActor {
+  return { userId: user.sub, facilityScope: user.facilityScope ?? null };
+}
 
 class CreateCompetitorFacilityDto extends createZodDto(CreateCompetitorFacilitySchema) {}
 class UpdateCompetitorFacilityDto extends createZodDto(UpdateCompetitorFacilitySchema) {}
@@ -47,15 +66,29 @@ export class CompetitorsController {
 
   @RequirePermission('analytics:read')
   @Get()
-  listFacilities(@CurrentUser() user: AuthenticatedUser): Promise<CompetitorFacilityDto[]> {
-    return this.service.listFacilities(user.tenantId);
+  listFacilities(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<CompetitorFacilityDto[]> {
+    return this.service.listFacilities(
+      user.tenantId,
+      user.facilityScope ?? null,
+      facilityParam(facilityId),
+    );
   }
 
   /** Ocupación de mercado (mi ocupación vs la de la competencia). Antes de `:id`. */
   @RequirePermission('analytics:read')
   @Get('occupancy')
-  marketOccupancy(@CurrentUser() user: AuthenticatedUser): Promise<MarketOccupancyDto> {
-    return this.service.getMarketOccupancy(user.tenantId);
+  marketOccupancy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('facilityId') facilityId?: string,
+  ): Promise<MarketOccupancyDto> {
+    return this.service.getMarketOccupancy(
+      user.tenantId,
+      user.facilityScope ?? null,
+      facilityParam(facilityId),
+    );
   }
 
   @RequirePermission('units:manage')
@@ -64,7 +97,7 @@ export class CompetitorsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateCompetitorFacilityDto,
   ): Promise<CompetitorFacilityDto> {
-    return this.service.createFacility(user.tenantId, body);
+    return this.service.createFacility(user.tenantId, body, actorOf(user));
   }
 
   @RequirePermission('units:manage')
@@ -74,7 +107,7 @@ export class CompetitorsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateCompetitorFacilityDto,
   ): Promise<CompetitorFacilityDto> {
-    return this.service.updateFacility(user.tenantId, id, body);
+    return this.service.updateFacility(user.tenantId, id, body, actorOf(user));
   }
 
   @RequirePermission('units:manage')
@@ -84,7 +117,7 @@ export class CompetitorsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.service.removeFacility(user.tenantId, id);
+    await this.service.removeFacility(user.tenantId, id, actorOf(user));
   }
 
   // --- trasteros de un competidor ---
@@ -95,7 +128,7 @@ export class CompetitorsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<CompetitorUnitDto[]> {
-    return this.service.listUnits(user.tenantId, id);
+    return this.service.listUnits(user.tenantId, id, user.facilityScope ?? null);
   }
 
   @RequirePermission('units:manage')
@@ -105,7 +138,7 @@ export class CompetitorsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: CreateCompetitorUnitDto,
   ): Promise<CompetitorUnitDto> {
-    return this.service.createUnit(user.tenantId, id, body);
+    return this.service.createUnit(user.tenantId, id, body, actorOf(user));
   }
 
   @RequirePermission('units:manage')
@@ -115,7 +148,7 @@ export class CompetitorsController {
     @Param('unitId', new ParseUUIDPipe()) unitId: string,
     @Body() body: UpdateCompetitorUnitDto,
   ): Promise<CompetitorUnitDto> {
-    return this.service.updateUnit(user.tenantId, unitId, body);
+    return this.service.updateUnit(user.tenantId, unitId, body, actorOf(user));
   }
 
   @RequirePermission('units:manage')
@@ -125,7 +158,7 @@ export class CompetitorsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('unitId', new ParseUUIDPipe()) unitId: string,
   ): Promise<void> {
-    await this.service.removeUnit(user.tenantId, unitId);
+    await this.service.removeUnit(user.tenantId, unitId, actorOf(user));
   }
 
   /** Revisión: precio y estado de hoy de cada trastero (todos quedan comprobados hoy). */
@@ -137,7 +170,7 @@ export class CompetitorsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: ReviewCompetitorDto,
   ): Promise<CompetitorUnitDto[]> {
-    return this.service.review(user.tenantId, id, body);
+    return this.service.review(user.tenantId, id, body, actorOf(user));
   }
 
   /** Histórico de comprobaciones de un trastero de la competencia. */
@@ -147,6 +180,6 @@ export class CompetitorsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('unitId', new ParseUUIDPipe()) unitId: string,
   ): Promise<CompetitorUnitObservationDto[]> {
-    return this.service.unitHistory(user.tenantId, unitId);
+    return this.service.unitHistory(user.tenantId, unitId, user.facilityScope ?? null);
   }
 }

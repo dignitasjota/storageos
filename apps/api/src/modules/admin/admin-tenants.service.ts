@@ -2587,6 +2587,7 @@ export class AdminTenantsService {
       await tx.ga4PageRow.deleteMany({ where: { tenantId } });
       await tx.tenantGa4.deleteMany({ where: { tenantId } });
       await tx.searchConsoleRow.deleteMany({ where: { tenantId } });
+      await tx.searchConsoleDay.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
 
       const users = await tx.user.findMany({ where: { tenantId }, select: { id: true } });

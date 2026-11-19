@@ -106,7 +106,10 @@ export interface CompetitorFacilityDto {
   setupFee: number | null;
   mandatoryInsuranceMonthly: number | null;
   features: CompetitorFeature[];
-  /** Última revisión completa de sus trasteros (botón «Revisar»). */
+  /**
+   * Última vez que se comprobó algo suyo: la revisión completa o cualquier
+   * trastero (alta, cambio de precio o de estado, «lo he comprobado hoy»).
+   */
   lastReviewedAt: string | null;
   unitCount: number;
   availableCount: number;
@@ -123,7 +126,7 @@ export const CreateCompetitorUnitSchema = z
     widthM: z.number().positive().max(1000).optional(),
     depthM: z.number().positive().max(1000).optional(),
     heightM: z.number().positive().max(1000).optional(),
-    priceMonthly: z.number().nonnegative().max(1000000),
+    priceMonthly: z.number().positive('El precio tiene que ser mayor que 0').max(1000000),
     status: CompetitorUnitStatusEnum.default('available'),
     notes: z.string().trim().max(500).optional().or(z.literal('')),
     externalRef: z.string().trim().max(60).optional().or(z.literal('')),
@@ -140,10 +143,12 @@ export const UpdateCompetitorUnitSchema = z.object({
   widthM: z.number().positive().max(1000).nullable().optional(),
   depthM: z.number().positive().max(1000).nullable().optional(),
   heightM: z.number().positive().max(1000).nullable().optional(),
-  priceMonthly: z.number().nonnegative().max(1000000).optional(),
+  priceMonthly: z.number().positive('El precio tiene que ser mayor que 0').max(1000000).optional(),
   status: CompetitorUnitStatusEnum.optional(),
   notes: z.string().trim().max(500).optional().or(z.literal('')),
   externalRef: z.string().trim().max(60).optional().or(z.literal('')),
+  /** Se ha comprobado hoy (aunque no cambie): queda en su histórico. */
+  checked: z.boolean().optional(),
 });
 export type UpdateCompetitorUnitInput = z.infer<typeof UpdateCompetitorUnitSchema>;
 
@@ -190,7 +195,7 @@ export const ReviewCompetitorSchema = z.object({
     .array(
       z.object({
         id: z.string().uuid(),
-        priceMonthly: z.number().nonnegative().max(1000000),
+        priceMonthly: z.number().positive('El precio tiene que ser mayor que 0').max(1000000),
         status: CompetitorUnitStatusEnum,
       }),
     )
@@ -205,20 +210,32 @@ export interface CompetitorOccupancyRowDto {
   unitCount: number;
   occupiedCount: number;
   /**
-   * 0-1. Solo es fiable con el inventario completo o un total conocido; si no,
-   * null (no se sabe cuántos tiene en total).
+   * 0-1. Solo con el inventario completo y revisado en los últimos 180 días
+   * (como en la sugerencia de precio); si no, null.
    */
   occupancyPct: number | null;
+  /**
+   * 0-1. Estimada con su total conocido (los no fichados se dan por ocupados):
+   * se enseña aparte y no cuenta en la media del mercado.
+   */
+  estimatedOccupancyPct: number | null;
   inventoryComplete: boolean;
   knownTotalUnits: number | null;
+  /** Hace más de 180 días que no se comprueba: no cuenta. */
+  stale: boolean;
 }
 
 export interface MarketOccupancyDto {
-  /** Mi ocupación física (trasteros ocupados / total activos), 0-1. */
+  /** Local del filtro (null = todos los que ve el usuario). */
+  facilityId: string | null;
+  /** Mi ocupación física, la misma que en Analítica (sin locales por abrir), 0-1. */
   myOccupancyPct: number;
   myOccupiedUnits: number;
   myTotalUnits: number;
-  /** Ocupación media de la competencia (ponderada por nº de trasteros), 0-1. */
+  /**
+   * Ocupación media de la competencia con el inventario completo y reciente
+   * (ponderada por nº de trasteros), 0-1.
+   */
   competitionOccupancyPct: number | null;
   competitionOccupiedUnits: number;
   competitionTotalUnits: number;

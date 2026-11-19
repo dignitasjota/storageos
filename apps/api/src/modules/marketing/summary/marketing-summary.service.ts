@@ -365,13 +365,22 @@ export class MarketingSummaryService {
                 })
                 .then((r) => r._sum.sessions ?? 0)
             : Promise.resolve(null),
+          // Los totales de cada día de Google (como en Posiciones en Google);
+          // sin ellos, la suma de las búsquedas.
           gsc?.status === 'connected'
-            ? tx.searchConsoleRow
-                .aggregate({
+            ? Promise.all([
+                tx.searchConsoleDay.aggregate({
                   where: { date: { gte: day(from), lte: day(to) } },
                   _sum: { clicks: true },
-                })
-                .then((r) => r._sum.clicks ?? 0)
+                  _count: { _all: true },
+                }),
+                tx.searchConsoleRow.aggregate({
+                  where: { date: { gte: day(from), lte: day(to) } },
+                  _sum: { clicks: true },
+                }),
+              ]).then(([days, rows]) =>
+                days._count._all > 0 ? (days._sum.clicks ?? 0) : (rows._sum.clicks ?? 0),
+              )
             : Promise.resolve(null),
           social
             ? tx.socialDailyMetric.findMany({

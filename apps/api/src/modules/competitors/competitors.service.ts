@@ -1,5 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { isFacilityAllowed, type FacilityScope } from '../../common/facility-scope';
+import { resolveAnalyticsScope } from '../analytics/analytics-scope';
+import { unitCounts } from '../analytics/business-metrics';
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Prisma } from '@storageos/database';
@@ -24,31 +28,89 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 const cleanText = (v: string | null | undefined): string | null =>
   v && v.trim() ? v.trim() : null;
 
+/** Una ocupación de la competencia más antigua no cuenta (como en el precio). */
+const FRESH_DAYS = 180;
+
+/** Quién hace el cambio (para el registro de actividad) y qué locales ve. */
+export interface CompetitorActor {
+  userId: string | null;
+  facilityScope?: FacilityScope;
+}
+
+/**
+ * Competidores que ve un usuario: los ligados a sus locales y los que no van
+ * ligados a ninguno. Con un local elegido, los de ese local y los sin ligar.
+ */
+export function competitorWhere(
+  facilityScope: FacilityScope | undefined,
+  facilityId?: string | null,
+): Prisma.CompetitorFacilityWhereInput {
+  if (facilityId) return { OR: [{ facilityId }, { facilityId: null }] };
+  if (facilityScope && facilityScope.length > 0) {
+    return { OR: [{ facilityId: { in: facilityScope } }, { facilityId: null }] };
+  }
+  return {};
+}
+
+/** La última comprobación de algo suyo: la revisión o cualquier trastero. */
+function lastChecked(
+  reviewedAt: Date | null,
+  units: { observations: { observedAt: Date }[] }[],
+): Date | null {
+  let last = reviewedAt;
+  for (const u of units) {
+    const at = u.observations[0]?.observedAt;
+    if (at && (!last || at > last)) last = at;
+  }
+  return last;
+}
+
 @Injectable()
 export class CompetitorsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ---- locales de la competencia ----
 
-  async listFacilities(tenantId: string): Promise<CompetitorFacilityDto[]> {
+  async listFacilities(
+    tenantId: string,
+    facilityScope?: FacilityScope,
+    facilityId?: string | null,
+  ): Promise<CompetitorFacilityDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.competitorFacility.findMany({
+          where: competitorWhere(facilityScope, facilityId),
           orderBy: { createdAt: 'asc' },
           include: {
             facility: { select: { name: true } },
             _count: { select: { units: true } },
-            units: { select: { status: true } },
+            units: {
+              select: {
+                status: true,
+                observations: {
+                  orderBy: { observedAt: 'desc' },
+                  take: 1,
+                  select: { observedAt: true },
+                },
+              },
+            },
           },
         }),
       tenantId,
     );
-    return rows.map((r) => ({
-      ...this.facilityToDto(r),
-      facilityName: r.facility?.name ?? null,
-      unitCount: r._count.units,
-      availableCount: r.units.filter((u) => u.status === 'available').length,
-    }));
+    return rows.map((r) => {
+      const checked = lastChecked(r.lastReviewedAt, r.units);
+      return {
+        ...this.facilityToDto(r),
+        lastReviewedAt: checked?.toISOString() ?? null,
+        facilityName: r.facility?.name ?? null,
+        unitCount: r._count.units,
+        availableCount: r.units.filter((u) => u.status === 'available').length,
+      };
+    });
   }
 
   /**
@@ -57,45 +119,63 @@ export class CompetitorsService {
    * ocupación de la competencia se pondera por nº de trasteros, no por local
    * (un competidor con 100 trasteros pesa más que uno con 5).
    */
-  async getMarketOccupancy(tenantId: string): Promise<MarketOccupancyDto> {
+  async getMarketOccupancy(
+    tenantId: string,
+    facilityScope?: FacilityScope,
+    facilityId?: string | null,
+  ): Promise<MarketOccupancyDto> {
+    const scope = resolveAnalyticsScope(facilityScope ?? null, facilityId ?? undefined);
+    const freshCut = Date.now() - FRESH_DAYS * 86_400_000;
     return this.prisma.withTenant(async (tx) => {
-      const [myTotalUnits, myOccupiedUnits, competitors] = await Promise.all([
-        tx.unit.count(),
-        tx.unit.count({ where: { status: 'occupied' } }),
+      const [counts, competitors] = await Promise.all([
+        // La misma ocupación que Analítica: sin locales por abrir ni el inquilino de prueba.
+        unitCounts(tx, scope),
         tx.competitorFacility.findMany({
+          where: competitorWhere(facilityScope, facilityId),
           orderBy: { createdAt: 'asc' },
           select: {
             id: true,
             name: true,
             inventoryComplete: true,
             knownTotalUnits: true,
-            units: { select: { status: true } },
+            lastReviewedAt: true,
+            units: {
+              select: {
+                status: true,
+                observations: {
+                  orderBy: { observedAt: 'desc' },
+                  take: 1,
+                  select: { observedAt: true },
+                },
+              },
+            },
           },
         }),
       ]);
 
-      // La ocupación de un competidor solo es fiable si conocemos su total:
-      // con el inventario completo (todos fichados) o con un total conocido
-      // (los no fichados se dan por ocupados). Si no, no se sabe → se excluye.
+      // Solo es fiable con el inventario completo y reciente (como el precio).
+      // Con un total conocido se estima aparte: los no fichados se dan por
+      // ocupados y eso puede inflarla mucho.
       const rows = competitors.map((c) => {
         const fichados = c.units.length;
         const available = c.units.filter((u) => u.status === 'available').length;
-        let unitCount = fichados;
-        let occupiedCount = fichados - available;
-        let reliable = c.inventoryComplete && fichados > 0;
-        if (!c.inventoryComplete && c.knownTotalUnits && c.knownTotalUnits >= available) {
-          unitCount = c.knownTotalUnits;
-          occupiedCount = c.knownTotalUnits - available;
-          reliable = true;
-        }
+        const checked = lastChecked(c.lastReviewedAt, c.units);
+        const stale = !checked || checked.getTime() < freshCut;
+        const reliable = c.inventoryComplete && fichados > 0 && !stale;
+        const estimated =
+          !c.inventoryComplete && c.knownTotalUnits && c.knownTotalUnits >= available && !stale
+            ? (c.knownTotalUnits - available) / c.knownTotalUnits
+            : null;
         return {
           id: c.id,
           name: c.name,
-          unitCount,
-          occupiedCount,
-          occupancyPct: reliable && unitCount > 0 ? occupiedCount / unitCount : null,
+          unitCount: fichados,
+          occupiedCount: fichados - available,
+          occupancyPct: reliable ? (fichados - available) / fichados : null,
+          estimatedOccupancyPct: estimated,
           inventoryComplete: c.inventoryComplete,
           knownTotalUnits: c.knownTotalUnits,
+          stale,
         };
       });
 
@@ -104,9 +184,10 @@ export class CompetitorsService {
       const competitionOccupiedUnits = reliableRows.reduce((s, r) => s + r.occupiedCount, 0);
 
       return {
-        myOccupancyPct: myTotalUnits === 0 ? 0 : myOccupiedUnits / myTotalUnits,
-        myOccupiedUnits,
-        myTotalUnits,
+        facilityId: scope.explicit ? (facilityId ?? null) : null,
+        myOccupancyPct: counts.total === 0 ? 0 : counts.occupied / counts.total,
+        myOccupiedUnits: counts.occupied,
+        myTotalUnits: counts.total,
         competitionOccupancyPct:
           competitionTotalUnits === 0 ? null : competitionOccupiedUnits / competitionTotalUnits,
         competitionOccupiedUnits,
@@ -119,7 +200,9 @@ export class CompetitorsService {
   async createFacility(
     tenantId: string,
     input: CreateCompetitorFacilityInput,
+    actor: CompetitorActor = { userId: null },
   ): Promise<CompetitorFacilityDto> {
+    if (input.facilityId) await this.assertMyFacility(tenantId, input.facilityId, actor);
     const created = await this.prisma.withTenant(
       (tx) =>
         tx.competitorFacility.create({
@@ -135,6 +218,9 @@ export class CompetitorsService {
         }),
       tenantId,
     );
+    await this.log(tenantId, actor, 'competitor.created', 'CompetitorFacility', created.id, {
+      name: created.name,
+    });
     return this.facilityToDto(created);
   }
 
@@ -142,8 +228,10 @@ export class CompetitorsService {
     tenantId: string,
     id: string,
     input: UpdateCompetitorFacilityInput,
+    actor: CompetitorActor = { userId: null },
   ): Promise<CompetitorFacilityDto> {
-    const existing = await this.findFacilityOrThrow(tenantId, id);
+    const existing = await this.findFacilityOrThrow(tenantId, id, actor.facilityScope);
+    if (input.facilityId) await this.assertMyFacility(tenantId, input.facilityId, actor);
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.competitorFacility.update({
@@ -161,18 +249,35 @@ export class CompetitorsService {
         }),
       tenantId,
     );
+    await this.log(tenantId, actor, 'competitor.updated', 'CompetitorFacility', id, {
+      fields: Object.keys(input),
+    });
     return this.facilityToDto(updated);
   }
 
-  async removeFacility(tenantId: string, id: string): Promise<void> {
-    await this.findFacilityOrThrow(tenantId, id);
-    await this.prisma.withTenant((tx) => tx.competitorFacility.delete({ where: { id } }), tenantId);
+  async removeFacility(
+    tenantId: string,
+    id: string,
+    actor: CompetitorActor = { userId: null },
+  ): Promise<void> {
+    await this.findFacilityOrThrow(tenantId, id, actor.facilityScope);
+    const removed = await this.prisma.withTenant(
+      (tx) => tx.competitorFacility.delete({ where: { id } }),
+      tenantId,
+    );
+    await this.log(tenantId, actor, 'competitor.deleted', 'CompetitorFacility', id, {
+      name: removed.name,
+    });
   }
 
   // ---- trasteros de la competencia ----
 
-  async listUnits(tenantId: string, competitorFacilityId: string): Promise<CompetitorUnitDto[]> {
-    await this.findFacilityOrThrow(tenantId, competitorFacilityId);
+  async listUnits(
+    tenantId: string,
+    competitorFacilityId: string,
+    facilityScope?: FacilityScope,
+  ): Promise<CompetitorUnitDto[]> {
+    await this.findFacilityOrThrow(tenantId, competitorFacilityId, facilityScope);
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.competitorUnit.findMany({
@@ -189,8 +294,9 @@ export class CompetitorsService {
     tenantId: string,
     competitorFacilityId: string,
     input: CreateCompetitorUnitInput,
+    actor: CompetitorActor = { userId: null },
   ): Promise<CompetitorUnitDto> {
-    await this.findFacilityOrThrow(tenantId, competitorFacilityId);
+    await this.findFacilityOrThrow(tenantId, competitorFacilityId, actor.facilityScope);
     // Si hay ancho y fondo, el área se calcula; si no, se usa la indicada (el
     // refine del schema garantiza que llega una de las dos).
     const areaM2 =
@@ -220,6 +326,11 @@ export class CompetitorsService {
         }),
       tenantId,
     );
+    await this.log(tenantId, actor, 'competitor.unit_created', 'CompetitorUnit', created.id, {
+      competitorFacilityId,
+      areaM2,
+      priceMonthly: input.priceMonthly,
+    });
     return this.unitToDto(created, created.observations);
   }
 
@@ -227,6 +338,7 @@ export class CompetitorsService {
     tenantId: string,
     id: string,
     input: UpdateCompetitorUnitInput,
+    actor: CompetitorActor = { userId: null },
   ): Promise<CompetitorUnitDto> {
     const existing = await this.prisma.withTenant(
       (tx) =>
@@ -238,11 +350,12 @@ export class CompetitorsService {
             depthM: true,
             priceMonthly: true,
             status: true,
+            competitorFacility: { select: { facilityId: true } },
           },
         }),
       tenantId,
     );
-    if (!existing) {
+    if (!existing || !this.competitorVisible(existing.competitorFacility.facilityId, actor)) {
       throw new NotFoundException({ code: 'competitor_unit_not_found', message: 'No encontrado' });
     }
     // Recalcula el área si el resultado de las medidas (nuevas o conservadas) da
@@ -266,13 +379,15 @@ export class CompetitorsService {
         : input.areaM2 !== undefined
           ? { areaM2: input.areaM2 }
           : {};
-    // Cambiar precio o estado es una comprobación nueva: queda en el histórico.
+    // Cambiar precio o estado, o decir que se ha comprobado hoy, es una
+    // comprobación nueva: queda en el histórico. Corregir la referencia, las
+    // notas o las medidas no cambia cuándo se comprobó.
     const nextPrice = input.priceMonthly ?? num(existing.priceMonthly);
     const nextStatus = input.status ?? existing.status;
     const observed =
+      input.checked === true ||
       (input.priceMonthly !== undefined && input.priceMonthly !== num(existing.priceMonthly)) ||
       (input.status !== undefined && input.status !== existing.status);
-    const touchesPrice = input.priceMonthly !== undefined || observed;
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.competitorUnit.update({
@@ -288,7 +403,7 @@ export class CompetitorsService {
             ...(input.externalRef !== undefined
               ? { externalRef: cleanText(input.externalRef) }
               : {}),
-            ...(touchesPrice ? { lastCheckedAt: new Date() } : {}),
+            ...(observed ? { lastCheckedAt: new Date() } : {}),
             ...(observed
               ? {
                   observations: {
@@ -301,18 +416,39 @@ export class CompetitorsService {
         }),
       tenantId,
     );
+    await this.log(tenantId, actor, 'competitor.unit_updated', 'CompetitorUnit', id, {
+      fields: Object.keys(input),
+      ...(observed ? { priceMonthly: nextPrice, status: nextStatus } : {}),
+    });
     return this.unitToDto(updated, updated.observations);
   }
 
-  async removeUnit(tenantId: string, id: string): Promise<void> {
+  async removeUnit(
+    tenantId: string,
+    id: string,
+    actor: CompetitorActor = { userId: null },
+  ): Promise<void> {
     const existing = await this.prisma.withTenant(
-      (tx) => tx.competitorUnit.findFirst({ where: { id, tenantId }, select: { id: true } }),
+      (tx) =>
+        tx.competitorUnit.findFirst({
+          where: { id, tenantId },
+          select: {
+            id: true,
+            areaM2: true,
+            competitorFacilityId: true,
+            competitorFacility: { select: { facilityId: true } },
+          },
+        }),
       tenantId,
     );
-    if (!existing) {
+    if (!existing || !this.competitorVisible(existing.competitorFacility.facilityId, actor)) {
       throw new NotFoundException({ code: 'competitor_unit_not_found', message: 'No encontrado' });
     }
     await this.prisma.withTenant((tx) => tx.competitorUnit.delete({ where: { id } }), tenantId);
+    await this.log(tenantId, actor, 'competitor.unit_deleted', 'CompetitorUnit', id, {
+      competitorFacilityId: existing.competitorFacilityId,
+      areaM2: num(existing.areaM2),
+    });
   }
 
   /**
@@ -324,8 +460,9 @@ export class CompetitorsService {
     tenantId: string,
     competitorFacilityId: string,
     input: ReviewCompetitorInput,
+    actor: CompetitorActor = { userId: null },
   ): Promise<CompetitorUnitDto[]> {
-    await this.findFacilityOrThrow(tenantId, competitorFacilityId);
+    await this.findFacilityOrThrow(tenantId, competitorFacilityId, actor.facilityScope);
     const now = new Date();
     await this.prisma.withTenant(async (tx) => {
       const ids = input.units.map((u) => u.id);
@@ -362,15 +499,32 @@ export class CompetitorsService {
         data: { lastReviewedAt: now },
       });
     }, tenantId);
-    return this.listUnits(tenantId, competitorFacilityId);
+    await this.log(
+      tenantId,
+      actor,
+      'competitor.reviewed',
+      'CompetitorFacility',
+      competitorFacilityId,
+      {
+        units: input.units.length,
+      },
+    );
+    return this.listUnits(tenantId, competitorFacilityId, actor.facilityScope);
   }
 
   /** Histórico completo de comprobaciones de un trastero de la competencia. */
-  async unitHistory(tenantId: string, unitId: string): Promise<CompetitorUnitObservationDto[]> {
+  async unitHistory(
+    tenantId: string,
+    unitId: string,
+    facilityScope?: FacilityScope,
+  ): Promise<CompetitorUnitObservationDto[]> {
     const rows = await this.prisma.withTenant(
       (tx) =>
         tx.competitorUnitObservation.findMany({
-          where: { competitorUnitId: unitId, unit: { tenantId } },
+          where: {
+            competitorUnitId: unitId,
+            unit: { tenantId, competitorFacility: competitorWhere(facilityScope) },
+          },
           orderBy: { observedAt: 'desc' },
         }),
       tenantId,
@@ -385,14 +539,64 @@ export class CompetitorsService {
 
   // ---- helpers ----
 
+  /** Un competidor ligado a un local que el usuario no ve, no existe para él. */
+  private competitorVisible(facilityId: string | null, actor: CompetitorActor): boolean {
+    return (
+      !facilityId || !actor.facilityScope || isFacilityAllowed(actor.facilityScope, facilityId)
+    );
+  }
+
+  /** El local con el que compite tiene que ser del negocio y del alcance del usuario. */
+  private async assertMyFacility(
+    tenantId: string,
+    facilityId: string,
+    actor: CompetitorActor,
+  ): Promise<void> {
+    const found = await this.prisma.withTenant(
+      (tx) =>
+        tx.facility.findFirst({
+          where: { id: facilityId, tenantId, deletedAt: null },
+          select: { id: true },
+        }),
+      tenantId,
+    );
+    if (!found || !this.competitorVisible(facilityId, actor)) {
+      throw new BadRequestException({
+        code: 'invalid_facility',
+        message: 'El local elegido no existe o no lo puedes ver',
+      });
+    }
+  }
+
+  private async log(
+    tenantId: string,
+    actor: CompetitorActor,
+    action: string,
+    entityType: string,
+    entityId: string,
+    changes: Record<string, unknown>,
+  ): Promise<void> {
+    await this.audit.write({
+      tenantId,
+      userId: actor.userId,
+      action,
+      entityType,
+      entityId,
+      changes: changes as Prisma.InputJsonValue,
+      ipAddress: null,
+      userAgent: null,
+    });
+  }
+
   private async findFacilityOrThrow(
     tenantId: string,
     id: string,
+    facilityScope?: FacilityScope,
   ): Promise<{ id: string; inventoryComplete: boolean }> {
     const found = await this.prisma.withTenant(
       (tx) =>
         tx.competitorFacility.findFirst({
-          where: { id, tenantId },
+          where: { id, tenantId, ...competitorWhere(facilityScope) },
           select: { id: true, inventoryComplete: true },
         }),
       tenantId,

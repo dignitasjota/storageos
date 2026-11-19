@@ -436,10 +436,10 @@ export class InsightsService {
       const staleCut = new Date(now - COMPETITOR_STALE_DAYS * 86_400_000);
       const since = new Date(now - COMPETITOR_DROP_DAYS * 86_400_000);
       // Competidores ligados a un local que el usuario no ve quedan fuera.
+      // Con un local elegido, sus competidores y los que no van ligados a
+      // ninguno (lo mismo que enseña Competencia).
       const competitorScope: Prisma.CompetitorFacilityWhereInput = scope.ids
-        ? scope.explicit
-          ? { facilityId: { in: scope.ids } }
-          : { OR: [{ facilityId: { in: scope.ids } }, { facilityId: null }] }
+        ? { OR: [{ facilityId: { in: scope.ids } }, { facilityId: null }] }
         : {};
       const [competitors, myUnits] = await Promise.all([
         tx.competitorFacility.findMany({
@@ -476,12 +476,24 @@ export class InsightsService {
         }),
       ]);
 
+      // La última comprobación es la revisión completa o la de cualquier
+      // trastero (alta, cambio o «comprobado hoy»). Sin trasteros no avisa:
+      // no hay precios que se queden viejos.
       const stale = competitors
-        .filter((c) => !c.lastReviewedAt || c.lastReviewedAt < staleCut)
-        .map((c) => ({
+        .filter((c) => c.units.length > 0)
+        .map((c) => {
+          let checked = c.lastReviewedAt;
+          for (const u of c.units) {
+            const at = u.observations[0]?.observedAt;
+            if (at && (!checked || at > checked)) checked = at;
+          }
+          return { c, checked };
+        })
+        .filter(({ checked }) => !checked || checked < staleCut)
+        .map(({ c, checked }) => ({
           id: c.id,
           name: c.name,
-          lastReviewedAt: c.lastReviewedAt ? c.lastReviewedAt.toISOString() : null,
+          lastReviewedAt: checked ? checked.toISOString() : null,
         }));
 
       const myPriceFor = (area: number, facilityId: string | null): number | null => {

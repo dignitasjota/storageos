@@ -91,6 +91,14 @@ export interface SearchConsoleRowInput {
   position: number;
 }
 
+/** Totales de un día tal como los da Search Console (cuadran con su panel). */
+export interface SearchConsoleDayInput {
+  date: string; // YYYY-MM-DD
+  clicks: number;
+  impressions: number;
+  position: number;
+}
+
 export interface SeoTotalsDto {
   clicks: number;
   impressions: number;
@@ -147,6 +155,10 @@ export interface SeoPositionsDto {
   alerts: SeoAlertDto[];
   /** Último día con datos (Search Console va 2-3 días por detrás). */
   lastDate: string | null;
+  /** Primer día descargado: si es posterior a `previousFrom`, el anterior está incompleto. */
+  firstDate: string | null;
+  /** El periodo anterior tiene todos sus días descargados (si no, no se compara). */
+  previousComplete: boolean;
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -172,6 +184,29 @@ function add(map: Map<string, Agg>, key: string, r: SearchConsoleRowInput) {
 
 function avgPosition(a: Agg): number {
   return round1(a.impressions > 0 ? a.weighted / a.impressions : a.positionSum / a.rows);
+}
+
+/** Totales con los de cada día de Google (cuadran con su panel). */
+function totalsOfDays(days: SearchConsoleDayInput[]): SeoTotalsDto {
+  let clicks = 0;
+  let impressions = 0;
+  let weighted = 0;
+  let positionSum = 0;
+  for (const d of days) {
+    clicks += d.clicks;
+    impressions += d.impressions;
+    weighted += d.position * d.impressions;
+    positionSum += d.position;
+  }
+  return {
+    clicks,
+    impressions,
+    position:
+      days.length === 0
+        ? null
+        : round1(impressions > 0 ? weighted / impressions : positionSum / days.length),
+    ctr: impressions > 0 ? Math.round((clicks / impressions) * 1000) / 1000 : null,
+  };
 }
 
 function totalsOf(rows: SearchConsoleRowInput[]): SeoTotalsDto {
@@ -218,13 +253,15 @@ export function shiftDate(date: string, days: number): string {
 export function summarizeSearchConsole(
   rows: SearchConsoleRowInput[],
   days: number,
+  opts: { days?: SearchConsoleDayInput[]; firstDate?: string | null } = {},
 ): SeoPositionsDto {
-  const lastDate = rows.reduce<string | null>((m, r) => (!m || r.date > m ? r.date : m), null);
+  const dated = [...rows.map((r) => r.date), ...(opts.days ?? []).map((d) => d.date)];
+  const lastDate = dated.reduce<string | null>((m, d) => (!m || d > m ? d : m), null);
   const to = lastDate ?? new Date().toISOString().slice(0, 10);
   const from = shiftDate(to, -(days - 1));
   const previousTo = shiftDate(from, -1);
   const previousFrom = shiftDate(previousTo, -(days - 1));
-  return summarizeRange(rows, { from, to, previousFrom, previousTo }, lastDate);
+  return summarizeRange(rows, { from, to, previousFrom, previousTo }, lastDate, opts);
 }
 
 /** Primer y último día del mes natural anterior a `date` (YYYY-MM-DD). */
@@ -240,10 +277,25 @@ export function summarizeRange(
   rows: SearchConsoleRowInput[],
   range: { from: string; to: string; previousFrom: string; previousTo: string },
   lastDate: string | null = null,
+  opts: { days?: SearchConsoleDayInput[]; firstDate?: string | null } = {},
 ): SeoPositionsDto {
   const { from, to, previousFrom, previousTo } = range;
   const current = rows.filter((r) => r.date >= from && r.date <= to);
   const previous = rows.filter((r) => r.date >= previousFrom && r.date <= previousTo);
+  // Con los totales de cada día de Google, los totales cuadran con su panel
+  // (las filas por búsqueda no traen las búsquedas poco frecuentes).
+  const days = opts.days ?? [];
+  const totals = (list: SearchConsoleRowInput[], a: string, b: string) => {
+    const inRange = days.filter((d) => d.date >= a && d.date <= b);
+    return inRange.length > 0 ? totalsOfDays(inRange) : totalsOf(list);
+  };
+  const firstDate =
+    opts.firstDate ??
+    [...rows.map((r) => r.date), ...days.map((d) => d.date)].reduce<string | null>(
+      (m, d) => (!m || d < m ? d : m),
+      null,
+    );
+  const previousComplete = firstDate !== null && firstDate <= previousFrom;
 
   const byQuery = new Map<string, Agg>();
   const prevByQuery = new Map<string, Agg>();
@@ -308,7 +360,8 @@ export function summarizeRange(
     .slice(0, 50);
 
   const alerts: SeoAlertDto[] = [];
-  for (const p of pages) {
+  // Sin el periodo anterior completo no hay con qué comparar.
+  for (const p of previousComplete ? pages : []) {
     if (p.previousPosition != null && p.impressions >= 20 && p.position - p.previousPosition >= 3) {
       alerts.push({
         kind: 'page_dropped',
@@ -324,7 +377,7 @@ export function summarizeRange(
       });
     }
   }
-  for (const q of queries.slice(0, 20)) {
+  for (const q of previousComplete ? queries.slice(0, 20) : []) {
     if (q.change != null && q.change <= -3 && q.impressions >= 20) {
       alerts.push({
         kind: 'query_dropped',
@@ -339,13 +392,15 @@ export function summarizeRange(
     to,
     previousFrom,
     previousTo,
-    totals: totalsOf(current),
-    previousTotals: totalsOf(previous),
-    queries: queries.slice(0, 50),
+    totals: totals(current, from, to),
+    previousTotals: totals(previous, previousFrom, previousTo),
+    queries: queries.slice(0, 200),
     opportunities,
     pages,
     alerts: alerts.slice(0, 10),
     lastDate,
+    firstDate,
+    previousComplete,
   };
 }
 

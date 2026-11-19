@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { shiftDate, type SearchConsoleRowInput } from '@storageos/shared';
+import {
+  shiftDate,
+  type SearchConsoleDayInput,
+  type SearchConsoleRowInput,
+} from '@storageos/shared';
 
 import { GoogleServiceAccount } from '../../common/google/google-service-account';
 
@@ -93,6 +97,45 @@ export class SearchConsoleClient {
       if (rows.length < PAGE_SIZE) break;
     }
     return out;
+  }
+
+  /**
+   * Totales de cada día (sin repartir por búsqueda): son los que da el panel de
+   * Search Console, con las búsquedas poco frecuentes que no salen por búsqueda.
+   */
+  async searchAnalyticsDays(
+    siteUrl: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<SearchConsoleDayInput[]> {
+    if (this.stub) {
+      // Lo de las búsquedas más un poco de búsquedas que Google no detalla.
+      const byDay = new Map<string, SearchConsoleDayInput>();
+      for (const r of stubRows(siteUrl, startDate, endDate)) {
+        const d = byDay.get(r.date) ?? { date: r.date, clicks: 1, impressions: 15, position: 0 };
+        d.position =
+          (d.position * d.impressions + r.position * r.impressions) /
+          (d.impressions + r.impressions);
+        d.clicks += r.clicks;
+        d.impressions += r.impressions;
+        byDay.set(r.date, d);
+      }
+      return [...byDay.values()];
+    }
+    const res = await this.request<{
+      rows?: { keys: [string]; clicks: number; impressions: number; position: number }[];
+    }>('POST', `${API}/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`, {
+      startDate,
+      endDate,
+      dimensions: ['date'],
+      rowLimit: 1000,
+    });
+    return (res.rows ?? []).map((r) => ({
+      date: r.keys[0],
+      clicks: Math.round(r.clicks),
+      impressions: Math.round(r.impressions),
+      position: r.position,
+    }));
   }
 
   private request<T>(method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {

@@ -139,6 +139,25 @@ export function CompetitorFormDialog({
       toast.error('Indica el nombre.');
       return;
     }
+    // Un número mal escrito no se borra sin avisar: se dice cuál es.
+    const numbers: [keyof FormState, string][] = [
+      ['distanceKm', 'Distancia'],
+      ['knownTotalUnits', 'Total de trasteros'],
+      ['promoFreeMonths', 'Meses gratis'],
+      ['promoDiscountPct', 'Descuento'],
+      ['promoDiscountMonths', 'Meses de descuento'],
+      ['depositAmount', 'Fianza'],
+      ['setupFee', 'Alta'],
+      ['mandatoryInsuranceMonthly', 'Seguro obligatorio'],
+    ];
+    const wrong = numbers.find(([key]) => {
+      const n = toNum(form[key] as string);
+      return n !== null && (!Number.isFinite(n) || n < 0);
+    });
+    if (wrong) {
+      toast.error(`«${wrong[1]}» no es un número válido.`);
+      return;
+    }
     const input: CreateCompetitorFacilityInput = {
       name: form.name.trim(),
       zone: form.zone.trim(),

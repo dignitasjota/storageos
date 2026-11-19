@@ -136,8 +136,44 @@ Los apps separados `portal/` (inquilino final) y `admin/` (super admin) están p
 ## Estado actual
 
 **🗓️ Sesión 2026-11-19 — EL PRIMER PAGO EN UN SOLO PAGO (1 PR, sin migración).** Queja de Jota: las facturas sin número se ven peor y, con factura + fianza, el inquilino recibía dos correos y pagaba dos veces. 🐛 **`/sign` cobraba la fianza sola**: tomaba `pending[0]`, que por el orden del área de clientes era el justificante FZ (creado después) → `paymentHead` elige la factura y enseña `amountPending + bundledReceiptPending` con el desglose. Servidor: `common/first-payment.ts` → `paymentHeadId` (una fianza ligada a una factura aún por pagar → esa factura); `PortalService.paymentHead` en el cobro, Redsys (salvo cuota de plan) y otras formas de pago del área de clientes. Área de clientes: la FZ con `paidWithInvoiceId` ya no sale como otra fila y el botón dice el total. Correos: Redsys reparte con `silentPaidEvent` y luego `InvoicesService.emitPaidEvent` solo de los documentos pedidos (un «Pago recibido» por el total, como Stripe); transferencia con la fianza aún sin emitir (`PAYABLE_INVOICE_WHERE`); recordatorio de reserva con el total; `sendInvoiceCopy` resuelve la factura principal y añade `deposit` a `invoice_copy`; el recordatorio individual suma la fianza y `bulkRemind` cambia la FZ por su factura. `MarkPaidManuallySchema.includeBundledDeposit` (`markPaidWithDeposit`: la fianza solo si la factura queda pagada; un aviso). `InvoiceDto.bundledDeposit` (id, número, total, pendiente, estado). Panel: filtro `awaitingPayment` (solo facturas), búsqueda por `contract.contractNumber`, totales con `PAYABLE_INVOICE_WHERE`, fila con contrato y fianza, ficha del contrato con el primer pago y `TodayDto.firstPaymentsPending`. e2e `first-payment-single` (3). DEPLOYMENT §160.
+**🗓️ Sesión 2026-11-19 — REVISIÓN DE MERCADO (COMPETENCIA Y POSICIONES EN GOOGLE), PR C (arreglos, apilada sobre #981).** Decisiones de Jota: la ocupación del mercado solo con inventarios completos (el total conocido, aparte y estimado), cualquier comprobación cuenta como revisión, un fallo pasajero de Google no oculta los datos.
+
+Migración `20270210100000_search_console_days`.
+
+**Competencia**
+
+- Ocupación como Analítica: `unitCounts` con `resolveAnalyticsScope`.
+- Media del mercado solo con inventario completo y fresco (180 días); `estimatedOccupancyPct` y `stale` aparte.
+- `competitorWhere`: alcance por local y `?facilityId=`; la página sigue la cabecera.
+- `lastChecked`: la revisión o la última observación de cualquier trastero. El aviso «sin revisar» también lo usa y no avisa de competidores sin trasteros.
+- Precio mayor que 0.
+- `checked` en `UpdateCompetitorUnitSchema`: solo cambiar precio o estado, o «lo he comprobado hoy», cuenta como comprobación. Las medidas se pueden quitar.
+- 400 `invalid_facility` con un local de otro negocio.
+- `AuditService` (`competitor.*`).
+- Pantalla:
+  - avisos con el precio comparable y el IVA;
+  - refresco de avisos y precios al cambiar (`invalidateMarket`);
+  - carga y error;
+  - tarjetas con teclado;
+  - móvil;
+  - formatos;
+  - números mal escritos avisan.
+
+**Posiciones en Google**
+
+- Fallo pasajero → sigue `connected` con aviso; solo 401/403/404 es «Sin acceso».
+- «Actualizar ahora» → 502 si falla.
+- Al conectar se bajan 190 días; la descarga repasa desde la última buena.
+- `search_console_days` (totales de Google, `searchAnalyticsDays`) en las posiciones, el informe y el Resumen de marketing.
+- `previousComplete`/`firstDate`: sin periodo anterior completo no compara ni avisa.
+- Informe: no se manda vacío ni sin conexión; «Enviármelo ahora» solo a quien lo pide (`analytics:read`), sin marcar el mes; el cron no va a suspendidos.
+- `GET /seo/search-console` con `analytics:read`.
+- Pantalla: datos visibles aunque falle, errores con «Reintentar», «Antes» con variación, «Ver todas» las búsquedas, la casilla avisa si no guarda.
+
+e2e `market-review` (2) + `competitors` y `search-console` ajustados. DEPLOYMENT §163.
 
 **🗓️ Sesión 2026-11-18 — CITAS DE LOS COMERCIALES (1 PR; decisiones de Jota: apartado nuevo aparte de los seguimientos, avisos al asignarla, el día antes y 1 h antes, por campana y móvil).** Migración `20270210100000_sales_appointments` (global, REVOKE: lead, comercial, `kind` in_person/call/video, título, `starts_at`, duración, lugar o enlace, notas, `status` scheduled/done/cancelled/no_show, quién la puso, `day_reminder_sent_at`/`hour_reminder_sent_at`). Shared `sales/appointments.ts` (esquemas, etiquetas, `SalesAppointmentDto`; `SalesTodayDto.appointments`; push `sales.appointment` y `sales.appointment_reminder`). `SalesAppointmentsService`: el comercial en su cartera (`GET /admin/sales/appointments`, `POST …/accounts/:leadId/appointments`, `PATCH|DELETE …/appointments/:id`) y la dirección (`/admin/sales-team/appointments`, superadmin): lead sin comercial → `assign` al elegido (sin aviso de asignación); de otro comercial → 400 `appointment_rep_mismatch`; sin comercial → 400 `appointment_rep_required`; pasada → 400 `appointment_in_past`; a más de un año → `appointment_too_far`. Avisos con `SalesNotifyService.rep` (campana + push al destinatario): al ponerla, cambiarla o cancelarla otra persona; recordatorios en `runReminders` (cron `sales.appointments` cada 5 min en el API, reserva por fila con `updateMany`; los que ya no tocan se marcan al crear). Web: `components/admin/sales/appointments.tsx` (formulario con hora en Madrid —`madridIso`—, lista con acciones) y `appointments-views.tsx`; tarjeta en la ficha del comercial, **Mis citas**, «Citas de hoy», pestaña «Citas» en la ficha del lead del admin y **Equipo comercial → Citas**. e2e `sales-appointments` (2). DEPLOYMENT §159.
+
 **🗓️ Sesión 2026-11-19 — MEJORAS DE ANALÍTICA, PR B (las 11 propuestas, apilada sobre la PR A #980, sin migración).** `AnalyticsExtrasService` (`analytics-extras.service.ts`):
 
 - `GET /analytics/headline`: el mes frente al pasado hasta el mismo día.

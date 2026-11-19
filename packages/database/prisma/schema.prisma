@@ -716,6 +716,7 @@ model Tenant {
   webAreaPages            WebAreaPage[]
   searchConsole           TenantSearchConsole?
   searchConsoleRows       SearchConsoleRow[]
+  searchConsoleDays       SearchConsoleDay[]
   promoLandingVisits      PromoLandingVisit[]
   webEvents               WebEvent[]
   ga4                     TenantGa4?
@@ -6189,6 +6190,22 @@ model SearchConsoleRow {
   @@unique([tenantId, date, query, page], map: "search_console_rows_key")
   @@index([tenantId, date], map: "search_console_rows_tenant_date_idx")
   @@map("search_console_rows")
+}
+
+/// Totales de cada día como los da Search Console (sin repartir): cuadran con su panel.
+model SearchConsoleDay {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  date        DateTime @db.Date
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  position    Decimal  @db.Decimal(7, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date], map: "search_console_days_key")
+  @@map("search_console_days")
 }
 
 /// Visita a una landing de promoción (sin datos personales: id aleatorio del navegador + UTM).

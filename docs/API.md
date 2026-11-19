@@ -3375,3 +3375,24 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 - `GET /analytics/leads-funnel` añade `timing`: mediana de horas hasta contactar (`firstResponseHours`, `responded`) y de días hasta ganar (`daysToWin`).
 - `GET /analytics/churn-risk` añade el teléfono de cada inquilino (`phone`) y `summary.atStakeMonthly` (cuotas de los de riesgo alto y medio; null sin permiso de dinero).
 - Informe nuevo `analytics_month` («Resumen del mes», PDF o Excel, parámetro `month` AAAA-MM): facturado, cobrado, ocupación y cuotas al cerrar, altas, bajas, tasa de bajas y contactos frente al mes anterior. Las facturas son las del propio negocio.
+
+### Mercado: revisión (2026-11-19)
+
+**Competencia**
+
+- `GET /competitors` y `GET /competitors/occupancy` aceptan `?facilityId=` (sus competidores y los que no van ligados a ningún local; mal escrito → 400 `invalid_facility_id`). Quien solo ve algunos locales ve los competidores de esos locales y los sin ligar, y no puede tocar los demás (404).
+- Ligar un competidor a un local que no es del negocio o que el usuario no ve → 400 `invalid_facility`.
+- `MarketOccupancyDto`: `myOccupancyPct` es la de Analítica (sin locales por abrir ni inquilino de prueba); la media de la competencia solo cuenta inventarios completos comprobados en 180 días. Cada competidor lleva `estimatedOccupancyPct` (con su total conocido; no cuenta en la media) y `stale`; el DTO lleva `facilityId`.
+- `CompetitorFacilityDto.lastReviewedAt` es la última comprobación de cualquier trastero suyo o la revisión completa (antes solo «Revisar»). El aviso «sin revisar» usa lo mismo y no avisa de competidores sin trasteros.
+- Precios: mayores que 0 en el alta, la edición y la revisión (400).
+- `PATCH /competitors/units/:id`: solo cambiar el precio o el estado, o `checked: true` («lo he comprobado hoy»), cuenta como comprobación; corregir la referencia, las notas o las medidas no. `widthM: null` / `depthM: null` quita las medidas.
+- Cada cambio queda en el registro de actividad (`competitor.created|updated|deleted|unit_created|unit_updated|unit_deleted|reviewed`).
+
+**Posiciones en Google**
+
+- `GET /seo/search-console` se lee con `analytics:read`.
+- Un fallo pasajero de Google deja `status: 'connected'` con `lastError` (los datos siguen a la vista); solo un 401/403/404 de Google lo pasa a `error`.
+- `POST /seo/search-console/sync` → 502 `search_console_sync_failed` si la descarga falla.
+- Cada descarga repasa desde la última buena (más 6 días) para no dejar huecos. Al conectar se bajan 190 días.
+- Se guardan también los totales de cada día de Google (tabla `search_console_days`): los totales de `GET /seo/positions`, el informe y el Resumen de marketing cuadran con el panel de Search Console. `SeoPositionsDto` añade `firstDate` y `previousComplete` (sin el periodo anterior completo no hay avisos ni comparación) y hasta 200 búsquedas.
+- `POST /seo/report/send` (`analytics:read`) envía el informe solo a quien lo pide; sin Search Console → 400 `search_console_not_connected`; sin datos del mes → 400 `seo_report_empty`. El envío mensual no va a negocios suspendidos ni se manda vacío.

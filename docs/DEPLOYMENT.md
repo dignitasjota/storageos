@@ -2793,3 +2793,15 @@ Sin migración ni variables nuevas. Lo que cambia en Analítica:
 - **Contactos**: tiempo hasta responder y hasta contratar, y coste por cliente de cada canal de Marketing.
 - **Resumen del mes en PDF**: botón en Analítica; el informe queda también en Informes.
 - **Tras desplegar**: los informes se generan en el worker, que debe tener esta versión para el «Resumen del mes».
+
+## 163. Revisión de Mercado: Competencia y Posiciones en Google (2026-11-19)
+
+Migración `20270210100000_search_console_days` (tabla `search_console_days` con RLS, totales de cada día de Search Console). Sin variables nuevas.
+
+- **Cambian cifras que ya se veían**:
+  - **Ocupación de mercado**: la tuya es la de Analítica (sin locales por abrir). La de la competencia solo cuenta inventarios completos comprobados en los últimos 180 días; la estimada con su total conocido sale aparte.
+  - **Posiciones en Google**: los totales son los del panel de Search Console (algo mayores que la suma de las búsquedas). Los primeros días tras desplegar, hasta la siguiente descarga diaria, siguen saliendo como antes; se puede pulsar «Actualizar ahora».
+- **«Sin revisar»**: cuenta cualquier comprobación de un trastero; los competidores fichados con trasteros recientes dejan de salir en el aviso.
+- **Precios de 0 €** ya no se aceptan. Los que hubiera guardados se quedan: conviene corregirlos.
+- La página de Competencia sigue el local de la cabecera.
+- El informe mensual de SEO no se envía vacío ni a negocios suspendidos. «Enviármelo ahora» va solo a quien lo pulsa.

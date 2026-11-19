@@ -15,7 +15,11 @@ import {
   type SeoPositionsDto,
 } from '@storageos/shared';
 
-import { googleUnavailable, isGoogleTransient } from '../../common/google/google-service-account';
+import {
+  GoogleApiError,
+  googleUnavailable,
+  isGoogleTransient,
+} from '../../common/google/google-service-account';
 import { noteConnectionResult } from '../../common/marketing/connection-alert';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -26,8 +30,11 @@ import { SearchConsoleClient } from './search-console.client';
 
 import type { Env } from '../../config/env.schema';
 
-/** Días que se descargan al conectar la propiedad. */
-const INITIAL_DAYS = 120;
+/**
+ * Días que se descargan al conectar la propiedad: lo justo para comparar los
+ * últimos 90 días con los 90 anteriores (Google va 2-3 días por detrás).
+ */
+const INITIAL_DAYS = 190;
 /** Días que se repasan cada día (Search Console corrige los últimos días). */
 const DAILY_DAYS = 6;
 /** Se guardan unos 16 meses (lo mismo que conserva Google). */
@@ -142,6 +149,7 @@ export class SearchConsoleService {
       // Otro sitio: lo descargado del anterior ya no vale.
       if (current && current.siteUrl !== siteUrl) {
         await tx.searchConsoleRow.deleteMany({ where: { tenantId } });
+        await tx.searchConsoleDay.deleteMany({ where: { tenantId } });
       }
       const data = {
         siteUrl,
@@ -165,16 +173,19 @@ export class SearchConsoleService {
   async disconnect(tenantId: string): Promise<SearchConsoleSettingsDto> {
     await this.prisma.withTenant(async (tx) => {
       await tx.searchConsoleRow.deleteMany({ where: { tenantId } });
+      await tx.searchConsoleDay.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
     }, tenantId);
     return this.settings(tenantId);
   }
 
   /**
-   * Descarga los últimos `days` días y sustituye lo guardado de ese tramo.
+   * Descarga los últimos días y sustituye lo guardado de ese tramo. Sin `days`,
+   * desde la última descarga buena (más los 6 que Google corrige), para no
+   * dejar huecos si la descarga falló varios días o el extra estuvo apagado.
    * Un fallo queda en `lastError` (no lanza).
    */
-  async sync(tenantId: string, days = DAILY_DAYS): Promise<{ rows: number; ok: boolean }> {
+  async sync(tenantId: string, days?: number): Promise<{ rows: number; ok: boolean }> {
     const row = await this.prisma.withTenant(
       (tx) => tx.tenantSearchConsole.findUnique({ where: { tenantId } }),
       tenantId,
@@ -192,10 +203,17 @@ export class SearchConsoleService {
       );
       return { rows: 0, ok: false };
     }
+    const sinceLast = row.lastSyncedAt
+      ? Math.ceil((Date.now() - row.lastSyncedAt.getTime()) / 86_400_000) + DAILY_DAYS
+      : INITIAL_DAYS;
+    const span = Math.min(KEEP_DAYS, Math.max(DAILY_DAYS, days ?? sinceLast));
     const end = shiftDate(today(), -1);
-    const start = shiftDate(end, -(days - 1));
+    const start = shiftDate(end, -(span - 1));
     try {
-      const rows = await this.client.searchAnalytics(row.siteUrl, start, end);
+      const [rows, dayTotals] = await Promise.all([
+        this.client.searchAnalytics(row.siteUrl, start, end),
+        this.client.searchAnalyticsDays(row.siteUrl, start, end),
+      ]);
       await this.prisma.withTenant(
         async (tx) => {
           await tx.searchConsoleRow.deleteMany({
@@ -207,6 +225,27 @@ export class SearchConsoleService {
               ],
             },
           });
+          await tx.searchConsoleDay.deleteMany({
+            where: {
+              tenantId,
+              OR: [
+                { date: { gte: new Date(`${start}T00:00:00Z`) } },
+                { date: { lt: new Date(`${shiftDate(today(), -KEEP_DAYS)}T00:00:00Z`) } },
+              ],
+            },
+          });
+          if (dayTotals.length > 0) {
+            await tx.searchConsoleDay.createMany({
+              data: dayTotals.map((d) => ({
+                tenantId,
+                date: new Date(`${d.date}T00:00:00Z`),
+                clicks: d.clicks,
+                impressions: d.impressions,
+                position: Math.round(d.position * 100) / 100,
+              })),
+              skipDuplicates: true,
+            });
+          }
           if (rows.length > 0) {
             await tx.searchConsoleRow.createMany({
               data: rows.map((r) => ({
@@ -233,11 +272,21 @@ export class SearchConsoleService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`[search-console] tenant ${tenantId}: ${message}`);
+      // Solo es «sin acceso» si Google dice que no tenemos permiso o que la
+      // propiedad no existe; un corte o un fallo suyo deja los datos a la
+      // vista con un aviso y se reintenta en la siguiente descarga.
+      const noAccess =
+        err instanceof GoogleApiError &&
+        [401, 403, 404].includes(err.status) &&
+        !isGoogleTransient(err);
+      const lastError = noAccess
+        ? message.slice(0, 500)
+        : `No se pudieron descargar los datos nuevos (${message.slice(0, 300)}). Se reintentará en la siguiente descarga.`;
       await this.prisma.withTenant(
         (tx) =>
           tx.tenantSearchConsole.update({
             where: { tenantId },
-            data: { status: 'error', lastError: message.slice(0, 500) },
+            data: noAccess ? { status: 'error', lastError } : { lastError },
           }),
         tenantId,
       );
@@ -251,7 +300,7 @@ export class SearchConsoleService {
       // Sin los negocios dados de baja o anonimizados.
       where: {
         status: { in: ['connected', 'error'] },
-        tenant: { deletedAt: null, status: { not: 'cancelled' } },
+        tenant: { deletedAt: null, status: { notIn: ['cancelled', 'suspended'] } },
       },
       select: { tenantId: true },
     });
@@ -284,9 +333,9 @@ export class SearchConsoleService {
   async positions(tenantId: string, days: number): Promise<SeoPositionsDto> {
     const span = [7, 28, 90].includes(days) ? days : 28;
     const since = shiftDate(today(), -(span * 2 + 7));
-    const rows = await this.prisma.withTenant(
-      (tx) =>
-        tx.searchConsoleRow.findMany({
+    const { rows, dayRows, first } = await this.prisma.withTenant(
+      async (tx) => ({
+        rows: await tx.searchConsoleRow.findMany({
           where: { tenantId, date: { gte: new Date(`${since}T00:00:00Z`) } },
           select: {
             date: true,
@@ -297,6 +346,23 @@ export class SearchConsoleService {
             position: true,
           },
         }),
+        dayRows: await tx.searchConsoleDay.findMany({
+          where: { tenantId, date: { gte: new Date(`${since}T00:00:00Z`) } },
+          select: { date: true, clicks: true, impressions: true, position: true },
+        }),
+        // Primer día descargado (de los totales o, si no los hay, de las filas).
+        first:
+          (await tx.searchConsoleDay.findFirst({
+            where: { tenantId },
+            orderBy: { date: 'asc' },
+            select: { date: true },
+          })) ??
+          (await tx.searchConsoleRow.findFirst({
+            where: { tenantId },
+            orderBy: { date: 'asc' },
+            select: { date: true },
+          })),
+      }),
       tenantId,
     );
     return summarizeSearchConsole(
@@ -309,6 +375,15 @@ export class SearchConsoleService {
         position: Number(r.position),
       })),
       span,
+      {
+        days: dayRows.map((d) => ({
+          date: d.date.toISOString().slice(0, 10),
+          clicks: d.clicks,
+          impressions: d.impressions,
+          position: Number(d.position),
+        })),
+        firstDate: first ? first.date.toISOString().slice(0, 10) : null,
+      },
     );
   }
 }
