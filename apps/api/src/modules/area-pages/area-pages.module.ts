@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 
 import { AiModule } from '../ai/ai.module';
+import { AuthModule } from '../auth/auth.module';
 import { LandingModule } from '../landing/landing.module';
 
 import { AreaPagesController } from './area-pages.controller';
 import { AreaPagesService } from './area-pages.service';
 
 @Module({
-  imports: [AiModule, LandingModule],
+  imports: [AiModule, AuthModule, LandingModule],
   controllers: [AreaPagesController],
   providers: [AreaPagesService],
   exports: [AreaPagesService],

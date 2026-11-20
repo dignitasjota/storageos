@@ -4,9 +4,22 @@ import { VERIFACTU_MANDATORY_FROM } from '@storageos/shared';
 import { formatDateLong } from '../../common/format';
 import { PrismaService } from '../database/prisma.service';
 
-import type { ConfigHealthItemDto } from '@storageos/shared';
+import type { ConfigHealthItemDto, Permission } from '@storageos/shared';
 
 const DAY = 86_400_000;
+
+/**
+ * Permiso que pide la página a la que lleva cada aviso: no se enseña un aviso
+ * que lleva a una página que el usuario no puede abrir.
+ */
+const HREF_PERMISSION: Record<string, Permission> = {
+  '/settings/billing': 'billing:configure',
+  '/settings/company': 'billing:configure',
+  '/settings/payments': 'billing:configure',
+  '/settings/billing/verifactu': 'invoices:manage',
+  '/settings/domain': 'settings:manage',
+  '/settings/email': 'settings:manage',
+};
 
 /**
  * Lo que conviene revisar de la configuración: el certificado de la AEAT que
@@ -17,7 +30,19 @@ const DAY = 86_400_000;
 export class ConfigHealthService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async check(tenantId: string): Promise<ConfigHealthItemDto[]> {
+  async check(
+    tenantId: string,
+    permissions?: readonly Permission[],
+  ): Promise<ConfigHealthItemDto[]> {
+    const items = await this.collect(tenantId);
+    if (!permissions) return items;
+    return items.filter((i) => {
+      const needed = HREF_PERMISSION[i.href];
+      return !needed || permissions.includes(needed);
+    });
+  }
+
+  private async collect(tenantId: string): Promise<ConfigHealthItemDto[]> {
     const d = await this.prisma.withTenant(async (tx) => {
       const [tenant, cert, emailDomain, defaultSeries, gateways] = await Promise.all([
         tx.tenant.findUniqueOrThrow({

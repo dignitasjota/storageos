@@ -39,6 +39,7 @@ import { SecurityEventsService } from '../security-events/security-events.servic
 import { AuditService } from './audit.service';
 import { PasswordResetTokensService } from './password-reset-tokens.service';
 import { SessionsService } from './sessions.service';
+import { liveFacilityScope } from './strategies/jwt.strategy';
 import { TokensService } from './tokens.service';
 import { VerificationTokensService } from './verification-tokens.service';
 
@@ -66,6 +67,9 @@ import type {
 } from '@storageos/shared';
 
 /** Metadatos opcionales del request, propagados a sessions + audit logs. */
+/** Código del 403 de la renovación cuando falta activar la verificación en dos pasos. */
+export const TWO_FACTOR_ENROLMENT_REQUIRED = 'two_factor_enrolment_required';
+
 export interface RequestMeta {
   userAgent?: string | undefined;
   ipAddress?: string | undefined;
@@ -470,6 +474,34 @@ export class AuthService {
       throw new UnauthorizedException('Cuenta no disponible');
     }
 
+    // La política de verificación en dos pasos también se aplica al renovar:
+    // si el negocio la exige y este propietario o gestor no la tiene, la
+    // sesión no continúa hasta que la active.
+    if ((user.role === 'owner' || user.role === 'manager') && !user.twoFactorEnabled) {
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: result.tenantId },
+        select: { requireTwoFactorForManagers: true },
+      });
+      if (tenant?.requireTwoFactorForManagers) {
+        await this.sessions.revoke({
+          tenantId: result.tenantId,
+          sessionId: result.session.id,
+          reason: 'logout',
+        });
+        const { token: enrolmentToken, expiresIn } = await this.tokens.sign2faEnrolmentRequired(
+          user.id,
+          result.tenantId,
+          user.role as UserRole,
+        );
+        throw new ForbiddenException({
+          code: TWO_FACTOR_ENROLMENT_REQUIRED,
+          message:
+            'Tu empresa exige la verificación en dos pasos. Actívala para seguir usando el panel.',
+          details: { enrolmentToken, expiresIn },
+        });
+      }
+    }
+
     await this.audit.write({
       tenantId: result.tenantId,
       userId: result.userId,
@@ -595,9 +627,16 @@ export class AuthService {
     }
 
     const newHash = await argonHash(input.password);
+    // Se anula también un cambio de email pendiente: pudo pedirlo quien tenía
+    // la contraseña anterior.
     await this.admin.user.update({
       where: { id: record.userId },
-      data: { passwordHash: newHash },
+      data: {
+        passwordHash: newHash,
+        pendingEmail: null,
+        emailChangeTokenHash: null,
+        emailChangeExpiresAt: null,
+      },
     });
 
     // Revocar TODAS las sesiones del usuario tras cambiar la contrasena.
@@ -698,11 +737,11 @@ export class AuthService {
         tx.userFacility.findMany({
           // El propietario ve siempre todos los locales.
           where: { userId, user: { role: { not: 'owner' } } },
-          select: { facilityId: true },
+          select: { facilityId: true, facility: { select: { deletedAt: true } } },
         }),
       tenantId,
     );
-    return rows.length > 0 ? rows.map((r) => r.facilityId) : null;
+    return liveFacilityScope(rows);
   }
 
   // ========================== helpers privados =============================

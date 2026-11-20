@@ -105,14 +105,31 @@ describe('Asistente de WhatsApp: horario, intenciones y seguimiento (e2e)', () =
       .send({ phoneNumberId, accessToken: 'EAAG-token-de-prueba-777777', enabled: true })
       .expect(200);
 
-    // «Solo dentro del horario» sin horario: el asistente no responde.
+    // «Solo dentro del horario» sin ningún día marcado no se acepta: no
+    // respondería nunca.
+    const empty = await request(app.getHttpServer())
+      .put('/settings/whatsapp/assistant')
+      .set(auth)
+      .send({ assistantEnabled: true, assistantHoursMode: 'inside', teamHours: {} })
+      .expect(400);
+    expect(empty.body.code).toBe('team_hours_required');
+    // «Solo dentro del horario» con el equipo solo otro día: ahora no responde.
+    const weekdays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+    const todayKey = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      weekday: 'short',
+    })
+      .format(new Date())
+      .toLowerCase()
+      .slice(0, 3);
+    const otherDay = weekdays.find((d) => d !== todayKey)!;
     const set = await request(app.getHttpServer())
       .put('/settings/whatsapp/assistant')
       .set(auth)
       .send({
         assistantEnabled: true,
         assistantHoursMode: 'inside',
-        teamHours: {},
+        teamHours: { [otherDay]: { open: '09:00', close: '18:00' } },
         alertIntents: ['reclamacion'],
       })
       .expect(200);

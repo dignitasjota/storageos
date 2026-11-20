@@ -42,12 +42,25 @@ export function TestRunCard({
     },
     onError: fail,
   });
+  // La pestaña se abre en el mismo clic (antes de esperar al servidor): si se
+  // abre después, el navegador la bloquea como ventana emergente.
   const portal = useMutation({
-    mutationFn: (customerId: string) =>
+    mutationFn: ({ customerId }: { customerId: string; win: Window | null }) =>
       apiFetch<PortalMagicLinkDto>(`/customers/${customerId}/portal-link`, { method: 'POST' }),
-    onSuccess: (res) => window.open(res.url, '_blank', 'noopener'),
-    onError: fail,
+    onSuccess: (res, { win }) => {
+      if (win) win.location.href = res.url;
+      else window.location.assign(res.url);
+    },
+    onError: (err, { win }) => {
+      win?.close();
+      fail(err);
+    },
   });
+  const openPortal = (customerId: string) => {
+    const win = window.open('', '_blank');
+    if (win) win.opener = null;
+    portal.mutate({ customerId, win });
+  };
 
   if (!testRun && !canStart) return null;
 
@@ -80,7 +93,7 @@ export function TestRunCard({
             )}
             <Button
               variant="outline"
-              onClick={() => portal.mutate(testRun.customerId)}
+              onClick={() => openPortal(testRun.customerId)}
               disabled={portal.isPending}
             >
               Abrir su área de clientes

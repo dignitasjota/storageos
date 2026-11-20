@@ -9,11 +9,12 @@ import {
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { TermsVersionsCard } from './versions-card';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,13 +25,30 @@ import { useUpdateWebLegal, useWebLegal } from '@/lib/web-legal/hooks';
 
 /** Textos legales de la web pública: aviso legal, privacidad, cookies y condiciones. */
 export default function WebLegalPage() {
-  const { data, isLoading } = useWebLegal();
-  if (isLoading || !data) {
+  const { data, isLoading, isError, refetch } = useWebLegal();
+  // Lo escrito en cada pestaña vive aquí: cambiar de pestaña no lo pierde.
+  const [drafts, setDrafts] = useState<Partial<Record<TenantLegalDoc, string>>>({});
+  const savedOf = (d: TenantLegalDoc) => data?.texts[TENANT_LEGAL_FIELD[d]] ?? '';
+  const textOf = (d: TenantLegalDoc) => drafts[d] ?? savedOf(d);
+  const anyDirty = data ? TENANT_LEGAL_DOCS.some((d) => textOf(d) !== savedOf(d)) : false;
+
+  // Aviso al cerrar o recargar la pestaña con cambios sin guardar.
+  useEffect(() => {
+    if (!anyDirty) return;
+    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [anyDirty]);
+
+  if (isLoading) {
     return (
       <div className="flex justify-center py-12">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+  if (isError || !data) {
+    return <SectionError onRetry={() => void refetch()} />;
   }
   return (
     <div className="space-y-4">
@@ -56,12 +74,30 @@ export default function WebLegalPage() {
           {TENANT_LEGAL_DOCS.map((d) => (
             <TabsTrigger key={d} value={d}>
               {TENANT_LEGAL_TITLES[d]}
+              {textOf(d) !== savedOf(d) && (
+                <span
+                  className="ml-1.5 size-1.5 rounded-full bg-amber-500"
+                  aria-label="Sin guardar"
+                />
+              )}
             </TabsTrigger>
           ))}
         </TabsList>
         {TENANT_LEGAL_DOCS.map((d) => (
           <TabsContent key={d} value={d} className="mt-4 space-y-4">
-            <LegalEditor doc={d} data={data} />
+            <LegalEditor
+              doc={d}
+              data={data}
+              text={textOf(d)}
+              setText={(value) => setDrafts((prev) => ({ ...prev, [d]: value }))}
+              onSaved={() =>
+                setDrafts((prev) => {
+                  const next = { ...prev };
+                  delete next[d];
+                  return next;
+                })
+              }
+            />
             {d === 'condiciones-contratacion' && !data.texts.terms && (
               <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-100">
                 Mientras uses el texto por defecto, se rellena con los datos de tu empresa y de tus
@@ -78,16 +114,28 @@ export default function WebLegalPage() {
   );
 }
 
-function LegalEditor({ doc, data }: { doc: TenantLegalDoc; data: WebLegalSettingsDto }) {
+function LegalEditor({
+  doc,
+  data,
+  text,
+  setText,
+  onSaved,
+}: {
+  doc: TenantLegalDoc;
+  data: WebLegalSettingsDto;
+  text: string;
+  setText: (value: string) => void;
+  onSaved: () => void;
+}) {
   const field = TENANT_LEGAL_FIELD[doc];
   const saved = data.texts[field] ?? '';
-  const [text, setText] = useState(saved);
   const update = useUpdateWebLegal();
   const custom = text.trim().length > 0;
 
   async function save(value: string) {
     try {
       await update.mutateAsync({ [field]: value });
+      onSaved();
       toast.success(value ? 'Texto guardado.' : 'Se usa de nuevo el texto generado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');

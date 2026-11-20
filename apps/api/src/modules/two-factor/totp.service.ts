@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Secret, TOTP } from 'otpauth';
-
-import type { Env } from '../../config/env.schema';
 
 /**
  * Servicio TOTP (RFC 6238). Algoritmo SHA1, 6 digitos, periodo 30s, que es
@@ -14,14 +11,15 @@ import type { Env } from '../../config/env.schema';
  * Los secretos se generan aqui y se devuelven en base32. La capa de
  * almacenamiento es responsable de cifrarlos antes de persistir (CryptoService).
  */
+/**
+ * Nombre que muestra la app de autenticación. Siempre la marca: el nombre del
+ * remitente de correo (`SMTP_FROM_NAME`) puede ser otro en algunos entornos.
+ */
+export const TOTP_ISSUER = 'TrasterOS';
+
 @Injectable()
 export class TotpService {
-  private readonly issuer: string;
-
-  constructor(config: ConfigService<Env, true>) {
-    // Mostrar "TrasterOS" como issuer en la app del autenticador.
-    this.issuer = config.get('SMTP_FROM_NAME', { infer: true }) || 'TrasterOS';
-  }
+  private readonly issuer = TOTP_ISSUER;
 
   /** Devuelve un nuevo secret base32 (160 bits, longitud estandar). */
   generateSecret(): string {

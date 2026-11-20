@@ -25,6 +25,7 @@ import {
   type PlatformSepaMandateDto,
   type PlatformSepaMandateTermsDto,
   type RedsysRedirectDto,
+  type SubscriptionPlanDto,
   type TenantRedsysPaymentOptionsDto,
   type TenantSelfAddonsDto,
   type TenantSubscriptionDto,
@@ -44,6 +45,7 @@ import { PlatformInvoicesService } from './platform-invoices.service';
 import { PlatformRedsysService } from './platform-redsys/platform-redsys.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import { SaasAddonsService } from './saas-addons.service';
+import { SubscriptionPlansService } from './subscription-plans.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Request, Response } from 'express';
@@ -86,7 +88,14 @@ export class BillingSaasController {
     private readonly sepaMandate: PlatformSepaMandateService,
     private readonly redsys: PlatformRedsysService,
     private readonly audit: AuditService,
+    private readonly plans: SubscriptionPlansService,
   ) {}
+
+  /** Planes que puede ver: los públicos, el suyo y los de sus propuestas. */
+  @Get('plans')
+  plansForTenant(@CurrentUser() user: AuthenticatedUser): Promise<SubscriptionPlanDto[]> {
+    return this.plans.listForTenant(user.tenantId);
+  }
 
   /** ¿Puede pagar la suscripción con tarjeta o Bizum (TPV de la plataforma)? */
   @Get('redsys')
@@ -126,8 +135,13 @@ export class BillingSaasController {
   updateBillingDetails(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: TenantBillingDetailsBody,
+    @Req() req: Request,
   ): Promise<TenantBillingDetailsDto> {
-    return this.invoices.updateTenantBillingDetails(user.tenantId, body);
+    return this.invoices.updateTenantBillingDetails(user.tenantId, body, {
+      userId: user.sub,
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
   }
 
   @Get()

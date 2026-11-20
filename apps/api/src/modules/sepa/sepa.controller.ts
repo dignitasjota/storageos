@@ -11,6 +11,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
@@ -35,12 +36,15 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
-import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../../common/decorators/require-permission.decorator';
 import { CompanyWideGuard } from '../../common/guards/company-wide.guard';
 
 import { SepaService } from './sepa.service';
 
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 
 class UpdateSepaSettingsDto extends createZodDto(UpdateSepaSettingsSchema) {}
 class CreateSepaMandateDto extends createZodDto(CreateSepaMandateSchema) {}
@@ -60,7 +64,7 @@ export class SepaController {
 
   // -------- config del acreedor --------
 
-  @RequirePermission('settings:read')
+  @RequireAnyPermission('settings:read', 'billing:configure')
   @Get('settings')
   getSettings(@CurrentUser() user: AuthenticatedUser): Promise<SepaSettingsDto> {
     return this.sepa.getSettings(user.tenantId);
@@ -71,8 +75,13 @@ export class SepaController {
   updateSettings(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: UpdateSepaSettingsDto,
+    @Req() req: Request,
   ): Promise<SepaSettingsDto> {
-    return this.sepa.updateSettings(user.tenantId, body);
+    return this.sepa.updateSettings(user.tenantId, body, {
+      userId: user.sub,
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
   }
 
   // -------- mandatos --------

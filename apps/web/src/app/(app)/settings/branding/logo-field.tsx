@@ -17,20 +17,26 @@ import { useRemoveTenantLogo, useUploadTenantLogo } from '@/lib/branding/hooks';
  * el logo subido.
  */
 export function LogoField({
-  logoUrl,
+  savedLogoUrl,
   logoUploaded,
-  onLogoUrlChange,
+  pastedUrl,
+  onPastedUrlChange,
   color,
 }: {
-  logoUrl: string;
+  /** Logo guardado (subido o enlace). */
+  savedLogoUrl: string | null;
   logoUploaded: boolean;
-  onLogoUrlChange: (value: string) => void;
+  /** Enlace escrito en el formulario (sin guardar todavía). */
+  pastedUrl: string;
+  onPastedUrlChange: (value: string) => void;
   color: string;
 }) {
   const upload = useUploadTenantLogo();
   const remove = useRemoveTenantLogo();
   const input = useRef<HTMLInputElement>(null);
-  const [showUrl, setShowUrl] = useState(!logoUploaded && logoUrl !== '');
+  const [showUrl, setShowUrl] = useState(!logoUploaded && pastedUrl !== '');
+  // Lo que se ve: el enlace escrito o, si no hay, el logo guardado.
+  const logoUrl = pastedUrl.trim() || savedLogoUrl || '';
   const busy = upload.isPending || remove.isPending;
 
   async function onFile(file: File | undefined) {
@@ -45,6 +51,8 @@ export function LogoField({
     }
     try {
       await upload.mutateAsync(file);
+      // El logo subido sustituye al enlace que se estuviera escribiendo.
+      onPastedUrlChange('');
       setShowUrl(false);
       toast.success('Logo actualizado.');
     } catch (err) {
@@ -98,7 +106,7 @@ export function LogoField({
         )}
         {logoUrl && <span className="h-1 w-16 rounded-full" style={{ backgroundColor: color }} />}
       </div>
-      {logoUrl && !logoUploaded && (
+      {savedLogoUrl && !logoUploaded && (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
           Tu logo es un enlace a otra web: se ve en tu web, en el portal y en el menú del panel,
           pero el icono de la app (la de tus inquilinos y la de tu equipo) sale con tus iniciales.
@@ -113,13 +121,15 @@ export function LogoField({
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">O enlace a tu logo</Label>
           <Input
-            value={logoUploaded ? '' : logoUrl}
-            onChange={(e) => onLogoUrlChange(e.target.value)}
+            value={pastedUrl}
+            onChange={(e) => onPastedUrlChange(e.target.value)}
             placeholder="https://tudominio.com/logo.png"
+            aria-label="Enlace a tu logo"
           />
           <p className="text-xs text-muted-foreground">
-            Se verá en tu web y en el portal, pero no en el icono de la app. Guarda para aplicarlo;
-            vacío no muestra logo.
+            {logoUploaded
+              ? 'Si escribes un enlace y guardas, sustituye al logo subido (que se borra).'
+              : 'Se verá en tu web y en el portal, pero no en el icono de la app. Guarda para aplicarlo; vacío no muestra logo.'}
           </p>
         </div>
       ) : (

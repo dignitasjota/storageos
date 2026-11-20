@@ -16,6 +16,7 @@ import { SessionsService } from '../auth/sessions.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
@@ -50,6 +51,7 @@ export class UsersService {
     private readonly audit: AuditService,
     private readonly email: EmailService,
     private readonly config: ConfigService<Env, true>,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   // ========================= cambio de email ================================
@@ -275,6 +277,23 @@ export class UsersService {
       });
     }
 
+    // Reactivar cuenta contra el límite de usuarios del plan, igual que invitar.
+    const wantsReactivate = args.input.isActive === true && !target.isActive;
+    if (wantsReactivate) {
+      const [activeUsers, pendingInvites] = await Promise.all([
+        this.admin.user.count({ where: { tenantId: args.tenantId, isActive: true } }),
+        this.admin.invitation.count({
+          where: {
+            tenantId: args.tenantId,
+            acceptedAt: null,
+            revokedAt: null,
+            expiresAt: { gt: new Date() },
+          },
+        }),
+      ]);
+      await this.limits.assertCanCreate(args.tenantId, 'users', activeUsers + pendingInvites);
+    }
+
     const updated = await this.admin.user.update({
       where: { id: target.id },
       data: {
@@ -382,6 +401,18 @@ export class UsersService {
         code: 'invalid_target',
       });
     }
+    // Solo el propietario puede ceder la propiedad (un rol a medida con
+    // `users:manage` no basta). Se mira en la base de datos, no en el token.
+    const actor = await this.admin.user.findFirst({
+      where: { id: args.fromUserId, tenantId: args.tenantId },
+      select: { role: true, isActive: true },
+    });
+    if (!actor || actor.role !== 'owner' || !actor.isActive) {
+      throw new ForbiddenException({
+        message: 'Solo el propietario puede transferir la propiedad de la empresa',
+        code: 'owner_only',
+      });
+    }
     const target = await this.admin.user.findFirst({
       where: { id: args.toUserId, tenantId: args.tenantId },
     });
@@ -471,7 +502,17 @@ export class UsersService {
       });
     }
     const newHash = await argonHash(args.input.newPassword);
-    await this.admin.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    // Un cambio de email pendiente se anula: lo pudo pedir quien tenía la
+    // contraseña anterior.
+    await this.admin.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash: newHash,
+        pendingEmail: null,
+        emailChangeTokenHash: null,
+        emailChangeExpiresAt: null,
+      },
+    });
 
     // Revoca todas las sesiones del user EXCEPTO la actual (que sigue
     // valida tras el cambio).

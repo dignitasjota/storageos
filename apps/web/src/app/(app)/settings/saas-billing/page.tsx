@@ -4,7 +4,7 @@ import { BASIC_PLAN_SLUG, BASIC_USER_ADDON_SLUG, FEATURE_LABELS } from '@storage
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { BillingDetailsSection } from './billing-details-section';
@@ -12,6 +12,7 @@ import { RedsysPaySection } from './redsys-pay-section';
 import { SepaMandateSection } from './sepa-mandate-section';
 
 import { SalesRepCard } from '@/components/billing/sales-rep-card';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,7 +67,13 @@ export default function SaasBillingPage() {
   const changePlan = useChangePlan();
   const selfAddons = useSelfAddons();
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
-  const [cycle, setCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [cycle, setCycleState] = useState<'monthly' | 'yearly'>('monthly');
+  // La periodicidad empieza en la que paga hoy, salvo que la elija él o una propuesta.
+  const cycleChosen = useRef(false);
+  const setCycle = (c: 'monthly' | 'yearly') => {
+    cycleChosen.current = true;
+    setCycleState(c);
+  };
   const [coupon, setCoupon] = useState('');
   const [offeredPlanId, setOfferedPlanId] = useState<string | null>(null);
   // Enlace de una propuesta (`?offer=&plan=&cycle=&coupon=`): deja elegidos el
@@ -75,7 +82,13 @@ export default function SaasBillingPage() {
   // Vuelta del pago con tarjeta: el webhook ya pudo cambiar la suscripción.
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    if (q.get('status') !== 'success') return;
+    const status = q.get('status');
+    if (status !== 'success' && status !== 'cancel') return;
+    // Se quita de la dirección para que el aviso no se repita al recargar.
+    q.delete('status');
+    const rest = q.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+    if (status === 'cancel') return;
     toast.success('Pago recibido. En unos segundos tu cuenta queda al día.');
     const refresh = () => {
       void qc.invalidateQueries({ queryKey: ['saas-billing'] });
@@ -98,6 +111,10 @@ export default function SaasBillingPage() {
     if (plan) setOfferedPlanId(plan);
   }, []);
   const couponCode = coupon.trim() || undefined;
+  const currentCycle = subscription.data?.billingCycle ?? null;
+  useEffect(() => {
+    if (!cycleChosen.current && currentCycle) setCycleState(currentCycle);
+  }, [currentCycle]);
 
   if (subscription.isLoading) {
     return (
@@ -108,9 +125,7 @@ export default function SaasBillingPage() {
   }
 
   if (!subscription.data) {
-    return (
-      <div className="text-sm text-muted-foreground">No hemos podido cargar tu suscripción.</div>
-    );
+    return <SectionError onRetry={() => void subscription.refetch()} />;
   }
 
   const sub = subscription.data;
@@ -128,6 +143,29 @@ export default function SaasBillingPage() {
       sub.status === 'cancelled' ||
       sub.status === 'expired' ||
       sub.plan.slug === 'free');
+
+  // El plan del catálogo trae el precio anual y si lleva IVA (el de la suscripción no).
+  const catalogPlan = plans.data?.find((p) => p.id === sub.plan.id);
+  const vatSuffix = catalogPlan?.pricesIncludeVat === false ? ' + IVA' : ' IVA incl.';
+  const money = (n: number) =>
+    n.toLocaleString('es-ES', { style: 'currency', currency: sub.plan.currency });
+  const currentPriceLabel =
+    sub.plan.priceMonthly === 0 && sub.plan.includedUnits == null
+      ? 'Gratis'
+      : sub.billingCycle === 'yearly' && catalogPlan && catalogPlan.priceYearly > 0
+        ? `${money(catalogPlan.priceYearly)} al año${vatSuffix}`
+        : sub.plan.includedUnits != null
+          ? `${money(sub.plan.priceMonthly)} al mes${vatSuffix} (incluye ${sub.plan.includedUnits} trasteros; los demás, en «Extras»)`
+          : `${money(sub.plan.priceMonthly)} al mes${vatSuffix}`;
+  // Cómo paga hoy, cuando no es por Stripe.
+  const payingNote =
+    sub.billingMode === 'sepa'
+      ? 'Tu cuota se cobra por domiciliación SEPA en tu cuenta (más abajo, en «Domiciliación SEPA»).'
+      : sub.billingMode === 'redsys'
+        ? 'Tu cuota se cobra sola con tu tarjeta guardada (más arriba, en «Cobro automático con tarjeta»).'
+        : canSubscribe
+          ? 'Aún no tienes método de pago. Elige un plan abajo para suscribirte, o paga con tarjeta o domiciliación más abajo.'
+          : 'Pagas tu cuota a mano (tarjeta o transferencia). Para cambiar de forma de pago, escríbenos desde Soporte.';
 
   function originUrl() {
     if (typeof window === 'undefined') return '';
@@ -167,12 +205,18 @@ export default function SaasBillingPage() {
   async function onChangePlan(planId: string) {
     setPendingPlanId(planId);
     try {
-      await changePlan.mutateAsync({
+      const changed = await changePlan.mutateAsync({
         planId,
         billingCycle: cycle,
         ...(couponCode ? { couponCode } : {}),
       });
       toast.success('Plan cambiado. Stripe ajustará la diferencia en tu próxima factura.');
+      if (changed.couponApplied === false) {
+        toast.warning(
+          'El plan se ha cambiado, pero el cupón no se ha podido aplicar. Escríbenos desde Soporte.',
+          { duration: 12_000 },
+        );
+      }
       // El servidor da de baja los extras que el plan nuevo ya incluye o no admite.
       const newPlan = plans.data?.find((p) => p.id === planId);
       const included = new Set<string>(newPlan?.tenantFeatures ?? []);
@@ -224,20 +268,7 @@ export default function SaasBillingPage() {
             </>
           ) : (
             <>
-              <Row
-                label="Precio"
-                value={
-                  sub.plan.includedUnits != null
-                    ? `${sub.plan.priceMonthly.toLocaleString('es-ES', {
-                        style: 'currency',
-                        currency: sub.plan.currency,
-                      })} (incluye ${sub.plan.includedUnits} trasteros; los demás, en «Extras»)`
-                    : sub.plan.priceMonthly.toLocaleString('es-ES', {
-                        style: 'currency',
-                        currency: sub.plan.currency,
-                      })
-                }
-              />
+              <Row label="Precio" value={currentPriceLabel} />
               <Row
                 label="Periodo actual"
                 value={`${formatDate(sub.currentPeriodStart)} → ${formatDate(sub.currentPeriodEnd)}`}
@@ -261,9 +292,7 @@ export default function SaasBillingPage() {
                 {portal.isPending ? 'Abriendo portal...' : 'Gestionar suscripción'}
               </Button>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Aún no tienes método de pago. Elige un plan abajo para suscribirte.
-              </p>
+              <p className="text-xs text-muted-foreground">{payingNote}</p>
             )}
           </div>
         </CardContent>
@@ -324,10 +353,12 @@ export default function SaasBillingPage() {
           <div className="flex h-32 items-center justify-center">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
+        ) : plans.isError ? (
+          <SectionError onRetry={() => void plans.refetch()} />
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             {(plans.data ?? [])
-              .filter((p) => p.isActive)
+              .filter((p) => p.isActive || p.id === sub.plan.id)
               .map((p) => {
                 const pending = pendingPlanId === p.id;
                 const isCurrent = sub.plan.id === p.id;
@@ -438,6 +469,8 @@ export default function SaasBillingPage() {
                         // Sin pagar todavía (prueba, solo lectura), su propio plan también
                         // se puede pagar.
                         isCurrent={isCurrent && !canSubscribe}
+                        isCurrentFree={isCurrent}
+                        isFree={p.priceMonthly === 0 && p.includedUnits == null}
                         monthlyOnly={cycle === 'yearly' && p.includedUnits != null}
                         hasStripePrice={
                           cycle === 'yearly'
@@ -464,7 +497,13 @@ export default function SaasBillingPage() {
       </section>
 
       <BillingDetailsSection />
-      {!exempt && <SepaMandateSection billingMode={sub.billingMode} />}
+      {!exempt && (
+        <SepaMandateSection
+          billingMode={sub.billingMode}
+          subscriptionStatus={sub.status}
+          hasStripeSubscription={hasStripeSub}
+        />
+      )}
       <SelfAddonsSection />
       <SaasInvoicesSection />
     </div>
@@ -474,6 +513,8 @@ export default function SaasBillingPage() {
 /** Botón de un plan según el estado del tenant. */
 function PlanCta({
   isCurrent,
+  isCurrentFree,
+  isFree,
   monthlyOnly,
   hasStripePrice,
   pending,
@@ -482,6 +523,10 @@ function PlanCta({
   onChange,
 }: {
   isCurrent: boolean;
+  /** Es su plan (para el plan gratuito, que no se paga). */
+  isCurrentFree: boolean;
+  /** Plan gratuito: no se contrata con tarjeta. */
+  isFree: boolean;
   monthlyOnly: boolean;
   hasStripePrice: boolean;
   pending: boolean;
@@ -489,10 +534,18 @@ function PlanCta({
   onSubscribe: () => void;
   onChange: () => void;
 }) {
-  if (isCurrent) {
+  if (isCurrent || (isFree && isCurrentFree)) {
     return (
       <Button className="w-full" variant="outline" disabled>
         Plan actual
+      </Button>
+    );
+  }
+  if (isFree) {
+    // Es el plan al que se pasa al acabar la prueba sin pagar; no se contrata.
+    return (
+      <Button className="w-full" variant="outline" disabled>
+        Sin coste
       </Button>
     );
   }
@@ -571,6 +624,8 @@ function SaasInvoicesSection() {
         <CardContent>
           {invoices.isLoading ? (
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          ) : invoices.isError ? (
+            <SectionError onRetry={() => void invoices.refetch()} />
           ) : inv.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aún no tienes facturas.</p>
           ) : (
@@ -640,6 +695,8 @@ function SaasInvoicesSection() {
         <CardContent>
           {payments.isLoading ? (
             <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          ) : payments.isError ? (
+            <SectionError onRetry={() => void payments.refetch()} />
           ) : pays.length === 0 ? (
             <p className="text-sm text-muted-foreground">Aún no hay pagos registrados.</p>
           ) : (
@@ -708,6 +765,8 @@ function SelfAddonsSection() {
       <CardContent className="space-y-4">
         {data.isLoading ? (
           <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+        ) : data.isError ? (
+          <SectionError onRetry={() => void data.refetch()} />
         ) : (
           <>
             {owned.length > 0 && (

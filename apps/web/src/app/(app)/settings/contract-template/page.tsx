@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -29,9 +30,23 @@ const PREVIEW_VARS = Object.fromEntries(
 ) as Record<string, string>;
 
 export default function ContractTemplatePage() {
-  const { data, isLoading } = useContractTemplate();
+  const { data, isLoading, isError, refetch } = useContractTemplate();
   const hasHousing = useHasFeature('housing');
+  const previewVars = useMemo(
+    () => ({
+      ...PREVIEW_VARS,
+      moveOutRule: moveOutRuleText(data?.moveOutEndOfMonth ?? false),
+      depositReturnDays: String(data?.depositReturnDays ?? ''),
+    }),
+    [data?.moveOutEndOfMonth, data?.depositReturnDays],
+  );
+  // Una vivienda sigue la LAU: su baja nunca es «a final de mes», como al firmar.
+  const housingPreviewVars = useMemo(
+    () => ({ ...previewVars, moveOutRule: moveOutRuleText(false) }),
+    [previewVars],
+  );
 
+  if (isError) return <SectionError onRetry={() => void refetch()} />;
   if (isLoading || !data) {
     return (
       <div className="flex justify-center py-12">
@@ -40,12 +55,6 @@ export default function ContractTemplatePage() {
     );
   }
 
-  // La vista previa usa los ajustes reales del negocio (baja, plazo de la fianza).
-  const previewVars = {
-    ...PREVIEW_VARS,
-    moveOutRule: moveOutRuleText(data.moveOutEndOfMonth),
-    depositReturnDays: String(data.depositReturnDays),
-  };
   const storageEditor = (
     <ClausesEditor
       field="clauses"
@@ -79,10 +88,15 @@ export default function ContractTemplatePage() {
             <TabsTrigger value="storage">Trasteros</TabsTrigger>
             <TabsTrigger value="housing">Viviendas</TabsTrigger>
           </TabsList>
-          <TabsContent value="storage" className="mt-4">
+          {/* Montadas las dos: cambiar de pestaña no pierde lo escrito. */}
+          <TabsContent value="storage" forceMount className="mt-4 data-[state=inactive]:hidden">
             {storageEditor}
           </TabsContent>
-          <TabsContent value="housing" className="mt-4 space-y-4">
+          <TabsContent
+            value="housing"
+            forceMount
+            className="mt-4 space-y-4 data-[state=inactive]:hidden"
+          >
             <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
               Se usa en los contratos de las unidades marcadas como vivienda. Parte de una base
               conforme a la Ley de Arrendamientos Urbanos; revísala con tu asesor antes de usarla
@@ -94,7 +108,7 @@ export default function ContractTemplatePage() {
               defaultText={DEFAULT_HOUSING_CLAUSES}
               emptyText="Sin texto: se usará la base LAU."
               placeholder=""
-              previewVars={previewVars}
+              previewVars={housingPreviewVars}
             />
           </TabsContent>
         </Tabs>
@@ -215,8 +229,8 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
         <CardTitle className="text-base">Fianza y gastos por impago</CardTitle>
         <CardDescription>
           Figuran en los datos de cada contrato nuevo. El recargo por demora se configura en{' '}
-          <Link href="/settings/billing" className="underline">
-            Facturación
+          <Link href="/settings/dunning" className="underline">
+            Escalado de impagos
           </Link>
           .
         </CardDescription>
@@ -298,6 +312,15 @@ function ClausesEditor({
   const [value, setValue] = useState(initial);
   useEffect(() => setValue(initial), [initial]);
   const preview = useMemo(() => renderContractClauses(value, previewVars), [value, previewVars]);
+  const dirty = value !== initial;
+
+  // Aviso al cerrar o recargar la pestaña con cambios sin guardar.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty]);
 
   async function save() {
     const toSave = defaultText !== undefined && value.trim() === defaultText.trim() ? '' : value;
@@ -366,13 +389,18 @@ function ClausesEditor({
         </Card>
       </div>
 
-      <div className="flex justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {dirty && (
+          <p className="mr-auto text-sm text-amber-700 dark:text-amber-300">
+            Tienes cambios sin guardar.
+          </p>
+        )}
         {defaultText !== undefined && value.trim() !== defaultText.trim() && (
           <Button variant="outline" onClick={() => setValue(defaultText)}>
             Restaurar la base
           </Button>
         )}
-        <Button onClick={() => void save()} disabled={update.isPending}>
+        <Button onClick={() => void save()} disabled={update.isPending || !dirty}>
           {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
           Guardar
         </Button>

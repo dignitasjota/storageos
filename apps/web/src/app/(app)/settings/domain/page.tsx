@@ -8,12 +8,15 @@ import { toast } from 'sonner';
 import type { CustomDomainCheckDto } from '@storageos/shared';
 
 import { FeatureGate } from '@/components/auth/feature-gate';
+import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature, useMe } from '@/lib/auth/hooks';
 import { useTenantBranding, useUpdateTenantBranding } from '@/lib/branding/hooks';
 import { useCreateSupportTicket } from '@/lib/support/hooks';
 import { useCheckCustomDomain } from '@/lib/tenant-settings/hooks';
@@ -29,10 +32,61 @@ export default function DomainSettingsPage() {
           desde tu dominio se configura en «Correo».
         </p>
       </div>
+      <LostDomainCard />
       <FeatureGate feature="custom_domain">
         <DomainCard />
       </FeatureGate>
     </div>
+  );
+}
+
+/**
+ * El plan ya no incluye dominio propio pero sigue guardado: la web ya no se
+ * sirve en él y se puede quitar (el aviso de «no está en tu plan» no lo tapa).
+ */
+function LostDomainCard() {
+  const me = useMe();
+  const hasFeature = useHasFeature('custom_domain');
+  const branding = useTenantBranding();
+  const update = useUpdateTenantBranding();
+  const confirm = useConfirm();
+  const domain = branding.data?.customDomain;
+  if (!me.data || hasFeature || !domain) return null;
+
+  async function remove() {
+    if (
+      !(await confirm({
+        title: `¿Quitar ${domain}?`,
+        description: 'Dejará de estar asociado a tu cuenta.',
+        confirmLabel: 'Quitar',
+      }))
+    ) {
+      return;
+    }
+    try {
+      await update.mutateAsync({ customDomain: '' });
+      toast.success('Dominio propio quitado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo quitar el dominio.');
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{domain}</CardTitle>
+        <CardDescription>
+          Tu plan ya no incluye dominio propio: tu web ya no se ve en esta dirección, sino en la de
+          TrasterOS. Puedes quitarlo o cambiar de plan para volver a usarlo.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button variant="outline" onClick={() => void remove()} disabled={update.isPending}>
+          {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+          Quitar el dominio
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -74,9 +128,16 @@ function DomainCard() {
     }
   }
 
+  const savedDomainValue = branding.data?.customDomain ?? null;
+  const brandingLoaded = branding.data !== undefined;
+  // Al cambiar el dominio guardado: se repone el campo y se olvida la
+  // comprobación de DNS y el aviso del dominio anterior.
   useEffect(() => {
-    if (branding.data) setDomain(branding.data.customDomain ?? '');
-  }, [branding.data]);
+    if (!brandingLoaded) return;
+    setDomain(savedDomainValue ?? '');
+    setCheck(null);
+    setNotified(false);
+  }, [brandingLoaded, savedDomainValue]);
 
   async function saveDomain() {
     try {
@@ -97,6 +158,9 @@ function DomainCard() {
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+  if (branding.isError) {
+    return <SectionError onRetry={() => void branding.refetch()} />;
   }
 
   const savedDomain = branding.data?.customDomain ?? null;

@@ -27,6 +27,20 @@ export const runtime = 'nodejs';
 const API_URL = SERVER_API_URL;
 const MAX_PROXY_BYTES = 15 * 1024 * 1024; // 15MB por fichero — sobra para una web normal.
 const UPSTREAM_TIMEOUT_MS = 8000;
+/**
+ * Marca de las peticiones que hace este proxy. Si la web externa apunta (por
+ * DNS o por error) al propio dominio del tenant, la petición vuelve aquí: con
+ * la marca se corta en vez de llamarse a sí misma sin fin.
+ */
+const PROXY_HOP_HEADER = 'x-trasteros-proxied';
+
+/** `www.ejemplo.com` y `ejemplo.com` son el mismo sitio a efectos del bucle. */
+function bareHost(host: string): string {
+  return host
+    .toLowerCase()
+    .replace(/:\d+$/, '')
+    .replace(/^www\./, '');
+}
 
 /**
  * El contenido proxificado (HTML/JS/SVG del tenant, que no controlamos: p. ej.
@@ -171,7 +185,7 @@ function fetchPinned(
         port: url.port || 443,
         path: `${url.pathname}${url.search}`,
         method: 'GET',
-        headers: { accept },
+        headers: { accept, [PROXY_HOP_HEADER]: '1' },
         lookup: pinnedLookup(pinnedAddress, pinnedFamily),
         timeout: UPSTREAM_TIMEOUT_MS,
       },
@@ -226,6 +240,9 @@ export async function GET(
 ): Promise<NextResponse> {
   const { slug, path } = await params;
 
+  // Petición que ya viene de este proxy: la web externa apunta a nosotros.
+  if (req.headers.get(PROXY_HOP_HEADER)) return notAvailable(508);
+
   const site = await fetchExternalSite(slug);
   if (!site) return notAvailable(404);
 
@@ -241,6 +258,15 @@ export async function GET(
     return notAvailable(404);
   }
   upstreamUrl.search = req.nextUrl.search;
+
+  // La web externa es el propio dominio del tenant (con o sin `www`): sería
+  // pedirse a sí mismo.
+  const requestHost = (req.headers.get('x-forwarded-host') ?? req.headers.get('host'))
+    ?.split(',')[0]
+    ?.trim();
+  if (requestHost && bareHost(requestHost) === bareHost(upstreamUrl.host)) {
+    return notAvailable(508);
+  }
 
   let upstream: ProxiedResponse;
   try {

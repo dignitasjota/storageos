@@ -24,6 +24,10 @@ export function useUpdateAccessSettings() {
         method: 'PATCH',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: accessSettingsKey }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: accessSettingsKey });
+      // El corte por impago también sale en el calendario del escalado.
+      void qc.invalidateQueries({ queryKey: ['dunning', 'settings'] });
+    },
   });
 }

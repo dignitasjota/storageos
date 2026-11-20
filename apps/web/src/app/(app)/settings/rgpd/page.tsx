@@ -10,6 +10,7 @@ import { SettingsHeader } from '../settings-header';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -22,11 +23,18 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useDataSubjectRequests } from '@/lib/billing/hooks';
 import { useCustomer } from '@/lib/customers/hooks';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatEur } from '@/lib/format';
 import {
   useAnonymizeCustomer,
   useCreateDataSubjectRequest,
@@ -102,6 +110,12 @@ export default function RgpdSettingsPage() {
         <div className="flex justify-center py-8">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
+      ) : requests.isError ? (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void requests.refetch()} />
+          </CardContent>
+        </Card>
       ) : rows.length === 0 && all.length > 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -136,8 +150,32 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
   const daysLeft = Math.ceil((new Date(r.dueAt).getTime() - Date.now()) / 86_400_000);
 
   async function setStatus(status: RequestStatus) {
+    let notes: string | undefined;
+    if (status === 'fulfilled') {
+      const ok = await ask({
+        title: '¿Marcar la solicitud como atendida?',
+        description: 'Queda cerrada con la fecha de hoy. Hazlo cuando ya le hayas respondido.',
+        confirmLabel: 'Marcar atendida',
+      });
+      if (!ok) return;
+    }
+    if (status === 'denied') {
+      const ok = await ask({
+        title: '¿Denegar la solicitud?',
+        description:
+          'Queda cerrada. Debes explicar al interesado el motivo y que puede reclamar ante la Agencia Española de Protección de Datos.',
+        confirmLabel: 'Denegar',
+        destructive: true,
+        input: { label: 'Motivo', placeholder: 'Por qué no se atiende', required: true },
+      });
+      if (!ok) return;
+      notes = [r.notes, `Denegada: ${ok.value}`].filter(Boolean).join('\n');
+    }
     try {
-      await update.mutateAsync({ id: r.id, input: { status } });
+      await update.mutateAsync({
+        id: r.id,
+        input: { status, ...(notes !== undefined ? { notes } : {}) },
+      });
       toast.success('Solicitud actualizada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar.');
@@ -164,7 +202,24 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
     });
     if (!ok) return;
     try {
-      await anonymize.mutateAsync({ customerId: r.customerId, requestId: r.id });
+      try {
+        await anonymize.mutateAsync({ customerId: r.customerId, requestId: r.id });
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.body.code !== 'customer_has_debt') throw err;
+        const amount = Number((err.body.details as { amount?: number } | undefined)?.amount ?? 0);
+        const again = await ask({
+          title: 'Tiene facturas pendientes de cobro',
+          description: `Debe ${formatEur(amount)}. Si lo anonimizas, las facturas se conservan pero ya no podrás reclamárselas a su nombre.`,
+          confirmLabel: 'Anonimizar igualmente',
+          destructive: true,
+        });
+        if (!again) return;
+        await anonymize.mutateAsync({
+          customerId: r.customerId,
+          requestId: r.id,
+          confirmDebt: true,
+        });
+      }
       toast.success('Inquilino anonimizado y solicitud atendida.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo anonimizar.');
@@ -246,9 +301,10 @@ function CreateRequestDialog({
   const [notes, setNotes] = useState('');
   const customer = useCustomer(customerId);
 
+  // Al elegir otro inquilino se pone su email (antes se quedaba el del primero).
   useEffect(() => {
-    if (customer.data?.email && !email) setEmail(customer.data.email);
-  }, [customer.data, email]);
+    if (customer.data?.id === customerId && customer.data?.email) setEmail(customer.data.email);
+  }, [customer.data, customerId]);
 
   async function submit() {
     try {
@@ -294,18 +350,18 @@ function CreateRequestDialog({
           </div>
           <div className="space-y-1">
             <Label htmlFor="rgpd-type">Qué pide</Label>
-            <select
-              id="rgpd-type"
-              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-base sm:text-sm"
-              value={type}
-              onChange={(e) => setType(e.target.value as RequestType)}
-            >
-              {DataSubjectRequestTypeEnum.options.map((t) => (
-                <option key={t} value={t}>
-                  {RGPD_TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
+            <Select value={type} onValueChange={(v) => setType(v as RequestType)}>
+              <SelectTrigger id="rgpd-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DataSubjectRequestTypeEnum.options.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {RGPD_TYPE_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label htmlFor="rgpd-notes">Notas (opcional)</Label>

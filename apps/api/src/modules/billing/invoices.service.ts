@@ -1102,21 +1102,33 @@ export class InvoicesService {
           })()
         : {};
 
-      const issuedRow = await tx.invoice.update({
-        where: { id: args.invoiceId },
-        data: {
-          status: settled || prepaid ? 'paid' : 'issued',
-          invoiceNumber,
-          sequenceNumber,
-          issueDate,
-          dueDate: settled ? null : dueDate,
-          ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
-          ...(prepaid ? { paidAt: new Date() } : {}),
-          ...(await customerSnapshot(tx, existing.customerId)),
-          ...record,
-        },
-        include: this.includeRelations(),
-      });
+      const issuedRow = await tx.invoice
+        .update({
+          where: { id: args.invoiceId },
+          data: {
+            status: settled || prepaid ? 'paid' : 'issued',
+            invoiceNumber,
+            sequenceNumber,
+            issueDate,
+            dueDate: settled ? null : dueDate,
+            ...(settled ? { amountPaid: total, paidAt: new Date() } : {}),
+            ...(prepaid ? { paidAt: new Date() } : {}),
+            ...(await customerSnapshot(tx, existing.customerId)),
+            ...record,
+          },
+          include: this.includeRelations(),
+        })
+        .catch((err: unknown) => {
+          // El número ya existe (otra serie con el mismo prefijo, de antes de
+          // impedirlo): un 409 claro en vez de un error interno.
+          if (isUniqueViolation(err)) {
+            throw new ConflictException({
+              code: 'invoice_number_taken',
+              message: `Ya hay una factura con el número ${invoiceNumber}: otra serie usa el mismo prefijo (${series.prefix}). Cambia el prefijo de una de las dos en Configuración → Facturación.`,
+            });
+          }
+          throw err;
+        });
       // Retención de IRPF del contrato (si el inquilino la practica) y, después,
       // su saldo a favor (una devolución que se quedó para la próxima factura).
       const row =

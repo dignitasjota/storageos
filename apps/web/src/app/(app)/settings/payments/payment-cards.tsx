@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +23,8 @@ export function AutoChargeCard() {
   const update = useUpdateTenantBillingSettings();
 
   if (!canConfigure) return null;
+  if (settings.isError)
+    return <LoadErrorCard title="Cobro automático" onRetry={settings.refetch} />;
   if (settings.isLoading || !settings.data) return null;
 
   const enabled = settings.data.autoChargeOnIssue;
@@ -86,7 +89,11 @@ export function TransferIbanCard() {
     }
   }, [settings.data, ready]);
 
-  if (!canConfigure || !settings.data) return null;
+  if (!canConfigure) return null;
+  if (settings.isError) {
+    return <LoadErrorCard title="IBAN para transferencias" onRetry={settings.refetch} />;
+  }
+  if (!settings.data) return null;
   const saved = settings.data.transferIban ?? '';
   const changed = iban.replace(/\s+/g, '').toUpperCase() !== saved;
 
@@ -139,9 +146,20 @@ export function OfflinePaymentOptionsCard() {
   const sepa = useSepaSettings(canConfigure);
   const update = useUpdateTenantBillingSettings();
 
-  if (!canConfigure || !settings.data) return null;
+  if (!canConfigure) return null;
+  if (settings.isError) {
+    return (
+      <LoadErrorCard title="Otras formas de pago para el inquilino" onRetry={settings.refetch} />
+    );
+  }
+  if (!settings.data) return null;
   const s = settings.data;
-  const sepaReady = !!sepa.data?.enabled && !!sepa.data.creditorAddress;
+  // Lo mismo que pide el área de clientes para ofrecer la domiciliación.
+  const sepaReady =
+    !!sepa.data?.enabled &&
+    !!sepa.data.creditorAddress &&
+    !!sepa.data.creditorPostalCode &&
+    !!sepa.data.creditorCity;
 
   async function toggle(
     key: 'offlineTransferEnabled' | 'offlineCashEnabled' | 'offlineSepaEnabled',
@@ -183,7 +201,7 @@ export function OfflinePaymentOptionsCard() {
       enabled: s.offlineSepaEnabled,
       blocked: sepaReady
         ? null
-        : 'Activa antes las remesas SEPA (más abajo) con el domicilio del acreedor.',
+        : 'Activa antes las remesas SEPA (más abajo) con el domicilio completo del acreedor (dirección, código postal y ciudad).',
     },
   ];
 
@@ -241,6 +259,9 @@ export function AutoChargeRetryCard() {
   }, [settings.data, ready]);
 
   if (!canConfigure) return null;
+  if (settings.isError) {
+    return <LoadErrorCard title="Reintentos de cobro" onRetry={settings.refetch} />;
+  }
   if (settings.isLoading || !settings.data) return null;
 
   const enabled = settings.data.autoChargeRetryEnabled;
@@ -359,7 +380,11 @@ export function SepaSettingsCard() {
     setLoaded(true);
   }, [settings.data, loaded]);
 
-  if (!canConfigure || settings.isLoading || !settings.data) return null;
+  if (!canConfigure) return null;
+  if (settings.isError) {
+    return <LoadErrorCard title="Remesas SEPA (acreedor)" onRetry={settings.refetch} />;
+  }
+  if (settings.isLoading || !settings.data) return null;
   const s = settings.data;
   const prenotice = Number(prenoticeDays);
   const prenoticeValid = Number.isInteger(prenotice) && prenotice >= 1 && prenotice <= 30;
@@ -544,6 +569,20 @@ export function SepaSettingsCard() {
             {s.enabled ? 'Desactivar' : 'Activar remesas SEPA'}
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Tarjeta cuyo contenido no se ha podido cargar: lo dice y deja reintentar. */
+function LoadErrorCard({ title, onRetry }: { title: string; onRetry: () => unknown }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <SectionError onRetry={() => void onRetry()} />
       </CardContent>
     </Card>
   );

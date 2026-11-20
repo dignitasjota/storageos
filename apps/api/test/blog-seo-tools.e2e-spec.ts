@@ -90,8 +90,9 @@ describe('Blog: texto alternativo, nombre de la portada y entradas relacionadas 
       .patch(`/blog-posts/${a.id}`)
       .set(auth)
       .send({ relatedPostIds: [foreign.id] });
-    expect(notMine.status).toBe(400);
-    expect(notMine.body.code).toBe('related_post_not_found');
+    // La de otro negocio (o una que ya no existe) se ignora: no se guarda.
+    expect(notMine.status).toBe(200);
+    expect(notMine.body.relatedPostIds).toEqual([]);
 
     const ids = await Promise.all(['B', 'C', 'D', 'E'].map((t) => create(t)));
     const tooMany = await request(app.getHttpServer())
@@ -127,6 +128,20 @@ describe('Blog: texto alternativo, nombre de la portada y entradas relacionadas 
       .send({ mimeType: 'image/jpeg', sizeBytes: 2000, fileName: 'Trastero Grande.jpg' });
     expect(req.status).toBe(200);
     expect(req.body.key).toMatch(/\/blog\/images\/[0-9a-f]{8}\/trastero-grande\.jpg$/);
+
+    // Sin subir nada no se confirma.
+    const early = await request(app.getHttpServer())
+      .post('/blog-posts/images/confirm')
+      .set(auth)
+      .send({ key: req.body.key });
+    expect(early.status).toBe(400);
+    expect(early.body.code).toBe('file_not_uploaded');
+    const put = await fetch(req.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: req.body.requiredHeaders as Record<string, string>,
+      body: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]),
+    });
+    expect(put.ok).toBe(true);
 
     const ok = await request(app.getHttpServer())
       .post('/blog-posts/images/confirm')

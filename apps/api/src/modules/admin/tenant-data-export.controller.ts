@@ -1,4 +1,5 @@
 import { Controller, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 
 import {
   type AuthenticatedUser,
@@ -20,9 +21,14 @@ export class TenantDataExportController {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Genera el Excel en memoria con todo lo de la cuenta: es caro, así que como
+   * mucho dos veces por hora.
+   */
   @Post()
   @HttpCode(HttpStatus.OK)
   @RequirePermission('rgpd:manage')
+  @Throttle({ default: { limit: 2, ttl: 60 * 60_000 } })
   async export(
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,

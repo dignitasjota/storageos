@@ -78,6 +78,7 @@ function LinesField({
   value,
   onChange,
   max,
+  lineMax,
   hint,
 }: {
   id: string;
@@ -85,9 +86,17 @@ function LinesField({
   value: string[];
   onChange: (v: string[]) => void;
   max: number;
+  /** Caracteres por línea (los del servidor): lo que sobra no se guarda. */
+  lineMax: number;
   hint?: string;
 }) {
   const [text, setText] = useState(value.join('\n'));
+  const lines = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const tooMany = lines.length > max;
+  const tooLong = lines.filter((l) => l.length > lineMax).length;
   return (
     <div>
       <Label htmlFor={id}>{label}</Label>
@@ -102,11 +111,22 @@ function LinesField({
               .split('\n')
               .map((l) => l.trim())
               .filter(Boolean)
-              .slice(0, max),
+              .slice(0, max)
+              .map((l) => l.slice(0, lineMax)),
           );
         }}
       />
-      <p className="mt-1 text-xs text-muted-foreground">{hint ?? `Una por línea, hasta ${max}.`}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {hint ?? `Una por línea, hasta ${max}.`} Cada una, hasta {lineMax} caracteres.
+      </p>
+      {(tooMany || tooLong > 0) && (
+        <p className="mt-1 text-xs text-destructive">
+          {tooMany ? `Solo se guardan las ${max} primeras líneas. ` : ''}
+          {tooLong > 0
+            ? `${tooLong === 1 ? 'Una línea pasa' : `${tooLong} líneas pasan`} de ${lineMax} caracteres: se guardará cortada.`
+            : ''}
+        </p>
+      )}
     </div>
   );
 }
@@ -497,6 +517,7 @@ export function PromoContentEditor({
           id="pc-items"
           label="Condiciones"
           max={12}
+          lineMax={400}
           value={c.conditions.items}
           onChange={(items) => patch('conditions', { items })}
           hint="Una por línea, hasta 12. Pon lo que diga tu cupón: el descuento se comprueba al reservar."
@@ -565,6 +586,7 @@ export function PromoContentEditor({
           id="pk-trust"
           label="Puntos a la izquierda del formulario"
           max={4}
+          lineMax={60}
           value={c.contact.trust}
           onChange={(trust) => patch('contact', { trust })}
         />
@@ -646,6 +668,7 @@ export function PromoContentEditor({
           id="ph-trust"
           label="Puntos de confianza"
           max={4}
+          lineMax={60}
           value={c.hero.trustItems}
           onChange={(trustItems) => patch('hero', { trustItems })}
         />

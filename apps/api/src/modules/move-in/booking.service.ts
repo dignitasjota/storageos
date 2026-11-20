@@ -49,6 +49,9 @@ export function maskEmail(email: string): string {
   return domain ? `${masked}@${domain}` : masked;
 }
 
+/** Un id con forma de UUID (el de una landing de promoción). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Plazo (horas) para firmar+pagar antes de que el hold de la unidad expire. */
 
 @Injectable()
@@ -621,6 +624,9 @@ export class BookingService {
       medium: input.utmMedium ?? null,
       campaign: input.utmCampaign ?? null,
     };
+    // Reserva desde una landing de promoción: sus resultados se cuentan por su id.
+    const promoLandingId =
+      input.utmContent && UUID_RE.test(input.utmContent) ? input.utmContent.toLowerCase() : null;
     try {
       await this.prisma.withTenant(async (tx) => {
         const now = new Date();
@@ -671,6 +677,7 @@ export class BookingService {
                 selfBooked: true,
                 bookingUtm,
                 bookingChannel: opts.channel ?? 'web',
+                ...(promoLandingId ? { promoLandingId } : {}),
               },
             },
           });
@@ -711,6 +718,7 @@ export class BookingService {
                   selfBooked: true,
                   bookingUtm,
                   bookingChannel: opts.channel ?? 'web',
+                  ...(promoLandingId ? { promoLandingId } : {}),
                 },
               },
             }),

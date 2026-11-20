@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
@@ -19,22 +19,41 @@ import type {
 } from '@storageos/shared';
 
 /**
- * Formato del token: `sk_live_<tenantId>.<secret>`. El tenantId va en
- * claro para poder buscar la fila sin escanear toda la tabla; el secret
- * (32 bytes random base64url) se guarda hasheado con argon2id.
+ * Formato del token: `sk_live_<tenantId>.<idClave>_<secreto>`. El tenant y el
+ * id de la clave (32 hex, sin guiones) van en claro para ir directos a su fila:
+ * un token falso cuesta como mucho una comprobación argon2. El secreto (32
+ * bytes base64url) se guarda con hash argon2id.
+ *
+ * Las claves antiguas (`sk_live_<tenantId>.<secreto>`) siguen valiendo: se
+ * reconocen porque su `keyPrefix` es solo `sk_live_<tenantId>`.
  */
 const API_KEY_PREFIX = 'sk_live_';
+/** Como mucho se prueban estas claves antiguas por token (argon2 es caro). */
+const LEGACY_CANDIDATES = 5;
+const KEY_ID_RE = /^([0-9a-f]{32})_(.{10,})$/;
 
 function generateSecret(): string {
   return randomBytes(32).toString('base64url');
 }
 
-function buildPlaintext(tenantId: string, secret: string): string {
-  return `${API_KEY_PREFIX}${tenantId}.${secret}`;
+function compactId(id: string): string {
+  return id.replace(/-/g, '');
 }
 
-function buildKeyPrefix(tenantId: string): string {
+function expandId(hex: string): string {
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function buildPlaintext(tenantId: string, keyId: string, secret: string): string {
+  return `${API_KEY_PREFIX}${tenantId}.${compactId(keyId)}_${secret}`;
+}
+
+function legacyKeyPrefix(tenantId: string): string {
   return `${API_KEY_PREFIX}${tenantId}`;
+}
+
+function buildKeyPrefix(tenantId: string, keyId: string): string {
+  return `${legacyKeyPrefix(tenantId)}.${compactId(keyId)}`;
 }
 
 /**
@@ -85,11 +104,13 @@ export class ApiKeysService {
     input: CreateApiKeyInput;
     meta: RequestMeta;
   }): Promise<ApiKeyWithPlaintextDto> {
+    const normalizedScopes = this.normalizeScopes(args.input.scopes);
+    const id = randomUUID();
     const secret = generateSecret();
     const keyHash = await argonHash(secret);
-    const keyPrefix = buildKeyPrefix(args.tenantId);
-    const normalizedScopes = this.normalizeScopes(args.input.scopes);
+    const keyPrefix = buildKeyPrefix(args.tenantId, id);
     const data: Prisma.ApiKeyUncheckedCreateInput = {
+      id,
       tenantId: args.tenantId,
       name: args.input.name,
       keyPrefix,
@@ -101,7 +122,7 @@ export class ApiKeysService {
     await this.writeAudit('integration.api_key_created', args, created.id);
     return {
       ...this.toDto(created),
-      keyPlaintext: buildPlaintext(args.tenantId, secret),
+      keyPlaintext: buildPlaintext(args.tenantId, id, secret),
     };
   }
 
@@ -133,16 +154,31 @@ export class ApiKeysService {
   async verify(token: string): Promise<ApiKeyVerifyResult | null> {
     const parsed = parseApiKey(token);
     if (!parsed) return null;
-    const candidates = await this.admin.apiKey.findMany({
-      where: {
-        tenantId: parsed.tenantId,
-        revokedAt: null,
-      },
-      take: 50,
-    });
+    const withId = KEY_ID_RE.exec(parsed.secret);
+    let secret = parsed.secret;
+    let candidates: ApiKey[];
+    if (withId) {
+      // Clave nueva: una sola fila, una sola comprobación.
+      secret = withId[2]!;
+      const row = await this.admin.apiKey.findFirst({
+        where: { id: expandId(withId[1]!), tenantId: parsed.tenantId, revokedAt: null },
+      });
+      candidates = row ? [row] : [];
+    } else {
+      // Clave antigua: solo las de formato antiguo y como mucho unas pocas.
+      candidates = await this.admin.apiKey.findMany({
+        where: {
+          tenantId: parsed.tenantId,
+          revokedAt: null,
+          keyPrefix: legacyKeyPrefix(parsed.tenantId),
+        },
+        orderBy: { lastUsedAt: { sort: 'desc', nulls: 'last' } },
+        take: LEGACY_CANDIDATES,
+      });
+    }
     for (const candidate of candidates) {
       try {
-        const ok = await argonVerify(candidate.keyHash, parsed.secret);
+        const ok = await argonVerify(candidate.keyHash, secret);
         if (!ok) continue;
         // best-effort: si falla, no bloqueamos la auth.
         this.admin.apiKey
@@ -168,7 +204,7 @@ export class ApiKeysService {
     if (!row) {
       throw new NotFoundException({
         code: 'api_key_not_found',
-        message: 'API key no encontrada',
+        message: 'Clave de API no encontrada.',
       });
     }
     return row;
@@ -208,20 +244,25 @@ export class ApiKeysService {
 
   /**
    * Normaliza los scopes recibidos del body:
-   *   - `undefined` o `[]` -> `['*']` (acceso total, compat con keys creadas
-   *     antes del enforcement del sub-bloque 15A.3).
+   *   - `undefined` o `[]` -> 400 `scope_required`: una clave nueva tiene que
+   *     decir qué puede hacer (las antiguas con `'*'` siguen valiendo).
    *   - array con valores -> valida que cada uno este en `API_KEY_SCOPES`;
    *     si alguno no esta, 400 `invalid_scope`. Si el cliente envia los 5
    *     scopes publicos, comprime a `['*']` para que un endpoint nuevo con
    *     scope futuro siga funcionando sin tener que rotar la key.
    */
   private normalizeScopes(scopes: readonly string[] | undefined): string[] {
-    if (!scopes || scopes.length === 0) return [API_KEY_WILDCARD_SCOPE];
+    if (!scopes || scopes.length === 0) {
+      throw new BadRequestException({
+        code: 'scope_required',
+        message: 'Marca al menos un permiso para la clave.',
+      });
+    }
     const unknown = scopes.filter((s) => !isKnownApiKeyScope(s));
     if (unknown.length > 0) {
       throw new BadRequestException({
         code: 'invalid_scope',
-        message: `Scope no reconocido: ${unknown.join(', ')}`,
+        message: `Permiso no reconocido: ${unknown.join(', ')}`,
         invalidScopes: unknown,
         allowedScopes: API_KEY_SCOPES,
       });

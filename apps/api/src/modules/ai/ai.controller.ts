@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -30,6 +31,7 @@ import {
   type SuggestReplyResultDto,
   type TenantAiSettingsDto,
   type TenantAiTestDto,
+  TestTenantAiSettingsSchema,
   UpdateTenantAiSettingsSchema,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -38,7 +40,10 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { RequireFeature } from '../../common/decorators/require-feature.decorator';
+import {
+  AllowWithoutFeature,
+  RequireFeature,
+} from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AiActionsService } from './ai-actions.service';
@@ -139,14 +144,19 @@ export class AiController {
     return this.ai.usage(user.tenantId, user.sub);
   }
 
-  /** Clave de IA propia del negocio (se usa al gastar las consultas, o siempre). */
+  /**
+   * Clave de IA propia del negocio (se usa al gastar las consultas, o siempre).
+   * Leerla y quitarla no exigen el asistente en el plan; ponerla sí (service).
+   */
   @RequirePermission('settings:manage')
+  @AllowWithoutFeature()
   @Get('settings')
   settings(@CurrentUser() user: AuthenticatedUser): Promise<TenantAiSettingsDto> {
     return this.ai.tenantSettings(user.tenantId);
   }
 
   @RequirePermission('settings:manage')
+  @AllowWithoutFeature()
   @Put('settings')
   updateSettings(
     @CurrentUser() user: AuthenticatedUser,
@@ -158,8 +168,19 @@ export class AiController {
   @RequirePermission('settings:manage')
   @Post('settings/test')
   @HttpCode(HttpStatus.OK)
-  testSettings(@CurrentUser() user: AuthenticatedUser): Promise<TenantAiTestDto> {
-    return this.ai.testOwnKey(user.tenantId);
+  testSettings(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() raw: unknown,
+  ): Promise<TenantAiTestDto> {
+    // Cuerpo opcional: con `apiKey` se prueba lo escrito sin guardarlo.
+    const parsed = TestTenantAiSettingsSchema.safeParse(raw ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'validation_failed',
+        message: parsed.error.issues[0]?.message ?? 'Datos no válidos',
+      });
+    }
+    return this.ai.testOwnKey(user.tenantId, parsed.data);
   }
 
   /** Confirma una acción propuesta por el asistente: se ejecuta con tus permisos actuales. */

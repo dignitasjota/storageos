@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { WebHeroCard } from './web-hero-card';
 import { WebSeoCard } from './web-seo-card';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -75,8 +76,13 @@ export default function WebSettingsPage() {
   // Web externa (proxy hacia una URL que el tenant ya aloja fuera).
   const [externalSiteUrl, setExternalSiteUrl] = useState('');
 
+  const [loaded, setLoaded] = useState(false);
+
+  // Se rellena una sola vez: guardar el SEO o subir una foto vuelve a pedir la
+  // configuración y no debe borrar lo que se esté escribiendo aquí.
   useEffect(() => {
-    if (!settings.data) return;
+    if (!settings.data || loaded) return;
+    setLoaded(true);
     setTemplate(settings.data.template);
     setHeadline(settings.data.headline ?? '');
     setAbout(settings.data.about ?? '');
@@ -87,11 +93,12 @@ export default function WebSettingsPage() {
     setAdvantages(c.advantages ?? []);
     setSteps((c.steps ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })));
     setExternalSiteUrl(settings.data.externalSiteUrl ?? '');
-  }, [settings.data]);
+  }, [settings.data, loaded]);
 
   async function saveExternalSite() {
     try {
       await update.mutateAsync({ template: 'external', externalSiteUrl });
+      setTemplate('external');
       toast.success('Web externa activada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -132,6 +139,10 @@ export default function WebSettingsPage() {
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+  // Sin la configuración no se enseña el formulario: guardarlo pisaría la web.
+  if (settings.isError || !settings.data) {
+    return <SectionError onRetry={() => void settings.refetch()} />;
   }
 
   return (
@@ -597,6 +608,8 @@ function WebPerformanceCard() {
           <div className="flex justify-center py-4">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
+        ) : perf.isError ? (
+          <SectionError onRetry={() => void perf.refetch()} />
         ) : d && d.totalLeads > 0 ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

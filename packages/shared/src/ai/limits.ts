@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { AiApiKeySchema } from '../whatsapp';
+
 /**
  * Asistente IA del panel: clave y modelo de la plataforma (editables desde el
  * panel admin; si no, las variables de entorno) y límite de consultas.
@@ -171,7 +173,7 @@ export interface TenantAiSettingsDto {
 
 export const UpdateTenantAiSettingsSchema = z.object({
   /** Clave de Anthropic; `''` la quita. */
-  apiKey: z.string().trim().max(500).optional(),
+  apiKey: AiApiKeySchema.optional().or(z.literal('')),
   model: z
     .string()
     .trim()
@@ -180,6 +182,18 @@ export const UpdateTenantAiSettingsSchema = z.object({
     .optional(),
 });
 export type UpdateTenantAiSettingsInput = z.infer<typeof UpdateTenantAiSettingsSchema>;
+
+/** Probar una clave escrita sin guardarla (sin `apiKey`, se prueba la guardada). */
+export const TestTenantAiSettingsSchema = z.object({
+  apiKey: AiApiKeySchema.optional(),
+  model: z
+    .string()
+    .trim()
+    .max(100)
+    .regex(/^[a-zA-Z0-9._:-]*$/, 'Modelo no válido')
+    .optional(),
+});
+export type TestTenantAiSettingsInput = z.infer<typeof TestTenantAiSettingsSchema>;
 
 /** Resultado de probar la clave propia del tenant. */
 export interface TenantAiTestDto {

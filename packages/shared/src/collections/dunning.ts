@@ -4,25 +4,59 @@ import { z } from 'zod';
  * El escalado de impagos en una pantalla: los días de cada paso (recordatorios,
  * recargo, corte de acceso y aviso legal) y una vista previa de las fechas.
  */
+/** Días enteros entre `min` y `max`, con mensajes en español. */
+const days = (min: number, max: number) =>
+  z
+    .number({
+      required_error: 'Indica el número de días',
+      invalid_type_error: 'Indica el número de días',
+    })
+    .int('Tiene que ser un número entero de días')
+    .min(min, `Como mínimo ${min} ${min === 1 ? 'día' : 'días'}`)
+    .max(max, `Como máximo ${max} días`);
+
 export const DunningSettingsSchema = z
   .object({
     /** Días tras el vencimiento hasta el primer recordatorio. */
-    firstReminderDays: z.number().int().min(1).max(30),
+    firstReminderDays: days(1, 30),
     /** Días hasta el segundo recordatorio (después del primero). */
-    secondReminderDays: z.number().int().min(2).max(60),
+    secondReminderDays: days(2, 60),
     lateFeeEnabled: z.boolean(),
     lateFeeType: z.enum(['percentage', 'fixed']),
-    lateFeeValue: z.number().nonnegative().max(100_000),
-    lateFeeGraceDays: z.number().int().min(0).max(120),
+    lateFeeValue: z
+      .number({
+        required_error: 'Indica el importe del recargo',
+        invalid_type_error: 'Indica el importe del recargo',
+      })
+      .nonnegative('El recargo no puede ser negativo')
+      .max(100_000, 'El recargo no puede pasar de 100.000 €'),
+    lateFeeGraceDays: days(0, 120),
     /** Qué corta el impago: todo, solo los accesos adicionales o nada. */
     accessCutMode: z.enum(['all', 'extras', 'none']),
-    accessCutDays: z.number().int().min(1).max(90),
+    accessCutDays: days(1, 90),
     /** Días hasta el aviso legal (y el expediente, si se usan). */
-    legalNoticeDays: z.number().int().min(8).max(365),
+    legalNoticeDays: days(8, 365),
   })
   .refine((s) => s.secondReminderDays > s.firstReminderDays, {
     message: 'El segundo recordatorio va después del primero',
     path: ['secondReminderDays'],
+  })
+  .refine((s) => s.accessCutMode === 'none' || s.accessCutDays >= s.secondReminderDays, {
+    message: 'El corte del acceso no puede ir antes del segundo recordatorio',
+    path: ['accessCutDays'],
+  })
+  .refine(
+    (s) =>
+      s.legalNoticeDays >= s.secondReminderDays &&
+      (s.accessCutMode === 'none' || s.legalNoticeDays >= s.accessCutDays),
+    {
+      message: 'El aviso legal va después de los recordatorios y del corte del acceso',
+      path: ['legalNoticeDays'],
+    },
+  )
+  .refine((s) => !s.lateFeeEnabled || s.lateFeeValue > 0, {
+    message: 'Con el recargo activado, indica un importe mayor que 0',
+    path: ['lateFeeValue'],
   })
   .refine((s) => s.lateFeeType !== 'percentage' || s.lateFeeValue <= 100, {
     message: 'Un recargo en porcentaje no pasa del 100 %',

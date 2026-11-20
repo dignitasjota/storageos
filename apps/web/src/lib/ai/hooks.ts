@@ -15,6 +15,7 @@ import type {
   SuggestReplyResultDto,
   TenantAiSettingsDto,
   TenantAiTestDto,
+  TestTenantAiSettingsInput,
   UpdateTenantAiSettingsInput,
 } from '@storageos/shared';
 
@@ -25,10 +26,11 @@ const detailKey = (id: string) => ['ai', 'conversations', id] as const;
 export const aiUsageKey = ['ai', 'usage'] as const;
 
 /** Consultas del asistente usadas este mes (y las tuyas hoy). */
-export function useAiUsage() {
+export function useAiUsage(enabled = true) {
   return useQuery({
     queryKey: aiUsageKey,
     queryFn: () => apiFetch<AiUsageDto>('/ai/usage'),
+    enabled,
   });
 }
 
@@ -91,10 +93,11 @@ export function useAiActionDecision() {
 const aiSettingsKey = ['ai', 'settings'] as const;
 
 /** Clave de IA propia del negocio (Configuración → Asistente IA). */
-export function useTenantAiSettings() {
+export function useTenantAiSettings(enabled = true) {
   return useQuery({
     queryKey: aiSettingsKey,
     queryFn: () => apiFetch<TenantAiSettingsDto>('/ai/settings'),
+    enabled,
   });
 }
 
@@ -110,9 +113,11 @@ export function useUpdateTenantAiSettings() {
   });
 }
 
+/** Prueba la clave escrita (si llega) o la guardada. */
 export function useTestTenantAiSettings() {
   return useMutation({
-    mutationFn: () => apiFetch<TenantAiTestDto>('/ai/settings/test', { method: 'POST' }),
+    mutationFn: (input: TestTenantAiSettingsInput = {}) =>
+      apiFetch<TenantAiTestDto>('/ai/settings/test', { method: 'POST', json: input }),
   });
 }
 

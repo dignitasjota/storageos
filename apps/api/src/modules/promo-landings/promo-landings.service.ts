@@ -24,6 +24,7 @@ import {
   buildPromoPreviewToken,
   promoPreviewKey,
 } from '../../common/marketing/promo-preview-token';
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
@@ -33,6 +34,29 @@ import type { Prisma } from '@storageos/database';
 type Row = Prisma.PromoLandingGetPayload<{ include: { coupon: { select: { code: true } } } }>;
 
 const INCLUDE = { coupon: { select: { code: true } } } as const;
+
+/** Tipos y tamaño máximo de la foto de la landing (los de la URL de subida). */
+const PROMO_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+const PROMO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const SLUG_MAX = 60;
+
+/** Dirección de la copia: cabe siempre en 60 caracteres (recorta antes del sufijo). */
+export function copySlug(base: string, n: number): string {
+  const suffix = n <= 1 ? '-copia' : `-copia-${n}`;
+  const head = base.slice(0, SLUG_MAX - suffix.length).replace(/-+$/, '');
+  return `${head}${suffix}`;
+}
+
+/** ¿El contacto llegó por esta landing? Por su id si lo guardó; si no (antiguos), por la campaña. */
+function fromLanding(
+  lead: { metadata: unknown; utmCampaign: string | null },
+  landingId: string,
+  campaign: string,
+): boolean {
+  const meta = lead.metadata as { promoLandingId?: unknown } | null;
+  if (meta && typeof meta.promoLandingId === 'string') return meta.promoLandingId === landingId;
+  return lead.utmCampaign === campaign;
+}
 
 /**
  * Landings de promoción de la web del tenant (extra Web Premium). El staff las
@@ -45,6 +69,7 @@ export class PromoLandingsService {
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
     private readonly config: ConfigService<Env, true>,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -87,8 +112,12 @@ export class PromoLandingsService {
     return this.toDto(await this.findOrThrow(tenantId, id));
   }
 
-  async create(tenantId: string, input: CreatePromoLandingInput): Promise<PromoLandingDto> {
-    await this.assertRefs(tenantId, input);
+  async create(
+    tenantId: string,
+    input: CreatePromoLandingInput,
+    userId: string | null = null,
+  ): Promise<PromoLandingDto> {
+    const refs = await this.cleanRefs(tenantId, input);
     if (input.shortPath) await this.assertShortPathFree(tenantId, input.slug);
     try {
       const row = await this.prisma.withTenant(async (tx) => {
@@ -103,8 +132,8 @@ export class PromoLandingsService {
             headline: input.headline,
             subheadline: input.subheadline,
             couponId: input.couponId,
-            facilityIds: input.facilityIds,
-            unitTypeIds: input.unitTypeIds,
+            facilityIds: refs.facilityIds,
+            unitTypeIds: refs.unitTypeIds,
             showCountdown: input.showCountdown,
             shortPath: input.shortPath,
             content: input.content as Prisma.InputJsonValue,
@@ -117,6 +146,14 @@ export class PromoLandingsService {
         if (created.shortPath) await this.forgetFacilityRedirect(tx, created.slug);
         return created;
       }, tenantId);
+      await this.audit.write({
+        tenantId,
+        userId,
+        action: 'promo_landing.created',
+        entityType: 'PromoLanding',
+        entityId: row.id,
+        changes: { name: row.name, slug: row.slug, isActive: row.isActive },
+      });
       return this.toDto(row);
     } catch (err) {
       throw this.slugTaken(err);
@@ -127,6 +164,7 @@ export class PromoLandingsService {
     tenantId: string,
     id: string,
     input: UpdatePromoLandingInput,
+    userId: string | null = null,
   ): Promise<PromoLandingDto> {
     const current = await this.findOrThrow(tenantId, id);
     const issue = promoDatesIssue({
@@ -135,7 +173,7 @@ export class PromoLandingsService {
       endsAt: input.endsAt !== undefined ? input.endsAt : (current.endsAt?.toISOString() ?? null),
     });
     if (issue) throw new BadRequestException({ code: 'invalid_dates', message: issue });
-    await this.assertRefs(tenantId, {
+    const refs = await this.cleanRefs(tenantId, {
       couponId: input.couponId ?? null,
       facilityIds: input.facilityIds ?? [],
       unitTypeIds: input.unitTypeIds ?? [],
@@ -159,8 +197,8 @@ export class PromoLandingsService {
     if (input.couponId !== undefined) {
       data.coupon = input.couponId ? { connect: { id: input.couponId } } : { disconnect: true };
     }
-    if (input.facilityIds !== undefined) data.facilityIds = input.facilityIds;
-    if (input.unitTypeIds !== undefined) data.unitTypeIds = input.unitTypeIds;
+    if (input.facilityIds !== undefined) data.facilityIds = refs.facilityIds;
+    if (input.unitTypeIds !== undefined) data.unitTypeIds = refs.unitTypeIds;
     if (input.showCountdown !== undefined) data.showCountdown = input.showCountdown;
     if (input.shortPath !== undefined) data.shortPath = input.shortPath;
     if (input.seoTitle !== undefined) data.seoTitle = text(input.seoTitle);
@@ -172,6 +210,25 @@ export class PromoLandingsService {
         if (updated.shortPath) await this.forgetFacilityRedirect(tx, updated.slug);
         return updated;
       }, tenantId);
+      // Rastro de lo que cambia lo que ve el público: activar, apagar y la dirección.
+      const changes: Record<string, unknown> = {};
+      if (row.isActive !== current.isActive) changes.isActive = row.isActive;
+      if (row.slug !== current.slug) changes.slug = { from: current.slug, to: row.slug };
+      if (Object.keys(changes).length > 0) {
+        await this.audit.write({
+          tenantId,
+          userId,
+          action:
+            row.slug !== current.slug
+              ? 'promo_landing.slug_changed'
+              : row.isActive
+                ? 'promo_landing.published'
+                : 'promo_landing.unpublished',
+          entityType: 'PromoLanding',
+          entityId: id,
+          changes: { name: row.name, ...changes },
+        });
+      }
       return this.toDto(row);
     } catch (err) {
       throw this.slugTaken(err);
@@ -179,25 +236,45 @@ export class PromoLandingsService {
   }
 
   /** Copia para la siguiente promoción: apagada, con otra dirección y la misma foto. */
-  async duplicate(tenantId: string, id: string): Promise<PromoLandingDto> {
+  async duplicate(
+    tenantId: string,
+    id: string,
+    userId: string | null = null,
+  ): Promise<PromoLandingDto> {
     const src = await this.findOrThrow(tenantId, id);
-    const row = await this.prisma.withTenant(async (tx) => {
-      let slug = `${src.slug}-copia`.slice(0, 60);
-      for (let n = 2; await tx.promoLanding.findFirst({ where: { tenantId, slug } }); n++) {
-        slug = `${src.slug}-copia-${n}`.slice(0, 60);
-      }
-      const { id: _id, createdAt: _c, updatedAt: _u, coupon: _coupon, content, ...rest } = src;
-      return tx.promoLanding.create({
-        data: {
-          ...rest,
-          content: content as Prisma.InputJsonValue,
-          name: `${src.name} (copia)`.slice(0, 120),
-          slug,
-          isActive: false,
-        },
-        include: INCLUDE,
+    const row = await this.prisma
+      .withTenant(async (tx) => {
+        let n = 1;
+        let slug = copySlug(src.slug, n);
+        while (
+          await tx.promoLanding.findFirst({ where: { tenantId, slug }, select: { id: true } })
+        ) {
+          n += 1;
+          slug = copySlug(src.slug, n);
+        }
+        const { id: _id, createdAt: _c, updatedAt: _u, coupon: _coupon, content, ...rest } = src;
+        return tx.promoLanding.create({
+          data: {
+            ...rest,
+            content: content as Prisma.InputJsonValue,
+            name: `${src.name} (copia)`.slice(0, 120),
+            slug,
+            isActive: false,
+          },
+          include: INCLUDE,
+        });
+      }, tenantId)
+      .catch((err: unknown) => {
+        throw this.slugTaken(err);
       });
-    }, tenantId);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'promo_landing.duplicated',
+      entityType: 'PromoLanding',
+      entityId: row.id,
+      changes: { from: src.id, name: row.name, slug: row.slug },
+    });
     return this.toDto(row);
   }
 
@@ -209,7 +286,16 @@ export class PromoLandingsService {
   async stats(tenantId: string, id: string, days: number): Promise<PromoLandingStatsDto> {
     const landing = await this.findOrThrow(tenantId, id);
     const since = days > 0 ? new Date(Date.now() - days * 86_400_000) : null;
-    const { visits, leads, requests } = await this.prisma.withTenant(
+    const campaign = promoCampaign(landing.slug);
+    const byLanding: Prisma.LeadWhereInput[] = [
+      { metadata: { path: ['promoLandingId'], equals: id } },
+      { utmCampaign: campaign },
+    ];
+    const {
+      visits,
+      leads: leadRows,
+      requests: requestRows,
+    } = await this.prisma.withTenant(
       async (tx) => ({
         visits: await tx.promoLandingVisit.findMany({
           where: { promoLandingId: id, ...(since ? { createdAt: { gte: since } } : {}) },
@@ -218,15 +304,15 @@ export class PromoLandingsService {
         requests: await tx.lead.findMany({
           where: {
             source: 'landing',
-            utmCampaign: promoCampaign(landing.slug),
+            OR: byLanding,
             deletedAt: null,
             ...(since ? { createdAt: { gte: since } } : {}),
           },
-          select: { utmSource: true },
+          select: { utmSource: true, utmCampaign: true, metadata: true },
         }),
         leads: await tx.lead.findMany({
           where: {
-            utmCampaign: promoCampaign(landing.slug),
+            OR: byLanding,
             convertedContractId: { not: null },
             deletedAt: null,
             // Por el día de la reserva (el contacto se gana al firmar).
@@ -234,11 +320,20 @@ export class PromoLandingsService {
               ? { OR: [{ bookedAt: { gte: since } }, { bookedAt: null, wonAt: { gte: since } }] }
               : {}),
           },
-          select: { utmSource: true, convertedContractId: true },
+          select: {
+            utmSource: true,
+            utmCampaign: true,
+            metadata: true,
+            convertedContractId: true,
+          },
         }),
       }),
       tenantId,
     );
+    // Por el id de la landing (los nuevos) o, en los antiguos, por la campaña
+    // de su dirección: cambiar la dirección no pierde reservas ni la hereda otra.
+    const requests = requestRows.filter((l) => fromLanding(l, id, campaign));
+    const leads = leadRows.filter((l) => fromLanding(l, id, campaign));
     const contractIds = [...new Set(leads.map((l) => l.convertedContractId!))];
     const [contracts, invoices, couponUses] = await this.prisma.withTenant(
       (tx) =>
@@ -337,9 +432,32 @@ export class PromoLandingsService {
     };
   }
 
-  async remove(tenantId: string, id: string): Promise<void> {
-    await this.findOrThrow(tenantId, id);
+  async remove(tenantId: string, id: string, userId: string | null = null): Promise<void> {
+    const landing = await this.findOrThrow(tenantId, id);
     await this.prisma.withTenant((tx) => tx.promoLanding.delete({ where: { id } }), tenantId);
+    await this.forgetImage(tenantId, landing.heroImageKey);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'promo_landing.deleted',
+      entityType: 'PromoLanding',
+      entityId: id,
+      changes: { name: landing.name, slug: landing.slug },
+    });
+  }
+
+  /**
+   * Borra una foto que ya no usa ninguna landing (las copias comparten la foto
+   * de la original). Best-effort.
+   */
+  private async forgetImage(tenantId: string, key: string | null): Promise<void> {
+    if (!key) return;
+    const inUse = await this.prisma.withTenant(
+      (tx) => tx.promoLanding.count({ where: { tenantId, heroImageKey: key } }),
+      tenantId,
+    );
+    if (inUse > 0) return;
+    await this.files.deleteObjects('public', [key]).catch(() => undefined);
   }
 
   async requestImageUploadUrl(args: {
@@ -360,7 +478,7 @@ export class PromoLandingsService {
   }
 
   async setImage(tenantId: string, id: string, key: string | null): Promise<PromoLandingDto> {
-    await this.findOrThrow(tenantId, id);
+    const current = await this.findOrThrow(tenantId, id);
     if (key) {
       if (!key.startsWith(`${tenantId}/promo/${id}/`)) {
         throw new BadRequestException({
@@ -368,17 +486,23 @@ export class PromoLandingsService {
           message: 'La imagen no pertenece a esta landing',
         });
       }
-      await this.files.assertObjectMimeType('public', key, [
-        'image/jpeg',
-        'image/png',
-        'image/webp',
-      ]);
+      await this.files.assertObjectMimeType(
+        'public',
+        key,
+        PROMO_IMAGE_TYPES,
+        PROMO_IMAGE_MAX_BYTES,
+        { mustExist: true },
+      );
     }
     const row = await this.prisma.withTenant(
       (tx) =>
         tx.promoLanding.update({ where: { id }, data: { heroImageKey: key }, include: INCLUDE }),
       tenantId,
     );
+    // La foto anterior, si ya no la usa ninguna landing.
+    if (current.heroImageKey && current.heroImageKey !== key) {
+      await this.forgetImage(tenantId, current.heroImageKey);
+    }
     return this.toDto(row);
   }
 
@@ -422,11 +546,16 @@ export class PromoLandingsService {
     await tx.facilitySlugRedirect.deleteMany({ where: { oldSlug: slug } });
   }
 
-  /** El cupón, los locales y los tamaños deben ser del tenant. */
-  private async assertRefs(
+  /**
+   * El cupón debe ser del tenant. De los locales y tamaños se quedan los que
+   * siguen existiendo (uno borrado mientras se editaba se quita sin dar error),
+   * salvo que no quede ninguno: vacío significa «todos» y la promoción se
+   * ampliaría sin querer.
+   */
+  private async cleanRefs(
     tenantId: string,
     refs: { couponId: string | null; facilityIds: string[]; unitTypeIds: string[] },
-  ): Promise<void> {
+  ): Promise<{ facilityIds: string[]; unitTypeIds: string[] }> {
     const [coupon, facilities, types] = await this.prisma.withTenant(
       (tx) =>
         Promise.all([
@@ -434,26 +563,45 @@ export class PromoLandingsService {
             ? tx.coupon.count({ where: { tenantId, id: refs.couponId } })
             : Promise.resolve(1),
           refs.facilityIds.length
-            ? tx.facility.count({
+            ? tx.facility.findMany({
                 where: { tenantId, id: { in: refs.facilityIds }, deletedAt: null },
+                select: { id: true },
               })
-            : Promise.resolve(0),
+            : Promise.resolve([]),
           refs.unitTypeIds.length
-            ? tx.unitType.count({ where: { tenantId, id: { in: refs.unitTypeIds } } })
-            : Promise.resolve(0),
+            ? tx.unitType.findMany({
+                where: { tenantId, id: { in: refs.unitTypeIds } },
+                select: { id: true },
+              })
+            : Promise.resolve([]),
         ]),
       tenantId,
     );
-    if (
-      coupon === 0 ||
-      facilities !== new Set(refs.facilityIds).size ||
-      types !== new Set(refs.unitTypeIds).size
-    ) {
+    if (coupon === 0) {
       throw new BadRequestException({
         code: 'invalid_reference',
-        message: 'El cupón, algún local o algún tamaño no existe',
+        message: 'El cupón elegido ya no existe. Elige otro o quítalo.',
       });
     }
+    const keep = (ids: string[], found: { id: string }[]) => {
+      const live = new Set(found.map((r) => r.id));
+      return [...new Set(ids)].filter((x) => live.has(x));
+    };
+    const facilityIds = keep(refs.facilityIds, facilities);
+    const unitTypeIds = keep(refs.unitTypeIds, types);
+    if (refs.facilityIds.length > 0 && facilityIds.length === 0) {
+      throw new BadRequestException({
+        code: 'invalid_reference',
+        message: 'Los locales elegidos ya no existen. Elige otros.',
+      });
+    }
+    if (refs.unitTypeIds.length > 0 && unitTypeIds.length === 0) {
+      throw new BadRequestException({
+        code: 'invalid_reference',
+        message: 'Los tamaños elegidos ya no existen. Elige otros.',
+      });
+    }
+    return { facilityIds, unitTypeIds };
   }
 
   private async findOrThrow(tenantId: string, id: string): Promise<Row> {

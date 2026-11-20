@@ -38,11 +38,14 @@ export function useSaasSubscription() {
   });
 }
 
+/**
+ * Planes que ve el tenant: los públicos, el suyo (aunque sea oculto) y los de
+ * sus propuestas abiertas.
+ */
 export function useSubscriptionPlans() {
   return useQuery({
     queryKey: subscriptionPlansKey,
-    // Endpoint publico: no requiere auth, pero apiFetch lo enviara si hay token.
-    queryFn: () => apiFetch<SubscriptionPlanDto[]>('/subscription-plans', { requiresAuth: false }),
+    queryFn: () => apiFetch<SubscriptionPlanDto[]>('/settings/saas-billing/plans'),
   });
 }
 
@@ -174,7 +177,9 @@ export function useCreateSaasSepaMandate() {
         method: 'POST',
         json: input,
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: sepaMandateKey }),
+    // Firmar en la prueba pasa la cuota a domiciliación: cambian la suscripción
+    // y las opciones de pago con tarjeta.
+    onSuccess: () => invalidateAfterMandate(qc),
   });
 }
 
@@ -182,8 +187,16 @@ export function useCancelSaasSepaMandate() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => apiFetch<void>('/settings/saas-billing/sepa-mandate', { method: 'DELETE' }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: sepaMandateKey }),
+    // Cancelar en la prueba devuelve la cuota al pago manual.
+    onSuccess: () => invalidateAfterMandate(qc),
   });
+}
+
+function invalidateAfterMandate(qc: ReturnType<typeof useQueryClient>): void {
+  void qc.invalidateQueries({ queryKey: sepaMandateKey });
+  void qc.invalidateQueries({ queryKey: saasSubscriptionKey });
+  void qc.invalidateQueries({ queryKey: ['saas-billing', 'redsys'] });
+  void qc.invalidateQueries({ queryKey: ['billing-status'] });
 }
 
 const billingDetailsKey = ['saas-billing', 'billing-details'] as const;

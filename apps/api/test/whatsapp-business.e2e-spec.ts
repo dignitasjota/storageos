@@ -62,8 +62,13 @@ describe('WhatsApp Business (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'wa-biz');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
 
-    // Sin el extra → 403.
-    await request(app.getHttpServer()).get('/settings/whatsapp').set(auth).expect(403);
+    // Sin el extra: se puede leer, pero no conectar un número.
+    await request(app.getHttpServer()).get('/settings/whatsapp').set(auth).expect(200);
+    await request(app.getHttpServer())
+      .put('/settings/whatsapp')
+      .set(auth)
+      .send({ phoneNumberId, accessToken: 'EAAG-token-de-prueba-123456', enabled: true })
+      .expect(403);
     await setTenantFeatureOverride(owner.slug, 'whatsapp_business', true);
 
     const empty = await request(app.getHttpServer()).get('/settings/whatsapp').set(auth);

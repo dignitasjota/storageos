@@ -3,7 +3,7 @@
 import { AlertTriangle, ChevronRight, XCircle } from 'lucide-react';
 import Link from 'next/link';
 
-import { MODULE_SETTINGS } from './settings-nav';
+import { MODULE_SETTINGS, settingsItemFor } from './settings-nav';
 import { useVisibleSettingsNav } from './use-settings-nav';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,7 +18,11 @@ export default function SettingsHomePage() {
     (i) => !i.permission || permissions.includes(i.permission),
   );
   const health = useConfigHealth(permissions.includes('settings:read'));
-  const issues = health.data ?? [];
+  // Solo los avisos que llevan a una página que el usuario puede abrir.
+  const issues = (health.data ?? []).filter((i) => {
+    const target = settingsItemFor(i.href.split('?')[0] ?? i.href);
+    return !target?.permission || permissions.includes(target.permission);
+  });
 
   return (
     <div className="space-y-6">

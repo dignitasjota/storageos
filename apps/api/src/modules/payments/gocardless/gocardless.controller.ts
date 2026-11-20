@@ -14,7 +14,12 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../../common/decorators/current-user.decorator';
-import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../../../common/decorators/require-permission.decorator';
+import { settingsChanges } from '../../../common/settings-audit';
+import { AuditService } from '../../auth/audit.service';
 
 import { GoCardlessClient } from './gocardless-client';
 import { GoCardlessMandatesService } from './gocardless-mandates.service';
@@ -45,9 +50,10 @@ export class GoCardlessController {
     private readonly settings: GoCardlessSettingsService,
     private readonly client: GoCardlessClient,
     private readonly mandates: GoCardlessMandatesService,
+    private readonly audit: AuditService,
   ) {}
 
-  @RequirePermission('settings:read')
+  @RequireAnyPermission('settings:read', 'billing:configure')
   @Get()
   get(@CurrentUser() user: AuthenticatedUser): Promise<GoCardlessSettingsDto> {
     return this.settings.get(user.tenantId);
@@ -55,11 +61,27 @@ export class GoCardlessController {
 
   @RequirePermission('billing:configure')
   @Put()
-  update(
+  async update(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: UpdateGoCardlessSettingsBody,
+    @Req() req: Request,
   ): Promise<GoCardlessSettingsDto> {
-    return this.settings.update(user.tenantId, body);
+    const before = await this.settings.get(user.tenantId);
+    const after = await this.settings.update(user.tenantId, body);
+    await this.audit.write({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      action: 'settings.gocardless_changed',
+      entityType: 'GoCardlessSettings',
+      entityId: null,
+      changes: settingsChanges(before, after, {
+        accessToken: body.accessToken,
+        webhookSecret: body.webhookSecret,
+      }),
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
+    return after;
   }
 
   /** Prueba la conexión con el access token guardado (lista los creditors). */

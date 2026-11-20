@@ -2,11 +2,8 @@ import { TOTP, Secret } from 'otpauth';
 
 import { TotpService } from '../totp.service';
 
-import type { Env } from '../../../config/env.schema';
-import type { ConfigService } from '@nestjs/config';
-
 describe('TotpService.matchStep (anti-replay)', () => {
-  const svc = new TotpService({ get: () => 'TrasterOS' } as unknown as ConfigService<Env, true>);
+  const svc = new TotpService();
   const secret = svc.generateSecret();
   const codeAt = (ms: number) =>
     new TOTP({

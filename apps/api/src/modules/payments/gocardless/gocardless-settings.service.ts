@@ -1,9 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { CryptoService } from '../../../common/crypto/crypto.service';
 import { PrismaService } from '../../database/prisma.service';
 
 import type { GoCardlessEnvironment } from './gocardless-client';
+import type { Env } from '../../../config/env.schema';
 import type { GoCardlessSettingsDto, UpdateGoCardlessSettingsInput } from '@storageos/shared';
 
 @Injectable()
@@ -11,6 +13,7 @@ export class GoCardlessSettingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
   async get(tenantId: string): Promise<GoCardlessSettingsDto> {
@@ -23,6 +26,7 @@ export class GoCardlessSettingsService {
       enabled: row?.enabled ?? false,
       hasAccessToken: !!row?.accessTokenEncrypted,
       hasWebhookSecret: !!row?.webhookSecretEncrypted,
+      webhookUrl: `${this.config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '')}/webhooks/gocardless/${tenantId}`,
     };
   }
 

@@ -12,3 +12,10 @@ export const FEATURE_KEY = 'requiredFeature';
  *   @RequireFeature('ai_assistant')
  */
 export const RequireFeature = (feature: TenantFeature) => SetMetadata(FEATURE_KEY, feature);
+
+/**
+ * Deja un handler fuera del `@RequireFeature` de su controller: para leer,
+ * desactivar o borrar lo guardado aunque el plan ya no incluya la función
+ * (el service decide qué se permite).
+ */
+export const AllowWithoutFeature = () => SetMetadata(FEATURE_KEY, false);

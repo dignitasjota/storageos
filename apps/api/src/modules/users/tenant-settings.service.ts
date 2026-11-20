@@ -72,6 +72,25 @@ function accessAlertSettings(value: unknown): TenantAccessSettingsResponse['acce
   };
 }
 
+/** Días que una cuenta conserva un dominio propio que no ha verificado. */
+export const UNVERIFIED_DOMAIN_HOLD_DAYS = 7;
+
+/** Host de una URL en minúsculas, o null si no es una URL. */
+function hostnameOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/** Mismo sitio aunque uno lleve `www.` y el otro no. */
+function sameSite(a: string | null, b: string): boolean {
+  if (!a) return false;
+  const bare = (h: string) => h.toLowerCase().replace(/^www\./, '');
+  return bare(a) === bare(b);
+}
+
 @Injectable()
 export class TenantSettingsService {
   private readonly logger = new Logger(TenantSettingsService.name);
@@ -297,6 +316,20 @@ export class TenantSettingsService {
     if (input.offlineTransferEnabled !== undefined)
       data.offlineTransferEnabled = input.offlineTransferEnabled;
     if (input.offlineSepaEnabled !== undefined) data.offlineSepaEnabled = input.offlineSepaEnabled;
+    // Un recargo en porcentaje no pasa del 100 % (el mismo tope que en el
+    // escalado de impagos), también si solo cambia el tipo o el valor.
+    const lateFeeTypeAfter = input.lateFeeType ?? tenant.lateFeeType;
+    const lateFeeValueAfter = input.lateFeeValue ?? Number(tenant.lateFeeValue);
+    if (
+      (input.lateFeeType !== undefined || input.lateFeeValue !== undefined) &&
+      lateFeeTypeAfter === 'percentage' &&
+      lateFeeValueAfter > 100
+    ) {
+      throw new BadRequestException({
+        code: 'late_fee_percentage_too_high',
+        message: 'Un recargo en porcentaje no pasa del 100 %.',
+      });
+    }
     // Transferencia sin IBAN: el correo no tendría a dónde enviar el dinero.
     const ibanAfter = transferIban === undefined ? tenant.transferIban : transferIban;
     if (input.offlineTransferEnabled && !ibanAfter) {
@@ -310,13 +343,24 @@ export class TenantSettingsService {
     if (input.offlineSepaEnabled) {
       const sepa = await this.admin.sepaSettings.findUnique({
         where: { tenantId: args.tenantId },
-        select: { enabled: true, creditorAddress: true },
+        select: {
+          enabled: true,
+          creditorAddress: true,
+          creditorPostalCode: true,
+          creditorCity: true,
+        },
       });
-      if (!sepa?.enabled || !sepa.creditorAddress) {
+      // Lo mismo que pide el área de clientes para ofrecerla.
+      if (
+        !sepa?.enabled ||
+        !sepa.creditorAddress ||
+        !sepa.creditorPostalCode ||
+        !sepa.creditorCity
+      ) {
         throw new BadRequestException({
           code: 'sepa_not_enabled',
           message:
-            'Para ofrecer la domiciliación, activa antes las remesas SEPA con los datos del acreedor y su domicilio.',
+            'Para ofrecer la domiciliación, activa antes las remesas SEPA con los datos del acreedor y su domicilio completo (dirección, código postal y ciudad).',
         });
       }
     }
@@ -467,12 +511,22 @@ export class TenantSettingsService {
         });
       }
       // Los bytes reales (la URL firmada no fija el tipo): PNG o ICO, máx. 512 KB.
-      await this.files.assertObjectMimeType('public', key, TENANT_FAVICON_MIME_TYPES, 512 * 1024);
+      await this.files.assertObjectMimeType('public', key, TENANT_FAVICON_MIME_TYPES, 512 * 1024, {
+        mustExist: true,
+      });
     }
+    const before = await this.admin.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { webFaviconKey: true },
+    });
     const updated = await this.admin.tenant.update({
       where: { id: args.tenantId },
       data: { webFaviconKey: key },
     });
+    // El favicon que deja de usarse se borra del almacenamiento.
+    if (before?.webFaviconKey && before.webFaviconKey !== key) {
+      await this.files.deleteObjects('public', [before.webFaviconKey]).catch(() => undefined);
+    }
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.actorUserId,
@@ -518,8 +572,13 @@ export class TenantSettingsService {
         key,
         TENANT_LOGO_MIME_TYPES,
         TENANT_LOGO_MAX_BYTES,
+        { mustExist: true },
       );
     }
+    const before = await this.admin.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { portalLogoKey: true },
+    });
     const updated = await this.admin.tenant.update({
       where: { id: args.tenantId },
       data: {
@@ -527,6 +586,8 @@ export class TenantSettingsService {
         portalLogoUrl: key ? this.files.buildPublicUrl('public', key) : null,
       },
     });
+    // El logo subido que deja de usarse se borra del almacenamiento.
+    await this.deleteReplacedLogo(before?.portalLogoKey ?? null, key);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.actorUserId,
@@ -538,6 +599,13 @@ export class TenantSettingsService {
       userAgent: args.meta.userAgent ?? null,
     });
     return this.toBrandingResponse(updated);
+  }
+
+  /** Borra del almacenamiento el logo subido que deja de usarse (best-effort). */
+  private async deleteReplacedLogo(previousKey: string | null, nextKey: string | null) {
+    if (previousKey && previousKey !== nextKey) {
+      await this.files.deleteObjects('public', [previousKey]).catch(() => undefined);
+    }
   }
 
   /** ¿El tenant tiene una feature concreta (plan + overrides)? */
@@ -558,6 +626,63 @@ export class TenantSettingsService {
       overrides as { feature: TenantFeature; enabled: boolean }[],
     );
     return features.includes(feature);
+  }
+
+  /**
+   * Comprueba que el dominio no lo usa otra cuenta. Si otra lo pidió y lleva
+   * más de {@link UNVERIFIED_DOMAIN_HOLD_DAYS} días sin verificarlo, se le
+   * quita (no puede bloquear para siempre al dueño real del dominio).
+   */
+  private async claimCustomDomain(
+    tenantId: string,
+    domain: string,
+    meta: RequestMeta,
+  ): Promise<void> {
+    const taken = await this.admin.tenant.findFirst({
+      where: { customDomain: domain, id: { not: tenantId } },
+      select: { id: true, customDomainVerifiedAt: true },
+    });
+    if (!taken) return;
+    if (taken.customDomainVerifiedAt) {
+      throw new ConflictException({
+        code: 'domain_taken',
+        message: 'Ese dominio ya está en uso por otra cuenta. Si es tuyo, escríbenos a soporte.',
+      });
+    }
+    // Cuándo lo pidió: el último cambio de marca que lo dejó puesto.
+    const requested = await this.admin.auditLog.findFirst({
+      where: {
+        tenantId: taken.id,
+        action: 'tenant.branding.settings_changed',
+        changes: { path: ['customDomain'], equals: domain },
+      },
+      orderBy: { occurredAt: 'desc' },
+      select: { occurredAt: true },
+    });
+    const holdUntil = requested
+      ? requested.occurredAt.getTime() + UNVERIFIED_DOMAIN_HOLD_DAYS * 24 * 60 * 60 * 1000
+      : 0;
+    if (holdUntil > Date.now()) {
+      throw new ConflictException({
+        code: 'domain_pending_elsewhere',
+        message: `Otra cuenta pidió ese dominio hace menos de ${UNVERIFIED_DOMAIN_HOLD_DAYS} días y aún no lo ha verificado. Si es tuyo, vuelve a intentarlo cuando pasen o escríbenos a soporte.`,
+        details: { availableFrom: new Date(holdUntil).toISOString() },
+      });
+    }
+    await this.admin.tenant.update({
+      where: { id: taken.id },
+      data: { customDomain: null, customDomainVerifiedAt: null, customDomainReadyAt: null },
+    });
+    await this.audit.write({
+      tenantId: taken.id,
+      userId: null,
+      action: 'tenant.custom_domain_released',
+      entityType: 'Tenant',
+      entityId: taken.id,
+      changes: { customDomain: domain, claimedByTenantId: tenantId },
+      ipAddress: meta.ipAddress ?? null,
+      userAgent: meta.userAgent ?? null,
+    });
   }
 
   async updateBranding(args: {
@@ -615,16 +740,20 @@ export class TenantSettingsService {
             details: { requiredFeature: 'custom_domain' },
           });
         }
-        const taken = await this.admin.tenant.findFirst({
-          where: { customDomain: domain, id: { not: args.tenantId } },
-          select: { id: true },
-        });
-        if (taken) {
-          throw new ConflictException({
-            code: 'domain_taken',
-            message: 'Ese dominio ya está en uso por otra cuenta',
+        if (this.isPlatformHost(domain)) {
+          throw new BadRequestException({
+            code: 'domain_not_allowed',
+            message: 'Ese dominio es de TrasterOS. Escribe un dominio tuyo.',
           });
         }
+        if (tenant.externalSiteUrl && sameSite(hostnameOf(tenant.externalSiteUrl), domain)) {
+          throw new BadRequestException({
+            code: 'domain_is_external_site',
+            message:
+              'Tu web externa está en ese mismo dominio. Pon aquí el dominio en el que quieres la web de TrasterOS o cambia antes la dirección de tu web externa.',
+          });
+        }
+        await this.claimCustomDomain(args.tenantId, domain, args.meta);
         data.customDomain = domain;
         // Cambiar el dominio invalida la verificación previa (el admin debe
         // reconfigurar el Proxy Host + SSL y reactivarlo).
@@ -633,10 +762,23 @@ export class TenantSettingsService {
       }
     }
 
-    const updated =
-      Object.keys(data).length === 0
-        ? tenant
-        : await this.admin.tenant.update({ where: { id: args.tenantId }, data });
+    let updated = tenant;
+    if (Object.keys(data).length > 0) {
+      try {
+        updated = await this.admin.tenant.update({ where: { id: args.tenantId }, data });
+      } catch (err) {
+        // Otra cuenta ha tomado el dominio entre la comprobación y el guardado.
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          throw new ConflictException({
+            code: 'domain_taken',
+            message: 'Ese dominio ya está en uso por otra cuenta',
+          });
+        }
+        throw err;
+      }
+    }
+    // Una dirección pegada sustituye al logo subido: el fichero se borra.
+    if (data.portalLogoKey === null) await this.deleteReplacedLogo(tenant.portalLogoKey, null);
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -799,7 +941,15 @@ export class TenantSettingsService {
         });
       }
       // Los bytes reales: la URL firmada no fija el tipo ni el tamaño.
-      await this.files.assertObjectMimeType('public', key, WEB_HERO_MIME_TYPES, WEB_HERO_MAX_BYTES);
+      await this.files.assertObjectMimeType(
+        'public',
+        key,
+        WEB_HERO_MIME_TYPES,
+        WEB_HERO_MAX_BYTES,
+        {
+          mustExist: true,
+        },
+      );
     }
     const field = slot === 'image' ? 'webHeroImageKey' : 'webHeroBackgroundKey';
     const before = await this.admin.tenant.findUnique({
@@ -830,6 +980,7 @@ export class TenantSettingsService {
     for (const raw of [
       this.config.get('WEB_BASE_URL', { infer: true }),
       this.config.get('API_BASE_URL', { infer: true }),
+      this.config.get('MINIO_PUBLIC_URL', { infer: true }),
     ]) {
       try {
         hosts.add(new URL(raw).hostname.toLowerCase());
@@ -840,12 +991,20 @@ export class TenantSettingsService {
     return [...hosts];
   }
 
+  /** ¿Es un dominio de la plataforma o un subdominio suyo? */
+  private isPlatformHost(host: string): boolean {
+    const h = host.toLowerCase();
+    return this.platformHosts().some((p) => h === p || h.endsWith(`.${p}`));
+  }
+
   private externalUrlErrorMessage(reason: string): string {
     switch (reason) {
       case 'must_be_https':
         return 'La URL debe empezar por https://';
       case 'platform_host':
         return 'No puedes apuntar a un dominio de la propia plataforma';
+      case 'own_domain':
+        return 'Esa es la dirección de tu dominio propio: pon la dirección en la que está alojada tu web (la que te dio tu proveedor)';
       case 'private_ip':
       case 'dns_error':
         return 'Esa dirección no es accesible públicamente';
@@ -914,6 +1073,22 @@ export class TenantSettingsService {
       if (raw === '') {
         externalSiteUrlToSave = null;
       } else {
+        // Ni la plataforma ni el propio dominio del tenant (con o sin `www`):
+        // la web se pediría a sí misma sin fin.
+        const host = hostnameOf(raw);
+        const reason =
+          host && this.isPlatformHost(host)
+            ? 'platform_host'
+            : host && tenant.customDomain && sameSite(host, tenant.customDomain)
+              ? 'own_domain'
+              : null;
+        if (reason) {
+          throw new BadRequestException({
+            code: 'external_site_url_invalid',
+            message: this.externalUrlErrorMessage(reason),
+            details: { reason },
+          });
+        }
         await this.assertSafeExternalUrl(raw, 'external_site_url_invalid');
         externalSiteUrlToSave = raw;
       }

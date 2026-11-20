@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
+import { cache } from 'react';
 
 import { getPublicWebMessages, intlLocaleFor, legalHref } from './i18n/messages';
 import { MeasurementChoice } from './measurement-choice';
@@ -11,18 +12,30 @@ import type { Metadata } from 'next';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
-async function getLegalDoc(slug: string, doc: TenantLegalDoc): Promise<PublicLegalDocDto | null> {
+/**
+ * Texto legal de la web del tenant. Las condiciones de contratación se piden
+ * SIEMPRE al API (sin caché): el inquilino las acepta al firmar con la huella
+ * del texto vigente, así que tiene que leer ese mismo texto y no uno guardado
+ * de hace unos minutos. `cache` evita pedirlo dos veces en la misma visita
+ * (metadatos y página).
+ */
+const getLegalDoc = cache(async function getLegalDoc(
+  slug: string,
+  doc: TenantLegalDoc,
+): Promise<PublicLegalDocDto | null> {
   try {
     const res = await fetch(
       `${SERVER_API_URL}/public/landing/${encodeURIComponent(slug)}/legal/${doc}`,
-      { headers: internalApiHeaders(), next: { revalidate: 300 } },
+      doc === 'condiciones-contratacion'
+        ? { headers: internalApiHeaders(), cache: 'no-store' }
+        : { headers: internalApiHeaders(), next: { revalidate: 300 } },
     );
     if (!res.ok) return null;
     return (await res.json()) as PublicLegalDocDto;
   } catch {
     return null;
   }
-}
+});
 
 export async function buildLegalMetadata(slug: string, doc: TenantLegalDoc): Promise<Metadata> {
   const data = await getLegalDoc(slug, doc);

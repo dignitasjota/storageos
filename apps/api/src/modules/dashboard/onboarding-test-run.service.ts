@@ -97,7 +97,9 @@ export class OnboardingTestRunService {
       select: {
         id: true,
         contracts: {
-          where: { deletedAt: null, status: { not: 'cancelled' } },
+          // Un contrato ya terminado no se puede cancelar: se deja como está y
+          // se borra igual con el resto de la prueba.
+          where: { deletedAt: null, status: { notIn: ['cancelled', 'ended'] } },
           select: { id: true },
         },
       },

@@ -12,11 +12,43 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { seedTestTenant } from './helpers';
+import { API_URL, apiLogin, seedTestTenant } from './helpers';
+
+async function api<T>(path: string, token: string, body: unknown): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`POST ${path} → ${res.status}: ${await res.text()}`);
+  return (await res.json()) as T;
+}
 
 test.describe('Widget público de leads', () => {
   test('renderiza form y acepta envío de lead', async ({ page }) => {
     const tenant = await seedTestTenant('wid');
+    // Como la web, el widget solo se sirve si el negocio tiene algún local.
+    const { accessToken: token } = await apiLogin(tenant.slug, tenant.email, tenant.password);
+    const facility = await api<{ id: string }>('/facilities', token, {
+      name: 'Local Widget',
+      city: 'Valencia',
+      country: 'ES',
+      timezone: 'Europe/Madrid',
+    });
+    const type = await api<{ id: string }>('/unit-types', token, {
+      name: 'Mediano',
+      defaultPriceMonthly: 50,
+      color: '#3366ff',
+    });
+    await api('/units', token, {
+      facilityId: facility.id,
+      unitTypeId: type.id,
+      code: 'W-1',
+      widthM: 2,
+      depthM: 2,
+      heightM: 2.5,
+      basePriceMonthly: 50,
+    });
 
     // Sin login: visitamos el widget directamente.
     await page.goto(`/widget/${tenant.slug}`);

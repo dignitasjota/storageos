@@ -61,6 +61,22 @@ export class PaymentsService {
     private readonly moduleRef: ModuleRef,
   ) {}
 
+  /**
+   * Qué pasarelas (salvo Stripe, que se mira con `cardContext`) se pueden usar
+   * ahora para cobrar un método guardado. Solo consulta las que aparecen.
+   */
+  private async gatewaysAvailable(
+    tenantId: string,
+    gateways: string[],
+  ): Promise<(gateway: string) => boolean> {
+    const [gc, redsys] = await Promise.all([
+      gateways.includes('gocardless') ? this.goCardlessCharge.available(tenantId) : false,
+      gateways.includes('redsys') ? this.redsysCharge.available(tenantId) : false,
+    ]);
+    return (gateway) =>
+      gateway === 'gocardless' ? gc : gateway === 'redsys' ? redsys : gateway !== 'stripe';
+  }
+
   private invoicesService(): InvoicesService {
     return this.moduleRef.get(InvoicesService, { strict: false });
   }
@@ -271,11 +287,48 @@ export class PaymentsService {
           }),
         args.tenantId,
       );
-      pmId = candidates.find(
-        (pm) =>
-          pm.gateway !== 'stripe' ||
-          (!!cardCtx && (pm.stripeAccountId ?? null) === ctxStripeAccount),
+      // Tampoco los de una pasarela apagada (GoCardless desactivado, Redsys sin
+      // pago por referencia): cobrarlos fallaría y avisaría al inquilino de un
+      // «cobro rechazado» que no lo es.
+      const gatewayOn = await this.gatewaysAvailable(
+        args.tenantId,
+        candidates.map((c) => c.gateway),
+      );
+      pmId = candidates.find((pm) =>
+        pm.gateway === 'stripe'
+          ? !!cardCtx && (pm.stripeAccountId ?? null) === ctxStripeAccount
+          : gatewayOn(pm.gateway),
       )?.id;
+    } else {
+      const chosenId = pmId;
+      const chosen = await this.prisma.withTenant(
+        (tx) =>
+          tx.paymentMethod.findFirst({
+            where: { id: chosenId, deletedAt: null },
+            select: { gateway: true, customerId: true },
+          }),
+        args.tenantId,
+      );
+      // Primero, que sea del inquilino de la factura (más abajo se vuelve a
+      // comprobar dentro de la transacción).
+      if (chosen && chosen.customerId !== invoiceCustomerId) {
+        throw new BadRequestException({
+          code: 'payment_method_not_for_customer',
+          message: 'Ese método de pago no es del inquilino de la factura.',
+        });
+      }
+      if (chosen && chosen.gateway !== 'stripe') {
+        const gatewayOn = await this.gatewaysAvailable(args.tenantId, [chosen.gateway]);
+        if (!gatewayOn(chosen.gateway)) {
+          throw new BadRequestException({
+            code: 'payment_gateway_disabled',
+            message:
+              chosen.gateway === 'gocardless'
+                ? 'La domiciliación por GoCardless está desactivada: no se puede cobrar con este método.'
+                : 'El cobro con tarjeta guardada de Redsys está desactivado: no se puede cobrar con este método.',
+          });
+        }
+      }
     }
     if (!pmId) {
       throw new BadRequestException({

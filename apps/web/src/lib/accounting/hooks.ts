@@ -39,7 +39,11 @@ export function useUpdateHoldedSettings() {
   return useMutation({
     mutationFn: (input: UpdateHoldedSettingsInput) =>
       apiFetch<HoldedSettingsDto>('/settings/holded', { method: 'PUT', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: holdedKey }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: holdedKey });
+      // Si Holded puede emitir o no depende de estas series.
+      void qc.invalidateQueries({ queryKey: ['invoicing-mode'] });
+    },
   });
 }
 
@@ -52,7 +56,10 @@ export function useTestHolded() {
 export function useBackfillHolded() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiFetch<{ synced: number }>('/settings/holded/backfill', { method: 'POST' }),
+    mutationFn: () =>
+      apiFetch<{ synced: number; remaining: number }>('/settings/holded/backfill', {
+        method: 'POST',
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: holdedKey }),
   });
 }

@@ -717,6 +717,16 @@ export interface TenantSubscriptionDto {
   plan: SubscriptionPlanDto;
   /** Cuenta exenta (no paga cuota ni vence): la marca el super admin. */
   billingExempt: boolean;
+  /**
+   * Periodicidad que paga hoy por Stripe (`monthly` | `yearly`); null si no
+   * paga por Stripe.
+   */
+  billingCycle: 'monthly' | 'yearly' | null;
+  /**
+   * Solo en la respuesta de un cambio de plan con cupón: false si el plan se
+   * cambió pero el cupón no se pudo aplicar.
+   */
+  couponApplied?: boolean;
 }
 
 /** Respuesta de POST /settings/saas-billing/checkout y .../portal. */

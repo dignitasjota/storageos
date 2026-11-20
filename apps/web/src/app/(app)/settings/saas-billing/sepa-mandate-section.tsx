@@ -5,6 +5,7 @@ import { Download, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { SignaturePad } from '@/components/move-in/signature-pad';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetchBlob } from '@/lib/auth/api';
-import { formatDateTime } from '@/lib/format';
+import { formatDate, formatDateTime } from '@/lib/format';
 import {
   useCancelSaasSepaMandate,
   useCreateSaasSepaMandate,
@@ -23,9 +24,24 @@ import {
 /**
  * Domiciliación de la cuota en la cuenta del tenant. El tenant da su IBAN y
  * firma la orden de domiciliación aquí (dibujando o escribiendo su nombre),
- * con el preaviso pactado; el cambio al cobro por SEPA lo activa soporte.
+ * con el preaviso pactado. En la prueba (o en solo lectura) firmar pasa la
+ * cuota a cobrarse por domiciliación; si no, el cambio lo activa soporte.
  */
-export function SepaMandateSection({ billingMode }: { billingMode: string }) {
+export function SepaMandateSection({
+  billingMode,
+  subscriptionStatus,
+  hasStripeSubscription,
+}: {
+  billingMode: string;
+  subscriptionStatus: string;
+  hasStripeSubscription: boolean;
+}) {
+  const ask = useConfirm();
+  // Firmar en la prueba o en solo lectura (sin Stripe) pasa la cuota a domiciliación.
+  const signingSwitches =
+    billingMode === 'manual' &&
+    !hasStripeSubscription &&
+    (subscriptionStatus === 'trial' || subscriptionStatus === 'expired');
   const mandate = useSaasSepaMandate();
   const m = mandate.data ?? null;
   const terms = useSaasSepaMandateTerms(!mandate.isLoading && !m);
@@ -62,6 +78,16 @@ export function SepaMandateSection({ billingMode }: { billingMode: string }) {
 
   if (mandate.isLoading) return null;
 
+  // Domiciliado al firmar en la prueba y aún sin cobrar nada: se puede cancelar
+  // (la cuota vuelve al pago manual).
+  const cancellableInTrial =
+    !!m &&
+    billingMode === 'sepa' &&
+    !hasStripeSubscription &&
+    m.sequenceType === 'FRST' &&
+    !m.lastCollectedAt &&
+    (subscriptionStatus === 'trial' || subscriptionStatus === 'expired');
+
   const set = (k: keyof typeof debtor) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setDebtor((d) => ({ ...d, [k]: e.target.value }));
 
@@ -96,16 +122,36 @@ export function SepaMandateSection({ billingMode }: { billingMode: string }) {
       });
       setIban('');
       setBic('');
-      toast.success('Orden de domiciliación firmada. Pide a soporte que active el cobro por SEPA.');
+      toast.success(
+        signingSwitches
+          ? 'Orden de domiciliación firmada. A partir de ahora tu cuota se cobra por domiciliación.'
+          : 'Orden de domiciliación firmada. Pide a soporte que active el cobro por SEPA.',
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo firmar el mandato.');
     }
   }
 
   async function onCancel() {
+    if (
+      !(await ask({
+        title: 'Cancelar el mandato',
+        description:
+          billingMode === 'sepa'
+            ? 'Tu cuota deja de cobrarse por domiciliación y vuelve al pago manual (tarjeta o transferencia).'
+            : 'La orden de domiciliación deja de valer.',
+        confirmLabel: 'Cancelar el mandato',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await cancelMandate.mutateAsync();
-      toast.success('Mandato cancelado.');
+      toast.success(
+        billingMode === 'sepa'
+          ? 'Mandato cancelado. Tu cuota vuelve al pago manual.'
+          : 'Mandato cancelado.',
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -154,8 +200,12 @@ export function SepaMandateSection({ billingMode }: { billingMode: string }) {
         <CardTitle className="text-base">Domiciliación SEPA (cobro directo)</CardTitle>
         <p className="text-xs text-muted-foreground">
           Autoriza a TrasterOS a domiciliar tu cuota directamente en tu cuenta, sin pasar por
-          Stripe. Firma aquí la orden de domiciliación; el cambio al cobro por SEPA lo activa
-          nuestro equipo de soporte.
+          Stripe.{' '}
+          {billingMode === 'sepa'
+            ? 'Tu cuota se cobra por domiciliación con este mandato.'
+            : signingSwitches
+              ? 'Al firmar aquí la orden de domiciliación, tu cuota pasa a cobrarse por domiciliación.'
+              : 'Firma aquí la orden de domiciliación; el cambio al cobro por SEPA lo activa nuestro equipo de soporte.'}
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -173,7 +223,7 @@ export function SepaMandateSection({ billingMode }: { billingMode: string }) {
               )}
             </p>
             <p className="text-xs text-muted-foreground">
-              Caduca el {m.expiresOn} si no se cobra nada antes.
+              Caduca el {formatDate(m.expiresOn)} si no se cobra nada antes.
             </p>
             {m.signatureStatus === 'signed' && m.signedAtTimestamp && (
               <p className="text-xs text-muted-foreground">
@@ -191,7 +241,7 @@ export function SepaMandateSection({ billingMode }: { billingMode: string }) {
                   <Download className="mr-1 size-4" /> Descargar mandato
                 </Button>
               )}
-              {billingMode === 'sepa' ? (
+              {billingMode === 'sepa' && !cancellableInTrial ? (
                 <p className="text-xs text-muted-foreground">
                   Tu cuota se cobra por SEPA con este mandato. Contacta con soporte para cancelarlo.
                 </p>

@@ -36,6 +36,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -298,6 +299,11 @@ export function TwoFactorPanel() {
   );
 }
 
+interface DisableFormValues {
+  currentPassword: string;
+  code: string;
+}
+
 function DisableDialog({
   open,
   onClose,
@@ -310,16 +316,33 @@ function DisableDialog({
   const t = useTranslations('security');
   const tCommon = useTranslations('common');
   const [method, setMethod] = useState<'totp' | 'recovery'>('totp');
-  const form = useForm<Disable2faInput>({
-    resolver: zodResolver(Disable2faSchema),
-    defaultValues: { currentPassword: '', code: '', recoveryCode: '' },
+  // Un solo campo de código (de la app o de recuperación): el esquema del API
+  // exige que el otro no vaya, así que se valida al enviar según el método.
+  const form = useForm<DisableFormValues>({
+    defaultValues: { currentPassword: '', code: '' },
   });
 
-  async function handle(values: Disable2faInput) {
-    const payload: Disable2faInput =
+  async function handle(values: DisableFormValues) {
+    const raw =
       method === 'totp'
         ? { currentPassword: values.currentPassword, code: values.code }
-        : { currentPassword: values.currentPassword, recoveryCode: values.recoveryCode };
+        : { currentPassword: values.currentPassword, recoveryCode: values.code };
+    const parsed = Disable2faSchema.safeParse(raw);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const field = issue.path[0] === 'currentPassword' ? 'currentPassword' : 'code';
+        form.setError(field, {
+          message:
+            field === 'currentPassword'
+              ? t('disableDialog.passwordRequired')
+              : method === 'totp'
+                ? t('disableDialog.codeInvalid')
+                : t('disableDialog.recoveryInvalid'),
+        });
+      }
+      return;
+    }
+    const payload: Disable2faInput = parsed.data;
     try {
       await onSubmit(payload);
       form.reset();
@@ -336,11 +359,21 @@ function DisableDialog({
           toast.error(t('errors.invalidCode'));
           return;
         }
+        if (code === 'two_factor_required_by_policy') {
+          toast.error(t('errors.requiredByPolicy'));
+          return;
+        }
         toast.error(err.body.message || tCommon('errors.generic'));
         return;
       }
       toast.error(tCommon('errors.network'));
     }
+  }
+
+  function changeMethod(next: 'totp' | 'recovery') {
+    setMethod(next);
+    form.setValue('code', '');
+    form.clearErrors('code');
   }
 
   return (
@@ -365,55 +398,40 @@ function DisableDialog({
                 </FormItem>
               )}
             />
-            <FormItem>
-              <FormLabel>{t('disableDialog.method')}</FormLabel>
-              <Select value={method} onValueChange={(v) => setMethod(v as 'totp' | 'recovery')}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                </FormControl>
+            <div className="space-y-2">
+              <Label htmlFor="disable-2fa-method">{t('disableDialog.method')}</Label>
+              <Select value={method} onValueChange={(v) => changeMethod(v as 'totp' | 'recovery')}>
+                <SelectTrigger id="disable-2fa-method">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="totp">{t('disableDialog.methodTotp')}</SelectItem>
                   <SelectItem value="recovery">{t('disableDialog.methodRecovery')}</SelectItem>
                 </SelectContent>
               </Select>
-            </FormItem>
-            {method === 'totp' ? (
-              <FormField
-                control={form.control}
-                name="code"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('disableDialog.code')}</FormLabel>
-                    <FormControl>
+            </div>
+            <FormField
+              control={form.control}
+              name="code"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('disableDialog.code')}</FormLabel>
+                  <FormControl>
+                    {method === 'totp' ? (
                       <Input
                         {...field}
-                        value={field.value ?? ''}
                         inputMode="numeric"
                         autoComplete="one-time-code"
                         maxLength={6}
                       />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            ) : (
-              <FormField
-                control={form.control}
-                name="recoveryCode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('disableDialog.code')}</FormLabel>
-                    <FormControl>
-                      <Input {...field} value={field.value ?? ''} autoComplete="off" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+                    ) : (
+                      <Input {...field} autoComplete="off" />
+                    )}
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>
                 {tCommon('cancel')}

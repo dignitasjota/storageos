@@ -65,19 +65,35 @@ const toDraft = (s: DunningSettingsDto): Draft => ({
   legalNoticeDays: String(s.legalNoticeDays),
 });
 
-const num = (v: string) => Number(v.trim().replace(',', '.'));
+/** Un campo vacío no es 0: queda sin número y la validación lo señala. */
+const num = (v: string) => (v.trim() === '' ? Number.NaN : Number(v.trim().replace(',', '.')));
+/** Un campo que no se ve (paso apagado) no bloquea el guardado. */
+const numOr0 = (v: string) => {
+  const n = num(v);
+  return Number.isNaN(n) ? 0 : n;
+};
 
 const toInput = (d: Draft): DunningSettingsInput => ({
   firstReminderDays: num(d.firstReminderDays),
   secondReminderDays: num(d.secondReminderDays),
   lateFeeEnabled: d.lateFeeEnabled,
   lateFeeType: d.lateFeeType,
-  lateFeeValue: num(d.lateFeeValue),
-  lateFeeGraceDays: num(d.lateFeeGraceDays),
+  lateFeeValue: d.lateFeeEnabled ? num(d.lateFeeValue) : numOr0(d.lateFeeValue),
+  lateFeeGraceDays: d.lateFeeEnabled ? num(d.lateFeeGraceDays) : numOr0(d.lateFeeGraceDays),
   accessCutMode: d.accessCutMode,
-  accessCutDays: num(d.accessCutDays),
+  accessCutDays: d.accessCutMode !== 'none' ? num(d.accessCutDays) : numOr0(d.accessCutDays) || 1,
   legalNoticeDays: num(d.legalNoticeDays),
 });
+
+/** A qué campo se refiere cada error (los mensajes del esquema no lo dicen). */
+const FIELD_LABELS: Partial<Record<keyof DunningSettingsInput, string>> = {
+  firstReminderDays: 'Primer recordatorio',
+  secondReminderDays: 'Segundo recordatorio',
+  lateFeeValue: 'Recargo por mora',
+  lateFeeGraceDays: 'Recargo por mora',
+  accessCutDays: 'Corte del acceso',
+  legalNoticeDays: 'Aviso legal',
+};
 
 const STEP_ICONS: Record<DunningPreviewKey, LucideIcon> = {
   due: CalendarClock,
@@ -132,7 +148,13 @@ export default function DunningSettingsPage() {
     !!draft &&
     !!settings.data &&
     JSON.stringify(toInput(draft)) !== JSON.stringify(toInput(toDraft(settings.data)));
-  const errors = parsed && !parsed.success ? parsed.error.issues.map((i) => i.message) : [];
+  const errors =
+    parsed && !parsed.success
+      ? parsed.error.issues.map((i) => {
+          const label = FIELD_LABELS[i.path[0] as keyof DunningSettingsInput];
+          return label ? `${label}: ${i.message}` : i.message;
+        })
+      : [];
 
   if (settings.isError) {
     return <SectionError onRetry={() => void settings.refetch()} />;
@@ -329,8 +351,8 @@ export default function DunningSettingsPage() {
 
           {errors.length > 0 && (
             <ul className="space-y-1 text-sm text-red-600 dark:text-red-400">
-              {errors.map((e) => (
-                <li key={e}>{e}</li>
+              {errors.map((e, i) => (
+                <li key={i}>{e}</li>
               ))}
             </ul>
           )}

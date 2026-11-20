@@ -158,15 +158,25 @@ export class BrevoDomainsClient {
   private async request(method: string, path: string, body?: unknown): Promise<unknown> {
     const apiKey = this.config.get('BREVO_API_KEY', { infer: true });
     if (!apiKey) throw new BrevoDomainsError('BREVO_API_KEY no configurada', 503);
-    const res = await fetch(`${BREVO_API_BASE}${path}`, {
-      method,
-      headers: {
-        'api-key': apiKey,
-        accept: 'application/json',
-        ...(body ? { 'content-type': 'application/json' } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${BREVO_API_BASE}${path}`, {
+        method,
+        headers: {
+          'api-key': apiKey,
+          accept: 'application/json',
+          ...(body ? { 'content-type': 'application/json' } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        // Sin respuesta en 15 s no se deja colgada la petición del panel ni el cron.
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Brevo ${method} ${path} sin respuesta: ${err instanceof Error ? err.message : err}`,
+      );
+      throw new BrevoDomainsError('no responde', 0);
+    }
     if (!res.ok) {
       const err = (await res.json().catch(() => null)) as { message?: string } | null;
       const msg = err?.message ?? res.statusText;

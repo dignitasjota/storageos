@@ -1,5 +1,11 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@storageos/database';
@@ -12,6 +18,7 @@ import {
 } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
+import { impersonationContext } from '../../common/async-context/impersonation-context';
 import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { loadPuppeteer } from '../../common/puppeteer';
@@ -243,8 +250,41 @@ export class PlatformInvoicesService {
   async updateTenantBillingDetails(
     tenantId: string,
     input: TenantBillingDetailsInput,
+    actor?: { userId: string; ipAddress?: string | null; userAgent?: string | null },
   ): Promise<TenantBillingDetailsDto> {
     await assertTaxIdFree(this.admin, tenantId, input.taxId);
+    const before = await this.admin.tenant.findUniqueOrThrow({
+      where: { id: tenantId },
+      select: {
+        billingLegalName: true,
+        taxId: true,
+        billingAddress: true,
+        billingCity: true,
+        billingPostalCode: true,
+        country: true,
+        billingEmail: true,
+      },
+    });
+    // El NIF identifica al emisor ante la AEAT (su cadena Veri*Factu): con
+    // facturas emitidas desde TrasterOS ya no se puede cambiar.
+    if (before.taxId && before.taxId !== input.taxId) {
+      const issued = await this.admin.invoice.count({
+        where: {
+          tenantId,
+          ownerId: null,
+          kind: 'invoice',
+          issuedBy: 'app',
+          status: { not: 'draft' },
+        },
+      });
+      if (issued > 0) {
+        throw new ConflictException({
+          code: 'tax_id_locked',
+          message:
+            'Ya has emitido facturas con este NIF y no se puede cambiar. Si tu empresa ha cambiado de NIF, escríbenos desde Soporte.',
+        });
+      }
+    }
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: {
@@ -257,6 +297,39 @@ export class PlatformInvoicesService {
         ...(input.billingEmail !== undefined ? { billingEmail: input.billingEmail || null } : {}),
       },
     });
+    const after: Record<string, string | null> = {
+      billingLegalName: input.legalName,
+      taxId: input.taxId,
+      billingAddress: input.address,
+      billingCity: input.city,
+      billingPostalCode: input.postalCode,
+      country: input.country,
+      ...(input.billingEmail !== undefined ? { billingEmail: input.billingEmail || null } : {}),
+    };
+    const changes: Record<string, { from: string | null; to: string | null }> = {};
+    for (const [key, to] of Object.entries(after)) {
+      const from = (before as Record<string, string | null>)[key] ?? null;
+      if (from !== to) changes[key] = { from, to };
+    }
+    if (Object.keys(changes).length > 0) {
+      await this.admin.auditLog
+        .create({
+          data: {
+            tenantId,
+            userId: actor?.userId ?? null,
+            action: 'tenant.billing_details_changed',
+            entityType: 'Tenant',
+            entityId: tenantId,
+            changes: changes as Prisma.InputJsonValue,
+            ipAddress: actor?.ipAddress ?? null,
+            userAgent: actor?.userAgent ?? null,
+            impersonationId: impersonationContext.getStore()?.impersonationId ?? null,
+          },
+        })
+        .catch((err: unknown) =>
+          this.logger.warn(`[datos fiscales] no se pudo auditar el cambio: ${String(err)}`),
+        );
+    }
     return this.getTenantBillingDetails(tenantId);
   }
 

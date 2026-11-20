@@ -9,6 +9,7 @@ import type { CardProvider } from '@storageos/shared';
 
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -109,6 +110,18 @@ export function StripeConnectCard() {
     }
   }
 
+  if (status.isError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Cobro con tarjeta a los inquilinos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SectionError onRetry={() => void status.refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (!s) {
     return (
       <Card>

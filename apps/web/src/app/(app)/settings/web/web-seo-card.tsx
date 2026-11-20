@@ -44,7 +44,11 @@ export function WebSeoCard({
 }) {
   const update = useUpdateWebSettings();
   const [values, setValues] = useState<WebSeo>(seo);
-  useEffect(() => setValues(seo), [seo]);
+  // Solo se repone si lo guardado cambia de verdad: subir una foto o guardar
+  // otra tarjeta vuelve a pedir la configuración y no debe borrar lo escrito.
+  const seoKey = JSON.stringify(seo);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setValues(seo), [seoKey]);
 
   const pages: PageDef[] = [
     {

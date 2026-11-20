@@ -3,12 +3,15 @@
 import {
   CANNED_RESPONSE_VARIABLES,
   DEFAULT_AUTO_REPLY,
+  hasOpenDay,
   type CustomerCannedResponseDto,
   type OpeningHours,
 } from '@storageos/shared';
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+
+import { SettingsHeader } from '../settings-header';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -37,7 +40,11 @@ import {
 
 export default function MessagesSettingsPage() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <SettingsHeader
+        title="Mensajes"
+        description="Horario de atención, respuesta automática fuera de horas y respuestas guardadas para escribir a tus inquilinos."
+      />
       <AttentionHoursCard />
       <CannedResponsesCard />
     </div>
@@ -58,7 +65,14 @@ function AttentionHoursCard() {
     setHours(settings.data.hours ?? {});
   }, [settings.data]);
 
+  // Con la respuesta automática y sin ningún día marcado, respondería a todas horas.
+  const missingHours = enabled && !hasOpenDay(hours);
+
   async function save() {
+    if (missingHours) {
+      toast.error('Marca al menos un día en tu horario de atención.');
+      return;
+    }
     try {
       await update.mutateAsync({ autoReplyEnabled: enabled, autoReply: text, hours });
       toast.success('Guardado.');
@@ -86,6 +100,12 @@ function AttentionHoursCard() {
               Responder automáticamente fuera de horario
             </label>
             <OpeningHoursEditor value={hours} onChange={setHours} />
+            {missingHours && (
+              <p className="text-sm text-amber-700 dark:text-amber-400">
+                Marca al menos un día: sin horario, la respuesta automática saldría siempre, también
+                cuando estás atendiendo.
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="auto-reply">Respuesta automática</Label>
               <Textarea
@@ -96,7 +116,7 @@ function AttentionHoursCard() {
                 onChange={(e) => setText(e.target.value)}
               />
             </div>
-            <Button onClick={save} disabled={update.isPending}>
+            <Button onClick={save} disabled={update.isPending || missingHours}>
               {update.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
               Guardar
             </Button>
@@ -162,7 +182,16 @@ function CannedResponsesCard() {
                         confirmLabel: 'Borrar',
                         destructive: true,
                       });
-                      if (ok) remove.mutate(c.id);
+                      if (!ok) return;
+                      remove.mutate(c.id, {
+                        onSuccess: () => toast.success('Respuesta borrada.'),
+                        onError: (err) =>
+                          toast.error(
+                            err instanceof ApiError
+                              ? err.body.message
+                              : 'No se ha podido borrar la respuesta.',
+                          ),
+                      });
                     }}
                   >
                     <Trash2 className="size-4" />

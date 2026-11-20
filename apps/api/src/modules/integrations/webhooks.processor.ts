@@ -19,8 +19,9 @@ const REQUEST_TIMEOUT_MS = 10_000;
  * configurada por el tenant. Si el endpoint responde 2xx, marca el
  * delivery como `success`. Si responde 4xx/5xx, timeout o error de red,
  * incrementa `attempts` y deja que BullMQ programe el reintento
- * exponencial (60s, 5min, 30min). Tras 3 intentos, marca `failed` y no
- * vuelve a reintentar.
+ * exponencial (3 intentos en total: el segundo al minuto y el tercero dos
+ * minutos después). Tras el tercero, marca `failed` y no vuelve a reintentar.
+ * Un webhook desactivado o borrado no recibe nada: el envío queda `failed`.
  */
 @Processor(QUEUE_WEBHOOKS, { concurrency: 5 })
 export class WebhooksProcessor extends WorkerHost {
@@ -46,6 +47,16 @@ export class WebhooksProcessor extends WorkerHost {
       return;
     }
     if (row.status === 'success') {
+      return;
+    }
+    if (!row.webhook.isActive || row.webhook.revokedAt) {
+      await this.service.markDeliveryAttempt({
+        deliveryId,
+        statusCode: null,
+        errorMessage: 'No se ha enviado: el webhook está desactivado o borrado.',
+        attempts: row.attempts,
+        isFinal: true,
+      });
       return;
     }
     const secret = this.service.decryptWebhookSecret(row.webhook.secret, row.webhook.tenantId);

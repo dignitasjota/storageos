@@ -27,7 +27,7 @@ function makeService(subs: Sub[]) {
         VAPID_SUBJECT: 'mailto:test@example.com',
       })[k],
   } as unknown as ConfigService;
-  const service = new PushService(prisma as never, config as never);
+  const service = new PushService(prisma as never, config as never, {} as never);
   return { service, findMany, deleteMany };
 }
 

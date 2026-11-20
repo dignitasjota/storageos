@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { UpdateMonthlyDigestSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -34,8 +35,12 @@ export class TenantDigestController {
     return this.digest.updateSettings(user.tenantId, body.enabled);
   }
 
-  /** Envía el informe del mes pasado ahora mismo (no espera al cron). */
+  /**
+   * Envía el informe del mes pasado ahora mismo (no espera al cron). Como
+   * mucho 3 veces por hora: cada envío va a todos los propietarios.
+   */
   @RequirePermission('settings:manage')
+  @Throttle({ default: { limit: 3, ttl: 60 * 60_000 } })
   @Post('run')
   run(@CurrentUser() user: AuthenticatedUser): Promise<TenantMonthlyDigestResultDto> {
     return this.digest.sendForTenant(user.tenantId);

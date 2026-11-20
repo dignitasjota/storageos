@@ -14,6 +14,8 @@ export interface TenantRedsysPaymentOptionsDto {
   amount: number;
   /** Meses vencidos sin pagar (1 si está al día): puede pagarlos de una vez. */
   monthsOwed: number;
+  /** Meses que se pueden pagar de una vez (un plan por trastero, solo los que debe). */
+  maxMonths: number;
   currency: string;
   /** Fin del periodo pagado: el pago lo extiende un mes desde aquí. */
   currentPeriodEnd: string | null;

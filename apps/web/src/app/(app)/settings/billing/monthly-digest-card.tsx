@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import {
   useMonthlyDigestSettings,
@@ -36,8 +37,12 @@ export function MonthlyDigestCard() {
           ? `Informe enviado a ${res.recipients} destinatario(s).`
           : 'No hay destinatarios verificados a los que enviar.',
       );
-    } catch {
-      toast.error('No se pudo enviar el informe.');
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError && err.statusCode === 429
+          ? 'Ya lo has enviado varias veces en la última hora. Prueba más tarde.'
+          : 'No se pudo enviar el informe.',
+      );
     }
   }
 

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -63,14 +64,32 @@ export class InvitationsService {
     return rows.map((r) => this.toDto(r));
   }
 
+  /** Solo el propietario puede dar el rol de gestor (como al editar un usuario). */
+  private assertCanInviteRole(inviterRole: UserRole, role: string): void {
+    if (role === 'owner') {
+      throw new BadRequestException({
+        message: 'No se puede invitar como propietario: usa la transferencia de la propiedad',
+        code: 'invalid_role',
+      });
+    }
+    if (role === 'manager' && inviterRole !== 'owner') {
+      throw new ForbiddenException({
+        message: 'Solo el propietario puede invitar a un gestor',
+        code: 'insufficient_role',
+      });
+    }
+  }
+
   async create(args: {
     tenantId: string;
     inviterUserId: string;
+    inviterRole: UserRole;
     inviterName: string;
     input: InviteUserInput;
     meta: RequestMeta;
   }): Promise<InvitationDto> {
     const email = args.input.email;
+    this.assertCanInviteRole(args.inviterRole, args.input.role);
 
     // Si el email ya es user del tenant: 409.
     const existingUser = await this.admin.user.findUnique({
@@ -192,6 +211,7 @@ export class InvitationsService {
   async resend(args: {
     tenantId: string;
     userId: string;
+    inviterRole: UserRole;
     inviterName: string;
     invitationId: string;
     meta: RequestMeta;
@@ -210,28 +230,64 @@ export class InvitationsService {
       });
     }
 
-    // Invalidar la actual (si estaba pendiente) y crear una nueva con
-    // mismo email/role. La que vuelve a salir es la nueva.
-    if (original.revokedAt === null) {
-      await this.admin.invitation.update({
-        where: { id: original.id },
-        data: { revokedAt: new Date(), revokedReason: 'replaced_by_resend' },
-      });
-    }
+    this.assertCanInviteRole(args.inviterRole, original.role);
 
     const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: args.tenantId } });
     const { secret, tokenHash } = await this.invitationTokens.hashSecret();
     const expiresAt = this.invitationTokens.buildExpiry();
-    const fresh = await this.admin.invitation.create({
-      data: {
-        tenantId: args.tenantId,
-        email: original.email,
-        role: original.role,
-        invitedByUserId: args.userId,
-        tokenHash,
-        expiresAt,
-      },
-      include: { invitedBy: true },
+    // Invalidar la actual (si estaba pendiente) y crear una nueva con el mismo
+    // email y rol. Una caducada o revocada vuelve a ocupar plaza: se comprueba
+    // el límite de usuarios del plan, con el mismo bloqueo que al invitar.
+    const fresh = await this.admin.$transaction(async (tx) => {
+      await this.limits.lockForCreate(tx, args.tenantId, 'users');
+      const now = new Date();
+      await tx.invitation.updateMany({
+        where: { id: original.id, acceptedAt: null, revokedAt: null },
+        data: { revokedAt: now, revokedReason: 'replaced_by_resend' },
+      });
+      const [activeUsers, pendingInvites, alreadyUser] = await Promise.all([
+        tx.user.count({ where: { tenantId: args.tenantId, isActive: true } }),
+        tx.invitation.count({
+          where: {
+            tenantId: args.tenantId,
+            acceptedAt: null,
+            revokedAt: null,
+            expiresAt: { gt: now },
+          },
+        }),
+        tx.user.findUnique({
+          where: { tenantId_email: { tenantId: args.tenantId, email: original.email } },
+          select: { id: true },
+        }),
+      ]);
+      if (alreadyUser) {
+        throw new ConflictException({
+          message: 'Ese email ya pertenece a un usuario del tenant',
+          code: 'email_already_user',
+        });
+      }
+      await this.limits.assertCanCreate(args.tenantId, 'users', activeUsers + pendingInvites);
+      // Otra invitación pendiente al mismo email (p. ej. creada después).
+      await tx.invitation.updateMany({
+        where: {
+          tenantId: args.tenantId,
+          email: original.email,
+          acceptedAt: null,
+          revokedAt: null,
+        },
+        data: { revokedAt: now, revokedReason: 'replaced_by_resend' },
+      });
+      return tx.invitation.create({
+        data: {
+          tenantId: args.tenantId,
+          email: original.email,
+          role: original.role,
+          invitedByUserId: args.userId,
+          tokenHash,
+          expiresAt,
+        },
+        include: { invitedBy: true },
+      });
     });
 
     await this.sendInvitationEmail(fresh, args.inviterName, tenant.name, secret);

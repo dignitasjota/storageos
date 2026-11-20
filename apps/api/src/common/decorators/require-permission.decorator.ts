@@ -16,3 +16,12 @@ export const PERMISSION_KEY = 'permissions';
  */
 export const RequirePermission = (...permissions: Permission[]) =>
   SetMetadata(PERMISSION_KEY, permissions);
+
+export const ANY_PERMISSION_KEY = 'anyPermissions';
+
+/**
+ * Accesible para quien tenga AL MENOS UNO de los permisos indicados (p. ej. un
+ * GET de ajustes que lee quien los ve y quien los configura).
+ */
+export const RequireAnyPermission = (...permissions: Permission[]) =>
+  SetMetadata(ANY_PERMISSION_KEY, permissions);

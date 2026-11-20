@@ -109,6 +109,10 @@ export interface SafePostResult {
  * POST con cuerpo ya serializado a una URL de tenant. Lanza
  * `UnsafeDestinationError` si el destino no es público, o un `Error` de red /
  * timeout. No sigue redirecciones (un 3xx se devuelve como status).
+ *
+ * `timeoutMs` es el tope TOTAL de la petición (conectar, enviar y leer la
+ * respuesta), no solo de inactividad: un servidor que responde un byte cada
+ * pocos segundos no retiene al worker indefinidamente.
  */
 export function safePostJson(args: {
   url: string;
@@ -124,7 +128,24 @@ export function safePostJson(args: {
   const maxBytes = args.maxResponseBytes ?? 16_384;
   const client = url.protocol === 'https:' ? https : http;
 
-  return new Promise<SafePostResult>((resolve, reject) => {
+  return new Promise<SafePostResult>((resolveP, rejectP) => {
+    let settled = false;
+    const resolve = (r: SafePostResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      resolveP(r);
+    };
+    const reject = (e: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
+      rejectP(e);
+    };
+    const deadline = setTimeout(() => {
+      reject(new Error('timeout'));
+      req.destroy(new Error('timeout'));
+    }, args.timeoutMs);
     const req = client.request(
       url,
       {

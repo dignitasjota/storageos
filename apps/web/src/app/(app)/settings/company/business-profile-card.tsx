@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -58,6 +59,15 @@ export function BusinessProfileCard() {
     }
   }, [profile.data]);
 
+  if (profile.isError) {
+    return (
+      <Card>
+        <CardContent>
+          <SectionError onRetry={() => void profile.refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (!profile.data) {
     return (
       <Card>

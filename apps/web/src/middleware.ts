@@ -137,18 +137,20 @@ function passThrough(req: NextRequest): NextResponse {
   return NextResponse.next({ request: { headers: cleanHeaders(req) } });
 }
 
+/** El widget se incrusta en webs ajenas: se permite mostrarlo en un iframe. */
+function allowWidgetFraming(res: NextResponse): NextResponse {
+  res.headers.set('X-Frame-Options', 'ALLOWALL');
+  res.headers.set(
+    'Content-Security-Policy',
+    "frame-ancestors *; default-src 'self' 'unsafe-inline' data:; img-src 'self' data: https:; connect-src 'self' http: https:;",
+  );
+  return res;
+}
+
 function platformProtection(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
 
-  if (pathname.startsWith('/widget/')) {
-    const res = passThrough(req);
-    res.headers.set('X-Frame-Options', 'ALLOWALL');
-    res.headers.set(
-      'Content-Security-Policy',
-      "frame-ancestors *; default-src 'self' 'unsafe-inline' data:; img-src 'self' data: https:; connect-src 'self' http: https:;",
-    );
-    return res;
-  }
+  if (pathname.startsWith('/widget/')) return allowWidgetFraming(passThrough(req));
 
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
   if (!isProtected) return withNoindex(pathname, passThrough(req));
@@ -202,7 +204,8 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
           308,
         );
       }
-      return NextResponse.next({ request: { headers } });
+      const res = NextResponse.next({ request: { headers } });
+      return pathname.startsWith('/widget/') ? allowWidgetFraming(res) : res;
     }
     // Host no resoluble (dominio no registrado/verificado): pasa tal cual.
   }

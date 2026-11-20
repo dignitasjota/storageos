@@ -272,10 +272,25 @@ export type DataSubjectRequestTypeValue = z.infer<typeof DataSubjectRequestTypeE
 // Invoice Series
 // ============================================================================
 
+/**
+ * El prefijo forma el número de la factura (`FA/2026/00001`), que va a la
+ * AEAT: solo letras, números y `-`, `_`, `/` o `.` (sin espacios ni tildes).
+ */
+export const INVOICE_SERIES_PREFIX_PATTERN = /^[A-Za-z0-9\-_/.]+$/;
+
 export const CreateInvoiceSeriesSchema = z.object({
   code: z.string().trim().min(1).max(20).toUpperCase(),
   name: z.string().trim().min(1).max(120),
-  prefix: z.string().trim().min(1).max(20),
+  prefix: z
+    .string()
+    .trim()
+    .min(1)
+    .max(20)
+    .regex(
+      INVOICE_SERIES_PREFIX_PATTERN,
+      'Usa solo letras, números y los signos - _ / . (sin espacios ni tildes)',
+    )
+    .toUpperCase(),
   yearScope: z.boolean().default(true),
   facilityId: z.string().uuid().optional(),
   isDefault: z.boolean().default(false),

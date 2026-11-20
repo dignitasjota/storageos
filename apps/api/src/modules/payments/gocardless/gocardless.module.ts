@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuthModule } from '../../auth/auth.module';
 import { PaymentsModule } from '../payments.module';
 
 import { GoCardlessCoreModule } from './gocardless-core.module';
@@ -19,7 +20,7 @@ import { GoCardlessController } from './gocardless.controller';
  * el webhook (usa `PaymentsService`).
  */
 @Module({
-  imports: [GoCardlessCoreModule, PaymentsModule],
+  imports: [AuthModule, GoCardlessCoreModule, PaymentsModule],
   controllers: [GoCardlessController, GoCardlessWebhookController],
   providers: [GoCardlessMandatesService, GoCardlessEventsService],
   exports: [GoCardlessMandatesService],

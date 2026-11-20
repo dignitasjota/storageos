@@ -1,6 +1,13 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { blogImageFileName } from '@storageos/shared';
 
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
@@ -8,6 +15,22 @@ import type { BlogPost, Prisma } from '@storageos/database';
 import type { BlogPostDto, CreateBlogPostInput, UpdateBlogPostInput } from '@storageos/shared';
 
 /** Slug URL-safe a partir de un texto (sin acentos, minúsculas, guiones). */
+/** Tipos de imagen admitidos en el blog (portada e imágenes del texto). */
+const BLOG_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/** Tamaño máximo de una imagen del blog (el mismo que admite la URL de subida). */
+const BLOG_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Otra entrada del negocio ya usa esa dirección (dos guardados a la vez). */
+function slugTaken(err: unknown): unknown {
+  if ((err as { code?: string })?.code === 'P2002') {
+    return new ConflictException({
+      code: 'blog_slug_taken',
+      message: 'Ya hay otra entrada con esa dirección. Prueba con otra.',
+    });
+  }
+  return err;
+}
+
 function slugify(s: string): string {
   return s
     .normalize('NFD')
@@ -30,6 +53,7 @@ export class BlogService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
+    private readonly audit: AuditService,
   ) {}
 
   async list(tenantId: string): Promise<BlogPostDto[]> {
@@ -65,63 +89,110 @@ export class BlogService {
     }
   }
 
-  async create(tenantId: string, input: CreateBlogPostInput): Promise<BlogPostDto> {
+  async create(
+    tenantId: string,
+    input: CreateBlogPostInput,
+    userId: string | null = null,
+  ): Promise<BlogPostDto> {
     const isPublished = input.isPublished ?? false;
-    const created = await this.prisma.withTenant(async (tx) => {
-      const base = slugify(input.slug?.trim() || input.title);
-      const slug = await this.freeSlug(tx, tenantId, base);
-      return tx.blogPost.create({
-        data: {
-          tenantId,
-          slug,
-          title: input.title.trim(),
-          excerpt: input.excerpt?.trim() || null,
-          contentMarkdown: input.contentMarkdown,
-          seoTitle: input.seoTitle?.trim() || null,
-          seoDescription: input.seoDescription?.trim() || null,
-          coverImageAlt: input.coverImageAlt?.trim() || null,
-          relatedPostIds: await this.checkRelated(tx, tenantId, input.relatedPostIds),
-          isPublished,
-          publishedAt: isPublished ? new Date() : null,
-        },
+    const created = await this.prisma
+      .withTenant(async (tx) => {
+        const base = slugify(input.slug?.trim() || input.title);
+        const slug = await this.freeSlug(tx, tenantId, base);
+        return tx.blogPost.create({
+          data: {
+            tenantId,
+            slug,
+            title: input.title.trim(),
+            excerpt: input.excerpt?.trim() || null,
+            contentMarkdown: input.contentMarkdown,
+            seoTitle: input.seoTitle?.trim() || null,
+            seoDescription: input.seoDescription?.trim() || null,
+            coverImageAlt: input.coverImageAlt?.trim() || null,
+            relatedPostIds: await this.checkRelated(tx, tenantId, input.relatedPostIds),
+            isPublished,
+            publishedAt: isPublished ? new Date() : null,
+          },
+        });
+      }, tenantId)
+      .catch((err: unknown) => {
+        throw slugTaken(err);
       });
-    }, tenantId);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'blog_post.created',
+      entityType: 'BlogPost',
+      entityId: created.id,
+      changes: { title: created.title, slug: created.slug, isPublished },
+    });
     return this.toDto(created);
   }
 
-  async update(tenantId: string, id: string, input: UpdateBlogPostInput): Promise<BlogPostDto> {
+  async update(
+    tenantId: string,
+    id: string,
+    input: UpdateBlogPostInput,
+    userId: string | null = null,
+  ): Promise<BlogPostDto> {
     const existing = await this.findOrThrow(tenantId, id);
-    const updated = await this.prisma.withTenant(async (tx) => {
-      const data: Prisma.BlogPostUpdateInput = {};
-      if (input.slug !== undefined) {
-        const base = slugify(input.slug?.trim() || existing.title);
-        data.slug = await this.freeSlug(tx, tenantId, base, id);
-      }
-      if (input.title !== undefined) data.title = input.title.trim();
-      if (input.excerpt !== undefined) data.excerpt = input.excerpt?.trim() || null;
-      if (input.contentMarkdown !== undefined) data.contentMarkdown = input.contentMarkdown;
-      if (input.seoTitle !== undefined) data.seoTitle = input.seoTitle?.trim() || null;
-      if (input.seoDescription !== undefined) {
-        data.seoDescription = input.seoDescription?.trim() || null;
-      }
-      if (input.coverImageAlt !== undefined) {
-        data.coverImageAlt = input.coverImageAlt?.trim() || null;
-      }
-      if (input.relatedPostIds !== undefined) {
-        data.relatedPostIds = await this.checkRelated(tx, tenantId, input.relatedPostIds, id);
-      }
-      if (input.isPublished !== undefined) {
-        data.isPublished = input.isPublished;
-        // Publicar por primera vez fija la fecha; despublicar la conserva (si
-        // se vuelve a publicar luego, no se pisa la fecha original).
-        if (input.isPublished && !existing.publishedAt) data.publishedAt = new Date();
-      }
-      return tx.blogPost.update({ where: { id }, data });
-    }, tenantId);
+    const updated = await this.prisma
+      .withTenant(async (tx) => {
+        const data: Prisma.BlogPostUpdateInput = {};
+        if (input.slug !== undefined) {
+          const base = slugify(input.slug?.trim() || existing.title);
+          data.slug = await this.freeSlug(tx, tenantId, base, id);
+        }
+        if (input.title !== undefined) data.title = input.title.trim();
+        if (input.excerpt !== undefined) data.excerpt = input.excerpt?.trim() || null;
+        if (input.contentMarkdown !== undefined) data.contentMarkdown = input.contentMarkdown;
+        if (input.seoTitle !== undefined) data.seoTitle = input.seoTitle?.trim() || null;
+        if (input.seoDescription !== undefined) {
+          data.seoDescription = input.seoDescription?.trim() || null;
+        }
+        if (input.coverImageAlt !== undefined) {
+          data.coverImageAlt = input.coverImageAlt?.trim() || null;
+        }
+        if (input.relatedPostIds !== undefined) {
+          data.relatedPostIds = await this.checkRelated(tx, tenantId, input.relatedPostIds, id);
+        }
+        if (input.isPublished !== undefined) {
+          data.isPublished = input.isPublished;
+          // Publicar por primera vez fija la fecha; despublicar la conserva (si
+          // se vuelve a publicar luego, no se pisa la fecha original).
+          if (input.isPublished && !existing.publishedAt) data.publishedAt = new Date();
+        }
+        return tx.blogPost.update({ where: { id }, data });
+      }, tenantId)
+      .catch((err: unknown) => {
+        throw slugTaken(err);
+      });
+    // Rastro de lo que cambia lo que ve el público: publicar, despublicar y la dirección.
+    const changes: Record<string, unknown> = {};
+    if (updated.isPublished !== existing.isPublished) changes.isPublished = updated.isPublished;
+    if (updated.slug !== existing.slug) changes.slug = { from: existing.slug, to: updated.slug };
+    if (Object.keys(changes).length > 0) {
+      await this.audit.write({
+        tenantId,
+        userId,
+        action:
+          updated.slug !== existing.slug
+            ? 'blog_post.slug_changed'
+            : updated.isPublished
+              ? 'blog_post.published'
+              : 'blog_post.unpublished',
+        entityType: 'BlogPost',
+        entityId: id,
+        changes: { title: updated.title, ...changes },
+      });
+    }
     return this.toDto(updated);
   }
 
-  /** Entradas relacionadas: del tenant, sin repetir y sin la propia. */
+  /**
+   * Entradas relacionadas: del tenant, sin repetir y sin la propia. Las que ya
+   * no existen (se borraron mientras se editaba) se quitan sin dar error.
+   */
   private async checkRelated(
     tx: Prisma.TransactionClient,
     tenantId: string,
@@ -136,19 +207,44 @@ export class BlogService {
         message: 'Una entrada no puede ser relacionada de sí misma',
       });
     }
-    const found = await tx.blogPost.count({ where: { tenantId, id: { in: unique } } });
-    if (found !== unique.length) {
-      throw new BadRequestException({
-        code: 'related_post_not_found',
-        message: 'Alguna entrada relacionada no existe',
-      });
-    }
-    return unique;
+    const found = await tx.blogPost.findMany({
+      where: { tenantId, id: { in: unique } },
+      select: { id: true },
+    });
+    const existing = new Set(found.map((p) => p.id));
+    return unique.filter((id) => existing.has(id));
   }
 
-  async remove(tenantId: string, id: string): Promise<void> {
-    await this.findOrThrow(tenantId, id);
-    await this.prisma.withTenant((tx) => tx.blogPost.delete({ where: { id } }), tenantId);
+  async remove(tenantId: string, id: string, userId: string | null = null): Promise<void> {
+    const existing = await this.findOrThrow(tenantId, id);
+    await this.prisma.withTenant(async (tx) => {
+      await tx.blogPost.delete({ where: { id } });
+      // Las entradas que la tenían como relacionada dejan de apuntar a ella.
+      const others = await tx.blogPost.findMany({
+        where: { tenantId, relatedPostIds: { has: id } },
+        select: { id: true, relatedPostIds: true },
+      });
+      for (const p of others) {
+        await tx.blogPost.update({
+          where: { id: p.id },
+          data: { relatedPostIds: p.relatedPostIds.filter((x) => x !== id) },
+        });
+      }
+    }, tenantId);
+    // Su portada ya no la usa nadie.
+    if (existing.coverImageKey) {
+      await this.files
+        .deleteObjects('public', [existing.coverImageKey])
+        .catch((err) => this.logger.warn(`blog cover cleanup failed: ${String(err)}`));
+    }
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'blog_post.deleted',
+      entityType: 'BlogPost',
+      entityId: id,
+      changes: { title: existing.title, slug: existing.slug },
+    });
   }
 
   async requestCoverUploadUrl(args: {
@@ -205,7 +301,9 @@ export class BlogService {
         message: 'La imagen no pertenece a este negocio',
       });
     }
-    await this.files.assertObjectMimeType('public', key, ['image/jpeg', 'image/png', 'image/webp']);
+    await this.files.assertObjectMimeType('public', key, BLOG_IMAGE_TYPES, BLOG_IMAGE_MAX_BYTES, {
+      mustExist: true,
+    });
     return { url: this.files.buildPublicUrl('public', key) };
   }
 
@@ -221,11 +319,13 @@ export class BlogService {
         });
       }
       // Bytes reales, no solo el Content-Type declarado al pedir la URL.
-      await this.files.assertObjectMimeType('public', coverImageKey, [
-        'image/jpeg',
-        'image/png',
-        'image/webp',
-      ]);
+      await this.files.assertObjectMimeType(
+        'public',
+        coverImageKey,
+        BLOG_IMAGE_TYPES,
+        BLOG_IMAGE_MAX_BYTES,
+        { mustExist: true },
+      );
     }
     const updated = await this.prisma.withTenant(
       (tx) => tx.blogPost.update({ where: { id }, data: { coverImageKey } }),

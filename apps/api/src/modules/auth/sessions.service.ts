@@ -55,6 +55,13 @@ export const REFRESH_REUSE_GRACE_MS = 30_000;
 export const REFRESH_REUSE_GRACE_MAX_FORKS = 3;
 
 /**
+ * Motivos de cierre que implican que ese token ya se usó para emitir otro: si
+ * vuelve a aparecer fuera de la gracia es un reuso real. El resto (cerrada a
+ * mano, al cambiar la contraseña, ya castigada) solo da 401.
+ */
+const REUSE_SENSITIVE_REASONS = new Set<string>(['rotated', 'lost_response']);
+
+/**
  * Gestiona el ciclo de vida de las sesiones de refresh.
  *
  *   - `createForLogin`: tras un login exitoso, emite refresh + crea fila.
@@ -135,7 +142,11 @@ export class SessionsService {
     const isExpired = session.expiresAt.getTime() <= now.getTime();
 
     if (isExpired) {
-      await this.revokeAllAndFlagReuse(session, tenantId, args, 'expired_session');
+      // Caducada sin haber rotado (p. ej. la cookie dura más que la sesión):
+      // no hay indicio de robo, así que no se cierran las demás.
+      if (session.revokedReason === 'rotated' || session.revokedReason === 'lost_response') {
+        await this.revokeAllAndFlagReuse(session, tenantId, args, 'expired_session');
+      }
       throw new UnauthorizedException('Refresh invalido');
     }
 
@@ -212,6 +223,12 @@ export class SessionsService {
     tenantId: string,
     args: RotateSessionArgs,
   ): Promise<RotateResult> {
+    // Cerrada a mano (desde otro dispositivo, al cambiar la contraseña…) o ya
+    // castigada por un reuso: no rotó, así que el dispositivo que la presenta
+    // solo tiene que volver a entrar. No se cierran las demás.
+    if (session.revokedReason && !REUSE_SENSITIVE_REASONS.has(session.revokedReason)) {
+      throw new UnauthorizedException('Refresh invalido');
+    }
     const now = Date.now();
     const withinGrace =
       session.revokedReason === 'rotated' &&

@@ -66,6 +66,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
         href: '/settings/users',
         label: 'Usuarios',
         description: 'Tu equipo: invitar, editar, locales asignados y desactivar.',
+        permission: 'users:read',
       },
       {
         href: '/settings/roles',
@@ -203,7 +204,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       {
         href: '/settings/faq',
         label: 'Preguntas frecuentes',
-        description: 'Salen en tu web pública y en el área de clientes.',
+        description: 'Salen en el área de clientes y, con Web Premium, en tu web.',
         permission: 'settings:manage',
       },
       {
@@ -266,7 +267,7 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
       {
         href: '/settings/integrations',
         label: 'API keys y webhooks',
-        description: 'Conecta otros sistemas (Zapier, n8n, el tuyo propio).',
+        description: 'Avisos a otros sistemas cuando pasa algo (webhooks) y claves de API.',
         permission: 'integrations:manage',
         alsoMatches: ['/settings/webhooks'],
       },
@@ -298,7 +299,7 @@ export const MODULE_SETTINGS: SettingsNavItem[] = [
   {
     href: '/access/credentials',
     label: 'Accesos',
-    description: 'Accesos adicionales que puede crear el inquilino y pase nocturno.',
+    description: 'Credenciales de acceso (PIN, QR, tarjeta) y dispositivos de cada puerta.',
     permission: 'access:read',
   },
   {
@@ -363,17 +364,22 @@ export const MODULE_SETTINGS: SettingsNavItem[] = [
   },
 ];
 
-/** La entrada activa: la de ruta más larga que coincide con la URL. */
-export function activeSettingsHref(pathname: string): string | null {
-  let best: { href: string; len: number } | null = null;
+/** La entrada que corresponde a la URL: la de ruta más larga que coincide. */
+export function settingsItemFor(pathname: string): SettingsNavItem | null {
+  let best: { item: SettingsNavItem; len: number } | null = null;
   for (const group of SETTINGS_NAV) {
     for (const item of group.items) {
       for (const prefix of [item.href, ...(item.alsoMatches ?? [])]) {
         if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-          if (!best || prefix.length > best.len) best = { href: item.href, len: prefix.length };
+          if (!best || prefix.length > best.len) best = { item, len: prefix.length };
         }
       }
     }
   }
-  return best?.href ?? null;
+  return best?.item ?? null;
+}
+
+/** La entrada activa: la de ruta más larga que coincide con la URL. */
+export function activeSettingsHref(pathname: string): string | null {
+  return settingsItemFor(pathname)?.href ?? null;
 }

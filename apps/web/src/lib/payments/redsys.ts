@@ -24,7 +24,11 @@ export function useUpdateRedsysSettings() {
   return useMutation({
     mutationFn: (input: UpdateRedsysSettingsInput) =>
       apiFetch<RedsysSettingsDto>('/settings/redsys', { method: 'PUT', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: redsysKey }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: redsysKey });
+      // «Ahora mismo se cobra con» depende de si Redsys está activo.
+      void qc.invalidateQueries({ queryKey: ['stripe-connect'] });
+    },
   });
 }
 

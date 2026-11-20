@@ -1,8 +1,15 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   type AdminTenantWhatsappAiDto,
   assistantRespondsNow,
+  hasOpenDay,
   isWhatsappAiProvider,
   isWhatsappIntent,
   OpeningHoursSchema,
@@ -12,7 +19,10 @@ import {
   type PublicLandingDto,
   type UpdateAdminTenantWhatsappAiInput,
   type UpdatePlatformWhatsappAiInput,
+  type TestWhatsappOwnAiInput,
   type UpdateWhatsappAssistantInput,
+  WHATSAPP_AI_PROVIDERS,
+  whatsappAiBaseUrl,
   PublicBookingSchema,
   type WhatsappAiMode,
   type WhatsappAiTestResultDto,
@@ -318,6 +328,26 @@ export class WhatsappAssistantService {
         message: 'Conecta primero tu número de WhatsApp',
       });
     }
+    // Sin el extra (p. ej. tras bajar de plan) solo se puede apagar el
+    // asistente y el seguimiento o quitar la clave propia.
+    if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) {
+      const allowed: Record<string, unknown> = {
+        assistantEnabled: false,
+        followupEnabled: false,
+        removeOwnKey: true,
+      };
+      const ok = Object.entries(input).every(
+        ([k, v]) => v === undefined || (k in allowed && allowed[k] === v),
+      );
+      if (!ok) {
+        throw new ForbiddenException({
+          code: 'feature_not_in_plan',
+          message:
+            'WhatsApp Business no está en tu plan: solo puedes desactivar el asistente o quitar tu clave.',
+          details: { requiredFeature: 'whatsapp_business' },
+        });
+      }
+    }
     const provider = input.ownProvider ?? row.ownAiProvider;
     const baseUrl = input.ownBaseUrl !== undefined ? input.ownBaseUrl || null : row.ownAiBaseUrl;
     if (provider === 'openai_compatible' && !baseUrl && !input.removeOwnKey) {
@@ -325,6 +355,61 @@ export class WhatsappAssistantService {
         code: 'ai_base_url_required',
         message: 'Indica la URL de la API del proveedor',
       });
+    }
+    // Una clave guardada solo se manda al servidor para el que se escribió: si
+    // cambia el proveedor o la URL y no llega una clave nueva, se borra.
+    const destinationChanged =
+      !!row.ownAiApiKeyEncrypted &&
+      isWhatsappAiProvider(provider) &&
+      (provider !== row.ownAiProvider ||
+        whatsappAiBaseUrl(provider, baseUrl) !==
+          (isWhatsappAiProvider(row.ownAiProvider)
+            ? whatsappAiBaseUrl(row.ownAiProvider, row.ownAiBaseUrl)
+            : null));
+    const dropStoredKey = destinationChanged && input.ownApiKey === undefined;
+    // Modelo: vacío = el de por defecto del proveedor.
+    const keyTouched = input.ownProvider !== undefined || input.ownModel !== undefined;
+    const ownModel = keyTouched
+      ? input.ownModel ||
+        WHATSAPP_AI_PROVIDERS.find((p) => p.value === provider)?.defaultModel ||
+        null
+      : row.ownAiModel;
+    if (
+      !input.removeOwnKey &&
+      keyTouched &&
+      !ownModel &&
+      (input.ownApiKey !== undefined || (!!row.ownAiApiKeyEncrypted && !dropStoredKey))
+    ) {
+      throw new BadRequestException({
+        code: 'ai_model_required',
+        message: 'Indica el modelo que quieres usar con ese proveedor',
+      });
+    }
+    // Horario: «solo dentro/fuera del horario» necesita algún día marcado.
+    if (input.assistantHoursMode !== undefined || input.teamHours !== undefined) {
+      const mode = input.assistantHoursMode ?? row.assistantHoursMode;
+      const hours = input.teamHours ?? teamHoursOf(row.teamHours);
+      if (mode !== 'always' && !hasOpenDay(hours)) {
+        throw new BadRequestException({
+          code: 'team_hours_required',
+          message: 'Marca al menos un día en el horario del equipo o elige «Siempre».',
+        });
+      }
+    }
+    // El recordatorio a quien no reservó sale con una plantilla aprobada.
+    if (input.followupEnabled !== undefined || input.followupTemplateName !== undefined) {
+      const on = input.followupEnabled ?? row.followupEnabled;
+      const tpl =
+        input.followupTemplateName !== undefined
+          ? input.followupTemplateName
+          : row.followupTemplateName;
+      if (on && !tpl) {
+        throw new BadRequestException({
+          code: 'followup_template_required',
+          message:
+            'Para recordar a quien preguntó y no reservó, indica una plantilla aprobada en Meta.',
+        });
+      }
     }
     const data = {
       ...(input.assistantEnabled !== undefined ? { assistantEnabled: input.assistantEnabled } : {}),
@@ -357,11 +442,13 @@ export class WhatsappAssistantService {
         ? { ownAiProvider: null, ownAiModel: null, ownAiBaseUrl: null, ownAiApiKeyEncrypted: null }
         : {
             ...(input.ownProvider !== undefined ? { ownAiProvider: input.ownProvider } : {}),
-            ...(input.ownModel !== undefined ? { ownAiModel: input.ownModel || null } : {}),
+            ...(keyTouched ? { ownAiModel: ownModel } : {}),
             ...(input.ownBaseUrl !== undefined ? { ownAiBaseUrl: baseUrl } : {}),
             ...(input.ownApiKey !== undefined
               ? { ownAiApiKeyEncrypted: this.crypto.encryptString(input.ownApiKey, tenantId) }
-              : {}),
+              : dropStoredKey
+                ? { ownAiApiKeyEncrypted: null }
+                : {}),
           }),
     };
     await this.admin.tenantWhatsappSettings.update({ where: { tenantId }, data });
@@ -376,7 +463,7 @@ export class WhatsappAssistantService {
           ? { assistantEnabled: input.assistantEnabled }
           : {}),
         ...(input.ownProvider !== undefined ? { ownProvider: input.ownProvider } : {}),
-        ownKeyChanged: input.ownApiKey !== undefined || !!input.removeOwnKey,
+        ownKeyChanged: input.ownApiKey !== undefined || !!input.removeOwnKey || dropStoredKey,
       },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
@@ -384,8 +471,29 @@ export class WhatsappAssistantService {
     return this.getForTenant(tenantId);
   }
 
-  /** Prueba la clave propia del tenant. */
-  async testOwn(tenantId: string): Promise<WhatsappAiTestResultDto> {
+  /**
+   * Prueba la clave propia del tenant. Con `apiKey` en `input` prueba lo
+   * escrito (proveedor, modelo y URL) sin guardarlo; sin ella, lo guardado.
+   * Nunca se manda la clave guardada a una URL escrita.
+   */
+  async testOwn(
+    tenantId: string,
+    input: TestWhatsappOwnAiInput = {},
+  ): Promise<WhatsappAiTestResultDto> {
+    if (input.apiKey) {
+      const row = await this.admin.tenantWhatsappSettings.findUnique({ where: { tenantId } });
+      const provider =
+        input.provider ?? (isWhatsappAiProvider(row?.ownAiProvider) ? row.ownAiProvider : null);
+      if (!provider) return { ok: false, sample: null, error: 'Elige el proveedor' };
+      const model =
+        input.model || WHATSAPP_AI_PROVIDERS.find((p) => p.value === provider)?.defaultModel || '';
+      if (!model) return { ok: false, sample: null, error: 'Indica el modelo' };
+      const baseUrl = provider === 'openai_compatible' ? input.baseUrl || null : null;
+      if (!whatsappAiBaseUrl(provider, baseUrl)) {
+        return { ok: false, sample: null, error: 'Indica la URL de la API del proveedor' };
+      }
+      return this.test({ provider, model, baseUrl, apiKey: input.apiKey });
+    }
     const config = await this.ownConfig(tenantId);
     if (!config)
       return { ok: false, sample: null, error: 'Falta el proveedor, el modelo o la clave' };

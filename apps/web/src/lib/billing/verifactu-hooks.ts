@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { ApiError, apiFetch } from '../auth/api';
+import { apiFetch } from '../auth/api';
 
 import { invoiceKey } from './hooks';
 
@@ -114,26 +114,20 @@ export function useUpdateVerifactuSettingsMutation() {
 export interface UploadVerifactuCredentialInput {
   file: File;
   password: string;
-  environment: 'sandbox' | 'production';
 }
 
 /**
- * GET /billing/aeat-credentials/me. Maneja 404 como "no hay credencial" en
- * lugar de propagar el error: la UI necesita poder distinguir "vacío" de
- * "error de red".
+ * GET /billing/aeat-credentials/current: el certificado activo o `null` si aún
+ * no hay ninguno (no es un error). Un fallo de verdad llega como error.
  */
 export function useVerifactuCredentialQuery() {
   return useQuery<AeatCredentialMetadata | null>({
     queryKey: verifactuCredentialKey,
     queryFn: async () => {
-      try {
-        return await apiFetch<AeatCredentialMetadata>('/billing/aeat-credentials/me');
-      } catch (err) {
-        if (err instanceof ApiError && err.statusCode === 404) {
-          return null;
-        }
-        throw err;
-      }
+      const res = await apiFetch<{ credential: AeatCredentialMetadata | null }>(
+        '/billing/aeat-credentials/current',
+      );
+      return res.credential;
     },
     staleTime: 30_000,
   });
@@ -147,7 +141,6 @@ export function useUploadVerifactuCredentialMutation() {
       const fd = new FormData();
       fd.append('file', input.file);
       fd.append('password', input.password);
-      fd.append('environment', input.environment);
       return apiFetch<AeatCredentialMetadata>('/billing/aeat-credentials', {
         method: 'POST',
         formData: fd,

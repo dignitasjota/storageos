@@ -9,6 +9,7 @@ import {
   Put,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { type EmailDomainResponseDto, UpsertEmailDomainSchema } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -39,9 +40,11 @@ export class EmailDomainsController {
     return { emailDomain: await this.service.get(user.tenantId) };
   }
 
+  /** Cada dominio nuevo se da de alta en el proveedor de correo: con límite. */
   @Put()
   @HttpCode(HttpStatus.OK)
   @RequirePermission('settings:manage')
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
   async upsert(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: UpsertEmailDomainDto,
@@ -53,6 +56,7 @@ export class EmailDomainsController {
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   @RequirePermission('settings:manage')
+  @Throttle({ default: { limit: 30, ttl: 60 * 60_000 } })
   async verify(
     @CurrentUser() user: AuthenticatedUser,
     @Req() req: Request,

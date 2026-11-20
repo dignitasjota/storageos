@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import {
+  BadGatewayException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -16,7 +17,7 @@ import {
 } from '@storageos/shared';
 
 import { customerScopeWhere } from '../../common/customer-scope';
-import { liveOverrideWhere } from '../../common/tenant-features';
+import { liveOverrideWhere, tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -59,6 +60,7 @@ import type {
   TenantAiTestDto,
   TenantFeature,
   UpdateTenantAiSettingsInput,
+  TestTenantAiSettingsInput,
 } from '@storageos/shared';
 
 const SYSTEM_PROMPT = `Eres el asistente de TrasterOS, un SaaS de gestión de self-storage (trasteros), integrado en el panel del equipo de un negocio.
@@ -249,6 +251,15 @@ export class AiService {
     userId: string,
     input: UpdateTenantAiSettingsInput,
   ): Promise<TenantAiSettingsDto> {
+    // Sin el asistente en el plan solo se puede quitar la clave guardada.
+    const onlyRemoves = input.apiKey === '' && (input.model === undefined || input.model === '');
+    if (!onlyRemoves && !(await tenantHasFeature(this.admin, tenantId, 'ai_assistant'))) {
+      throw new ForbiddenException({
+        code: 'feature_not_in_plan',
+        message: 'El asistente IA no está en tu plan: solo puedes quitar tu clave.',
+        details: { requiredFeature: 'ai_assistant' },
+      });
+    }
     const result = await this.quota.updateTenantSettings(tenantId, input);
     await this.audit.write({
       tenantId,
@@ -265,9 +276,22 @@ export class AiService {
     return result;
   }
 
-  /** Una llamada mínima con la clave propia del tenant. */
-  async testOwnKey(tenantId: string): Promise<TenantAiTestDto> {
-    const own = await this.quota.ownKey(tenantId);
+  /**
+   * Una llamada mínima con la clave propia del tenant: la escrita en `input`
+   * (sin guardarla) o, si no llega, la guardada.
+   */
+  async testOwnKey(
+    tenantId: string,
+    input: TestTenantAiSettingsInput = {},
+  ): Promise<TenantAiTestDto> {
+    const saved = await this.quota.ownKey(tenantId);
+    const own = input.apiKey
+      ? {
+          apiKey: input.apiKey,
+          model:
+            input.model || saved?.model || (await this.quota.tenantSettings(tenantId)).defaultModel,
+        }
+      : saved;
     if (!own) {
       return { ok: false, model: '', message: 'No hay ninguna clave guardada.' };
     }
@@ -389,23 +413,44 @@ export class AiService {
     feature: string;
     system: string;
     user: string;
+    /**
+     * ¿Sirve la respuesta? Si devuelve `false`, la consulta se devuelve (no
+     * cuenta para el límite) y se lanza el error de `rejected`.
+     */
+    accept?: (text: string) => boolean;
+    rejected?: () => Error;
   }): Promise<string> {
     this.assertAvailable();
+    const textOf = (c: AiCompletion) =>
+      c.content
+        .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim();
     const completion = await this.withQuota(
       { tenantId: args.tenantId, userId: args.userId, feature: args.feature },
-      () =>
-        this.llm.createMessage({
+      async () => {
+        const c = await this.llm.createMessage({
           system: args.system,
           messages: [{ role: 'user', content: args.user }],
           tools: [],
-        }),
+        });
+        if (args.accept && !args.accept(textOf(c))) {
+          // Los tokens se gastaron igualmente: quedan anotados, sin contar como consulta.
+          this.recordUsage(args.tenantId, args.userId, args.feature, c);
+          throw (
+            args.rejected?.() ??
+            new BadGatewayException({
+              code: 'ai_reply_unreadable',
+              message: 'No se ha podido leer la respuesta. Inténtalo de nuevo.',
+            })
+          );
+        }
+        return c;
+      },
     );
     this.recordUsage(args.tenantId, args.userId, args.feature, completion);
-    return completion.content
-      .filter((b): b is Extract<typeof b, { type: 'text' }> => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-      .trim();
+    return textOf(completion);
   }
 
   /**

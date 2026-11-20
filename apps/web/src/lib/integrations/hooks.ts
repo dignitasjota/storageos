@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
@@ -91,9 +91,10 @@ export function useRotateWebhookSecret() {
 
 export interface WebhookDeliveriesFilters {
   status?: 'pending' | 'success' | 'failed';
+  /** Día `YYYY-MM-DD` (en la zona del negocio). */
   fromDate?: string;
+  /** Día `YYYY-MM-DD` incluido (en la zona del negocio). */
   toDate?: string;
-  cursor?: string;
   limit?: number;
 }
 
@@ -104,21 +105,26 @@ export function webhookDeliveriesKey(
   return ['settings', 'webhooks', webhookId, 'deliveries', filters] as const;
 }
 
+type WebhookDeliveriesPage = { items: WebhookDeliveryDto[]; nextCursor: string | null };
+
+/** Entregas de un webhook, por páginas: «Cargar más» añade sin vaciar la lista. */
 export function useWebhookDeliveries(
   webhookId: string | null,
   filters: WebhookDeliveriesFilters = {},
 ) {
-  return useQuery({
+  return useInfiniteQuery({
     enabled: !!webhookId,
     queryKey: webhookDeliveriesKey(webhookId, filters),
-    queryFn: () => {
+    initialPageParam: '' as string,
+    getNextPageParam: (last: WebhookDeliveriesPage) => last.nextCursor ?? undefined,
+    queryFn: ({ pageParam }): Promise<WebhookDeliveriesPage> => {
       const params = new URLSearchParams();
       params.set('limit', String(filters.limit ?? 50));
       if (filters.status) params.set('status', filters.status);
       if (filters.fromDate) params.set('fromDate', filters.fromDate);
       if (filters.toDate) params.set('toDate', filters.toDate);
-      if (filters.cursor) params.set('cursor', filters.cursor);
-      return apiFetch<{ items: WebhookDeliveryDto[]; nextCursor: string | null }>(
+      if (pageParam) params.set('cursor', pageParam);
+      return apiFetch<WebhookDeliveriesPage>(
         `/settings/webhooks/${webhookId}/deliveries?${params.toString()}`,
       );
     },

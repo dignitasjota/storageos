@@ -836,25 +836,29 @@
       "description": "Tu cuenta dejará de pedir el segundo factor al iniciar sesión.",
       "currentPassword": "Contraseña actual",
       "method": "Método de verificación",
-      "methodTotp": "Código TOTP",
+      "methodTotp": "Código de la app de autenticación",
       "methodRecovery": "Código de recuperación",
       "code": "Código",
-      "submit": "Desactivar"
+      "submit": "Desactivar",
+      "passwordRequired": "Escribe tu contraseña actual.",
+      "codeInvalid": "Escribe los 6 dígitos que muestra tu app de autenticación.",
+      "recoveryInvalid": "Escribe uno de tus códigos de recuperación (XXXX-XXXX)."
     },
     "errors": {
       "wrongPassword": "La contraseña no es correcta.",
-      "invalidCode": "El código no es válido."
+      "invalidCode": "El código no es válido.",
+      "requiredByPolicy": "Tu empresa exige la verificación en dos pasos a propietarios y gestores. Para quitarla, primero hay que desactivar esa regla en Configuración → Seguridad."
     },
     "policy": {
-      "title": "Política de 2FA del equipo",
-      "description": "Exige verificación en dos pasos a propietarios y administradores del tenant.",
-      "detail": "Cuando activas esta política, los usuarios con rol owner o manager que no tengan 2FA serán redirigidos a una página de configuración obligatoria en su siguiente inicio de sesión. Los usuarios ya conectados seguirán trabajando hasta que cierren sesión o caduque su token.",
+      "title": "Verificación en dos pasos obligatoria",
+      "description": "Exige la verificación en dos pasos a los propietarios y gestores de tu empresa.",
+      "detail": "Con la regla activada, los propietarios y gestores que aún no tengan la verificación en dos pasos tendrán que activarla para seguir usando el panel: se les pedirá al entrar y, si ya estaban dentro, en unos minutos, cuando se renueve su sesión. Mientras la regla esté activada, no podrán quitársela. Al resto del equipo no le afecta.",
       "on": "Activada",
       "off": "Desactivada",
-      "enableCta": "Activar política",
-      "disableCta": "Desactivar política",
-      "enabledNotice": "Política activada. Los próximos logins de owners y managers exigirán 2FA.",
-      "disabledNotice": "Política desactivada."
+      "enableCta": "Activar la regla",
+      "disableCta": "Desactivar la regla",
+      "enabledNotice": "Regla activada. Los propietarios y gestores sin verificación en dos pasos tendrán que activarla.",
+      "disabledNotice": "Regla desactivada."
     }
   },
   "enrolment": {

@@ -37,6 +37,11 @@ export interface HoldedSettingsDto {
   lastError: string | null;
   /** Elementos para revisar a mano en Holded (ver `HoldedReviewItemDto`). */
   reviewCount: number;
+  /**
+   * Lo que falta por enviar a Holded («Enviar pendientes»): facturas sin
+   * copiar y facturas con cobros o anulaciones por copiar.
+   */
+  pendingCount: number;
 }
 
 /**

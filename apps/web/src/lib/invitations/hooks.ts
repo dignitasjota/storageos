@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { markAppActive } from '../app-lock/idle';
 import { apiFetch } from '../auth/api';
-import { meQueryKey } from '../auth/hooks';
+import { seedMeFromAuth } from '../auth/hooks';
 import { useAuthStore } from '../auth/store';
 
 import type {
@@ -88,11 +88,7 @@ export function useAcceptInvitation(token: string) {
     onSuccess: (data) => {
       useAuthStore.getState().setAccessToken(data.accessToken);
       markAppActive();
-      qc.setQueryData(meQueryKey, {
-        user: data.user,
-        tenant: data.tenant,
-        subscription: data.subscription,
-      });
+      seedMeFromAuth(qc, data);
     },
   });
 }

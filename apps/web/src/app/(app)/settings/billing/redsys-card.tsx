@@ -2,6 +2,7 @@
 
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { RedsysSettingsForm } from '@/components/payments/redsys-settings-form';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
@@ -37,6 +38,8 @@ export function RedsysCard() {
             }}
             cardOnFileHint="El inquilino puede guardar su tarjeta al pagar y las siguientes cuotas se cobran solas. Actívalo solo si tu banco ha habilitado el «pago por referencia» (COF) en tu TPV; si no, los cobros automáticos fallarán. Para que se cobre al emitir cada factura, activa también el cobro automático."
           />
+        ) : settings.isError ? (
+          <SectionError onRetry={() => void settings.refetch()} />
         ) : null}
       </CardContent>
     </Card>

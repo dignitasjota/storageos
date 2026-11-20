@@ -269,6 +269,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
       'reminders:read',
       'ai:use',
       'notifications:read',
+      'users:read',
     ],
   },
   {
@@ -293,6 +294,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
       'reports:run',
       'analytics:read',
       'notifications:read',
+      'users:read',
     ],
   },
   {
@@ -323,6 +325,7 @@ export const ROLE_TEMPLATES: RoleTemplate[] = [
       'analytics:read',
       'ai:use',
       'notifications:read',
+      'users:read',
     ],
   },
 ];

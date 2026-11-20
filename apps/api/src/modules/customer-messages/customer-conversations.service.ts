@@ -12,6 +12,7 @@ import {
   type InboxItemDto,
   type InboxPageDto,
   type MessageSettingsDto,
+  hasOpenDay,
   type OpeningHours,
   type Permission,
   type UpdateConversationInput,
@@ -528,11 +529,15 @@ export class CustomerConversationsService {
     tenantId: string,
     input: UpdateMessageSettingsInput,
   ): Promise<MessageSettingsDto> {
-    if (input.autoReplyEnabled && !input.hours) {
-      throw new BadRequestException({
-        code: 'message_hours_required',
-        message: 'Indica tu horario de atención',
-      });
+    if (input.autoReplyEnabled) {
+      // Sin ningún día marcado se respondería a todas horas, también en horario.
+      const hours = input.hours ?? (await this.settings(tenantId)).hours;
+      if (!hasOpenDay(hours)) {
+        throw new BadRequestException({
+          code: 'message_hours_required',
+          message: 'Marca al menos un día en tu horario de atención.',
+        });
+      }
     }
     await this.admin.tenant.update({
       where: { id: tenantId },

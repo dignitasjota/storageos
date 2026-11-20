@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { markAppActive } from '../app-lock/idle';
 import { apiFetch } from '../auth/api';
-import { meQueryKey } from '../auth/hooks';
+import { meQueryKey, seedMeFromAuth } from '../auth/hooks';
 import { useAuthStore } from '../auth/store';
 
 import type {
@@ -91,11 +91,7 @@ export function useChallenge2fa() {
     onSuccess: (data) => {
       useAuthStore.getState().setAccessToken(data.accessToken);
       markAppActive();
-      qc.setQueryData(meQueryKey, {
-        user: data.user,
-        tenant: data.tenant,
-        subscription: data.subscription,
-      });
+      seedMeFromAuth(qc, data);
     },
   });
 }
@@ -130,11 +126,7 @@ export function useEnrol2faRequiredVerify() {
     onSuccess: (data) => {
       useAuthStore.getState().setAccessToken(data.accessToken);
       markAppActive();
-      qc.setQueryData(meQueryKey, {
-        user: data.user,
-        tenant: data.tenant,
-        subscription: data.subscription,
-      });
+      seedMeFromAuth(qc, data);
     },
   });
 }

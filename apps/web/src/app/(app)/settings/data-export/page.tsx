@@ -31,7 +31,13 @@ export default function DataExportSettingsPage() {
       setLast(result);
       window.location.href = result.url;
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo generar el archivo.');
+      toast.error(
+        err instanceof ApiError && err.statusCode === 429
+          ? 'Ya has descargado tus datos hace poco. Puedes volver a hacerlo dentro de una hora.'
+          : err instanceof ApiError
+            ? err.body.message
+            : 'No se pudo generar el archivo.',
+      );
     } finally {
       setBusy(false);
     }

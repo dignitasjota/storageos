@@ -248,39 +248,45 @@ export type UpdateTenantProfileInput = z.infer<typeof UpdateTenantProfileSchema>
  * cada factura emitida encola un cobro al metodo de pago predeterminado
  * del cliente (las facturas sin metodo quedan pendientes sin error).
  */
-export const UpdateTenantBillingSettingsSchema = z.object({
-  autoChargeOnIssue: z.boolean().optional(),
-  /** Emite automáticamente las facturas recurrentes (opt-in) en vez de dejarlas en borrador. */
-  autoIssueRecurring: z.boolean().optional(),
-  /** Recargo por mora (opt-in): emite una factura de recargo a los N días de vencimiento. */
-  lateFeeEnabled: z.boolean().optional(),
-  lateFeeType: z.enum(['percentage', 'fixed']).optional(),
-  lateFeeValue: z.number().nonnegative().max(100_000).optional(),
-  lateFeeGraceDays: z.number().int().min(0).max(120).optional(),
-  /** Días de plazo para pagar, contados desde que se emite la factura. */
-  invoiceDueDays: z.number().int().min(0).max(120).optional(),
-  /**
-   * Primer pago mensual: a partir de este día del mes, incluye también el mes
-   * siguiente completo (null = desactivado).
-   */
-  firstPaymentNextMonthFromDay: z.number().int().min(2).max(28).nullable().optional(),
-  /** Reintentos de cobro automático de las facturas vencidas (opt-in, requiere auto-charge). */
-  autoChargeRetryEnabled: z.boolean().optional(),
-  autoChargeRetryMax: z.number().int().min(1).max(10).optional(),
-  autoChargeRetryIntervalDays: z.number().int().min(1).max(30).optional(),
-  /** IBAN para pagos por transferencia ('' = quitar). Sale en el correo de cada factura. */
-  transferIban: z
-    .string()
-    .trim()
-    .max(42)
-    .refine((v) => v === '' || isValidIban(v), 'IBAN no válido')
-    .transform((v) => (v === '' ? '' : normalizeIban(v)))
-    .optional(),
-  /** Formas de pago sin pasarela que el inquilino puede elegir (cada una opt-in). */
-  offlineTransferEnabled: z.boolean().optional(),
-  offlineCashEnabled: z.boolean().optional(),
-  offlineSepaEnabled: z.boolean().optional(),
-});
+export const UpdateTenantBillingSettingsSchema = z
+  .object({
+    autoChargeOnIssue: z.boolean().optional(),
+    /** Emite automáticamente las facturas recurrentes (opt-in) en vez de dejarlas en borrador. */
+    autoIssueRecurring: z.boolean().optional(),
+    /** Recargo por mora (opt-in): emite una factura de recargo a los N días de vencimiento. */
+    lateFeeEnabled: z.boolean().optional(),
+    lateFeeType: z.enum(['percentage', 'fixed']).optional(),
+    lateFeeValue: z.number().nonnegative().max(100_000).optional(),
+    lateFeeGraceDays: z.number().int().min(0).max(120).optional(),
+    /** Días de plazo para pagar, contados desde que se emite la factura. */
+    invoiceDueDays: z.number().int().min(0).max(120).optional(),
+    /**
+     * Primer pago mensual: a partir de este día del mes, incluye también el mes
+     * siguiente completo (null = desactivado).
+     */
+    firstPaymentNextMonthFromDay: z.number().int().min(2).max(28).nullable().optional(),
+    /** Reintentos de cobro automático de las facturas vencidas (opt-in, requiere auto-charge). */
+    autoChargeRetryEnabled: z.boolean().optional(),
+    autoChargeRetryMax: z.number().int().min(1).max(10).optional(),
+    autoChargeRetryIntervalDays: z.number().int().min(1).max(30).optional(),
+    /** IBAN para pagos por transferencia ('' = quitar). Sale en el correo de cada factura. */
+    transferIban: z
+      .string()
+      .trim()
+      .max(42)
+      .refine((v) => v === '' || isValidIban(v), 'IBAN no válido')
+      .transform((v) => (v === '' ? '' : normalizeIban(v)))
+      .optional(),
+    /** Formas de pago sin pasarela que el inquilino puede elegir (cada una opt-in). */
+    offlineTransferEnabled: z.boolean().optional(),
+    offlineCashEnabled: z.boolean().optional(),
+    offlineSepaEnabled: z.boolean().optional(),
+  })
+  .refine((v) => v.lateFeeType !== 'percentage' || (v.lateFeeValue ?? 0) <= 100, {
+    // El mismo tope que en el escalado de impagos (collections/dunning.ts).
+    message: 'Un recargo en porcentaje no pasa del 100 %',
+    path: ['lateFeeValue'],
+  });
 export type UpdateTenantBillingSettingsInput = z.infer<typeof UpdateTenantBillingSettingsSchema>;
 
 /**

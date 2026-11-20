@@ -5,6 +5,7 @@ import { AlertTriangle, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -33,7 +34,7 @@ export function BillingDetailsSection({
 }: {
   variant?: 'subscription' | 'company';
 }) {
-  const { data } = useSaasBillingDetails();
+  const { data, isError, refetch } = useSaasBillingDetails();
   const update = useUpdateSaasBillingDetails();
   const [form, setForm] = useState<Form | null>(null);
 
@@ -48,6 +49,7 @@ export function BillingDetailsSection({
       billingEmail: data.billingEmail ?? '',
     });
   }
+  if (isError) return <SectionError onRetry={() => void refetch()} />;
   if (!data || !form) return null;
 
   const set = (patch: Partial<Form>) => setForm((f) => (f ? { ...f, ...patch } : f));

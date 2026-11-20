@@ -91,8 +91,12 @@ export class RgpdController {
   async exportCustomer(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
   ): Promise<Record<string, unknown>> {
-    return this.rgpd.exportCustomerData(user.tenantId, id);
+    return this.rgpd.exportCustomerData(user.tenantId, id, {
+      userId: user.sub,
+      meta: extractMeta(req),
+    });
   }
 
   @RequirePermission('rgpd:manage')
@@ -103,6 +107,7 @@ export class RgpdController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query('requestId') requestId: string | undefined,
+    @Query('confirmDebt') confirmDebt: string | undefined,
     @Req() req: Request,
   ): Promise<void> {
     await this.rgpd.anonymizeCustomer({
@@ -110,6 +115,7 @@ export class RgpdController {
       userId: user.sub,
       customerId: id,
       ...(requestId ? { requestId } : {}),
+      confirmDebt: confirmDebt === '1' || confirmDebt === 'true',
       meta: extractMeta(req),
     });
   }

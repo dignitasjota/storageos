@@ -24,6 +24,7 @@ import { PromoStatsDialog } from './promo-stats-dialog';
 import type { PromoLandingDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,9 +51,15 @@ export default function PromoLandingsPage() {
   const branding = useTenantBranding();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PromoLandingDto | undefined>(undefined);
+  // Cada apertura empieza de cero (también al volver a abrir la misma landing).
+  const [openCount, setOpenCount] = useState(0);
   const [linksOf, setLinksOf] = useState<PromoLandingDto | null>(null);
   const [statsOf, setStatsOf] = useState<PromoLandingDto | null>(null);
   const canMarket = useHasPermission('marketing:manage');
+  // Los resultados llevan ingresos: hace falta poder ver facturas o cobros.
+  const canInvoices = useHasPermission('invoices:read');
+  const canPayments = useHasPermission('payments:read');
+  const canSeeResults = canInvoices || canPayments;
 
   const domain =
     branding.data?.customDomain && branding.data.customDomainVerifiedAt
@@ -87,6 +94,7 @@ export default function PromoLandingsPage() {
           <Button
             onClick={() => {
               setEditing(undefined);
+              setOpenCount((n) => n + 1);
               setOpen(true);
             }}
           >
@@ -105,6 +113,8 @@ export default function PromoLandingsPage() {
             <div className="flex justify-center py-6">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
+          ) : landings.isError ? (
+            <SectionError onRetry={() => void landings.refetch()} />
           ) : (landings.data?.length ?? 0) === 0 ? (
             <p className="py-4 text-sm text-muted-foreground">
               Aún no hay landings. Crea una para tu próxima promoción, un local nuevo o una campaña.
@@ -118,6 +128,7 @@ export default function PromoLandingsPage() {
                     className="min-w-0 flex-1 text-left"
                     onClick={() => {
                       setEditing(p);
+                      setOpenCount((n) => n + 1);
                       setOpen(true);
                     }}
                   >
@@ -142,15 +153,17 @@ export default function PromoLandingsPage() {
                     )}
                   </button>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Resultados"
-                      aria-label="Resultados"
-                      onClick={() => setStatsOf(p)}
-                    >
-                      <BarChart3 className="size-4" />
-                    </Button>
+                    {canSeeResults && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Resultados"
+                        aria-label="Resultados"
+                        onClick={() => setStatsOf(p)}
+                      >
+                        <BarChart3 className="size-4" />
+                      </Button>
+                    )}
                     {canMarket && (
                       <Button
                         variant="ghost"
@@ -201,11 +214,16 @@ export default function PromoLandingsPage() {
                       size="icon"
                       title="Duplicar"
                       aria-label="Duplicar"
+                      disabled={duplicate.isPending}
                       onClick={() =>
                         void run(() => duplicate.mutateAsync(p.id), 'Copia creada (apagada).')
                       }
                     >
-                      <CopyPlus className="size-4" />
+                      {duplicate.isPending && duplicate.variables === p.id ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <CopyPlus className="size-4" />
+                      )}
                     </Button>
                     <Button
                       variant="ghost"
@@ -232,7 +250,12 @@ export default function PromoLandingsPage() {
           )}
         </CardContent>
       </Card>
-      <PromoLandingDialog open={open} onOpenChange={setOpen} landing={editing} />
+      <PromoLandingDialog
+        key={`${editing?.id ?? 'new'}-${openCount}`}
+        open={open}
+        onOpenChange={setOpen}
+        landing={editing}
+      />
       <PromoLinksDialog landing={linksOf} onOpenChange={(o) => !o && setLinksOf(null)} />
       <PromoStatsDialog landing={statsOf} onOpenChange={(o) => !o && setStatsOf(null)} />
     </div>

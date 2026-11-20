@@ -73,8 +73,29 @@ export function isWithinHours(
   const day = hours[key];
   if (!day) return false;
   const now = `${hh}:${mm}`;
-  return now >= day.open && (day.close === '00:00' || now < day.close);
+  const inShift = (open: string, close: string) =>
+    now >= open && (close === '00:00' || now < close);
+  // Horario partido: el segundo turno (`open2`/`close2`) también cuenta.
+  return (
+    inShift(day.open, day.close) || (!!day.open2 && !!day.close2 && inShift(day.open2, day.close2))
+  );
 }
+
+/** ¿Tiene el horario al menos un día marcado? (sin ninguno, nunca está «dentro»). */
+export function hasOpenDay(hours: OpeningHours | null | undefined): boolean {
+  return !!hours && WEEKDAY_KEYS.some((k) => !!hours[k]);
+}
+
+/**
+ * Clave de API de un proveedor de IA: sin espacios y con una longitud mínima
+ * (una clave pegada a medias o con un salto de línea no se guarda).
+ */
+export const AiApiKeySchema = z
+  .string()
+  .trim()
+  .min(20, 'La clave parece incompleta: cópiala entera')
+  .max(500)
+  .regex(/^\S+$/, 'La clave no puede llevar espacios');
 
 /** ¿Responde la IA ahora según el modo y el horario del equipo? */
 export function assistantRespondsNow(
@@ -417,7 +438,11 @@ export const UpdateWhatsappAssistantSchema = z
     ownProvider: WhatsappAiProviderEnum.optional(),
     ownModel: z.string().trim().max(120).optional(),
     ownBaseUrl: aiBaseUrl,
-    ownApiKey: z.string().trim().min(10).max(500).optional(),
+    /**
+     * Clave propia. Si cambia el proveedor o la URL y no se envía clave nueva,
+     * la guardada se borra (no se manda a otro servidor).
+     */
+    ownApiKey: AiApiKeySchema.optional(),
     /** Quita la clave propia. */
     removeOwnKey: z.boolean().optional(),
     /** El asistente puede preparar reservas desde el chat. */
@@ -475,6 +500,32 @@ export interface WhatsappAssistantDto {
   followupTemplateName: string | null;
   followupTemplateLanguage: string;
 }
+
+/**
+ * Probar la IA propia del asistente. Con `apiKey` se prueba lo escrito (sin
+ * guardarlo); sin ella, lo guardado.
+ */
+export const TestWhatsappOwnAiSchema = z.object({
+  provider: WhatsappAiProviderEnum.optional(),
+  model: z.string().trim().max(120).optional(),
+  baseUrl: aiBaseUrl,
+  apiKey: AiApiKeySchema.optional(),
+});
+export type TestWhatsappOwnAiInput = z.infer<typeof TestWhatsappOwnAiSchema>;
+
+/**
+ * Probar la conexión con WhatsApp. Con `accessToken` (y el ID del número) se
+ * prueba lo escrito sin guardarlo; sin él, lo guardado.
+ */
+export const TestWhatsappSettingsSchema = z.object({
+  phoneNumberId: z
+    .string()
+    .trim()
+    .regex(/^\d{5,30}$/, 'El ID del número solo lleva cifras')
+    .optional(),
+  accessToken: z.string().trim().min(20).max(1000).optional(),
+});
+export type TestWhatsappSettingsInput = z.infer<typeof TestWhatsappSettingsSchema>;
 
 export const UpdateWhatsappConversationSchema = z.object({
   assistantEnabled: z.boolean(),

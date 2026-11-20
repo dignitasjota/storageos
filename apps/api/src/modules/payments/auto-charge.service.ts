@@ -1,5 +1,5 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Queue } from 'bullmq';
 
@@ -122,14 +122,28 @@ export class AutoChargeService {
     });
     if (!defaultPm) return this.skip(invoiceId, 'no_payment_method');
 
-    const payment = await this.payments.chargeInvoice({
-      tenantId,
-      userId: null,
-      invoiceId,
-      input: {},
-      notifyCustomerOnFailure: true,
-      meta: {},
-    });
+    let payment: Awaited<ReturnType<PaymentsService['chargeInvoice']>>;
+    try {
+      payment = await this.payments.chargeInvoice({
+        tenantId,
+        userId: null,
+        invoiceId,
+        input: {},
+        notifyCustomerOnFailure: true,
+        meta: {},
+      });
+    } catch (err) {
+      // Sin un método que se pueda usar ahora (p. ej. su pasarela está apagada)
+      // no hay nada que cobrar: no es un rechazo.
+      const code =
+        err instanceof HttpException
+          ? (err.getResponse() as { code?: string } | string | undefined)
+          : undefined;
+      if (typeof code === 'object' && code?.code === 'no_payment_method') {
+        return this.skip(invoiceId, 'no_payment_method');
+      }
+      throw err;
+    }
     this.logger.log(
       `[auto-charge] invoice ${invoiceId} -> payment ${payment.id} (${payment.status})`,
     );

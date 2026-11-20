@@ -20,6 +20,11 @@ export function useUpdateWebLegal() {
   return useMutation({
     mutationFn: (input: UpdateWebLegalInput) =>
       apiFetch<WebLegalSettingsDto>('/settings/tenant/web-legal', { method: 'PATCH', json: input }),
-    onSuccess: (data) => qc.setQueryData(key, data),
+    onSuccess: (data) => {
+      qc.setQueryData(key, data);
+      // Cambiar las condiciones crea una versión nueva: la lista de versiones
+      // («Vigente») se vuelve a pedir.
+      void qc.invalidateQueries({ queryKey: ['legal-doc-versions'] });
+    },
   });
 }

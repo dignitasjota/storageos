@@ -139,8 +139,9 @@ describe('Dominio propio del tenant (e2e)', () => {
       .patch('/settings/tenant/branding')
       .set({ Authorization: `Bearer ${b.accessToken}` })
       .send({ customDomain: domain });
+    // A aún no lo ha verificado: se le guarda unos días antes de liberarlo.
     expect(clash.status).toBe(409);
-    expect(clash.body.code).toBe('domain_taken');
+    expect(clash.body.code).toBe('domain_pending_elsewhere');
   });
 
   it('valida el formato del dominio (400)', async () => {

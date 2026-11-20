@@ -65,7 +65,7 @@ describe('Asistente IA y vaciado: mejoras (e2e)', () => {
     const saved = await http()
       .put('/ai/settings')
       .set(auth)
-      .send({ apiKey: 'sk-ant-propia-9876' })
+      .send({ apiKey: 'sk-ant-propia-de-prueba-9876' })
       .expect(200);
     expect(saved.body).toMatchObject({
       mode: 'platform',

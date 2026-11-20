@@ -50,8 +50,13 @@ const PLATFORM_PREFIXES = [
   '/verify-email-sent',
   '/invite',
   '/security',
-  '/widget',
 ];
+
+/**
+ * Widget de reserva para webs ajenas: en el dominio propio se sirve el del
+ * propio tenant (`/widget/<su slug>`); el de otro negocio, en la plataforma.
+ */
+const WIDGET_PREFIX = '/widget';
 
 /**
  * Secciones de la web de una página con dirección propia en el dominio del
@@ -68,6 +73,19 @@ const BOOK_ALIAS = '/reservar';
 export const PROMO_PREFIX = 'promo';
 
 /**
+ * Textos legales de la web del tenant (`/aviso-legal`, `/privacidad`,
+ * `/cookies`, `/condiciones-contratacion`). Los sirve SIEMPRE la plataforma,
+ * también con web externa: el inquilino acepta las condiciones de contratación
+ * al firmar y el enlace tiene que abrir el texto vigente, no la web del tenant.
+ */
+const TENANT_LEGAL_PATHS = [
+  'aviso-legal',
+  'privacidad',
+  'cookies',
+  'condiciones-contratacion',
+] as const;
+
+/**
  * Segmentos que un `publicSlug` de facility NUNCA puede usar bajo un dominio
  * propio: colisionarían con una ruta real (reescrita ANTES que la regla
  * genérica de 1 segmento en `resolveCustomDomainRoute` — portal/login/
@@ -79,6 +97,7 @@ export const PROMO_PREFIX = 'promo';
 export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
   ...PASS_PREFIXES.map((p) => p.slice(1)),
   ...PLATFORM_PREFIXES.map((p) => p.slice(1)),
+  WIDGET_PREFIX.slice(1),
   BOOK_ALIAS.slice(1),
   'l',
   'blog',
@@ -86,10 +105,7 @@ export const RESERVED_FACILITY_SLUGS: ReadonlySet<string> = new Set([
   // Direcciones fijas de la web (`/contacto`, `/precios`) para campañas.
   ...LANDING_SECTION_PATHS,
   // Textos legales de la web del tenant.
-  'aviso-legal',
-  'privacidad',
-  'cookies',
-  'condiciones-contratacion',
+  ...TENANT_LEGAL_PATHS,
 ]);
 
 /**
@@ -163,6 +179,14 @@ export function resolveCustomDomainRoute(
     return { action: 'next' };
   }
 
+  // Widget: el del tenant se sirve en su dominio; cualquier otro, en la plataforma.
+  if (matchesPrefix(pathname, WIDGET_PREFIX)) {
+    const widgetSlug = pathname.split('/').filter(Boolean)[1];
+    return widgetSlug === slug
+      ? { action: 'next' }
+      : { action: 'redirectToPlatform', path: pathname };
+  }
+
   // Panel / auth / admin → al dominio de la plataforma.
   if (PLATFORM_PREFIXES.some((p) => matchesPrefix(pathname, p))) {
     return { action: 'redirectToPlatform', path: pathname };
@@ -180,6 +204,15 @@ export function resolveCustomDomainRoute(
   const promoParts = pathname.split('/').filter(Boolean);
   if (promoParts[0] === PROMO_PREFIX && promoParts.length === 2) {
     return { action: 'rewrite', path: `/s/${slug}/${PROMO_PREFIX}/${promoParts[1]}` };
+  }
+
+  // Textos legales: los de la plataforma, también con web externa.
+  const legalParts = pathname.split('/').filter(Boolean);
+  if (
+    legalParts.length === 1 &&
+    (TENANT_LEGAL_PATHS as readonly string[]).includes(legalParts[0] ?? '')
+  ) {
+    return { action: 'rewrite', path: `/s/${slug}/${legalParts[0]}` };
   }
 
   if (externalSite) {
