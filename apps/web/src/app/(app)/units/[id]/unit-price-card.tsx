@@ -18,7 +18,7 @@ import { useApplyUnitPricing, useUnitPricingSuggestions } from '@/lib/analytics/
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useUnitInsights } from '@/lib/facilities/inventory-hooks';
-import { formatDate, formatEur } from '@/lib/format';
+import { formatDate, formatEur, vatIncludedLabel } from '@/lib/format';
 
 const SOURCE_LABELS: Record<string, string> = {
   manual: 'a mano',
@@ -74,6 +74,9 @@ export function UnitPriceCard({ unit }: { unit: UnitDto }) {
           <div>
             <p className="text-sm text-muted-foreground">Catálogo</p>
             <p className="text-xl font-semibold">{formatEur(unit.basePriceMonthly)}</p>
+            <p className="text-xs text-muted-foreground">
+              {vatIncludedLabel(unit.basePriceMonthly, unit.taxRate)}
+            </p>
           </div>
           {data.currentFee !== null && (
             <div>

@@ -67,7 +67,13 @@ import {
   useUpdateUnit,
 } from '@/lib/facilities/hooks';
 import { useUnitInsights } from '@/lib/facilities/inventory-hooks';
-import { formatDate, formatDateTime, formatEur, formatNumber } from '@/lib/format';
+import {
+  formatDate,
+  formatDateTime,
+  formatEur,
+  formatNumber,
+  vatIncludedLabel,
+} from '@/lib/format';
 
 const STATUS_LABELS: Record<string, string> = {
   available: 'Disponible',
@@ -289,6 +295,9 @@ export default function UnitDetailPage() {
           </CardHeader>
           <CardContent>
             <p className="text-xl font-semibold">{formatEur(u.basePriceMonthly)}</p>
+            <p className="text-sm text-muted-foreground">
+              {vatIncludedLabel(u.basePriceMonthly, u.taxRate)}
+            </p>
           </CardContent>
         </Card>
         <Card>

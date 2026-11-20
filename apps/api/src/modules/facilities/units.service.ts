@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { UNIT_STATUS_TRANSITIONS } from '@storageos/shared';
+import { rentTax, UNIT_STATUS_TRANSITIONS } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { formatDateLong, todayInTimezone } from '../../common/format';
@@ -60,7 +60,7 @@ export interface ListUnitsFilters {
 export const UNIT_INCLUDE = {
   facility: { select: { name: true } },
   floor: { select: { name: true } },
-  unitType: { select: { name: true, color: true } },
+  unitType: { select: { name: true, color: true, propertyKind: true } },
 } as const;
 
 const LIVE_CONTRACT: Prisma.ContractWhereInput = {
@@ -879,7 +879,7 @@ export class UnitsService {
           include: {
             facility: { select: { name: true, deletedAt: true } },
             floor: { select: { name: true } },
-            unitType: { select: { name: true, color: true } },
+            unitType: { select: { name: true, color: true, propertyKind: true } },
           },
         }),
       tenantId,
@@ -918,7 +918,7 @@ export class UnitsService {
     row: Unit & {
       facility: { name: string };
       floor: { name: string };
-      unitType: { name: string; color: string };
+      unitType: { name: string; color: string; propertyKind: string };
     },
   ): UnitDto {
     return {
@@ -938,6 +938,7 @@ export class UnitsService {
       volumeM3: row.volumeM3 !== null && row.volumeM3 !== undefined ? Number(row.volumeM3) : 0,
       status: row.status as UnitStatusValue,
       basePriceMonthly: Number(row.basePriceMonthly),
+      taxRate: rentTax(row.unitType.propertyKind).taxRate,
       planX: row.planX !== null && row.planX !== undefined ? Number(row.planX) : null,
       planY: row.planY !== null && row.planY !== undefined ? Number(row.planY) : null,
       planWidth:

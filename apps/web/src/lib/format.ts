@@ -11,6 +11,16 @@ export function formatEur(n: number | string | null | undefined): string {
   return EUR.format(v == null || Number.isNaN(v) ? 0 : v);
 }
 
+/** Precio con IVA (redondeado al céntimo) a partir del precio sin IVA y el tipo. */
+export function withVat(net: number, taxRate: number): number {
+  return Math.round(net * (1 + taxRate / 100) * 100) / 100;
+}
+
+/** «72,60 € con IVA» o, si no lleva IVA (vivienda), «Exento de IVA». */
+export function vatIncludedLabel(net: number, taxRate: number): string {
+  return taxRate > 0 ? `${formatEur(withVat(net, taxRate))} con IVA` : 'Exento de IVA';
+}
+
 /** Importe corto para los ejes de los gráficos: «1,2k €», «840 €». */
 export function formatEurShort(n: number): string {
   return n >= 1000
