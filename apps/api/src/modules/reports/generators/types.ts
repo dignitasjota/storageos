@@ -15,6 +15,16 @@ export interface ReportResult {
   rows: ReportRow[];
   /** Resumen agregado (totales, etc.) opcional, se pinta al final. */
   summary?: { label: string; value: string }[];
+  /** Nombre, color y logo del negocio (los pone el servicio, no el informe). */
+  brand?: ReportBrand;
+}
+
+export interface ReportBrand {
+  name: string | null;
+  /** `#rrggbb` o null. */
+  color: string | null;
+  /** Logo subido, ya en `data:` (sin descargar nada de fuera). */
+  logoDataUri: string | null;
 }
 
 export interface ReportColumn {

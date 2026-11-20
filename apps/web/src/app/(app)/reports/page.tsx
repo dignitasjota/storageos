@@ -5,11 +5,25 @@ import {
   type ReportGeneratorCatalogEntry,
   type ReportGeneratorCode,
   type ReportParamSchema,
+  type ReportPreviewDto,
+  type ReportScheduleDto,
   type ReportRunDto,
   type ReportStatusValue,
 } from '@storageos/shared';
-import { Download, FileText, Loader2, Play, RotateCw, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import {
+  Download,
+  Eye,
+  FileText,
+  Loader2,
+  Mail,
+  Pause,
+  Play,
+  RotateCw,
+  Send,
+  Trash2,
+} from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
@@ -35,10 +49,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
-import { formatDateTime } from '@/lib/format';
+import { useHasPermission, useMe } from '@/lib/auth/hooks';
+import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 import {
+  useCreateReportSchedule,
   useDeleteReport,
+  useDeleteReportSchedule,
+  usePreviewReport,
+  useReportSchedules,
+  useSendReportSchedule,
+  useUpdateReportSchedule,
   useReportCatalog,
   useReportDownloadUrl,
   useReports,
@@ -65,11 +85,50 @@ interface DialogState {
   format?: ReportFormatValue;
 }
 
+const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+/** Parámetros que se rellenan solos en un envío programado (el periodo anterior). */
+const DATE_PARAMS = ['from', 'to', 'month', 'atDate'];
+
+function scheduleLabel(
+  s: Pick<ReportScheduleDto, 'frequency' | 'weekday' | 'dayOfMonth' | 'hour'>,
+) {
+  const hour = `${s.hour}:00`;
+  return s.frequency === 'weekly'
+    ? `Cada ${WEEKDAYS[(s.weekday ?? 1) - 1]} a las ${hour}, con la semana anterior`
+    : `El día ${s.dayOfMonth ?? 1} de cada mes a las ${hour}, con el mes anterior`;
+}
+
 export default function ReportsPage() {
+  return (
+    <Suspense>
+      <Reports />
+    </Suspense>
+  );
+}
+
+function Reports() {
   const catalog = useReportCatalog();
   const reports = useReports();
   const canRun = useHasPermission('reports:run');
   const [selected, setSelected] = useState<DialogState | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Desde Analítica: `/reports?run=<informe>&from=…` abre el informe ya preparado.
+  const runCode = searchParams.get('run');
+  useEffect(() => {
+    if (!runCode || !catalog.data) return;
+    const entry = catalog.data.find((c) => c.code === runCode);
+    if (entry) {
+      const params: Record<string, unknown> = {};
+      for (const [k, v] of searchParams.entries()) if (k !== 'run' && v) params[k] = v;
+      setSelected({ entry, params });
+    } else {
+      toast.error('Ese informe no está entre los que puedes pedir');
+    }
+    router.replace(pathname, { scroll: false });
+  }, [runCode, catalog.data, searchParams, router, pathname]);
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -178,6 +237,8 @@ export default function ReportsPage() {
           </div>
         )}
       </section>
+
+      <SchedulesSection canRun={canRun} />
 
       {selected && (
         <RunReportDialog
@@ -304,6 +365,16 @@ function ReportRow({
 function RunReportDialog({ state, onClose }: { state: DialogState; onClose: () => void }) {
   const { entry } = state;
   const run = useRunReport();
+  const previewMutation = usePreviewReport();
+  const [preview, setPreview] = useState<ReportPreviewDto | null>(null);
+  const createSchedule = useCreateReportSchedule();
+  const me = useMe();
+  const [scheduling, setScheduling] = useState(false);
+  const [frequency, setFrequency] = useState<'weekly' | 'monthly'>('monthly');
+  const [weekday, setWeekday] = useState(1);
+  const [dayOfMonth, setDayOfMonth] = useState(1);
+  const [hour, setHour] = useState(8);
+  const [recipients, setRecipients] = useState('');
   const firstFormat = entry.formats[0] ?? 'pdf';
   const [format, setFormat] = useState<ReportFormatValue>(
     state.format && entry.formats.includes(state.format) ? state.format : firstFormat,
@@ -315,28 +386,87 @@ function RunReportDialog({ state, onClose }: { state: DialogState; onClose: () =
 
   function updateParam(key: string, value: unknown) {
     setParams((prev) => ({ ...prev, [key]: value }));
+    // La vista previa era de los parámetros anteriores.
+    setPreview(null);
   }
 
-  async function handleSubmit() {
+  /** Comprueba los campos en el navegador; devuelve false (con aviso) si falta algo. */
+  function checkParams(): boolean {
     const missing = Object.entries(entry.paramsSchema)
       .filter(([k, schema]) => schema.required && !params[k])
       .map(([, schema]) => `«${schema.label}»`);
     if (missing.length > 0) {
       toast.error(`${missing.length === 1 ? 'Falta' : 'Faltan'} ${missing.join(' y ')}`);
-      return;
+      return false;
     }
     const { from, to } = params;
     if (typeof from === 'string' && typeof to === 'string' && from > to) {
       toast.error('La fecha «Desde» no puede ser posterior a «Hasta»');
+      return false;
+    }
+    return true;
+  }
+
+  const cleanParams = () =>
+    Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''));
+
+  async function handlePreview() {
+    if (!checkParams()) return;
+    try {
+      setPreview(
+        await previewMutation.mutateAsync({
+          generator: entry.code as ReportGeneratorCode,
+          params: cleanParams(),
+        }),
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido ver el informe');
+    }
+  }
+
+  async function handleSchedule() {
+    // Las fechas se ponen solas en cada envío; el resto sí hace falta.
+    const missing = Object.entries(entry.paramsSchema)
+      .filter(([k, schema]) => schema.required && !DATE_PARAMS.includes(k) && !params[k])
+      .map(([, schema]) => `«${schema.label}»`);
+    if (missing.length > 0) {
+      toast.error(`${missing.length === 1 ? 'Falta' : 'Faltan'} ${missing.join(' y ')}`);
       return;
     }
+    const list = (recipients || me.data?.user.email || '')
+      .split(/[,;\s]+/)
+      .map((e) => e.trim())
+      .filter(Boolean);
+    if (list.length === 0) {
+      toast.error('Escribe al menos un email');
+      return;
+    }
+    try {
+      await createSchedule.mutateAsync({
+        generator: entry.code as ReportGeneratorCode,
+        format,
+        params: Object.fromEntries(
+          Object.entries(cleanParams()).filter(([k]) => !DATE_PARAMS.includes(k)),
+        ),
+        frequency,
+        ...(frequency === 'weekly' ? { weekday } : { dayOfMonth }),
+        hour,
+        recipients: list,
+      });
+      toast.success('Envío programado. Lo verás abajo, en «Envíos por correo».');
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido programar');
+    }
+  }
+
+  async function handleSubmit() {
+    if (!checkParams()) return;
     try {
       await run.mutateAsync({
         generator: entry.code as ReportGeneratorCode,
         format,
-        params: Object.fromEntries(
-          Object.entries(params).filter(([, v]) => v !== undefined && v !== ''),
-        ),
+        params: cleanParams(),
       });
       toast.success('Informe en marcha. Aparecerá abajo cuando esté listo.');
       onClose();
@@ -349,7 +479,7 @@ function RunReportDialog({ state, onClose }: { state: DialogState; onClose: () =
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className={preview ? 'max-w-4xl' : 'max-w-lg'}>
         <DialogHeader>
           <DialogTitle>{entry.name}</DialogTitle>
         </DialogHeader>
@@ -382,9 +512,119 @@ function RunReportDialog({ state, onClose }: { state: DialogState; onClose: () =
             </Select>
           </div>
         </div>
-        <DialogFooter>
+        {preview && <PreviewTable preview={preview} />}
+        <div className="rounded-md border p-3">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 text-left text-sm font-medium"
+            onClick={() => setScheduling((v) => !v)}
+            aria-expanded={scheduling}
+          >
+            <Mail className="h-4 w-4 text-muted-foreground" />
+            Recibirlo por correo cada semana o cada mes
+          </button>
+          {scheduling && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Las fechas se ponen solas: cada envío lleva la semana o el mes que acaba de
+                terminar.
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>Cada</Label>
+                  <Select
+                    value={frequency}
+                    onValueChange={(v) => setFrequency(v as 'weekly' | 'monthly')}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="weekly">Semana</SelectItem>
+                      <SelectItem value="monthly">Mes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Día</Label>
+                  {frequency === 'weekly' ? (
+                    <Select value={String(weekday)} onValueChange={(v) => setWeekday(Number(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WEEKDAYS.map((d, i) => (
+                          <SelectItem key={d} value={String(i + 1)}>
+                            {d.charAt(0).toUpperCase() + d.slice(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select
+                      value={String(dayOfMonth)}
+                      onValueChange={(v) => setDayOfMonth(Number(v))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 28 }, (_, i) => (
+                          <SelectItem key={i} value={String(i + 1)}>
+                            Día {i + 1}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label>Hora</Label>
+                  <Select value={String(hour)} onValueChange={(v) => setHour(Number(v))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <SelectItem key={i} value={String(i)}>
+                          {i}:00
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="report-recipients">Enviar a (hasta 5, separados por comas)</Label>
+                <Input
+                  id="report-recipients"
+                  value={recipients}
+                  placeholder={me.data?.user.email ?? 'tu@email.com'}
+                  onChange={(e) => setRecipients(e.target.value)}
+                />
+              </div>
+              <Button
+                variant="outline"
+                onClick={handleSchedule}
+                disabled={createSchedule.isPending}
+              >
+                <Mail className="mr-1 h-4 w-4" />
+                {createSchedule.isPending ? 'Programando…' : 'Programar envío'}
+              </Button>
+            </div>
+          )}
+        </div>
+        <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>
             Cancelar
+          </Button>
+          <Button variant="outline" onClick={handlePreview} disabled={previewMutation.isPending}>
+            {previewMutation.isPending ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Eye className="mr-1 h-4 w-4" />
+            )}
+            Vista previa
           </Button>
           <Button onClick={handleSubmit} disabled={run.isPending}>
             <Play className="mr-1 h-4 w-4" />
@@ -393,6 +633,177 @@ function RunReportDialog({ state, onClose }: { state: DialogState; onClose: () =
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Informes que llegan solos por correo. */
+function SchedulesSection({ canRun }: { canRun: boolean }) {
+  const schedules = useReportSchedules();
+  const update = useUpdateReportSchedule();
+  const remove = useDeleteReportSchedule();
+  const send = useSendReportSchedule();
+  const confirm = useConfirm();
+  const rows = schedules.data ?? [];
+  if (!schedules.isError && rows.length === 0) return null;
+
+  const fail = (err: unknown, fallback: string) =>
+    toast.error(err instanceof ApiError ? err.body.message : fallback);
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-lg font-medium">Envíos por correo</h2>
+      {schedules.isError ? (
+        <SectionError onRetry={() => void schedules.refetch()} />
+      ) : (
+        <div className="space-y-2">
+          {rows.map((s) => (
+            <Card key={s.id}>
+              <CardContent className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 space-y-0.5">
+                  <p className="text-sm font-medium">
+                    {s.generatorName}
+                    {s.paramsLabel ? ` · ${s.paramsLabel}` : ''} · {FORMAT_LABELS[s.format]}
+                    {!s.isActive && (
+                      <Badge variant="outline" className="ml-2">
+                        En pausa
+                      </Badge>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {scheduleLabel(s)} · a {s.recipients.join(', ')}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {s.isActive ? `Próximo envío: ${formatDateTime(s.nextRunAt)}` : null}
+                    {s.lastRunAt ? ` · Último: ${formatDateTime(s.lastRunAt)}` : ''}
+                  </p>
+                  {s.lastError && <p className="text-xs text-destructive">{s.lastError}</p>}
+                </div>
+                {canRun && (
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={send.isPending}
+                      onClick={async () => {
+                        try {
+                          const r = await send.mutateAsync(s.id);
+                          if (r.lastError) toast.error(r.lastError);
+                          else toast.success('Enviado.');
+                        } catch (err) {
+                          fail(err, 'No se ha podido enviar');
+                        }
+                      }}
+                    >
+                      <Send className="mr-1 h-4 w-4" /> Enviar ahora
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label={s.isActive ? 'Pausar' : 'Reanudar'}
+                      title={s.isActive ? 'Pausar' : 'Reanudar'}
+                      onClick={() =>
+                        update
+                          .mutateAsync({ id: s.id, isActive: !s.isActive })
+                          .catch((err) => fail(err, 'No se ha podido cambiar'))
+                      }
+                    >
+                      {s.isActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      aria-label="Quitar el envío"
+                      title="Quitar el envío"
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: '¿Quitar este envío?',
+                          description: 'Dejará de llegar por correo.',
+                          confirmLabel: 'Quitar',
+                          destructive: true,
+                        });
+                        if (ok) await remove.mutateAsync(s.id).catch((err) => fail(err, 'Error'));
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function previewValue(
+  value: string | number | null | undefined,
+  type: ReportPreviewDto['columns'][number]['type'],
+): string {
+  if (value === null || value === undefined || value === '') return '—';
+  if (type === 'currency' && typeof value === 'number') return formatEur(value);
+  if (type === 'date' && typeof value === 'string') return formatDate(value);
+  if (type === 'number' && typeof value === 'number') return value.toLocaleString('es-ES');
+  return String(value);
+}
+
+/** Primeras filas y totales del informe, tal como saldrán. */
+function PreviewTable({ preview }: { preview: ReportPreviewDto }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        {preview.totalRows === 0
+          ? 'No hay datos para este periodo.'
+          : preview.totalRows > preview.rows.length
+            ? `Primeras ${preview.rows.length} filas de ${preview.totalRows}.`
+            : `${preview.totalRows} ${preview.totalRows === 1 ? 'fila' : 'filas'}.`}
+      </p>
+      {preview.rows.length > 0 && (
+        <div className="max-h-72 overflow-auto rounded-md border">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-muted text-left">
+              <tr>
+                {preview.columns.map((c) => (
+                  <th
+                    key={c.key}
+                    className="whitespace-nowrap px-2 py-1.5 font-medium"
+                    style={{ textAlign: c.align }}
+                  >
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {preview.rows.map((row, i) => (
+                <tr key={i} className="border-t">
+                  {preview.columns.map((c) => (
+                    <td
+                      key={c.key}
+                      className="whitespace-nowrap px-2 py-1 tabular-nums"
+                      style={{ textAlign: c.align }}
+                    >
+                      {previewValue(row[c.key], c.type)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {preview.summary.length > 0 && (
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-1 rounded-md bg-muted/50 p-3 text-xs sm:grid-cols-2">
+          {preview.summary.map((s) => (
+            <div key={s.label} className="flex justify-between gap-3">
+              <dt className="text-muted-foreground">{s.label}</dt>
+              <dd className="font-medium tabular-nums">{s.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
   );
 }
 

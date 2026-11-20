@@ -663,6 +663,7 @@ model Tenant {
   productSales            ProductSale[]
   productSaleItems        ProductSaleItem[]
   reportRuns              ReportRun[]
+  reportSchedules         ReportSchedule[]
   accessCredentials       AccessCredential[]
   accessDevices           AccessDevice[]
   accessLogs              AccessLog[]
@@ -699,6 +700,7 @@ model Tenant {
   bankStatementTxs        BankStatementTransaction[]
   bankMatchRules          BankMatchRule[]
   aiConversations         AiConversation[]
+  aiScheduledQuestions    AiScheduledQuestion[]
   aiMessages              AiMessage[]
   aiPendingActions        AiPendingAction[]
   emailDomain             TenantEmailDomain?
@@ -898,6 +900,7 @@ model User {
   incidentCommentsAuthored IncidentComment[]         @relation("IncidentCommentAuthor")
   productSalesMade         ProductSale[]             @relation("ProductSaleSoldBy")
   reportRunsTriggered      ReportRun[]               @relation("ReportRunTriggeredBy")
+  reportSchedules          ReportSchedule[]          @relation("ReportScheduleCreatedBy")
   supportTicketsCreated    SupportTicket[]           @relation("TicketCreatedBy")
   supportMessagesAuthored  SupportTicketMessage[]    @relation("MessageAuthorUser")
   aeatCredentialsUploaded  TenantAeatCredential[]    @relation("AeatCredentialUploadedBy")
@@ -905,6 +908,7 @@ model User {
   invoicesVoided           Invoice[]                 @relation("InvoiceVoidedBy")
   apiKeysCreated           ApiKey[]                  @relation("ApiKeyCreatedBy")
   aiConversations          AiConversation[]
+  aiScheduledQuestions     AiScheduledQuestion[]
   aiPendingActions         AiPendingAction[]
   facilities               UserFacility[]
   notificationReads        NotificationRead[]
@@ -3473,9 +3477,37 @@ model AiConversation {
   user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages AiMessage[]
   actions  AiPendingAction[]
+  scheduledQuestions AiScheduledQuestion[]
 
   @@index([tenantId, userId])
   @@map("ai_conversations")
+}
+
+/// Pregunta al asistente que se hace sola y llega por correo a quien la programó.
+model AiScheduledQuestion {
+  id                 String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  question           String
+  /// `daily` | `weekly`.
+  frequency          String
+  /// 1 (lunes) a 7 (domingo), si es semanal.
+  weekday            Int?
+  hour               Int
+  isActive           Boolean   @default(true) @map("is_active")
+  nextRunAt          DateTime  @map("next_run_at") @db.Timestamptz(6)
+  lastRunAt          DateTime? @map("last_run_at") @db.Timestamptz(6)
+  lastConversationId String?   @map("last_conversation_id") @db.Uuid
+  lastError          String?   @map("last_error")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastConversation AiConversation? @relation(fields: [lastConversationId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId])
+  @@map("ai_scheduled_questions")
 }
 
 /// Mensaje de una conversación con el asistente IA.
@@ -4642,11 +4674,45 @@ model ReportRun {
 
   tenant      Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
   triggeredBy User?  @relation("ReportRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  schedules   ReportSchedule[]
 
   @@index([tenantId])
   @@index([tenantId, status, createdAt(sort: Desc)])
   @@index([tenantId, generatorCode])
   @@map("report_runs")
+}
+
+/// Informe que se envía solo por correo cada semana o cada mes.
+model ReportSchedule {
+  id              String       @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String       @map("tenant_id") @db.Uuid
+  createdByUserId String?      @map("created_by_user_id") @db.Uuid
+  generatorCode   String       @map("generator_code")
+  format          ReportFormat
+  /// Parámetros fijos (local, propietario…); las fechas salen del periodo.
+  params          Json         @default("{}")
+  /// `weekly` | `monthly`.
+  frequency       String
+  /// 1 (lunes) a 7 (domingo), si es semanal.
+  weekday         Int?
+  /// 1 a 28, si es mensual.
+  dayOfMonth      Int?         @map("day_of_month")
+  hour            Int
+  recipients      String[]
+  isActive        Boolean      @default(true) @map("is_active")
+  nextRunAt       DateTime     @map("next_run_at") @db.Timestamptz(6)
+  lastRunAt       DateTime?    @map("last_run_at") @db.Timestamptz(6)
+  lastRunId       String?      @map("last_run_id") @db.Uuid
+  lastError       String?      @map("last_error")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?      @relation("ReportScheduleCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  lastRun   ReportRun? @relation(fields: [lastRunId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@map("report_schedules")
 }
 
 // ============================================================================

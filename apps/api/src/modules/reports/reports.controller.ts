@@ -6,11 +6,17 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
+  CreateReportScheduleSchema,
   type ReportGeneratorCatalogEntry,
+  PreviewReportSchema,
+  type ReportScheduleDto,
+  UpdateReportScheduleSchema,
+  type ReportPreviewDto,
   type ReportRunDto,
   RunReportSchema,
 } from '@storageos/shared';
@@ -22,13 +28,69 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
+import { ReportSchedulesService } from './report-schedules.service';
 import { ReportsService } from './reports.service';
 
 class RunReportDto extends createZodDto(RunReportSchema) {}
+class PreviewReportDto extends createZodDto(PreviewReportSchema) {}
+class CreateReportScheduleDto extends createZodDto(CreateReportScheduleSchema) {}
+class UpdateReportScheduleDto extends createZodDto(UpdateReportScheduleSchema) {}
 
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly service: ReportsService) {}
+  constructor(
+    private readonly service: ReportsService,
+    private readonly schedules: ReportSchedulesService,
+  ) {}
+
+  // ─── Envíos por correo (antes de `:id`) ─────────────────────────────────────
+
+  @RequirePermission('reports:read')
+  @Get('schedules')
+  listSchedules(@CurrentUser() user: AuthenticatedUser): Promise<ReportScheduleDto[]> {
+    return this.schedules.list(user);
+  }
+
+  @RequirePermission('reports:run')
+  @Post('schedules')
+  createSchedule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateReportScheduleDto,
+  ): Promise<ReportScheduleDto> {
+    return this.schedules.create(user, body);
+  }
+
+  @RequirePermission('reports:run')
+  @Patch('schedules/:id')
+  updateSchedule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateReportScheduleDto,
+  ): Promise<ReportScheduleDto> {
+    return this.schedules.update(user, id, body);
+  }
+
+  @RequirePermission('reports:run')
+  @Delete('schedules/:id')
+  @HttpCode(204)
+  removeSchedule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    return this.schedules.remove(user, id);
+  }
+
+  /** Lo envía ya, sin cambiar el próximo envío (5 por minuto). */
+  @RequirePermission('reports:run')
+  @Post('schedules/:id/send')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  sendSchedule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<ReportScheduleDto> {
+    return this.schedules.sendNow(user, id);
+  }
 
   @RequirePermission('reports:read')
   @Get('catalog')
@@ -67,6 +129,18 @@ export class ReportsController {
   @RequirePermission('reports:run')
   run(@CurrentUser() user: AuthenticatedUser, @Body() body: RunReportDto): Promise<ReportRunDto> {
     return this.service.run({ user, input: body });
+  }
+
+  /** Primeras filas y totales del informe, sin guardarlo (20 por minuto). */
+  @Post('preview')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @RequirePermission('reports:run')
+  preview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: PreviewReportDto,
+  ): Promise<ReportPreviewDto> {
+    return this.service.preview(user, body);
   }
 
   @Delete(':id')

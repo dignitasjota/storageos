@@ -19,17 +19,33 @@ export class XlsxRenderer {
         .slice(0, 31) || 'Informe',
     );
 
+    const color =
+      result.brand?.color && /^#[0-9a-f]{6}$/i.test(result.brand.color)
+        ? `FF${result.brand.color.slice(1).toUpperCase()}`
+        : null;
+    if (result.brand?.name) {
+      sheet.addRow([result.brand.name]).font = {
+        size: 10,
+        bold: true,
+        color: { argb: 'FF555555' },
+      };
+    }
     // Titulo
-    sheet.addRow([result.title]).font = { size: 14, bold: true };
+    sheet.addRow([result.title]).font = {
+      size: 14,
+      bold: true,
+      ...(color ? { color: { argb: color } } : {}),
+    };
     if (result.subtitle)
       sheet.addRow([result.subtitle]).font = { italic: true, color: { argb: 'FF666666' } };
     sheet.addRow([]);
 
     // Columnas
     const headerRow = sheet.addRow(result.columns.map((c) => c.label));
-    headerRow.font = { bold: true };
+    // Cabecera con el color del negocio (y letra blanca), o gris.
+    headerRow.font = { bold: true, ...(color ? { color: { argb: 'FFFFFFFF' } } : {}) };
     headerRow.eachCell((cell) => {
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color ?? 'FFF5F5F5' } };
       cell.border = { bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } } };
     });
     result.columns.forEach((c, i) => {

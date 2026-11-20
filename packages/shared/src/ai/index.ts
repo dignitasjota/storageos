@@ -1,8 +1,21 @@
 import { z } from 'zod';
 
+/** Ficha desde la que se pregunta («Preguntar al asistente»). */
+export const AI_ABOUT_TYPES = [
+  'customer',
+  'contract',
+  'invoice',
+  'unit',
+  'facility',
+  'lead',
+] as const;
+export type AiAboutType = (typeof AI_ABOUT_TYPES)[number];
+
 export const ChatSchema = z.object({
   conversationId: z.string().uuid().optional(),
   content: z.string().trim().min(1).max(4000),
+  /** La pregunta se hace desde esta ficha: «este inquilino» es ese. */
+  about: z.object({ type: z.enum(AI_ABOUT_TYPES), id: z.string().uuid() }).optional(),
 });
 export type ChatInput = z.infer<typeof ChatSchema>;
 
@@ -18,10 +31,23 @@ export interface AiMessageDto {
 }
 
 /** Tipos de acción que el asistente puede proponer (nunca ejecuta sin confirmación). */
-export const AI_ACTION_TYPES = ['create_task', 'payment_reminder', 'customer_message'] as const;
+export const AI_ACTION_TYPES = [
+  'create_task',
+  'payment_reminder',
+  'customer_message',
+  'customer_note',
+  'customer_followup',
+] as const;
 export type AiActionType = (typeof AI_ACTION_TYPES)[number];
 
-export type AiActionStatus = 'proposed' | 'executing' | 'confirmed' | 'discarded' | 'failed';
+export type AiActionStatus =
+  | 'proposed'
+  | 'executing'
+  | 'confirmed'
+  | 'discarded'
+  | 'failed'
+  /** Propuesta de hace más de 7 días sin confirmar: ya no se puede confirmar. */
+  | 'expired';
 
 export interface AiPendingActionDto {
   id: string;
@@ -84,3 +110,39 @@ export interface PortalAiChatResultDto {
 }
 export * from './limits';
 export * from './web-chat';
+
+export const AiScheduleFrequencyEnum = z.enum(['daily', 'weekly']);
+
+/** Pregunta que se hace sola cada día o cada semana y llega por correo. */
+export const CreateAiScheduledQuestionSchema = z
+  .object({
+    question: z.string().trim().min(5).max(1000),
+    frequency: AiScheduleFrequencyEnum,
+    /** 1 (lunes) a 7 (domingo), si es semanal. */
+    weekday: z.number().int().min(1).max(7).optional(),
+    hour: z.number().int().min(0).max(23).default(8),
+  })
+  .refine((v) => v.frequency === 'daily' || v.weekday !== undefined, {
+    message: 'Elige el día de la semana',
+    path: ['weekday'],
+  });
+export type CreateAiScheduledQuestionInput = z.infer<typeof CreateAiScheduledQuestionSchema>;
+
+export const UpdateAiScheduledQuestionSchema = z.object({
+  isActive: z.boolean().optional(),
+  hour: z.number().int().min(0).max(23).optional(),
+});
+export type UpdateAiScheduledQuestionInput = z.infer<typeof UpdateAiScheduledQuestionSchema>;
+
+export interface AiScheduledQuestionDto {
+  id: string;
+  question: string;
+  frequency: 'daily' | 'weekly';
+  weekday: number | null;
+  hour: number;
+  isActive: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  lastConversationId: string | null;
+  lastError: string | null;
+}

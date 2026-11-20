@@ -1,13 +1,35 @@
 'use client';
 
+import {
+  AI_ABOUT_TYPES,
+  type AiAboutType,
+  type AiMessageDto,
+  type AiPendingActionDto,
+  type AiUsageDto,
+} from '@storageos/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Bot, History, Loader2, Plus, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
+import {
+  Bot,
+  CalendarClock,
+  History,
+  Loader2,
+  Plus,
+  Send,
+  Sparkles,
+  Square,
+  Trash2,
+  User,
+  Wrench,
+  X,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 
-import type { AiMessageDto, AiPendingActionDto, AiUsageDto } from '@storageos/shared';
+import { ScheduledQuestionsDialog } from './scheduled-questions';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
@@ -20,10 +42,11 @@ import {
   useAiConversation,
   aiUsageKey,
   useAiConversations,
+  useAiSuggestions,
   useAiUsage,
   useDeleteConversation,
 } from '@/lib/ai/hooks';
-import { AiStreamUnavailableError, streamAiChat } from '@/lib/ai/stream';
+import { AiStreamStoppedError, AiStreamUnavailableError, streamAiChat } from '@/lib/ai/stream';
 import { ApiError } from '@/lib/auth/api';
 import { formatDate, formatNumber } from '@/lib/format';
 
@@ -51,6 +74,8 @@ const TOOL_LABELS: Record<string, string> = {
   propose_create_task: 'preparar una tarea',
   propose_payment_reminder: 'preparar un recordatorio de pago',
   propose_customer_message: 'preparar un mensaje al inquilino',
+  propose_customer_note: 'preparar una nota en la ficha',
+  propose_customer_followup: 'preparar un seguimiento',
 };
 
 const SUGGESTIONS = [
@@ -90,6 +115,24 @@ function Assistant() {
     },
     [pathname, router, searchParams],
   );
+  // Desde una ficha: `?about=customer:<id>&label=…` (se pregunta sobre ese registro).
+  const aboutParam = searchParams.get('about') ?? '';
+  const [aboutType, aboutId] = aboutParam.split(':') as [string | undefined, string | undefined];
+  const about =
+    aboutType && aboutId && (AI_ABOUT_TYPES as readonly string[]).includes(aboutType)
+      ? { type: aboutType as AiAboutType, id: aboutId }
+      : null;
+  const aboutLabel = searchParams.get('label');
+  const clearAbout = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('about');
+    params.delete('label');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+  const suggestionsQuery = useAiSuggestions();
+  const suggestions = suggestionsQuery.data?.length ? suggestionsQuery.data : SUGGESTIONS;
+  const [scheduledOpen, setScheduledOpen] = useState(false);
   const detail = useAiConversation(activeId);
   const chat = useAiChat();
   const del = useDeleteConversation();
@@ -101,6 +144,8 @@ function Assistant() {
   const [sending, setSending] = useState(false);
   // Conversaciones anteriores en el móvil (en escritorio van en la columna).
   const [historyOpen, setHistoryOpen] = useState(false);
+  // «Detener»: corta la respuesta en curso.
+  const abortRef = useRef<AbortController | null>(null);
   const qc = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -117,24 +162,38 @@ function Assistant() {
     setStreamText('');
     setStreamTool(null);
     setSending(true);
-    const payload = { conversationId: activeId ?? undefined, content };
+    const payload = {
+      conversationId: activeId ?? undefined,
+      content,
+      ...(about ? { about } : {}),
+    };
     const refresh = () =>
       Promise.all([
         qc.invalidateQueries({ queryKey: aiConversationsKey }),
         qc.invalidateQueries({ queryKey: aiUsageKey }),
       ]);
+    const abort = new AbortController();
+    abortRef.current = abort;
+    let startedId: string | null = null;
     try {
-      const res = await streamAiChat(payload, {
-        onText: (delta) => {
-          setStreamTool(null);
-          setStreamText((t) => t + delta);
+      const res = await streamAiChat(
+        payload,
+        {
+          onStart: (id) => {
+            startedId = id;
+          },
+          onText: (delta) => {
+            setStreamTool(null);
+            setStreamText((t) => t + delta);
+          },
+          onTool: (name) => {
+            // El texto previo a una consulta no forma parte de la respuesta final.
+            setStreamText('');
+            setStreamTool(name);
+          },
         },
-        onTool: (name) => {
-          // El texto previo a una consulta no forma parte de la respuesta final.
-          setStreamText('');
-          setStreamTool(name);
-        },
-      });
+        abort.signal,
+      );
       setActiveId(res.conversationId);
       await Promise.all([
         qc.invalidateQueries({ queryKey: aiConversationsKey }),
@@ -142,7 +201,14 @@ function Assistant() {
         qc.invalidateQueries({ queryKey: aiUsageKey }),
       ]);
     } catch (err) {
-      if (err instanceof AiStreamUnavailableError) {
+      if (err instanceof AiStreamStoppedError) {
+        // El servidor guarda lo que llevaba escrito; se abre la conversación.
+        const id = startedId ?? activeId;
+        if (id) setActiveId(id);
+        await new Promise((r) => setTimeout(r, 800));
+        await refresh();
+        if (id) await qc.invalidateQueries({ queryKey: [...aiConversationsKey, id] });
+      } else if (err instanceof AiStreamUnavailableError) {
         // La petición no llegó a salir: respuesta completa de una vez.
         try {
           const res = await chat.mutateAsync(payload);
@@ -170,6 +236,7 @@ function Assistant() {
         }
       }
     } finally {
+      abortRef.current = null;
       setPending(null);
       setStreamText('');
       setStreamTool(null);
@@ -242,15 +309,27 @@ function Assistant() {
           </p>
           {usage.data && <UsageLine usage={usage.data} />}
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="lg:hidden" onClick={() => setHistoryOpen(true)}>
             <History className="mr-1 h-4 w-4" /> Anteriores
+          </Button>
+          <Button variant="outline" onClick={() => setScheduledOpen(true)}>
+            <CalendarClock className="mr-1 h-4 w-4" /> Programadas
           </Button>
           <Button variant="outline" onClick={() => setActiveId(null)}>
             <Plus className="mr-1 h-4 w-4" /> Nueva conversación
           </Button>
         </div>
       </div>
+
+      <ScheduledQuestionsDialog
+        open={scheduledOpen}
+        onOpenChange={setScheduledOpen}
+        onOpenConversation={(id) => {
+          setScheduledOpen(false);
+          setActiveId(id);
+        }}
+      />
 
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
         <SheetContent side="left" className="overflow-auto">
@@ -286,7 +365,13 @@ function Assistant() {
                   Empieza una conversación. Por ejemplo:
                 </p>
                 <div className="flex max-w-md flex-wrap justify-center gap-2">
-                  {SUGGESTIONS.map((s) => (
+                  {(about
+                    ? [
+                        `Resúmeme ${aboutLabel ? `«${aboutLabel}»` : 'esta ficha'}: lo importante y lo que tiene pendiente.`,
+                        '¿Qué debería hacer con esto hoy?',
+                      ]
+                    : suggestions
+                  ).map((s) => (
                     <button
                       key={s}
                       onClick={() => send(s)}
@@ -329,8 +414,24 @@ function Assistant() {
             )}
           </div>
 
+          {about && (
+            <div className="flex items-center gap-2 border-t px-3 pt-2 text-xs text-muted-foreground">
+              <span className="rounded-full bg-muted px-2 py-0.5">
+                Sobre: {aboutLabel ?? 'esta ficha'}
+              </span>
+              <button
+                type="button"
+                onClick={clearAbout}
+                className="rounded p-0.5 hover:bg-muted"
+                aria-label="Preguntar sin esta ficha"
+                title="Preguntar sin esta ficha"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           <form
-            className="flex gap-2 border-t p-3"
+            className={`flex gap-2 p-3 ${about ? '' : 'border-t'}`}
             onSubmit={(e) => {
               e.preventDefault();
               void send(input);
@@ -344,9 +445,21 @@ function Assistant() {
               className="flex-1 rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               disabled={sending}
             />
-            <Button type="submit" disabled={sending || !input.trim()} aria-label="Enviar">
-              <Send className="h-4 w-4" />
-            </Button>
+            {sending ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => abortRef.current?.abort()}
+                aria-label="Detener la respuesta"
+                title="Detener"
+              >
+                <Square className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button type="submit" disabled={!input.trim()} aria-label="Enviar">
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
           </form>
         </Card>
       </div>
@@ -362,8 +475,8 @@ function MessageBubble({ message }: { message: AiMessageDto }) {
         <Bot className="h-4 w-4 text-primary" />
       </div>
       <div className="space-y-1">
-        <div className="whitespace-pre-wrap rounded-lg bg-muted px-3 py-2 text-sm">
-          {message.content}
+        <div className="min-w-0 rounded-lg bg-muted px-3 py-2 text-sm">
+          <AssistantMarkdown content={message.content} />
         </div>
         {message.actions?.map((a) => (
           <ActionCard key={a.id} action={a} />
@@ -375,6 +488,63 @@ function MessageBubble({ message }: { message: AiMessageDto }) {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * La respuesta del asistente con formato (negritas, listas, tablas). Los
+ * enlaces a fichas (`/customers/…`) van dentro del panel; los externos solo si
+ * son https y en otra pestaña; cualquier otro esquema se quita.
+ */
+function AssistantMarkdown({ content }: { content: string }) {
+  return (
+    <div className="space-y-2 break-words [&_li]:ml-4 [&_ol]:list-decimal [&_ul]:list-disc">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={(url) =>
+          url.startsWith('/') && !url.startsWith('//')
+            ? url
+            : url.startsWith('https://')
+              ? defaultUrlTransform(url)
+              : ''
+        }
+        components={{
+          a: ({ href, children }) =>
+            !href ? (
+              <>{children}</>
+            ) : href.startsWith('/') ? (
+              <Link href={href} className="text-primary underline underline-offset-2">
+                {children}
+              </Link>
+            ) : (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer nofollow"
+                className="text-primary underline underline-offset-2"
+              >
+                {children}
+              </a>
+            ),
+          table: ({ children }) => (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-xs">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => (
+            <th className="border-b px-2 py-1 text-left font-medium">{children}</th>
+          ),
+          td: ({ children }) => <td className="border-b px-2 py-1 tabular-nums">{children}</td>,
+          p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
+          h1: ({ children }) => <p className="font-semibold">{children}</p>,
+          h2: ({ children }) => <p className="font-semibold">{children}</p>,
+          h3: ({ children }) => <p className="font-semibold">{children}</p>,
+          img: () => null,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -394,6 +564,7 @@ function UserBubble({ content }: { content: string }) {
 
 const ACTION_STATUS: Record<AiPendingActionDto['status'], string> = {
   proposed: 'Pendiente de tu confirmación',
+  expired: 'Caducada: pídesela otra vez al asistente',
   executing: 'En curso…',
   confirmed: 'Hecho',
   discarded: 'Descartado',

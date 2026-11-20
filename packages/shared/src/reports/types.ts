@@ -26,6 +26,40 @@ export interface ReportRunDto {
   createdAt: string;
 }
 
+export interface ReportScheduleDto {
+  id: string;
+  generatorCode: string;
+  generatorName: string;
+  format: ReportFormatValue;
+  paramsLabel: string | null;
+  frequency: 'weekly' | 'monthly';
+  weekday: number | null;
+  dayOfMonth: number | null;
+  hour: number;
+  recipients: string[];
+  isActive: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  lastError: string | null;
+  createdByName: string | null;
+}
+
+/** Lo que se ve antes de pedir el informe: las primeras filas y los totales. */
+export interface ReportPreviewDto {
+  title: string;
+  subtitle: string | null;
+  columns: {
+    key: string;
+    label: string;
+    type: 'text' | 'number' | 'currency' | 'date';
+    align: 'left' | 'right' | 'center';
+  }[];
+  rows: Record<string, string | number | null | undefined>[];
+  /** Filas que tendría el informe completo. */
+  totalRows: number;
+  summary: { label: string; value: string }[];
+}
+
 export interface ReportGeneratorCatalogEntry {
   code: ReportGeneratorCode | string;
   name: string;

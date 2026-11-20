@@ -35,6 +35,7 @@ import { RetentionCard } from './retention-card';
 import { SigningCard } from './signing-card';
 import { WithdrawalCard } from './withdrawal-card';
 
+import { AskAssistantButton } from '@/components/ai/ask-assistant-button';
 import { useConfirm } from '@/components/confirm-provider';
 import { ContractStatusBadge } from '@/components/contract-status-badge';
 import { SignaturePad } from '@/components/move-in/signature-pad';
@@ -180,6 +181,7 @@ export default function ContractDetailPage() {
                 {c.contractNumber}
               </h1>
               <ContractStatusBadge status={c.status} />
+              <AskAssistantButton type="contract" id={c.id} label={c.contractNumber} />
             </div>
             <p className="text-sm text-muted-foreground">
               <Link href={`/customers/${c.customerId}`} className="hover:underline">

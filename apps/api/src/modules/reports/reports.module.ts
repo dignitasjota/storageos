@@ -9,15 +9,31 @@ import { AgingGenerator } from './generators/aging.generator';
 import { AnalyticsMonthGenerator } from './generators/analytics-month.generator';
 import { CollectionsMonthGenerator } from './generators/collections-month.generator';
 import { ContractsActiveGenerator } from './generators/contracts-active.generator';
+import { EXTRA_REPORT_GENERATORS } from './generators/extra-reports.generators';
 import { InvoicesPeriodGenerator } from './generators/invoices-period.generator';
 import { MoveOutsPeriodGenerator } from './generators/move-outs-period.generator';
 import { OccupancySnapshotGenerator } from './generators/occupancy-snapshot.generator';
 import { OwnerStatementGenerator } from './generators/owner-statement.generator';
 import { PdfRenderer } from './renderers/pdf-renderer';
 import { XlsxRenderer } from './renderers/xlsx-renderer';
+import { ReportFileDownloadController } from './report-file-download.controller';
+import { ReportSchedulesCron } from './report-schedules.cron';
+import { ReportSchedulesService } from './report-schedules.service';
 import { ReportsController } from './reports.controller';
 import { ReportsProcessor } from './reports.processor';
-import { ReportsService } from './reports.service';
+import { REPORT_GENERATORS, ReportsService } from './reports.service';
+
+const GENERATORS = [
+  InvoicesPeriodGenerator,
+  ContractsActiveGenerator,
+  AgingGenerator,
+  OccupancySnapshotGenerator,
+  CollectionsMonthGenerator,
+  MoveOutsPeriodGenerator,
+  OwnerStatementGenerator,
+  AnalyticsMonthGenerator,
+  ...EXTRA_REPORT_GENERATORS,
+];
 
 /**
  * Sub-bloque 14A.1: `ReportsProcessor` solo se registra cuando
@@ -26,20 +42,16 @@ import { ReportsService } from './reports.service';
  */
 @Module({
   imports: [AuthModule, OwnersModule, AnalyticsModule],
-  controllers: [ReportsController],
+  controllers: [ReportsController, ReportFileDownloadController],
   providers: [
     ReportsService,
+    ReportSchedulesService,
     PdfRenderer,
     XlsxRenderer,
-    InvoicesPeriodGenerator,
-    ContractsActiveGenerator,
-    AgingGenerator,
-    OccupancySnapshotGenerator,
-    CollectionsMonthGenerator,
-    MoveOutsPeriodGenerator,
-    OwnerStatementGenerator,
-    AnalyticsMonthGenerator,
-    ...(WORKERS_ENABLED_IN_API ? [ReportsProcessor] : []),
+    ...GENERATORS,
+    // Todos los informes, en el orden del catálogo.
+    { provide: REPORT_GENERATORS, useFactory: (...g: unknown[]) => g, inject: GENERATORS },
+    ...(WORKERS_ENABLED_IN_API ? [ReportsProcessor, ReportSchedulesCron] : []),
   ],
   exports: [ReportsService],
 })

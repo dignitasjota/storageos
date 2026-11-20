@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
 import { OwnerStatementsService } from '../../owners/owner-statements.service';

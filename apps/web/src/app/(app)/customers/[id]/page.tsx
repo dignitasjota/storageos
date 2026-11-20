@@ -30,6 +30,7 @@ import { ReferralCodeCard } from './referral-code-card';
 import { CustomerReservationsTab } from './reservations-tab';
 import { CustomerTimelineTab } from './timeline-tab';
 
+import { AskAssistantButton } from '@/components/ai/ask-assistant-button';
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
@@ -190,6 +191,7 @@ export default function CustomerDetailPage() {
             <Badge variant={c.kycVerified ? 'default' : 'outline'}>
               {c.kycVerified ? 'KYC verificado' : 'KYC pendiente'}
             </Badge>
+            <AskAssistantButton type="customer" id={c.id} label={c.displayName} />
             {c.depositExempt && <Badge variant="secondary">Sin fianza</Badge>}
             {c.invoiceDueDays != null && (
               <Badge variant="secondary" title="Días para pagar sus facturas">

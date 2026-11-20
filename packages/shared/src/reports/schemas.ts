@@ -22,6 +22,12 @@ export const ReportGeneratorCodeEnum = z.enum([
   'move_outs_period',
   'owner_statement',
   'analytics_month',
+  'debtors_by_customer',
+  'contracts_ending',
+  'free_units',
+  'deposits_held',
+  'invoicing_by_unit_type',
+  'leads_by_source',
 ]);
 export type ReportGeneratorCode = z.infer<typeof ReportGeneratorCodeEnum>;
 
@@ -85,3 +91,46 @@ export const ApplyUnitPricingManySchema = z.object({
     .max(500),
 });
 export type ApplyUnitPricingManyInput = z.infer<typeof ApplyUnitPricingManySchema>;
+
+/** Vista previa: el mismo informe sin formato (no se guarda). */
+export const PreviewReportSchema = z.object({
+  generator: ReportGeneratorCodeEnum,
+  params: z.record(z.unknown()).default({}),
+});
+export type PreviewReportInput = z.infer<typeof PreviewReportSchema>;
+
+export const ReportScheduleFrequencyEnum = z.enum(['weekly', 'monthly']);
+export type ReportScheduleFrequency = z.infer<typeof ReportScheduleFrequencyEnum>;
+
+/**
+ * Envío de un informe por correo. Las fechas no se eligen: se usa el periodo
+ * anterior (la semana o el mes que acaba de terminar).
+ */
+export const CreateReportScheduleSchema = z
+  .object({
+    generator: ReportGeneratorCodeEnum,
+    format: ReportFormatEnum.default('pdf'),
+    params: z.record(z.unknown()).default({}),
+    frequency: ReportScheduleFrequencyEnum,
+    /** 1 (lunes) a 7 (domingo). */
+    weekday: z.number().int().min(1).max(7).optional(),
+    /** 1 a 28 (todos los meses lo tienen). */
+    dayOfMonth: z.number().int().min(1).max(28).optional(),
+    hour: z.number().int().min(0).max(23).default(8),
+    recipients: z.array(z.string().trim().toLowerCase().email()).min(1).max(5),
+  })
+  .refine(
+    (v) => (v.frequency === 'weekly' ? v.weekday !== undefined : v.dayOfMonth !== undefined),
+    {
+      message: 'Elige el día del envío',
+      path: ['frequency'],
+    },
+  );
+export type CreateReportScheduleInput = z.infer<typeof CreateReportScheduleSchema>;
+
+export const UpdateReportScheduleSchema = z.object({
+  isActive: z.boolean().optional(),
+  recipients: z.array(z.string().trim().toLowerCase().email()).min(1).max(5).optional(),
+  hour: z.number().int().min(0).max(23).optional(),
+});
+export type UpdateReportScheduleInput = z.infer<typeof UpdateReportScheduleSchema>;

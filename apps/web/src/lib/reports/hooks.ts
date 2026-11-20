@@ -2,7 +2,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 
-import type { ReportGeneratorCatalogEntry, ReportRunDto, RunReportInput } from '@storageos/shared';
+import type {
+  CreateReportScheduleInput,
+  PreviewReportInput,
+  ReportScheduleDto,
+  UpdateReportScheduleInput,
+  ReportGeneratorCatalogEntry,
+  ReportPreviewDto,
+  ReportRunDto,
+  RunReportInput,
+} from '@storageos/shared';
 
 export const reportsCatalogKey = ['reports', 'catalog'] as const;
 export const reportsListKey = ['reports'] as const;
@@ -69,6 +78,61 @@ export function useDeleteReport() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/reports/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: reportsListKey });
+    },
+  });
+}
+
+/** Primeras filas y totales del informe antes de pedirlo. */
+export function usePreviewReport() {
+  return useMutation({
+    mutationFn: (input: PreviewReportInput) =>
+      apiFetch<ReportPreviewDto>('/reports/preview', { method: 'POST', json: input }),
+  });
+}
+
+export const reportSchedulesKey = ['reports', 'schedules'] as const;
+
+export function useReportSchedules() {
+  return useQuery({
+    queryKey: reportSchedulesKey,
+    queryFn: () => apiFetch<ReportScheduleDto[]>('/reports/schedules'),
+  });
+}
+
+export function useCreateReportSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateReportScheduleInput) =>
+      apiFetch<ReportScheduleDto>('/reports/schedules', { method: 'POST', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: reportSchedulesKey }),
+  });
+}
+
+export function useUpdateReportSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...input }: UpdateReportScheduleInput & { id: string }) =>
+      apiFetch<ReportScheduleDto>(`/reports/schedules/${id}`, { method: 'PATCH', json: input }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: reportSchedulesKey }),
+  });
+}
+
+export function useDeleteReportSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/reports/schedules/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: reportSchedulesKey }),
+  });
+}
+
+export function useSendReportSchedule() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ReportScheduleDto>(`/reports/schedules/${id}/send`, { method: 'POST' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: reportSchedulesKey });
       void qc.invalidateQueries({ queryKey: reportsListKey });
     },
   });

@@ -7,6 +7,8 @@ export interface AiStreamHandlers {
   onText: (delta: string) => void;
   /** El modelo consulta una herramienta (el texto previo de esa vuelta se descarta). */
   onTool: (name: string) => void;
+  /** La conversación de la pregunta, en cuanto el servidor la conoce. */
+  onStart?: (conversationId: string) => void;
 }
 
 /**
@@ -24,14 +26,27 @@ export class AiStreamUnavailableError extends Error {
   }
 }
 
+/** El usuario pulsó «Detener». */
+export class AiStreamStoppedError extends Error {
+  constructor() {
+    super('stream_stopped');
+  }
+}
+
 export async function streamAiChat(
   input: ChatInput,
   handlers: AiStreamHandlers,
+  signal?: AbortSignal,
 ): Promise<ChatResultDto> {
   let res: Response;
   try {
-    res = await apiFetchResponse('/ai/chat/stream', { method: 'POST', json: input });
+    res = await apiFetchResponse('/ai/chat/stream', {
+      method: 'POST',
+      json: input,
+      ...(signal ? { signal } : {}),
+    });
   } catch (err) {
+    if (signal?.aborted) throw new AiStreamStoppedError();
     if (err instanceof ApiError) throw err;
     throw new AiStreamUnavailableError();
   }
@@ -58,7 +73,8 @@ export async function streamAiChat(
       code?: string;
       message?: string;
     } & Partial<ChatResultDto>;
-    if (event.type === 'text' && event.delta) handlers.onText(event.delta);
+    if (event.type === 'start' && event.conversationId) handlers.onStart?.(event.conversationId);
+    else if (event.type === 'text' && event.delta) handlers.onText(event.delta);
     else if (event.type === 'tool' && event.name) handlers.onTool(event.name);
     else if (event.type === 'done' && event.conversationId && event.message) {
       result = { conversationId: event.conversationId, message: event.message };
@@ -72,7 +88,14 @@ export async function streamAiChat(
   };
 
   for (;;) {
-    const { done, value } = await reader.read();
+    let chunk: Awaited<ReturnType<typeof reader.read>>;
+    try {
+      chunk = await reader.read();
+    } catch (err) {
+      if (signal?.aborted) throw new AiStreamStoppedError();
+      throw err;
+    }
+    const { done, value } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let sep: number;

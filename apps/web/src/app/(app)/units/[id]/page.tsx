@@ -23,6 +23,7 @@ import { UnitInsightsCard } from './unit-insights-card';
 import { UnitPriceCard } from './unit-price-card';
 import { UnitReservationCard } from './unit-reservation-card';
 
+import { AskAssistantButton } from '@/components/ai/ask-assistant-button';
 import { SectionError } from '@/components/dashboard/section-state';
 import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
@@ -142,6 +143,7 @@ export default function UnitDetailPage() {
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">{u.code}</h1>
             <StatusBadge status={u.status} />
+            <AskAssistantButton type="unit" id={u.id} label={u.code} />
           </div>
           <div className="flex flex-wrap gap-2">
             {canWrite && !isRented && (

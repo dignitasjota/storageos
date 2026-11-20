@@ -2894,3 +2894,24 @@ Sin migración ni variables nuevas.
 - El asistente trata como datos, no como órdenes, los textos que escriben inquilinos y contactos.
 - La conversación abierta va en la dirección (`/assistant?c=…`): al recargar sigue abierta.
 - Recuentos sin decimales («12» y no «12,00») en Mensajes, el informe de accesos, la tarjeta de IA del admin y el vaciado de datos de prueba.
+
+## 171. Mejoras de Informes y del Asistente IA (2026-11-19)
+
+Migraciones `20270213100000_report_schedules` y `20270213110000_ai_scheduled_questions` (se aplican solas al arrancar el API). Sin variables nuevas: los enlaces de los correos usan `API_BASE_URL` y `WEB_BASE_URL`, que ya están.
+
+**Informes**
+
+- **Seis informes nuevos**: deudores por inquilino (con teléfono y último contacto), vencimientos y bajas próximas, trasteros libres (días que llevan vacíos), fianzas retenidas (cobradas y sin cobrar), facturación por tipo de trastero y contactos por origen (con la conversión).
+- **Vista previa**: antes de generar el informe se ven las primeras filas y los totales.
+- **Marca del negocio**: el PDF y el Excel llevan el nombre y el color del negocio, y el logo si está subido (Configuración → Marca y SEO).
+- **Envíos por correo**: un informe se puede recibir cada semana o cada mes, con el periodo que acaba de terminar, a hasta 5 direcciones (la asesoría, por ejemplo). El correo lleva un enlace que descarga el fichero durante 7 días. Si quien lo programó deja el equipo o pierde el permiso, el envío se pausa. La tarea va en el **worker** cada cuarto de hora.
+- **Desde Analítica**: «Descargar como informe» abre el informe de esa pestaña con el periodo y el local que se estaban viendo.
+
+**Asistente IA**
+
+- **Detener** la respuesta en curso.
+- Respuestas con formato (negritas, listas, tablas) y **enlaces a las fichas** de inquilinos, contratos, facturas, trasteros y locales.
+- **Acciones nuevas** que se confirman antes de hacerse: apuntar una nota en la ficha de un inquilino, programarle un seguimiento y mandar un recordatorio de pago a varias facturas a la vez. Una propuesta sin confirmar caduca a los 7 días.
+- **Preguntar al asistente** desde la ficha de un inquilino, contrato, factura o trastero: el asistente ya sabe de quién se habla.
+- **Sugerencias del día** según lo que pasa: facturas vencidas, entradas y salidas de hoy, contratos que vencen, tareas atrasadas y trasteros libres.
+- **Preguntas programadas**: una pregunta que el asistente responde cada día o cada semana y llega por correo a quien la programó (cada respuesta gasta una consulta). La tarea va en el **API** (el asistente no está en el worker).

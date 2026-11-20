@@ -8,18 +8,23 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Req,
   Res,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   type AiConversationDetailDto,
+  type AiScheduledQuestionDto,
   type AiConversationDto,
   type AiPendingActionDto,
   type AiUsageDto,
   ChatSchema,
   type ChatResultDto,
+  CreateAiScheduledQuestionSchema,
+  UpdateAiScheduledQuestionSchema,
   permissionsForRole,
   SuggestReplySchema,
   type SuggestReplyResultDto,
@@ -37,6 +42,7 @@ import { RequireFeature } from '../../common/decorators/require-feature.decorato
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import { AiActionsService } from './ai-actions.service';
+import { AiScheduledService } from './ai-scheduled.service';
 import { AiService } from './ai.service';
 
 import type { Request, Response } from 'express';
@@ -44,6 +50,8 @@ import type { Request, Response } from 'express';
 class ChatDto extends createZodDto(ChatSchema) {}
 class SuggestReplyDto extends createZodDto(SuggestReplySchema) {}
 class UpdateTenantAiSettingsDto extends createZodDto(UpdateTenantAiSettingsSchema) {}
+class CreateAiScheduledQuestionDto extends createZodDto(CreateAiScheduledQuestionSchema) {}
+class UpdateAiScheduledQuestionDto extends createZodDto(UpdateAiScheduledQuestionSchema) {}
 
 @RequirePermission('ai:use')
 @Controller('ai')
@@ -52,6 +60,7 @@ export class AiController {
   constructor(
     private readonly ai: AiService,
     private readonly actions: AiActionsService,
+    private readonly scheduled: AiScheduledService,
   ) {}
 
   @Post('chat')
@@ -101,6 +110,7 @@ export class AiController {
         {
           onText: (delta) => send({ type: 'text', delta }),
           onTool: (name) => send({ type: 'tool', name }),
+          onStart: (conversationId) => send({ type: 'start', conversationId }),
           signal: abort.signal,
         },
         reservation,
@@ -181,6 +191,56 @@ export class AiController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<AiPendingActionDto> {
     return this.actions.discard(user.tenantId, user.sub, id);
+  }
+
+  /** Preguntas para empezar según lo que pasa hoy. */
+  @Get('suggestions')
+  suggestions(@CurrentUser() user: AuthenticatedUser): Promise<string[]> {
+    return this.scheduled.suggestions(user);
+  }
+
+  // ─── Preguntas programadas (cada una es de quien la creó) ──────────────────
+
+  @Get('scheduled-questions')
+  listScheduled(@CurrentUser() user: AuthenticatedUser): Promise<AiScheduledQuestionDto[]> {
+    return this.scheduled.list(user);
+  }
+
+  @Post('scheduled-questions')
+  createScheduled(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateAiScheduledQuestionDto,
+  ): Promise<AiScheduledQuestionDto> {
+    return this.scheduled.create(user, body);
+  }
+
+  @Patch('scheduled-questions/:id')
+  updateScheduled(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: UpdateAiScheduledQuestionDto,
+  ): Promise<AiScheduledQuestionDto> {
+    return this.scheduled.update(user, id, body);
+  }
+
+  @Delete('scheduled-questions/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  removeScheduled(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<void> {
+    return this.scheduled.remove(user, id);
+  }
+
+  /** La hace ya y manda el correo (5 por minuto: gasta una consulta). */
+  @Post('scheduled-questions/:id/send')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  sendScheduled(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<AiScheduledQuestionDto> {
+    return this.scheduled.sendNow(user, id);
   }
 
   /** Redacta (no envía) una respuesta sugerida para el chat con un inquilino. */
