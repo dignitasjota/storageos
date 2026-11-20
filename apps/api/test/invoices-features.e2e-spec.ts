@@ -310,8 +310,18 @@ describe('Facturas: mejoras (e2e)', () => {
     await http().post(`/invoices/${draft}/issue`).set(owner.auth).send({}).expect(200);
     const detail = await http().get(`/invoices/${draft}`).set(owner.auth).expect(200);
     const number = detail.body.invoiceNumber as string;
+    // La ficha trae el email al que va (para escribirlo ya en el diálogo de envío).
+    expect(detail.body.customerEmail).toBe(email);
     const sent = await http().post(`/invoices/${draft}/send`).set(owner.auth).send({}).expect(200);
     expect(sent.body.recipient).toBe(email);
+    // Con email de facturación, ese.
+    await admin.customer.update({
+      where: { id: customerId },
+      data: { billingEmail: `facturas-${email}` },
+    });
+    const withBilling = await http().get(`/invoices/${draft}`).set(owner.auth).expect(200);
+    expect(withBilling.body.customerEmail).toBe(`facturas-${email}`);
+    await admin.customer.update({ where: { id: customerId }, data: { billingEmail: null } });
     const mail = await waitForEmail(email, { subjectIncludes: `Factura ${number}` });
     expect(mail.Text).toContain(`/v1/public/invoices/${draft}.`);
     const activity = await http().get(`/invoices/${draft}/activity`).set(owner.auth).expect(200);

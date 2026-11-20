@@ -177,6 +177,8 @@ type InvoiceWithRelations = Invoice & {
     lastName: string | null;
     companyName: string | null;
     customerType: 'individual' | 'business';
+    email: string | null;
+    billingEmail: string | null;
   } | null;
   contract: {
     contractNumber: string;
@@ -4662,6 +4664,8 @@ export class InvoicesService {
           lastName: true,
           companyName: true,
           customerType: true,
+          email: true,
+          billingEmail: true,
         },
       },
       contract: {
@@ -5065,6 +5069,7 @@ export class InvoicesService {
       sequenceNumber: row.sequenceNumber,
       customerId: row.customerId,
       customerName,
+      customerEmail: row.customer?.billingEmail ?? row.customer?.email ?? null,
       contractId: row.contractId,
       contractNumber: row.contract?.contractNumber ?? null,
       kind: row.kind === 'deposit_receipt' ? 'deposit_receipt' : 'invoice',

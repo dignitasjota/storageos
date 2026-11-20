@@ -16,6 +16,7 @@ function invoice(overrides: Partial<InvoiceDto> = {}): InvoiceDto {
     sequenceNumber: 7,
     customerId: 'c-1',
     customerName: 'Ana García',
+    customerEmail: 'ana@example.com',
     contractId: null,
     contractNumber: null,
     unitId: null,

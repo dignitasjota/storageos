@@ -77,7 +77,7 @@ import {
   useUnitViews,
 } from '@/lib/facilities/inventory-hooks';
 import { useFacilityStore } from '@/lib/facilities/store';
-import { formatEur, formatNumber } from '@/lib/format';
+import { formatEur, formatNumber, vatIncludedLabel, withVat } from '@/lib/format';
 
 // Konva no funciona en SSR; el plano se carga solo en cliente.
 const PlanViewer = dynamic(() => import('./plan-viewer').then((m) => m.PlanViewer), {
@@ -323,8 +323,16 @@ export default function UnitsPage() {
       },
       on('price') && {
         accessorKey: 'basePriceMonthly',
-        header: 'Precio',
-        cell: ({ row }) => formatEur(row.original.basePriceMonthly),
+        header: 'Precio sin IVA',
+        // Con el IVA debajo, para dar los dos si preguntan.
+        cell: ({ row }) => (
+          <div className="leading-tight">
+            <div>{formatEur(row.original.basePriceMonthly)}</div>
+            <div className="text-xs text-muted-foreground">
+              {vatIncludedLabel(row.original.basePriceMonthly, row.original.taxRate)}
+            </div>
+          </div>
+        ),
       },
       on('tenant') &&
         tenantsVisible && {
@@ -463,6 +471,7 @@ export default function UnitsPage() {
         'Tipo',
         'm²',
         'Precio sin IVA',
+        'Precio con IVA',
         'Estado',
         ...(tenantsVisible ? ['Inquilino', 'Contrato', 'Cuota sin IVA'] : []),
         ...(moneyVisible ? ['Deuda'] : []),
@@ -478,6 +487,7 @@ export default function UnitsPage() {
         u.unitTypeName,
         u.areaM2,
         u.basePriceMonthly,
+        withVat(u.basePriceMonthly, u.taxRate),
         STATUS_LABELS[u.status],
         ...(tenantsVisible
           ? [u.tenant?.customerName ?? '', u.tenant?.contractNumber ?? '', u.tenant?.monthly ?? '']

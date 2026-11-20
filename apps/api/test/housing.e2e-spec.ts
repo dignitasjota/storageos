@@ -53,6 +53,13 @@ describe('Viviendas (e2e)', () => {
       .send({ name: 'Piso', defaultPriceMonthly: 700, propertyKind: 'housing' });
     expect(deniedCreate.status).toBe(403);
 
+    // Un trastero lleva el 21 % (la ficha y el listado enseñan también el precio con IVA).
+    const asStorage = await request(app.getHttpServer())
+      .get(`/units/${unitIds[0]}`)
+      .set(auth)
+      .expect(200);
+    expect(asStorage.body.taxRate).toBe(21);
+
     await setTenantFeatureOverride(owner.slug, 'housing', true);
     const ok = await request(app.getHttpServer())
       .patch(`/unit-types/${unitTypeId}`)
@@ -60,6 +67,11 @@ describe('Viviendas (e2e)', () => {
       .send({ propertyKind: 'housing' });
     expect(ok.status).toBe(200);
     expect(ok.body.propertyKind).toBe('housing');
+    const asHousing = await request(app.getHttpServer())
+      .get(`/units/${unitIds[0]}`)
+      .set(auth)
+      .expect(200);
+    expect(asHousing.body.taxRate).toBe(0);
 
     const customer = await request(app.getHttpServer())
       .post('/customers')

@@ -206,7 +206,16 @@ const Sidebar = React.forwardRef<
               <SheetTitle>Sidebar</SheetTitle>
               <SheetDescription>Displays the mobile sidebar.</SheetDescription>
             </SheetHeader>
-            <div className="flex h-full w-full flex-col">{children}</div>
+            {/* Al pulsar un enlace del menú, se cierra: así se ve la página sin tener que
+                tocar fuera (los botones que despliegan un grupo no son enlaces). */}
+            <div
+              className="flex h-full w-full flex-col"
+              onClickCapture={(e) => {
+                if ((e.target as HTMLElement).closest('a[href]')) setOpenMobile(false);
+              }}
+            >
+              {children}
+            </div>
           </SheetContent>
         </Sheet>
       );

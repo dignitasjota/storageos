@@ -99,6 +99,8 @@ export interface UnitDto {
   volumeM3: number;
   status: UnitStatusValue;
   basePriceMonthly: number;
+  /** IVA del alquiler: 21 % en un trastero, 0 % en una vivienda (exenta). */
+  taxRate: number;
   planX: number | null;
   planY: number | null;
   planWidth: number | null;
