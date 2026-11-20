@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 
 import { WebChatCard } from './web-chat-card';
 
+import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,11 +19,16 @@ import {
   useUpdateTenantAiSettings,
 } from '@/lib/ai/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature } from '@/lib/auth/hooks';
 import { formatDate, formatNumber } from '@/lib/format';
 
 /** Consultas del asistente IA y la clave propia del negocio. */
 export default function AiSettingsPage() {
-  const usage = useAiUsage();
+  const ask = useConfirm();
+  // Sin el asistente en el plan (p. ej. tras bajar de plan) solo se puede
+  // quitar la clave guardada.
+  const hasFeature = useHasFeature('ai_assistant');
+  const usage = useAiUsage(hasFeature);
   const settings = useTenantAiSettings();
   const update = useUpdateTenantAiSettings();
   const test = useTestTenantAiSettings();
@@ -45,9 +52,28 @@ export default function AiSettingsPage() {
     }
   }
 
+  async function removeKey() {
+    if (
+      !(await ask({
+        title: '¿Quitar tu clave de IA?',
+        description: own
+          ? 'TrasterOS ha dejado el asistente con vuestra propia clave: sin ella, el asistente dejará de responder hasta que pongáis otra.'
+          : 'Cuando se gasten las consultas del mes, el asistente dejará de responder hasta el mes siguiente.',
+        confirmLabel: 'Quitar',
+        destructive: true,
+      }))
+    )
+      return;
+    await save({ apiKey: '' }, 'Clave quitada.');
+  }
+
+  /** Prueba la clave escrita (sin guardarla) o, si no hay, la guardada. */
   async function runTest() {
+    const typed = apiKey.trim();
     try {
-      const r = await test.mutateAsync();
+      const r = await test.mutateAsync(
+        typed ? { apiKey: typed, ...(model.trim() ? { model: model.trim() } : {}) } : {},
+      );
       if (r.ok) toast.success(r.message);
       else toast.error(r.message);
     } catch (err) {
@@ -55,6 +81,8 @@ export default function AiSettingsPage() {
     }
   }
 
+  const s = settings.data;
+  const own = s?.mode === 'own';
   if (settings.isLoading || usage.isLoading) {
     return (
       <div className="flex justify-center py-12">
@@ -62,9 +90,37 @@ export default function AiSettingsPage() {
       </div>
     );
   }
+  if (settings.isError) return <SectionError onRetry={() => void settings.refetch()} />;
   const u = usage.data;
-  const s = settings.data;
-  const own = s?.mode === 'own';
+  // Comprobación rápida antes de enviar (el servidor también la hace).
+  const typedKey = apiKey.trim();
+  const keyLooksWrong = !!typedKey && (typedKey.length < 20 || /\s/.test(typedKey));
+
+  if (!hasFeature) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Asistente IA</h1>
+          <p className="text-sm text-muted-foreground">
+            El asistente IA ya no está en vuestro plan. Podéis quitar la clave que dejasteis
+            guardada.
+          </p>
+        </div>
+        {s?.ownKeyConfigured && (
+          <Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+              <p className="text-sm">
+                Clave guardada, termina en <span className="font-mono">{s.ownKeyLast4}</span>.
+              </p>
+              <Button variant="outline" onClick={removeKey} disabled={update.isPending}>
+                Quitar la clave
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -76,6 +132,13 @@ export default function AiSettingsPage() {
         </p>
       </div>
 
+      {usage.isError && (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void usage.refetch()} />
+          </CardContent>
+        </Card>
+      )}
       {u && (
         <Card>
           <CardHeader>
@@ -120,6 +183,11 @@ export default function AiSettingsPage() {
                 placeholder="sk-ant-…"
                 className="text-base sm:text-sm"
               />
+              {keyLooksWrong && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  La clave parece incompleta o lleva espacios: cópiala entera.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ai-own-model">Modelo</Label>
@@ -141,25 +209,27 @@ export default function AiSettingsPage() {
                   'Clave guardada.',
                 )
               }
-              disabled={update.isPending || (!apiKey.trim() && !s?.ownKeyConfigured)}
+              disabled={
+                update.isPending || keyLooksWrong || (!apiKey.trim() && !s?.ownKeyConfigured)
+              }
             >
               {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
               Guardar
             </Button>
+            {(typedKey || s?.ownKeyConfigured) && (
+              <Button
+                variant="outline"
+                onClick={runTest}
+                disabled={test.isPending || keyLooksWrong}
+              >
+                {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                {typedKey ? 'Probar la clave escrita' : 'Probar la clave'}
+              </Button>
+            )}
             {s?.ownKeyConfigured && (
-              <>
-                <Button variant="outline" onClick={runTest} disabled={test.isPending}>
-                  {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                  Probar la clave
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => save({ apiKey: '' }, 'Clave quitada.')}
-                  disabled={update.isPending}
-                >
-                  Quitar la clave
-                </Button>
-              </>
+              <Button variant="outline" onClick={removeKey} disabled={update.isPending}>
+                Quitar la clave
+              </Button>
             )}
           </div>
           {own && !s?.ownKeyConfigured && (

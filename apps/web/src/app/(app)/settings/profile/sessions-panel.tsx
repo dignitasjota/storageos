@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import type { UserSessionDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -87,7 +88,9 @@ export function SessionsPanel() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {sessions.isLoading ? (
+        {sessions.isError ? (
+          <SectionError onRetry={() => void sessions.refetch()} />
+        ) : sessions.isLoading ? (
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         ) : (
           <ul className="divide-y rounded-md border">

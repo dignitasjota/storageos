@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -47,7 +48,7 @@ import {
 import { isInstalledAppRequest } from '../../common/http/app-mode';
 import { respondThenRun } from '../../common/security/respond-then-run';
 
-import { AuthService, type RequestMeta } from './auth.service';
+import { AuthService, type RequestMeta, TWO_FACTOR_ENROLMENT_REQUIRED } from './auth.service';
 import { TokensService } from './tokens.service';
 
 import type { Env } from '../../config/env.schema';
@@ -111,7 +112,20 @@ export class AuthController {
     if (!cookieValue) {
       throw new UnauthorizedException('Refresh requerido');
     }
-    const result = await this.authService.refresh(cookieValue, this.extractMeta(req));
+    let result: Awaited<ReturnType<AuthService['refresh']>>;
+    try {
+      result = await this.authService.refresh(cookieValue, this.extractMeta(req));
+    } catch (err) {
+      // Falta activar la verificación en dos pasos: la sesión ya no vale y la
+      // cookie se borra para que no se vuelva a presentar.
+      if (
+        err instanceof ForbiddenException &&
+        (err.getResponse() as { code?: string }).code === TWO_FACTOR_ENROLMENT_REQUIRED
+      ) {
+        clearTenantRefreshCookie(res, this.config);
+      }
+      throw err;
+    }
     setTenantRefreshCookie(res, this.config, result.refreshToken);
     return result.body;
   }

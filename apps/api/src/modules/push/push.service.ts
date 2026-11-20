@@ -10,6 +10,7 @@ import {
   type DomainEventPayload,
   type UnitRequestResolvedPayload,
 } from '../automations/domain-events';
+import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 
 import type { Env } from '../../config/env.schema';
@@ -42,6 +43,7 @@ export class PushService {
   constructor(
     private readonly prisma: PrismaService,
     config: ConfigService<Env, true>,
+    private readonly admin: PrismaAdminService,
   ) {
     const pub = config.get('VAPID_PUBLIC_KEY', { infer: true });
     const priv = config.get('VAPID_PRIVATE_KEY', { infer: true });
@@ -118,6 +120,12 @@ export class PushService {
 
   /** Activa el push en este dispositivo para un usuario del equipo. */
   async subscribeUser(tenantId: string, userId: string, input: PushSubscribeInput): Promise<void> {
+    // El navegador puede estar suscrito ya en otro negocio (la misma persona
+    // en dos empresas): con RLS no se ve esa fila y el alta chocaría con el
+    // endpoint único. Se quita la de fuera y el dispositivo pasa a este.
+    await this.admin.pushSubscription.deleteMany({
+      where: { endpoint: input.endpoint, tenantId: { not: tenantId } },
+    });
     await this.prisma.withTenant(
       (tx) =>
         tx.pushSubscription.upsert({

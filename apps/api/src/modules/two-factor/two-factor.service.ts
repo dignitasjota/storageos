@@ -155,6 +155,21 @@ export class TwoFactorService {
         code: 'not_enabled',
       });
     }
+    // Con la política del negocio activa, un propietario o gestor no puede
+    // quitársela: se quedaría fuera del panel en la siguiente renovación.
+    if (user.role === 'owner' || user.role === 'manager') {
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: user.tenantId },
+        select: { requireTwoFactorForManagers: true },
+      });
+      if (tenant?.requireTwoFactorForManagers) {
+        throw new BadRequestException({
+          message:
+            'Tu empresa exige la verificación en dos pasos a propietarios y gestores. Para quitarla, primero hay que desactivar esa regla en Configuración → Seguridad.',
+          code: 'two_factor_required_by_policy',
+        });
+      }
+    }
     const passwordOk = await argonVerify(user.passwordHash, input.currentPassword);
     if (!passwordOk) {
       throw new ForbiddenException({

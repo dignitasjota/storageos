@@ -82,6 +82,9 @@ const BLOG_SUMMARY_SELECT = {
  * widget/booking públicos. Solo expone información de marketing + disponibilidad
  * (nunca datos de clientes ni internos).
  */
+/** Tope de preguntas frecuentes en la web (sale entero en la página y en Google). */
+const FAQ_WEB_MAX = 100;
+
 @Injectable()
 export class LandingService {
   constructor(
@@ -148,6 +151,7 @@ export class LandingService {
     return {
       site,
       promo: {
+        id: promo.id,
         slug: promo.slug,
         headline: promo.headline,
         subheadline: promo.subheadline,
@@ -260,6 +264,7 @@ export class LandingService {
     const lower = (v: string | undefined) => (v ? v.toLowerCase() : null);
     await this.leads.createFromPromoLanding({
       tenantId: tenant.id,
+      landingId: promo.id,
       landingName: promo.name,
       name: input.name,
       phone: input.phone.replace(/\s+/g, ''),
@@ -606,7 +611,8 @@ export class LandingService {
       where: { tenantId, isPublished: true },
       select: { question: true, answer: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
-      take: 20,
+      // Las mismas que ve el inquilino en su área de clientes (antes se cortaba a 20).
+      take: FAQ_WEB_MAX,
     });
     return rows.map((r) => ({ question: r.question, answer: r.answer }));
   }
@@ -886,7 +892,9 @@ export class LandingService {
       where: { customDomain: domain, customDomainVerifiedAt: { not: null }, deletedAt: null },
       select: { id: true, slug: true, webTemplate: true, externalSiteUrl: true },
     });
-    if (!tenant) {
+    // Sin la función de dominio propio en su plan (bajó de plan, perdió el
+    // extra) la web deja de servirse bajo ese dominio.
+    if (!tenant || !(await tenantHasFeature(this.admin, tenant.id, 'custom_domain'))) {
       throw new NotFoundException({ code: 'domain_not_found', message: 'No encontrado' });
     }
     // Igual que `getBySlug`: si el tenant perdió `web_premium` (downgrade,

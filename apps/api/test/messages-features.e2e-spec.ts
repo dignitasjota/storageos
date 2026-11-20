@@ -237,11 +237,29 @@ describe('Mejoras de la mensajería (e2e)', () => {
       .set(auth)
       .send({ autoReplyEnabled: true });
     expect(noHours.status).toBe(400);
-    // Sin ningún día abierto: siempre está fuera de horario.
+    // Sin ningún día marcado tampoco: respondería a todas horas.
     await api()
       .put('/customer-messages/settings')
       .set(auth)
-      .send({ autoReplyEnabled: true, autoReply: 'Te contestamos el lunes', hours: {} })
+      .send({ autoReplyEnabled: true, hours: {} })
+      .expect(400);
+    // Solo se atiende otro día de la semana: ahora está fuera de horario.
+    const todayKey = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      weekday: 'short',
+    })
+      .format(new Date())
+      .toLowerCase()
+      .slice(0, 3);
+    const otherDay = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].find((d) => d !== todayKey)!;
+    await api()
+      .put('/customer-messages/settings')
+      .set(auth)
+      .send({
+        autoReplyEnabled: true,
+        autoReply: 'Te contestamos el lunes',
+        hours: { [otherDay]: { open: '09:00', close: '18:00' } },
+      })
       .expect(200);
 
     await api().post('/portal/me/messages').set(pAuth).send({ body: 'Hola' });

@@ -11,6 +11,7 @@ import { BlogPostDialog } from './blog-post-dialog';
 import type { BlogPostDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,18 +26,19 @@ export default function BlogSettingsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<BlogPostDto | undefined>(undefined);
-  // Cada «Nueva entrada» monta el diálogo de cero (si no, conservaba los datos
-  // de la última entrada abierta).
-  const [newCount, setNewCount] = useState(0);
+  // Cada apertura monta el diálogo de cero, también al volver a abrir la misma
+  // entrada (si no, conservaba lo de la vez anterior y al guardar lo pisaba).
+  const [openCount, setOpenCount] = useState(0);
 
   function openCreate() {
     setEditing(undefined);
-    setNewCount((n) => n + 1);
+    setOpenCount((n) => n + 1);
     setDialogOpen(true);
   }
 
   function openEdit(post: BlogPostDto) {
     setEditing(post);
+    setOpenCount((n) => n + 1);
     setDialogOpen(true);
   }
 
@@ -85,6 +87,8 @@ export default function BlogSettingsPage() {
             <div className="flex justify-center py-6">
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
+          ) : posts.isError ? (
+            <SectionError onRetry={() => void posts.refetch()} />
           ) : (posts.data?.length ?? 0) === 0 ? (
             <p className="py-4 text-sm text-muted-foreground">
               Aún no hay entradas. Crea la primera para empezar a atraer tráfico orgánico.
@@ -107,7 +111,7 @@ export default function BlogSettingsPage() {
       </Card>
 
       <BlogPostDialog
-        key={editing ? editing.id : `new-${newCount}`}
+        key={`${editing?.id ?? 'new'}-${openCount}`}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         post={editing}
@@ -156,7 +160,14 @@ function BlogRow({
         >
           {post.isPublished ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
         </Button>
-        <Button variant="ghost" size="icon" onClick={onDelete} disabled={busy} aria-label="Borrar">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onDelete}
+          disabled={busy}
+          aria-label="Borrar"
+          title="Borrar"
+        >
           <Trash2 className="size-4 text-muted-foreground" />
         </Button>
       </div>

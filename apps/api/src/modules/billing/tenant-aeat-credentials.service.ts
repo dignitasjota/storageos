@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import * as forge from 'node-forge';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { type Env } from '../../config/env.schema';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 
@@ -33,7 +35,11 @@ interface UploadArgs {
   userId: string;
   p12Buffer: Buffer;
   password: string;
-  environment: AeatEnvironment;
+  /**
+   * Ya no se elige: el certificado vale para el entorno en el que envía la
+   * plataforma (`AEAT_MODE`). Se acepta por compatibilidad y se ignora.
+   */
+  environment?: AeatEnvironment;
   /** Certificado de un propietario (plan Administrador); sin indicar, del tenant. */
   ownerId?: string | null;
 }
@@ -102,6 +108,52 @@ function subjectValue(cert: forge.pki.Certificate, oid: string): string | null {
   return (found?.value as string | undefined) ?? null;
 }
 
+interface CertCandidate {
+  cert: forge.pki.Certificate;
+  localKeyId: string | null;
+}
+
+interface KeyCandidate {
+  key: forge.pki.PrivateKey;
+  localKeyId: string | null;
+}
+
+function localKeyIdOf(bag: forge.pkcs12.Bag): string | null {
+  const ids = (bag.attributes as Record<string, unknown> | undefined)?.localKeyId;
+  if (Array.isArray(ids) && typeof ids[0] === 'string') return forge.util.bytesToHex(ids[0]);
+  return null;
+}
+
+function rsaModulus(value: unknown): string | null {
+  const n = (value as { n?: { toString(radix: number): string } } | null | undefined)?.n;
+  return n ? n.toString(16) : null;
+}
+
+/**
+ * El certificado que va con la clave privada del PKCS#12. Muchos ficheros
+ * traen también la cadena de la entidad emisora, y no siempre en el mismo
+ * orden: se elige el que tiene la misma clave pública que la privada y, si no
+ * se puede comparar, el del mismo `localKeyId`. Solo si nada casa, el primero.
+ */
+export function pickCertificateForKey(
+  certs: CertCandidate[],
+  keys: KeyCandidate[],
+): forge.pki.Certificate | null {
+  if (certs.length === 0) return null;
+  for (const { key } of keys) {
+    const modulus = rsaModulus(key);
+    if (!modulus) continue;
+    const match = certs.find((c) => rsaModulus(c.cert.publicKey) === modulus);
+    if (match) return match.cert;
+  }
+  for (const { localKeyId } of keys) {
+    if (!localKeyId) continue;
+    const match = certs.find((c) => c.localKeyId === localKeyId);
+    if (match) return match.cert;
+  }
+  return certs[0]!.cert;
+}
+
 @Injectable()
 export class TenantAeatCredentialsService {
   private readonly logger = new Logger(TenantAeatCredentialsService.name);
@@ -111,7 +163,18 @@ export class TenantAeatCredentialsService {
     private readonly crypto: CryptoService,
     private readonly audit: AuditService,
     private readonly verifactuDispatcher: VerifactuDispatcher,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * Entorno en el que valdrá el certificado: el de la plataforma. En modo
+   * simulado se guarda como de pruebas (no llega nada a la AEAT).
+   */
+  private get environment(): AeatEnvironment {
+    return this.config.get('AEAT_MODE', { infer: true }) === 'production'
+      ? 'production'
+      : 'sandbox';
+  }
 
   /**
    * Sube y persiste un PKCS#12. Parsea con node-forge, valida vigencia y
@@ -120,7 +183,8 @@ export class TenantAeatCredentialsService {
    * conservar trazabilidad de la rotación (Fase 11A.2).
    */
   async upload(args: UploadArgs): Promise<TenantAeatCredentialMetadata> {
-    const { tenantId, userId, p12Buffer, password, environment } = args;
+    const { tenantId, userId, p12Buffer, password } = args;
+    const environment = this.environment;
     const ownerId = args.ownerId ?? null;
 
     // 1. Parsear PKCS#12.
@@ -134,27 +198,30 @@ export class TenantAeatCredentialsService {
       );
       throw new BadRequestException({
         code: 'invalid_certificate_password',
-        message: 'Password incorrecto o PKCS#12 invalido.',
+        message: 'Contraseña incorrecta o certificado PKCS#12 no válido.',
       });
     }
 
-    // 2. Extraer primer certificado y clave privada.
-    let cert: forge.pki.Certificate | null = null;
-    let hasPrivateKey = false;
+    // 2. Certificado y clave privada (el certificado que casa con la clave,
+    //    no el primero: el fichero puede traer la cadena de la emisora).
+    const certs: CertCandidate[] = [];
+    const keys: KeyCandidate[] = [];
     for (const safeContent of p12.safeContents) {
       for (const safeBag of safeContent.safeBags) {
-        if (safeBag.type === forge.pki.oids.certBag && safeBag.cert && !cert) {
-          cert = safeBag.cert;
+        if (safeBag.type === forge.pki.oids.certBag && safeBag.cert) {
+          certs.push({ cert: safeBag.cert, localKeyId: localKeyIdOf(safeBag) });
         }
         if (
           (safeBag.type === forge.pki.oids.keyBag ||
             safeBag.type === forge.pki.oids.pkcs8ShroudedKeyBag) &&
           safeBag.key
         ) {
-          hasPrivateKey = true;
+          keys.push({ key: safeBag.key, localKeyId: localKeyIdOf(safeBag) });
         }
       }
     }
+    const cert = pickCertificateForKey(certs, keys);
+    const hasPrivateKey = keys.length > 0;
     if (!cert) {
       throw new BadRequestException({
         code: 'certificate_missing',
@@ -183,7 +250,7 @@ export class TenantAeatCredentialsService {
     if (!nif) {
       throw new BadRequestException({
         code: 'certificate_missing_nif',
-        message: 'No se ha podido extraer un NIF/CIF del subject del certificado.',
+        message: 'No se ha encontrado el NIF del titular en el certificado.',
       });
     }
 

@@ -152,6 +152,17 @@ describe('resolveCustomDomainRoute', () => {
     }
   });
 
+  it('widget: el del propio tenant se sirve en su dominio; el de otro, en la plataforma', () => {
+    expect(resolveCustomDomainRoute(`/widget/${SLUG}`, SLUG)).toEqual({ action: 'next' });
+    expect(resolveCustomDomainRoute('/widget/otro', SLUG)).toEqual({
+      action: 'redirectToPlatform',
+      path: '/widget/otro',
+    });
+    expect(resolveCustomDomainRoute(`/widget/${SLUG}`, SLUG, { externalSite: true })).toEqual({
+      action: 'next',
+    });
+  });
+
   it('assets y ficheros estáticos pasan tal cual', () => {
     for (const p of [
       '/_next/static/chunk.js',
@@ -232,6 +243,20 @@ describe('resolveCustomDomainRoute — modo web externa (opts.externalSite)', ()
     expect(resolveCustomDomainRoute('/blog/2026/post', SLUG, opts)).toEqual({
       action: 'rewrite',
       path: '/tenant-site/garcia/blog/2026/post',
+    });
+  });
+
+  it('los textos legales los sirve la plataforma, no el proxy', () => {
+    for (const doc of ['aviso-legal', 'privacidad', 'cookies', 'condiciones-contratacion']) {
+      expect(resolveCustomDomainRoute(`/${doc}`, SLUG, opts)).toEqual({
+        action: 'rewrite',
+        path: `/s/garcia/${doc}`,
+      });
+    }
+    // Una subpágina con ese nombre en su web sigue siendo de su web.
+    expect(resolveCustomDomainRoute('/privacidad/otra', SLUG, opts)).toEqual({
+      action: 'rewrite',
+      path: '/tenant-site/garcia/privacidad/otra',
     });
   });
 

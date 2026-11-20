@@ -45,7 +45,8 @@ function toSubmissionDto(row: SubmissionRow): VerifactuSubmissionDto {
     acceptedCount: row.acceptedCount,
     rejectedCount: row.rejectedCount,
     waitSeconds: row.waitSeconds,
-    message: row.message,
+    // En palabras: lo que se guarda es el código o el texto de la AEAT.
+    message: verifactuErrorText(row.message),
     mode: row.mode as VerifactuSubmissionDto['mode'],
     fechaFinVerifactu: row.fechaFinVerifactu ? dateOnly(row.fechaFinVerifactu) : null,
     incident: row.incident,

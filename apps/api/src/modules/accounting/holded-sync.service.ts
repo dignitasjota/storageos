@@ -64,6 +64,48 @@ const reviewWhere = (tenantId: string, before: Date) => ({
   } satisfies Prisma.PaymentWhereInput,
 });
 
+/** Cobros cobrados aún sin copiar a Holded (las compensaciones no son cobros). */
+const PENDING_PAYMENT = {
+  status: 'succeeded',
+  holdedSyncedAt: null,
+  holdedSyncStartedAt: null,
+  methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
+} satisfies Prisma.PaymentWhereInput;
+
+/** Facturas emitidas en la app aún sin copia en Holded. */
+const pendingCopyWhere = (tenantId: string) =>
+  ({
+    tenantId,
+    deletedAt: null,
+    kind: 'invoice', // los justificantes de fianza no van a la contabilidad como facturas
+    issuedBy: 'app', // las emitidas por Holded ya están allí
+    ownerId: null, // las de los propietarios no son de la empresa del tenant
+    status: {
+      in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
+    },
+    // Sin copia y sin reserva, o creadas en Holded pero sin aprobar. Las que
+    // se quedaron «creando» (Holded no respondió) van a «para revisar».
+    OR: [{ holdedDocumentId: null, holdedSyncState: null }, { holdedSyncState: 'approving' }],
+  }) satisfies Prisma.InvoiceWhereInput;
+
+/** Las ya copiadas con cobros o una anulación por enviar. */
+const pendingFollowUpWhere = (tenantId: string) =>
+  ({
+    tenantId,
+    holdedDocumentId: { not: null },
+    issuedBy: 'app',
+    OR: [{ payments: { some: PENDING_PAYMENT } }, { status: 'cancelled', holdedCancelledAt: null }],
+  }) satisfies Prisma.InvoiceWhereInput;
+
+/** Las emitidas por Holded con cobros por copiar. */
+const pendingHoldedIssuedWhere = (tenantId: string) =>
+  ({
+    tenantId,
+    issuedBy: 'holded',
+    holdedDocumentId: { not: null },
+    payments: { some: PENDING_PAYMENT },
+  }) satisfies Prisma.InvoiceWhereInput;
+
 /**
  * ¿Holded respondió con un error (no se creó nada)? Un error de red o un
  * tiempo agotado (`status` 0) NO lo es: Holded pudo crear el documento y
@@ -139,102 +181,97 @@ export class HoldedSyncService {
     });
   }
 
-  /** Reenvía lo pendiente: facturas sin copiar, cobros y anulaciones. */
-  async backfill(tenantId: string): Promise<{ synced: number }> {
-    const cfg = await this.settings.resolve(tenantId);
-    if ('reason' in cfg) {
+  /**
+   * Reenvía lo pendiente: facturas sin copiar, sus cobros y anulaciones (con la
+   * copia contable) y los cobros de las facturas que emite Holded (modo
+   * `holded`, aunque no haya copia). Va por tandas: `remaining` dice cuánto
+   * queda para la siguiente.
+   */
+  async backfill(tenantId: string): Promise<{ synced: number; remaining: number }> {
+    const [cfg, issuing] = await Promise.all([
+      this.settings.resolve(tenantId),
+      this.settings.resolveIssuing(tenantId),
+    ]);
+    const copyReady = !('reason' in cfg);
+    const issuingReady = !('reason' in issuing);
+    if (!copyReady && !issuingReady) {
       throw new BadRequestException({ code: 'holded_not_ready', message: cfg.reason });
     }
-    const pending = await this.admin.invoice.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        kind: 'invoice', // los justificantes de fianza no van a la contabilidad como facturas
-        issuedBy: 'app', // las emitidas por Holded ya están allí
-        ownerId: null, // las de los propietarios no son de la empresa del tenant
-        status: {
-          in: ['issued', 'paid', 'overdue', 'refunded', 'partially_refunded', 'rectified'],
-        },
-        // Sin copia y sin reserva, o creadas en Holded pero sin aprobar. Las que
-        // se quedaron «creando» (Holded no respondió) van a «para revisar».
-        OR: [{ holdedDocumentId: null, holdedSyncState: null }, { holdedSyncState: 'approving' }],
-      },
-      select: { id: true },
-      take: 50,
-      orderBy: { issueDate: 'asc' },
-    });
     let synced = 0;
-    for (const inv of pending) {
-      try {
-        if (await this.pushDocument(tenantId, inv.id, cfg, false)) synced += 1;
-        await this.pushPayments(tenantId, inv.id, cfg.apiKey);
-      } catch (err) {
-        await this.fail(tenantId, inv.id, err);
+    if (copyReady) {
+      const pending = await this.admin.invoice.findMany({
+        where: pendingCopyWhere(tenantId),
+        select: { id: true },
+        take: 50,
+        orderBy: { issueDate: 'asc' },
+      });
+      for (const inv of pending) {
+        try {
+          if (await this.pushDocument(tenantId, inv.id, cfg, false)) synced += 1;
+          await this.pushPayments(tenantId, inv.id, cfg.apiKey);
+        } catch (err) {
+          await this.fail(tenantId, inv.id, err);
+        }
+      }
+      // Cobros y anulaciones de facturas que ya estaban en Holded.
+      const withPending = await this.admin.invoice.findMany({
+        where: pendingFollowUpWhere(tenantId),
+        select: { id: true, status: true },
+        take: 100,
+      });
+      for (const inv of withPending) {
+        try {
+          if (inv.status === 'cancelled') await this.cancelInHolded(tenantId, inv.id, cfg);
+          else await this.pushPayments(tenantId, inv.id, cfg.apiKey);
+          synced += 1;
+        } catch (err) {
+          await this.fail(tenantId, inv.id, err);
+        }
       }
     }
-    // Cobros y anulaciones de facturas que ya estaban en Holded.
-    const withPending = await this.admin.invoice.findMany({
-      where: {
-        tenantId,
-        holdedDocumentId: { not: null },
-        issuedBy: 'app',
-        OR: [
-          {
-            payments: {
-              some: {
-                status: 'succeeded',
-                holdedSyncedAt: null,
-                holdedSyncStartedAt: null,
-                methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-              },
-            },
-          },
-          { status: 'cancelled', holdedCancelledAt: null },
-        ],
-      },
-      select: { id: true, status: true },
-      take: 100,
-    });
-    for (const inv of withPending) {
-      try {
-        if (inv.status === 'cancelled') await this.cancelInHolded(tenantId, inv.id, cfg);
-        else await this.pushPayments(tenantId, inv.id, cfg.apiKey);
-      } catch (err) {
-        await this.fail(tenantId, inv.id, err);
-      }
-    }
-    await this.syncHoldedIssuedPayments(tenantId);
-    return { synced };
+    synced += await this.syncHoldedIssuedPayments(tenantId);
+    return { synced, remaining: await this.pendingCount(tenantId) };
+  }
+
+  /**
+   * Lo que falta por enviar a Holded: facturas sin copiar y facturas con
+   * cobros o anulaciones por copiar (con la copia contable lista) y las
+   * emitidas por Holded con cobros por copiar (con la emisión lista).
+   */
+  async pendingCount(tenantId: string): Promise<number> {
+    const [cfg, issuing] = await Promise.all([
+      this.settings.resolve(tenantId),
+      this.settings.resolveIssuing(tenantId),
+    ]);
+    const [copies, followUps, holdedIssued] = await Promise.all([
+      'reason' in cfg ? 0 : this.admin.invoice.count({ where: pendingCopyWhere(tenantId) }),
+      'reason' in cfg ? 0 : this.admin.invoice.count({ where: pendingFollowUpWhere(tenantId) }),
+      'reason' in issuing
+        ? 0
+        : this.admin.invoice.count({ where: pendingHoldedIssuedWhere(tenantId) }),
+    ]);
+    return copies + followUps + holdedIssued;
   }
 
   /** Cobros pendientes de las facturas emitidas por Holded (modo 'holded'). */
-  async syncHoldedIssuedPayments(tenantId: string): Promise<void> {
+  async syncHoldedIssuedPayments(tenantId: string): Promise<number> {
     const cfg = await this.settings.resolveIssuing(tenantId);
-    if ('reason' in cfg) return;
+    if ('reason' in cfg) return 0;
     const invoices = await this.admin.invoice.findMany({
-      where: {
-        tenantId,
-        issuedBy: 'holded',
-        holdedDocumentId: { not: null },
-        payments: {
-          some: {
-            status: 'succeeded',
-            holdedSyncedAt: null,
-            holdedSyncStartedAt: null,
-            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-          },
-        },
-      },
+      where: pendingHoldedIssuedWhere(tenantId),
       select: { id: true },
       take: 100,
     });
+    let synced = 0;
     for (const inv of invoices) {
       try {
         await this.pushPayments(tenantId, inv.id, cfg.apiKey);
+        synced += 1;
       } catch (err) {
         await this.fail(tenantId, inv.id, err);
       }
     }
+    return synced;
   }
 
   /**
@@ -480,7 +517,7 @@ export class HoldedSyncService {
         ? { holdedSyncState: null, holdedSyncStartedAt: null }
         : input.action === 'already_in_holded'
           ? {
-              holdedDocumentId: this.requireDocumentId(input),
+              holdedDocumentId: await this.checkedDocumentId(tenantId, invoiceId, input),
               holdedSyncState: null,
               holdedSyncStartedAt: null,
             }
@@ -515,14 +552,55 @@ export class HoldedSyncService {
     if (r.count === 0) this.reviewNotFound();
   }
 
-  private requireDocumentId(input: ResolveHoldedReviewInput): string {
-    if (!input.holdedDocumentId) {
+  /**
+   * El id que pega el usuario, comprobado: con el formato de Holded y, si se
+   * puede consultar, que ese documento existe en su cuenta. Así no se enlaza
+   * la factura a un documento que no está (y sus cobros no se perderían).
+   */
+  private async checkedDocumentId(
+    tenantId: string,
+    invoiceId: string,
+    input: ResolveHoldedReviewInput,
+  ): Promise<string> {
+    const documentId = input.holdedDocumentId?.trim();
+    if (!documentId) {
       throw new BadRequestException({
         code: 'holded_document_id_required',
         message: 'Pega el id de la factura en Holded para enlazarla',
       });
     }
-    return input.holdedDocumentId;
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(documentId)) {
+      throw new BadRequestException({
+        code: 'holded_document_id_invalid',
+        message:
+          'Ese no es un id de Holded: cópialo de la dirección de la factura en Holded (solo letras y números).',
+      });
+    }
+    const [invoice, apiKey] = await Promise.all([
+      this.admin.invoice.findFirst({
+        where: { id: invoiceId, tenantId },
+        select: { total: true },
+      }),
+      this.settings.getApiKey(tenantId),
+    ]);
+    if (!invoice) this.reviewNotFound();
+    if (!apiKey) return documentId;
+    const kind = Number(invoice.total) < 0 ? 'creditnote' : 'invoice';
+    try {
+      await new HoldedClient(apiKey).getDocumentNumber(kind, documentId);
+    } catch (err) {
+      if (err instanceof HoldedApiError && (err.status === 404 || err.status === 400)) {
+        throw new BadRequestException({
+          code: 'holded_document_not_found',
+          message: `No hay ninguna ${kind === 'invoice' ? 'factura' : 'rectificativa'} con ese id en tu cuenta de Holded.`,
+        });
+      }
+      throw new BadRequestException({
+        code: 'holded_request_failed',
+        message: `No se ha podido comprobar en Holded: ${err instanceof Error ? err.message : 'error de conexión'}`,
+      });
+    }
+    return documentId;
   }
 
   private invalidAction(): never {

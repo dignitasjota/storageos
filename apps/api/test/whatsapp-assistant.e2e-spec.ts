@@ -110,7 +110,11 @@ describe('Asistente de WhatsApp (e2e)', () => {
 
     const owner = await registerVerifiedUser(app, 'wa-ai');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };
-    await request(app.getHttpServer()).get('/settings/whatsapp/assistant').set(auth).expect(403);
+    // Sin el extra se puede leer, pero no probar la IA ni activar nada.
+    await request(app.getHttpServer())
+      .post('/settings/whatsapp/assistant/test')
+      .set(auth)
+      .expect(403);
     await setTenantFeatureOverride(owner.slug, 'whatsapp_business', true);
     const tenantId = (await prismaAdmin.tenant.findUniqueOrThrow({ where: { slug: owner.slug } }))
       .id;

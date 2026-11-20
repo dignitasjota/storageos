@@ -101,7 +101,7 @@ export function VerifactuSubmissionsDialog({
                   CSV <span className="font-mono">{s.csv}</span>
                 </p>
               )}
-              {s.status === 'error' && s.message && (
+              {(s.status === 'error' || s.status === 'rejected') && s.message && (
                 <p className="break-words text-muted-foreground">{s.message}</p>
               )}
               {s.mode === 'stub' && (

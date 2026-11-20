@@ -46,7 +46,10 @@ export class InvoiceSeriesService {
     input: CreateInvoiceSeriesInput;
     meta: RequestMeta;
   }): Promise<InvoiceSeriesDto> {
+    const prefix = args.input.prefix.trim().toUpperCase();
     const created = await this.prisma.withTenant(async (tx) => {
+      await this.lockSeries(tx, args.tenantId);
+      await this.assertPrefixFree(tx, prefix);
       // Si es default, desmarcar la anterior.
       if (args.input.isDefault) {
         await tx.invoiceSeries.updateMany({
@@ -60,19 +63,14 @@ export class InvoiceSeriesService {
             tenantId: args.tenantId,
             code: args.input.code.trim().toUpperCase(),
             name: args.input.name.trim(),
-            prefix: args.input.prefix.trim().toUpperCase(),
+            prefix,
             yearScope: args.input.yearScope,
             ...(args.input.facilityId ? { facilityId: args.input.facilityId } : {}),
             isDefault: args.input.isDefault,
           },
         });
       } catch (err) {
-        if (this.isUniqueViolation(err)) {
-          throw new ConflictException({
-            code: 'invoice_series_code_taken',
-            message: 'Ya existe una serie con ese codigo',
-          });
-        }
+        if (this.isUniqueViolation(err)) throw this.uniqueConflict(err);
         throw err;
       }
     }, args.tenantId);
@@ -133,25 +131,42 @@ export class InvoiceSeriesService {
         });
       }
     }
+    const newPrefix =
+      args.input.prefix !== undefined ? args.input.prefix.trim().toUpperCase() : null;
     const updated = await this.prisma.withTenant(async (tx) => {
+      await this.lockSeries(tx, args.tenantId);
+      if (newPrefix !== null && newPrefix !== existing.prefix) {
+        await this.assertPrefixFree(tx, newPrefix, existing.id);
+      }
       if (args.input.isDefault === true && !existing.isDefault) {
+        // Solo la del mismo emisor: la del negocio no toca la de un propietario.
         await tx.invoiceSeries.updateMany({
-          where: { isDefault: true, ownerId: existing.ownerId },
+          where: {
+            isDefault: true,
+            ownerId: existing.ownerId,
+            isRectification: false,
+            id: { not: existing.id },
+          },
           data: { isDefault: false },
         });
       }
-      return tx.invoiceSeries.update({
-        where: { id: args.seriesId },
-        data: {
-          ...(args.input.name !== undefined ? { name: args.input.name.trim() } : {}),
-          ...(args.input.prefix !== undefined
-            ? { prefix: args.input.prefix.trim().toUpperCase() }
-            : {}),
-          ...(args.input.yearScope !== undefined ? { yearScope: args.input.yearScope } : {}),
-          ...(args.input.isActive !== undefined ? { isActive: args.input.isActive } : {}),
-          ...(args.input.isDefault !== undefined ? { isDefault: args.input.isDefault } : {}),
-        },
-      });
+      return tx.invoiceSeries
+        .update({
+          where: { id: args.seriesId },
+          data: {
+            ...(args.input.name !== undefined ? { name: args.input.name.trim() } : {}),
+            ...(args.input.prefix !== undefined
+              ? { prefix: args.input.prefix.trim().toUpperCase() }
+              : {}),
+            ...(args.input.yearScope !== undefined ? { yearScope: args.input.yearScope } : {}),
+            ...(args.input.isActive !== undefined ? { isActive: args.input.isActive } : {}),
+            ...(args.input.isDefault !== undefined ? { isDefault: args.input.isDefault } : {}),
+          },
+        })
+        .catch((err: unknown) => {
+          if (this.isUniqueViolation(err)) throw this.uniqueConflict(err);
+          throw err;
+        });
     }, args.tenantId);
 
     await this.audit.write({
@@ -184,7 +199,7 @@ export class InvoiceSeriesService {
     if (!series.isActive) {
       throw new ConflictException({
         code: 'invoice_series_inactive',
-        message: 'La serie esta desactivada',
+        message: 'La serie está desactivada',
       });
     }
     // Una sola sentencia: la fila queda bloqueada y dos emisiones a la vez no
@@ -334,6 +349,56 @@ export class InvoiceSeriesService {
       ownerId: row.ownerId,
       createdAt: row.createdAt.toISOString(),
     };
+  }
+
+  /**
+   * Serializa las altas y cambios de series del tenant: dos peticiones a la
+   * vez no pueden coger el mismo prefijo ni dejar dos series por defecto.
+   */
+  private async lockSeries(tx: Prisma.TransactionClient, tenantId: string): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invoice_series:${tenantId}`}))`;
+  }
+
+  /**
+   * El prefijo forma el número de la factura: dos series con el mismo
+   * prefijo darían el mismo número (y la segunda no podría emitir). Cuenta
+   * cualquier serie del tenant, también las de propietarios y las
+   * desactivadas (pueden tener facturas emitidas).
+   */
+  private async assertPrefixFree(
+    tx: Prisma.TransactionClient,
+    prefix: string,
+    exceptId?: string,
+  ): Promise<void> {
+    const clash = await tx.invoiceSeries.findFirst({
+      where: {
+        prefix: { equals: prefix, mode: 'insensitive' },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { code: true, name: true },
+    });
+    if (clash) {
+      throw new ConflictException({
+        code: 'invoice_series_prefix_taken',
+        message: `El prefijo ${prefix} ya lo usa la serie ${clash.code} (${clash.name}): los números de factura se repetirían. Elige otro.`,
+      });
+    }
+  }
+
+  /** P2002 al guardar una serie: el código repetido o dos series por defecto. */
+  private uniqueConflict(err: unknown): ConflictException {
+    const target = (err as { meta?: { target?: unknown } }).meta?.target;
+    const text = Array.isArray(target) ? target.join(',') : String(target ?? '');
+    if (/default/i.test(text)) {
+      return new ConflictException({
+        code: 'invoice_series_default_conflict',
+        message: 'Otra serie acaba de marcarse como la de por defecto. Recarga y vuelve a probar.',
+      });
+    }
+    return new ConflictException({
+      code: 'invoice_series_code_taken',
+      message: 'Ya existe una serie con ese código',
+    });
   }
 
   private isUniqueViolation(err: unknown): boolean {

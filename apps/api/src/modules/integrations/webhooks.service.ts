@@ -5,6 +5,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Queue } from 'bullmq';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { checkOutboundUrlShape } from '../../common/security/safe-http-post';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -174,16 +175,33 @@ export class WebhooksService {
       status?: 'pending' | 'success' | 'failed';
       fromDate?: Date;
       toDate?: Date;
+      /** Día `YYYY-MM-DD` del negocio. */
+      fromDay?: string;
+      /** Día `YYYY-MM-DD` del negocio, incluido entero. */
+      toDay?: string;
     } = {},
   ): Promise<{ items: WebhookDeliveryDto[]; nextCursor: string | null }> {
     await this.findOrThrow(tenantId, webhookId);
     const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
     const where: Prisma.WebhookDeliveryWhereInput = { webhookId };
     if (args.status) where.status = args.status;
-    if (args.fromDate || args.toDate) {
+    let from = args.fromDate;
+    let toExclusive: Date | undefined;
+    if (args.fromDay || args.toDay) {
+      const tz =
+        (
+          await this.admin.tenant.findUnique({
+            where: { id: tenantId },
+            select: { timezone: true },
+          })
+        )?.timezone ?? 'Europe/Madrid';
+      if (args.fromDay) from = zonedDayStart(args.fromDay, tz);
+      if (args.toDay) toExclusive = zonedNextDayStart(args.toDay, tz);
+    }
+    if (from || args.toDate || toExclusive) {
       where.createdAt = {
-        ...(args.fromDate ? { gte: args.fromDate } : {}),
-        ...(args.toDate ? { lte: args.toDate } : {}),
+        ...(from ? { gte: from } : {}),
+        ...(toExclusive ? { lt: toExclusive } : args.toDate ? { lte: args.toDate } : {}),
       };
     }
     const rows = await this.prisma.withTenant(
@@ -220,7 +238,7 @@ export class WebhooksService {
     deliveryId: string;
   }): Promise<{ queued: true }> {
     // Verificar webhook -> tenant.
-    await this.findOrThrow(args.tenantId, args.webhookId);
+    const hook = await this.findOrThrow(args.tenantId, args.webhookId);
     const delivery = await this.prisma.withTenant(
       (tx) =>
         tx.webhookDelivery.findFirst({
@@ -231,19 +249,21 @@ export class WebhooksService {
     if (!delivery) {
       throw new NotFoundException({
         code: 'delivery_not_found',
-        message: 'Delivery no encontrada',
+        message: 'Envío no encontrado.',
       });
     }
-    if (delivery.status !== 'failed') {
+    if (!hook.isActive || hook.revokedAt) {
       throw new BadRequestException({
-        code: 'delivery_not_retryable',
-        message: 'Solo se pueden reintentar deliveries con estado failed',
+        code: 'webhook_inactive',
+        message: 'El webhook está desactivado: actívalo antes de reintentar.',
       });
     }
-    await this.prisma.withTenant(
+    // Reserva atómica: solo pasa de `failed` a `pending` una vez (dos clics o
+    // dos pestañas no encolan el envío dos veces).
+    const { count } = await this.prisma.withTenant(
       (tx) =>
-        tx.webhookDelivery.update({
-          where: { id: args.deliveryId },
+        tx.webhookDelivery.updateMany({
+          where: { id: args.deliveryId, webhookId: args.webhookId, status: 'failed' },
           data: {
             status: 'pending',
             attempts: 0,
@@ -255,6 +275,12 @@ export class WebhooksService {
         }),
       args.tenantId,
     );
+    if (count === 0) {
+      throw new BadRequestException({
+        code: 'delivery_not_retryable',
+        message: 'Solo se pueden reintentar los envíos que han fallado.',
+      });
+    }
     await this.queue.add(
       JOB_WEBHOOK_DELIVER,
       { deliveryId: args.deliveryId, tenantId: args.tenantId } satisfies DeliverJobData,

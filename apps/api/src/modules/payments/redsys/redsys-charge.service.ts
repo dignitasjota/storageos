@@ -52,6 +52,12 @@ export class RedsysChargeService {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
+  /** ¿Se pueden cobrar ahora las tarjetas guardadas en Redsys (pago por referencia)? */
+  async available(tenantId: string): Promise<boolean> {
+    const cfg = await this.settings.getResolved(tenantId);
+    return !!cfg?.enabled && !!cfg.cardOnFileEnabled;
+  }
+
   async charge(args: {
     tenantId: string;
     invoiceId: string;

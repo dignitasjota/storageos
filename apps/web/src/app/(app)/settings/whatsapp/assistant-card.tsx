@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  hasOpenDay,
   type OpeningHours,
   WEEKDAYS,
   WHATSAPP_AI_PROVIDERS,
@@ -16,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -52,7 +54,7 @@ const DAY_LABELS: Record<Weekday, string> = {
  * horarios, tamaños, precios, disponibilidad, promoción y preguntas frecuentes)
  * y pasa la conversación al equipo cuando hace falta.
  */
-export function AssistantCard() {
+export function AssistantCard({ limited = false }: { limited?: boolean }) {
   const ask = useConfirm();
   const assistant = useWhatsappAssistant();
   const templates = useWhatsappTemplates(true);
@@ -99,12 +101,42 @@ export function AssistantCard() {
     }
   }, [assistant.data]);
 
+  if (assistant.isError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Asistente automático</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SectionError onRetry={() => void assistant.refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (!assistant.data) return null;
   const d = assistant.data;
   const ownMode = d.aiMode === 'own';
   const preset = WHATSAPP_AI_PROVIDERS.find((p) => p.value === provider);
+  // Modelo que se usará: el escrito o el de por defecto del proveedor.
+  const effectiveModel = model.trim() || preset?.defaultModel || '';
+  // La clave guardada solo vale para el proveedor y la URL con que se guardó.
+  const savedKey = d.ownAi?.keyLast4 ? d.ownAi : null;
+  const destinationChanged =
+    !!savedKey &&
+    (savedKey.provider !== provider ||
+      (provider === 'openai_compatible' && (savedKey.baseUrl ?? '') !== baseUrl.trim()));
+  const missingHours = hoursMode !== 'always' && !hasOpenDay(teamHours);
+  const missingFollowupTpl = followup && !followupTpl.trim();
 
   async function saveAssistant() {
+    if (missingHours) {
+      toast.error('Marca al menos un día en el horario del equipo o elige «Siempre».');
+      return;
+    }
+    if (missingFollowupTpl) {
+      toast.error('Indica la plantilla aprobada para recordar a quien no reservó.');
+      return;
+    }
     try {
       await update.mutateAsync({
         assistantEnabled: enabled,
@@ -127,14 +159,19 @@ export function AssistantCard() {
   }
 
   async function saveKey() {
+    if (destinationChanged && !apiKey.trim()) {
+      toast.error('Al cambiar de proveedor o de URL tienes que volver a escribir la clave.');
+      return;
+    }
     try {
       await update.mutateAsync({
         ownProvider: provider,
-        ownModel: model.trim(),
+        ownModel: effectiveModel,
         ownBaseUrl: provider === 'openai_compatible' ? baseUrl.trim() : '',
         ...(apiKey.trim() ? { ownApiKey: apiKey.trim() } : {}),
       });
       setApiKey('');
+      setModel(effectiveModel);
       toast.success('Clave de IA guardada.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -142,7 +179,17 @@ export function AssistantCard() {
   }
 
   async function removeKey() {
-    if (!(await ask({ title: '¿Quitar tu clave de IA?', destructive: true }))) return;
+    if (
+      !(await ask({
+        title: '¿Quitar tu clave de IA?',
+        description: ownMode
+          ? 'Tu cuenta usa siempre tu propia IA: sin clave, el asistente dejará de responder hasta que pongas otra.'
+          : 'Cuando se gasten las respuestas del mes con la IA de TrasterOS, el asistente dejará de responder.',
+        confirmLabel: 'Quitar',
+        destructive: true,
+      }))
+    )
+      return;
     try {
       await update.mutateAsync({ removeOwnKey: true });
       setModel('');
@@ -153,9 +200,24 @@ export function AssistantCard() {
     }
   }
 
+  /** Prueba la clave escrita (sin guardarla) o, si no hay, la guardada. */
   async function runTest() {
+    const typed = apiKey.trim();
+    if (!typed && destinationChanged) {
+      toast.error('Escribe la clave para probar otro proveedor o URL.');
+      return;
+    }
     try {
-      const r = await test.mutateAsync();
+      const r = await test.mutateAsync(
+        typed
+          ? {
+              provider,
+              model: effectiveModel,
+              ...(provider === 'openai_compatible' ? { baseUrl: baseUrl.trim() } : {}),
+              apiKey: typed,
+            }
+          : {},
+      );
       if (r.ok) toast.success(`Tu clave funciona. Respuesta: «${r.sample ?? ''}»`);
       else toast.error(r.error ?? 'No funciona.');
     } catch (err) {
@@ -164,6 +226,49 @@ export function AssistantCard() {
   }
 
   const noAi = ownMode ? !d.ownAi?.keyLast4 : !d.platformAiAvailable && !d.ownAi?.keyLast4;
+
+  async function disableAssistant() {
+    try {
+      await update.mutateAsync({ assistantEnabled: false });
+      setEnabled(false);
+      toast.success('Asistente desactivado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo desactivar.');
+    }
+  }
+
+  // Sin el extra: solo apagar el asistente o quitar la clave guardada.
+  if (limited) {
+    if (!d.assistantEnabled && !d.ownAi?.keyLast4) return null;
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Bot className="size-4" />
+            Asistente automático
+          </CardTitle>
+          <CardDescription>
+            {d.assistantEnabled ? 'El asistente sigue activado. ' : ''}
+            {d.ownAi?.keyLast4
+              ? `Tienes guardada tu clave de IA (termina en ${d.ownAi.keyLast4}).`
+              : ''}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {d.assistantEnabled && (
+            <Button variant="outline" onClick={disableAssistant} disabled={update.isPending}>
+              Desactivar el asistente
+            </Button>
+          )}
+          {d.ownAi?.keyLast4 && (
+            <Button variant="outline" onClick={removeKey} disabled={update.isPending}>
+              Quitar mi clave
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -321,6 +426,12 @@ export function AssistantCard() {
                     </div>
                   );
                 })}
+                {missingHours && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Marca al menos un día: sin horario, el asistente{' '}
+                    {hoursMode === 'inside' ? 'no respondería nunca' : 'respondería siempre'}.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -374,6 +485,12 @@ export function AssistantCard() {
                   aria-label="Idioma de la plantilla"
                   className="text-base sm:text-sm"
                 />
+                {missingFollowupTpl && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400 sm:col-span-2">
+                    Sin plantilla no se puede enviar el recordatorio: WhatsApp solo deja escribir
+                    pasadas 24 horas con una plantilla aprobada.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -384,7 +501,10 @@ export function AssistantCard() {
                 : 'Ahora mismo no hay IA disponible para el asistente. Pon tu propia clave abajo o contacta con soporte.'}
             </p>
           )}
-          <Button onClick={saveAssistant} disabled={update.isPending}>
+          <Button
+            onClick={saveAssistant}
+            disabled={update.isPending || missingHours || missingFollowupTpl}
+          >
             {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
             Guardar asistente
           </Button>
@@ -461,27 +581,38 @@ export function AssistantCard() {
               className="text-base sm:text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Los mensajes de tus clientes se envían a este proveedor: el consumo te lo cobra él.
+              Los mensajes de tus clientes se envían a este proveedor: el consumo te lo cobra él. Al
+              cambiar de proveedor o de URL tienes que volver a escribir la clave.
             </p>
+            {destinationChanged && !apiKey.trim() && (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Has cambiado de proveedor o de URL: escribe la clave para ese proveedor. Si guardas
+                sin ella, se borrará la guardada.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               onClick={saveKey}
-              disabled={update.isPending || !model.trim()}
+              disabled={
+                update.isPending ||
+                !effectiveModel ||
+                (!apiKey.trim() && (!savedKey || destinationChanged))
+              }
             >
               Guardar clave
             </Button>
+            {(apiKey.trim() || (savedKey && !destinationChanged)) && (
+              <Button variant="outline" onClick={runTest} disabled={test.isPending}>
+                {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                {apiKey.trim() ? 'Probar la clave escrita' : 'Probar mi clave'}
+              </Button>
+            )}
             {d.ownAi?.keyLast4 && (
-              <>
-                <Button variant="outline" onClick={runTest} disabled={test.isPending}>
-                  {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                  Probar mi clave
-                </Button>
-                <Button variant="ghost" onClick={removeKey} disabled={update.isPending}>
-                  Quitar clave
-                </Button>
-              </>
+              <Button variant="ghost" onClick={removeKey} disabled={update.isPending}>
+                Quitar clave
+              </Button>
             )}
           </div>
         </div>

@@ -3,6 +3,7 @@
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import {
   OnboardingStepList,
   useOnboarding,
@@ -10,10 +11,12 @@ import {
 } from '@/components/onboarding/onboarding-steps';
 import { TestRunCard } from '@/components/onboarding/test-run-card';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useHasPermission } from '@/lib/auth/hooks';
 
 /** Puesta en marcha completa: lo imprescindible y lo recomendado, siempre a mano. */
 export default function GettingStartedPage() {
-  const { data, isLoading } = useOnboarding();
+  const { data, isLoading, isError, refetch } = useOnboarding();
+  const canSee = useHasPermission('facilities:manage');
 
   return (
     <div className="space-y-4">
@@ -28,7 +31,17 @@ export default function GettingStartedPage() {
           .
         </p>
       </div>
-      {isLoading || !data ? (
+      {!canSee ? (
+        <p className="rounded-md border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+          La puesta en marcha la gestionan el propietario y los gestores.
+        </p>
+      ) : isError ? (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void refetch()} />
+          </CardContent>
+        </Card>
+      ) : isLoading || !data ? (
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
       ) : (
         <>

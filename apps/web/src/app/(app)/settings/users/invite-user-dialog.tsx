@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { useMe } from '@/lib/auth/hooks';
 import { useCreateInvitation } from '@/lib/invitations/hooks';
 
 const ROLES = ['manager', 'staff', 'readonly'] as const;
@@ -45,6 +46,9 @@ export function InviteUserDialog() {
   const tCommon = useTranslations('common');
   const [open, setOpen] = useState(false);
   const create = useCreateInvitation();
+  const me = useMe();
+  // Solo el propietario puede invitar a un gestor.
+  const roles = ROLES.filter((r) => r !== 'manager' || me.data?.user.role === 'owner');
 
   const form = useForm<InviteUserInput>({
     resolver: zodResolver(InviteUserSchema),
@@ -112,7 +116,7 @@ export function InviteUserDialog() {
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {ROLES.map((role) => (
+                      {roles.map((role) => (
                         <SelectItem key={role} value={role}>
                           {t(`role.${role}`)}
                         </SelectItem>

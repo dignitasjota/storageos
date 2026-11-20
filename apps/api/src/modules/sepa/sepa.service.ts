@@ -39,6 +39,8 @@ import {
   renderMandateHtml,
 } from '../../common/sepa-mandate/sepa-mandate-html';
 import { SepaMandatePdfService } from '../../common/sepa-mandate/sepa-mandate-pdf.service';
+import { settingsChanges } from '../../common/settings-audit';
+import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type SepaRemittanceCreatedPayload } from '../automations/domain-events';
 import { InvoicesService, lockInvoiceRow } from '../billing/invoices.service';
 import { CommunicationsService } from '../communications/communications.service';
@@ -125,6 +127,7 @@ export class SepaService {
     private readonly config: ConfigService<Env, true>,
     private readonly adminDb: PrismaAdminService,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -171,7 +174,12 @@ export class SepaService {
     };
   }
 
-  async updateSettings(tenantId: string, input: UpdateSepaSettingsInput): Promise<SepaSettingsDto> {
+  async updateSettings(
+    tenantId: string,
+    input: UpdateSepaSettingsInput,
+    actor?: { userId: string; ipAddress?: string | null; userAgent?: string | null },
+  ): Promise<SepaSettingsDto> {
+    const before = actor ? await this.getSettings(tenantId) : null;
     const existing = await this.prisma.withTenant(
       (tx) => tx.sepaSettings.findUnique({ where: { tenantId } }),
       tenantId,
@@ -216,7 +224,33 @@ export class SepaService {
         }),
       tenantId,
     );
-    return this.getSettings(tenantId);
+    const after = await this.getSettings(tenantId);
+    // Sin remesas activas o sin el domicilio completo del acreedor, el portal no
+    // puede ofrecer la domiciliación: se apaga también esa opción.
+    if (
+      !after.enabled ||
+      !after.creditorAddress ||
+      !after.creditorPostalCode ||
+      !after.creditorCity
+    ) {
+      await this.adminDb.tenant.updateMany({
+        where: { id: tenantId, offlineSepaEnabled: true },
+        data: { offlineSepaEnabled: false },
+      });
+    }
+    if (actor) {
+      await this.audit.write({
+        tenantId,
+        userId: actor.userId,
+        action: 'settings.sepa_creditor_changed',
+        entityType: 'SepaSettings',
+        entityId: null,
+        changes: settingsChanges(before, after),
+        ipAddress: actor.ipAddress ?? null,
+        userAgent: actor.userAgent ?? null,
+      });
+    }
+    return after;
   }
 
   /**

@@ -1,5 +1,5 @@
 import { featuresForPlan, permissionsForRole } from '@storageos/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from './api';
 import { rememberTenantSlug } from './last-tenant';
@@ -30,6 +30,24 @@ type LoginResponse =
   | LoginRequires2faEnrolmentResponse;
 
 export const meQueryKey = ['auth', 'me'] as const;
+
+/**
+ * Tras entrar (contraseña, verificación en dos pasos, invitación…): rellena
+ * `/auth/me` con un perfil provisional completo (permisos y funciones según
+ * el rol y el plan) para que el panel pinte sin esperar, y lo pide de nuevo
+ * al servidor, que tiene los permisos de un rol a medida y los locales.
+ */
+export function seedMeFromAuth(qc: QueryClient, data: AuthSuccessResponse): void {
+  qc.setQueryData<MeResponse>(meQueryKey, {
+    user: data.user,
+    tenant: data.tenant,
+    subscription: data.subscription,
+    permissions: permissionsForRole(data.user.role),
+    features: featuresForPlan(data.subscription.planSlug),
+    facilityScope: null,
+  });
+  void qc.invalidateQueries({ queryKey: meQueryKey });
+}
 
 /** Carga del perfil del usuario autenticado. */
 export function useMe(options: { enabled?: boolean } = {}) {
@@ -92,7 +110,7 @@ export function usePanelBrand(): {
   logoUploaded: boolean;
 } | null {
   const { data } = useMe();
-  if (!data?.features.includes('branded_panel')) return null;
+  if (!data?.features?.includes('branded_panel')) return null;
   const t = data.tenant;
   return {
     slug: t.slug,
@@ -116,14 +134,7 @@ export function useLogin() {
       if ('requires2fa' in data || 'requires2faEnrolment' in data) return;
       useAuthStore.getState().setAccessToken(data.accessToken);
       markAppActive();
-      queryClient.setQueryData<MeResponse>(meQueryKey, {
-        user: data.user,
-        tenant: data.tenant,
-        subscription: data.subscription,
-        permissions: permissionsForRole(data.user.role),
-        features: featuresForPlan(data.subscription.planSlug),
-        facilityScope: null,
-      });
+      seedMeFromAuth(queryClient, data);
     },
   });
 }
@@ -158,14 +169,7 @@ export function useVerifyEmail() {
       rememberTenantSlug(data.tenant.slug);
       useAuthStore.getState().setAccessToken(data.accessToken);
       markAppActive();
-      queryClient.setQueryData<MeResponse>(meQueryKey, {
-        user: data.user,
-        tenant: data.tenant,
-        subscription: data.subscription,
-        permissions: permissionsForRole(data.user.role),
-        features: featuresForPlan(data.subscription.planSlug),
-        facilityScope: null,
-      });
+      seedMeFromAuth(queryClient, data);
     },
   });
 }

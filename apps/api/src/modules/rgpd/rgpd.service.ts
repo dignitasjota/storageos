@@ -1,7 +1,14 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { phoneKey } from '@storageos/shared';
 
 import { attachmentKeysOf } from '../../common/message-attachments';
+import { subtractAmounts } from '../../common/money';
 import { readOpsFiles } from '../../common/ops-files';
 import { releaseReservedUnit } from '../../common/unit-holds';
 import {
@@ -10,6 +17,8 @@ import {
 } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
+import { addMonthsUtc } from '../billing-saas/platform-due';
+import { ContractsService } from '../contracts/contracts.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
@@ -36,6 +45,34 @@ import type {
  * customer anonimo). La anonimizacion es irreversible.
  */
 const ANON = '*** ANONIMIZADO ***';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Claves que nunca salen en la exportación de un inquilino: contraseñas,
+ * tokens y secretos (aunque vayan cifrados o con hash). Las huellas de los
+ * documentos firmados (`documentHash`, `contentHash`) sí: son su prueba.
+ */
+const SECRET_KEY_RE =
+  /^(portalPasswordHash|portalSessionVersion|secretHash|secretPreview|signatureImage)$|TokenHash$|Encrypted$/;
+
+/** Copia de `value` sin las claves secretas (recorre objetos y listas). */
+export function stripSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSecrets);
+  if (value instanceof Date || value === null || typeof value !== 'object') return value;
+  // Decimal de Prisma y otros objetos con toJSON: se dejan como están.
+  if (typeof (value as { toJSON?: unknown }).toJSON === 'function') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (SECRET_KEY_RE.test(k)) continue;
+    out[k] = stripSecrets(v);
+  }
+  return out;
+}
+
+/** IBAN enmascarado: solo los 4 últimos dígitos. */
+function maskedIban(last4: string): string {
+  return `**** **** **** **** **** ${last4}`;
+}
 
 @Injectable()
 export class RgpdService {
@@ -44,6 +81,7 @@ export class RgpdService {
     private readonly audit: AuditService,
     private readonly files: FilesService,
     private readonly events: EventEmitter2,
+    private readonly contracts: ContractsService,
   ) {}
 
   async list(tenantId: string): Promise<DataSubjectRequestDto[]> {
@@ -76,24 +114,34 @@ export class RgpdService {
     meta: RequestMeta;
   }): Promise<DataSubjectRequestDto> {
     const submittedAt = new Date();
-    const dueAt = new Date(submittedAt);
-    dueAt.setUTCMonth(dueAt.getUTCMonth() + 1);
-    const created = await this.prisma.withTenant(
-      (tx) =>
-        tx.dataSubjectRequest.create({
-          data: {
-            tenantId: args.tenantId,
-            ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
-            email: args.input.email,
-            requestType: args.input.requestType,
-            submittedAt,
-            dueAt,
-            notes: args.input.notes?.trim() || null,
-            handledByUserId: args.userId,
-          },
-        }),
-      args.tenantId,
-    );
+    // Un mes natural (art. 12.3 RGPD) sin desbordar: 31 de enero → 28/29 de febrero.
+    const dueAt = addMonthsUtc(submittedAt, 1);
+    const created = await this.prisma.withTenant(async (tx) => {
+      if (args.input.customerId) {
+        const customer = await tx.customer.findFirst({
+          where: { id: args.input.customerId },
+          select: { id: true },
+        });
+        if (!customer) {
+          throw new NotFoundException({
+            code: 'customer_not_found',
+            message: 'El inquilino no existe.',
+          });
+        }
+      }
+      return tx.dataSubjectRequest.create({
+        data: {
+          tenantId: args.tenantId,
+          ...(args.input.customerId ? { customerId: args.input.customerId } : {}),
+          email: args.input.email,
+          requestType: args.input.requestType,
+          submittedAt,
+          dueAt,
+          notes: args.input.notes?.trim() || null,
+          handledByUserId: args.userId,
+        },
+      });
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
@@ -108,13 +156,26 @@ export class RgpdService {
   }
 
   /**
-   * Exporta todos los datos personales de un customer en un JSON. El
-   * usuario llama a este endpoint, recibe un JSON inline con el detalle
-   * (de momento sin firma; en Fase 8 se cifrara con la clave del cliente
-   * y se subira a MinIO).
+   * Exporta todos los datos personales de un inquilino en un JSON (derecho de
+   * acceso y portabilidad). Sin contraseñas, tokens ni secretos; las cuentas
+   * bancarias solo con los 4 últimos dígitos. Queda en el registro de actividad.
    */
-  async exportCustomerData(tenantId: string, customerId: string): Promise<Record<string, unknown>> {
+  async exportCustomerData(
+    tenantId: string,
+    customerId: string,
+    actor?: { userId: string; meta: RequestMeta },
+  ): Promise<Record<string, unknown>> {
     const data = await this.prisma.withTenant(async (tx) => {
+      const exists = await tx.customer.findFirst({
+        where: { id: customerId },
+        select: { id: true },
+      });
+      if (!exists) {
+        throw new NotFoundException({
+          code: 'customer_not_found',
+          message: 'El inquilino no existe.',
+        });
+      }
       const customer = await tx.customer.findUniqueOrThrow({
         where: { id: customerId },
         include: {
@@ -196,9 +257,120 @@ export class RgpdService {
           },
         },
       });
-      return { customer, whatsappConversations, webChatConversations };
+      const [messages, communications, credentials, accessLogs, incidents, mandates] =
+        await Promise.all([
+          // El chat con el equipo (sin las notas internas que el inquilino no ve).
+          tx.customerMessage.findMany({
+            where: { customerId, isInternal: false },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            select: {
+              senderType: true,
+              channel: true,
+              body: true,
+              attachmentName: true,
+              createdAt: true,
+            },
+          }),
+          tx.communication.findMany({
+            where: { customerId },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              channel: true,
+              status: true,
+              recipient: true,
+              subject: true,
+              bodyText: true,
+              source: true,
+              sentAt: true,
+              createdAt: true,
+            },
+          }),
+          tx.accessCredential.findMany({
+            where: { customerId },
+            select: {
+              method: true,
+              status: true,
+              label: true,
+              holderName: true,
+              validFrom: true,
+              expiresAt: true,
+              activatedAt: true,
+              suspendedAt: true,
+              revokedAt: true,
+              lastUsedAt: true,
+              createdAt: true,
+            },
+          }),
+          tx.accessLog.findMany({
+            where: { customerId },
+            orderBy: { occurredAt: 'desc' },
+            take: 2000,
+            select: { method: true, result: true, reason: true, occurredAt: true },
+          }),
+          tx.incident.findMany({
+            where: { customerId, deletedAt: null },
+            orderBy: { createdAt: 'asc' },
+            select: {
+              title: true,
+              description: true,
+              category: true,
+              status: true,
+              severity: true,
+              occurredAt: true,
+              resolution: true,
+              resolvedAt: true,
+              createdAt: true,
+            },
+          }),
+          tx.sepaMandate.findMany({
+            where: { customerId },
+            select: {
+              reference: true,
+              ibanLast4: true,
+              bic: true,
+              status: true,
+              signatureStatus: true,
+              signedAt: true,
+              signerName: true,
+              signatureMethod: true,
+              debtorName: true,
+              debtorAddress: true,
+              debtorPostalCode: true,
+              debtorCity: true,
+              debtorCountry: true,
+              documentText: true,
+              lastCollectedAt: true,
+              createdAt: true,
+            },
+          }),
+        ]);
+      return {
+        customer,
+        chatMessages: messages,
+        communications,
+        accessCredentials: credentials,
+        accessLogs,
+        incidents,
+        sepaMandates: mandates.map(({ ibanLast4, ...m }) => ({
+          ...m,
+          iban: maskedIban(ibanLast4),
+        })),
+        whatsappConversations,
+        webChatConversations,
+      };
     }, tenantId);
-    return data;
+    if (actor) {
+      await this.audit.write({
+        tenantId,
+        userId: actor.userId,
+        action: 'rgpd.customer_exported',
+        entityType: 'Customer',
+        entityId: customerId,
+        ipAddress: actor.meta.ipAddress ?? null,
+        userAgent: actor.meta.userAgent ?? null,
+      });
+    }
+    return stripSecrets(data) as Record<string, unknown>;
   }
 
   /**
@@ -215,8 +387,21 @@ export class RgpdService {
     userId: string;
     customerId: string;
     requestId?: string;
+    /** Ya sabe que debe dinero y quiere anonimizarlo igual. */
+    confirmDebt?: boolean;
     meta: RequestMeta;
   }): Promise<void> {
+    const draftIds = await this.assertCanAnonymize(args);
+    // Sus borradores se cancelan (sueltan el trastero que guardaban).
+    for (const contractId of draftIds) {
+      await this.contracts.cancel({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        contractId,
+        input: { reason: 'Inquilino anonimizado (protección de datos)' },
+        meta: args.meta,
+      });
+    }
     const chatAttachmentKeys: string[] = [];
     const freedUnitIds: string[] = [];
     const filesToDelete = await this.prisma.withTenant(async (tx) => {
@@ -226,7 +411,7 @@ export class RgpdService {
       if (!customer) {
         throw new NotFoundException({
           code: 'customer_not_found',
-          message: 'Customer no encontrado',
+          message: 'El inquilino no existe.',
         });
       }
       const activeContract = await tx.contract.findFirst({
@@ -238,6 +423,14 @@ export class RgpdService {
           message: 'No se puede anonimizar un cliente con contratos activos',
         });
       }
+      // Ficheros de sus documentos (DNI, justificantes…): se borran del almacén.
+      const documents = await tx.customerDocument.findMany({
+        where: { customerId: args.customerId },
+        select: { fileUrl: true },
+      });
+      const documentKeys = documents
+        .map((d) => this.files.keyFromPublicUrl('uploads', d.fileUrl))
+        .filter((k): k is string => !!k);
       await tx.customer.update({
         where: { id: args.customerId },
         data: {
@@ -394,13 +587,24 @@ export class RgpdService {
       await tx.webChatConversation.deleteMany({
         where: webChatConversationsOf(customerId, customer.email),
       });
-      // Su ficha de contacto (lead) de antes de ser cliente.
-      if (customer.email) {
+      // Su ficha de contacto (lead) de antes de ser cliente: la convertida, la
+      // de su email o, si no tiene email, la de su teléfono (por sus 9 últimas
+      // cifras, como al juntar contactos: «600 555 444» = «+34600555444»).
+      {
+        const key = customer.email ? null : phoneKey(customer.phone);
+        const byPhone = key
+          ? await tx.$queryRaw<{ id: string }[]>`
+              SELECT id FROM leads
+               WHERE right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 9) = ${key}`
+          : [];
         await tx.lead.updateMany({
           where: {
             OR: [
               { convertedCustomerId: customerId },
-              { email: { equals: customer.email, mode: 'insensitive' } },
+              ...(customer.email
+                ? [{ email: { equals: customer.email, mode: 'insensitive' as const } }]
+                : []),
+              ...(byPhone.length > 0 ? [{ id: { in: byPhone.map((r) => r.id) } }] : []),
             ],
           },
           data: {
@@ -436,6 +640,20 @@ export class RgpdService {
           data: { photos: [] },
         });
       }
+      // Las que reportó él desde el área de clientes llevan su nombre y su texto;
+      // las del equipo conservan el texto (son del local), pero sin su nombre.
+      await tx.incident.updateMany({
+        where: { customerId, reportedByUserId: null, reportedByExternal: { startsWith: 'Portal' } },
+        data: { title: ANON, description: ANON, reportedByExternal: 'Portal' },
+      });
+      await tx.incident.updateMany({
+        where: {
+          customerId,
+          reportedByExternal: { not: null },
+          NOT: { reportedByExternal: 'Portal' },
+        },
+        data: { reportedByExternal: null },
+      });
       // Mandatos SEPA: se dan de baja. Se conservan referencia, fecha y cuenta
       // (cifrada) porque son la prueba ante una reclamación de un adeudo ya
       // cobrado (el banco la admite hasta 13 meses después), igual que la firma
@@ -460,6 +678,7 @@ export class RgpdService {
         data: { ipAddress: null, userAgent: null },
       });
       const fileKeys = [
+        ...documentKeys,
         ...faces.map((f) => f.facePhotoKey!),
         ...photos.map((p) => p.key),
         ...incidentPhotoKeys,
@@ -494,10 +713,110 @@ export class RgpdService {
       action: 'rgpd.customer_anonymized',
       entityType: 'Customer',
       entityId: args.customerId,
-      ...(args.requestId ? { changes: { requestId: args.requestId } } : {}),
+      changes: {
+        ...(args.requestId ? { requestId: args.requestId } : {}),
+        ...(draftIds.length > 0 ? { cancelledDrafts: draftIds.length } : {}),
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+  }
+
+  /**
+   * Lo mismo que impide borrar a un inquilino: contratos vivos, reservas y deuda
+   * (salvo que se confirme). Devuelve sus borradores, que se cancelan antes.
+   */
+  private async assertCanAnonymize(args: {
+    tenantId: string;
+    customerId: string;
+    requestId?: string;
+    confirmDebt?: boolean;
+  }): Promise<string[]> {
+    if (args.requestId !== undefined && !UUID_RE.test(args.requestId)) {
+      throw new BadRequestException({
+        code: 'invalid_request_id',
+        message: 'La solicitud indicada no es válida.',
+      });
+    }
+    return this.prisma.withTenant(async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: args.customerId },
+        select: { id: true, email: true },
+      });
+      if (!customer) {
+        throw new NotFoundException({
+          code: 'customer_not_found',
+          message: 'El inquilino no existe.',
+        });
+      }
+      if (args.requestId) {
+        const request = await tx.dataSubjectRequest.findFirst({
+          where: { id: args.requestId },
+          select: { customerId: true, email: true },
+        });
+        if (!request) {
+          throw new NotFoundException({
+            code: 'request_not_found',
+            message: 'Solicitud no encontrada.',
+          });
+        }
+        const same = request.customerId
+          ? request.customerId === args.customerId
+          : !!customer.email && request.email.toLowerCase() === customer.email.toLowerCase();
+        if (!same) {
+          throw new BadRequestException({
+            code: 'request_customer_mismatch',
+            message: 'La solicitud es de otra persona.',
+          });
+        }
+      }
+      const live = await tx.contract.count({
+        where: {
+          customerId: args.customerId,
+          status: { in: ['active', 'ending'] },
+          deletedAt: null,
+        },
+      });
+      if (live > 0) {
+        throw new BadRequestException({
+          code: 'has_active_contract',
+          message: 'No se puede anonimizar un cliente con contratos activos',
+        });
+      }
+      const reservations = await tx.reservation.count({
+        where: { customerId: args.customerId, status: { in: ['pending', 'confirmed'] } },
+      });
+      if (reservations > 0) {
+        throw new ConflictException({
+          code: 'customer_has_reservations',
+          message: 'Tiene una reserva en curso: cancélala antes de anonimizarlo.',
+        });
+      }
+      const debt = await tx.invoice.aggregate({
+        where: {
+          customerId: args.customerId,
+          status: { in: ['issued', 'overdue'] },
+          deletedAt: null,
+        },
+        _sum: { total: true, amountPaid: true },
+      });
+      const pending = subtractAmounts(
+        Number(debt._sum.total ?? 0),
+        Number(debt._sum.amountPaid ?? 0),
+      );
+      if (pending > 0 && !args.confirmDebt) {
+        throw new ConflictException({
+          code: 'customer_has_debt',
+          message: 'Tiene facturas pendientes de cobro.',
+          details: { amount: pending },
+        });
+      }
+      const drafts = await tx.contract.findMany({
+        where: { customerId: args.customerId, status: 'draft', deletedAt: null },
+        select: { id: true },
+      });
+      return drafts.map((d) => d.id);
+    }, args.tenantId);
   }
 
   async updateRequest(args: {

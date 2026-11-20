@@ -938,7 +938,8 @@ export class SaasAddonsService {
 
     const [limits, units, facilities, activeUsers, pendingInvites] = await Promise.all([
       this.limits.resolveLimits(tenantId), // límite CON este add-on
-      this.admin.unit.count({ where: { tenantId } }),
+      // Como el límite: sin los trasteros de locales borrados.
+      billableUnits(this.admin, tenantId),
       this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
       this.admin.user.count({ where: { tenantId, isActive: true } }),
       this.admin.invitation.count({

@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,10 +31,8 @@ export default function CompanySecuritySettingsPage() {
 }
 
 /**
- * Tarjeta de politica de seguridad del tenant. Solo visible para owners.
- * Permite activar/desactivar el requerimiento de 2FA para owners y
- * managers. Al activar no se desconecta a nadie: los managers sin 2FA
- * seran forzados a hacer enrolment en su proximo login.
+ * Regla de la empresa: exigir la verificación en dos pasos a propietarios y
+ * gestores. Quien no la tenga la activa al entrar o al renovarse su sesión.
  */
 function TenantSecurityPolicyCard() {
   const t = useTranslations('security.policy');
@@ -43,6 +42,15 @@ function TenantSecurityPolicyCard() {
   const update = useUpdateTenantSecuritySettings();
 
   if (!canManage) return null;
+  if (settings.isError) {
+    return (
+      <Card>
+        <CardContent>
+          <SectionError onRetry={() => void settings.refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (settings.isLoading || !settings.data) {
     return (
       <Card>

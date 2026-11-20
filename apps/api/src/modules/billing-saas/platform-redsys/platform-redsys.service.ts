@@ -138,7 +138,7 @@ export class PlatformRedsysService {
       this.resolved(),
       this.admin.tenantSubscription.findUnique({
         where: { tenantId },
-        include: { plan: { select: { name: true, priceMonthly: true } } },
+        include: { plan: { select: { name: true, priceMonthly: true, includedUnits: true } } },
       }),
       this.admin.tenant.findUnique({ where: { id: tenantId }, select: { billingExempt: true } }),
       this.admin.platformRedsysCard.findUnique({ where: { tenantId } }),
@@ -150,6 +150,7 @@ export class PlatformRedsysService {
       amount: 0,
       currency: 'EUR',
       monthsOwed: 1,
+      maxMonths: 1,
       currentPeriodEnd: sub?.currentPeriodEnd.toISOString() ?? null,
       pastDue: sub?.status === 'past_due',
       planName: sub?.plan.name ?? null,
@@ -190,6 +191,9 @@ export class PlatformRedsysService {
       autoCharge: sub.billingMode === 'redsys' && !!card,
       amount,
       monthsOwed,
+      // Un plan por trastero se paga mes a mes (los trasteros cambian): como
+      // mucho, lo que debe.
+      maxMonths: sub.plan.includedUnits != null ? Math.max(1, monthsOwed) : 12,
       // En solo lectura el mes que paga empieza hoy.
       ...(sub.status === 'expired' ? { currentPeriodEnd: now.toISOString() } : {}),
       reason: null,

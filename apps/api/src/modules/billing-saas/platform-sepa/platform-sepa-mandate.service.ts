@@ -271,24 +271,58 @@ export class PlatformSepaMandateService {
   }
 
   /**
-   * Cancela el mandato activo del tenant. Bloqueado mientras el modo de
-   * cobro vigente sea 'sepa' — el tenant no puede quedarse sin mandato
-   * siendo ese su método activo (debe pasar a manual/stripe primero).
+   * Cancela el mandato activo del tenant. Si la cuota se cobra por SEPA solo se
+   * puede cuando ese cambio vino de firmar el mandato en la prueba (o en solo
+   * lectura) y aún no se ha domiciliado nada con él: entonces la cuota vuelve
+   * al pago manual en la misma operación. En otro caso, el tenant no puede
+   * quedarse sin mandato siendo ese su método de cobro.
    */
   async cancelMandate(tenantId: string): Promise<void> {
     const sub = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
-      select: { billingMode: true },
+      select: { billingMode: true, status: true, stripeSubscriptionId: true },
     });
-    if (sub?.billingMode === 'sepa') {
-      throw new BadRequestException({
-        code: 'mode_requires_mandate',
-        message: 'No puedes cancelar el mandato mientras el cobro está en modo SEPA',
-      });
-    }
-    await this.admin.platformSepaMandate.updateMany({
+    const mandate = await this.admin.platformSepaMandate.findFirst({
       where: { tenantId, status: 'active' },
-      data: { status: 'cancelled' },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, sequenceType: true, lastCollectedAt: true },
     });
+    let backToManual = false;
+    if (sub?.billingMode === 'sepa') {
+      const inTrial = sub.status === 'trial' || sub.status === 'expired';
+      const used =
+        !mandate ||
+        mandate.sequenceType !== 'FRST' ||
+        mandate.lastCollectedAt !== null ||
+        (await this.admin.platformSepaRemittanceItem.count({
+          where: {
+            tenantId,
+            mandateId: mandate.id,
+            itemStatus: { in: ['pending', 'collected', 'bounced'] },
+          },
+        })) > 0;
+      if (!inTrial || used || sub.stripeSubscriptionId) {
+        throw new BadRequestException({
+          code: 'mode_requires_mandate',
+          message:
+            'Tu cuota ya se domicilia con este mandato. Para cancelarlo, escríbenos desde Soporte.',
+        });
+      }
+      backToManual = true;
+    }
+    await this.admin.$transaction([
+      ...(backToManual
+        ? [
+            this.admin.tenantSubscription.updateMany({
+              where: { tenantId, billingMode: 'sepa' },
+              data: { billingMode: 'manual' },
+            }),
+          ]
+        : []),
+      this.admin.platformSepaMandate.updateMany({
+        where: { tenantId, status: 'active' },
+        data: { status: 'cancelled' },
+      }),
+    ]);
   }
 }

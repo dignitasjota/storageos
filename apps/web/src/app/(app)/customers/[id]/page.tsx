@@ -138,7 +138,21 @@ export default function CustomerDetailPage() {
     });
     if (!ok) return;
     try {
-      await anonymize.mutateAsync({ customerId: id! });
+      try {
+        await anonymize.mutateAsync({ customerId: id! });
+      } catch (err) {
+        // Con deuda, se confirma otra vez (como al borrar).
+        if (!(err instanceof ApiError) || err.body.code !== 'customer_has_debt') throw err;
+        const again = await ask({
+          title: 'Tiene facturas pendientes de cobro',
+          description:
+            'Las facturas se conservan, pero ya no podrás reclamárselas a su nombre. ¿Anonimizarlo igualmente?',
+          confirmLabel: 'Anonimizar igualmente',
+          destructive: true,
+        });
+        if (!again) return;
+        await anonymize.mutateAsync({ customerId: id!, confirmDebt: true });
+      }
       toast.success('Inquilino anonimizado.');
       router.push('/customers');
     } catch (err) {

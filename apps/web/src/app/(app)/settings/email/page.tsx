@@ -11,13 +11,14 @@ import {
 } from '@storageos/shared';
 import { CheckCircle2, Clock, Copy, Loader2, Trash2, XCircle } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { MonthlyDigestCard } from '../billing/monthly-digest-card';
 import { SettingsHeader } from '../settings-header';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,7 +41,8 @@ import { formatDateTime } from '@/lib/format';
 
 export default function EmailSettingsPage() {
   const hasFeature = useHasFeature('custom_domain');
-  const { data: current, isLoading } = useEmailDomain();
+  const emailDomain = useEmailDomain();
+  const { data: current, isLoading } = emailDomain;
 
   return (
     <div className="space-y-6">
@@ -74,8 +76,16 @@ export default function EmailSettingsPage() {
         <div className="flex justify-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
+      ) : emailDomain.isError ? (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void emailDomain.refetch()} />
+          </CardContent>
+        </Card>
       ) : hasFeature || current ? (
-        <DomainForm current={current ?? null} canEdit={hasFeature} />
+        // La clave cambia solo al poner o quitar un dominio: verificarlo o
+        // refrescar los datos no pisa lo que se está escribiendo.
+        <DomainForm key={current?.domain ?? 'new'} current={current ?? null} canEdit={hasFeature} />
       ) : null}
 
       {current && <DnsRecordsCard domain={current} canVerify={hasFeature} />}
@@ -88,7 +98,8 @@ export default function EmailSettingsPage() {
 }
 
 function CustomerEmailsCard() {
-  const { data } = useCustomerEmailSettings();
+  const settings = useCustomerEmailSettings();
+  const { data } = settings;
   const update = useUpdateCustomerEmailSettings();
   const canManage = useHasPermission('settings:manage');
 
@@ -111,7 +122,9 @@ function CustomerEmailsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {!data ? (
+        {settings.isError ? (
+          <SectionError onRetry={() => void settings.refetch()} />
+        ) : !data ? (
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         ) : (
           CUSTOMER_EMAIL_KINDS.map((kind) => (
@@ -140,23 +153,15 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
   const ask = useConfirm();
   const save = useSaveEmailDomain();
   const remove = useRemoveEmailDomain();
-  const [form, setForm] = useState({
-    domain: '',
-    fromLocalPart: 'no-reply',
-    fromName: '',
-    replyTo: '',
-  });
-
-  useEffect(() => {
-    if (current) {
-      setForm({
-        domain: current.domain,
-        fromLocalPart: current.fromAddress.split('@')[0] ?? 'no-reply',
-        fromName: current.fromName ?? '',
-        replyTo: current.replyTo ?? '',
-      });
-    }
-  }, [current]);
+  const [form, setForm] = useState(() => ({
+    domain: current?.domain ?? '',
+    fromLocalPart: current?.fromAddress.split('@')[0] ?? 'no-reply',
+    fromName: current?.fromName ?? '',
+    replyTo: current?.replyTo ?? '',
+  }));
+  // Nombre y dirección de respuesta solo se usan cuando el dominio está
+  // verificado y la cuenta tiene «Dominio propio».
+  const domainInUse = !!current && current.status === 'verified' && current.active;
 
   // Con un dominio ya puesto, el dominio no se cambia desde aquí (hay que
   // quitarlo y poner otro); el resto de campos sí se pueden editar.
@@ -253,6 +258,13 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
             />
           </div>
         </div>
+        {!domainInUse && (
+          <p className="text-sm text-muted-foreground">
+            El remitente, el nombre visible y la dirección de respuesta se usarán cuando el dominio
+            esté verificado. Mientras tanto, tus correos salen desde TrasterOS con el nombre de tu
+            negocio y las respuestas llegan a tu email de facturación.
+          </p>
+        )}
         {domainLocked && canEdit && (
           <p className="text-sm text-muted-foreground">
             Para usar otro dominio, quita este y añade el nuevo (habrá que poner sus DNS y
@@ -393,7 +405,8 @@ function CopyValue({ value, onCopy }: { value: string; onCopy: (v: string) => vo
 }
 
 function StaffEmailsCard() {
-  const { data } = useStaffEmailSettings();
+  const settings = useStaffEmailSettings();
+  const { data } = settings;
   const update = useUpdateStaffEmailSettings();
   const canManage = useHasPermission('settings:manage');
 
@@ -416,7 +429,9 @@ function StaffEmailsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {!data ? (
+        {settings.isError ? (
+          <SectionError onRetry={() => void settings.refetch()} />
+        ) : !data ? (
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         ) : (
           STAFF_EMAIL_KINDS.map((kind) => (

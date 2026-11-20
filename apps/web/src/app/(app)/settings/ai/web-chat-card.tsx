@@ -9,6 +9,7 @@ import { WebChatTry } from './web-chat-try';
 
 import type { OpeningHours } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { OpeningHoursEditor } from '@/components/opening-hours-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,6 +67,18 @@ export function WebChatCard() {
   }
 
   const s = settings.data;
+  if (settings.isError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Chat con IA en tu web</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SectionError onRetry={() => void settings.refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
   if (!s) return null;
   return (
     <Card>

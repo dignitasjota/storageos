@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -17,6 +19,8 @@ import {
   SendWhatsappTemplateSchema,
   RequestWhatsappMediaUploadSchema,
   SendWhatsappMediaSchema,
+  TestWhatsappOwnAiSchema,
+  TestWhatsappSettingsSchema,
   type WhatsappMediaUploadDto,
   type WhatsappStatsDto,
   type WhatsappTemplatesDto,
@@ -32,13 +36,18 @@ import {
   type WhatsappTestResultDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
+import { type z } from 'zod';
 
 import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
-import { RequireFeature } from '../../common/decorators/require-feature.decorator';
+import {
+  AllowWithoutFeature,
+  RequireFeature,
+} from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { userCan } from '../../common/guards/permissions.guard';
 
 import { WhatsappAssistantService } from './whatsapp-assistant.service';
 import { WhatsappInboxService } from './whatsapp-inbox.service';
@@ -54,11 +63,28 @@ class SendWhatsappMediaBody extends createZodDto(SendWhatsappMediaSchema) {}
 class UpdateWhatsappAssistantBody extends createZodDto(UpdateWhatsappAssistantSchema) {}
 class UpdateWhatsappConversationBody extends createZodDto(UpdateWhatsappConversationSchema) {}
 
+/** El cuerpo de las pruebas es opcional (sin él se prueba lo guardado). */
+function parseOptional<T>(schema: z.ZodType<T>, raw: unknown): T {
+  const parsed = schema.safeParse(raw ?? {});
+  if (!parsed.success) {
+    throw new BadRequestException({
+      code: 'validation_failed',
+      message: parsed.error.issues[0]?.message ?? 'Datos no válidos',
+    });
+  }
+  return parsed.data;
+}
+
 function meta(req: Request): { ipAddress?: string; userAgent?: string } {
   const ua = req.header('user-agent');
   return { ...(req.ip ? { ipAddress: req.ip } : {}), ...(ua ? { userAgent: ua } : {}) };
 }
 
+/**
+ * Leer, desactivar y desconectar no exigen el extra (tras bajar de plan se
+ * puede consultar y quitar lo guardado); conectar, activar y probar sí (lo
+ * comprueba el service o `@RequireFeature`).
+ */
 @RequireFeature('whatsapp_business')
 @Controller('settings/whatsapp')
 export class WhatsappSettingsController {
@@ -68,12 +94,25 @@ export class WhatsappSettingsController {
   ) {}
 
   @RequirePermission('settings:read')
+  @AllowWithoutFeature()
   @Get()
   get(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappSettingsDto> {
-    return this.settings.get(user.tenantId);
+    return this.settings.get(user.tenantId, {
+      includeVerifyToken: userCan(user, 'settings:manage'),
+    });
+  }
+
+  /** Desconecta el número (las conversaciones se conservan). */
+  @RequirePermission('settings:manage')
+  @AllowWithoutFeature()
+  @Delete()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async disconnect(@CurrentUser() user: AuthenticatedUser, @Req() req: Request): Promise<void> {
+    await this.settings.disconnect({ tenantId: user.tenantId, userId: user.sub, meta: meta(req) });
   }
 
   @RequirePermission('settings:manage')
+  @AllowWithoutFeature()
   @Put()
   update(
     @CurrentUser() user: AuthenticatedUser,
@@ -92,17 +131,22 @@ export class WhatsappSettingsController {
   @RequirePermission('settings:manage')
   @Post('test')
   @HttpCode(HttpStatus.OK)
-  test(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappTestResultDto> {
-    return this.settings.test(user.tenantId);
+  test(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: unknown,
+  ): Promise<WhatsappTestResultDto> {
+    return this.settings.test(user.tenantId, parseOptional(TestWhatsappSettingsSchema, body));
   }
 
   @RequirePermission('settings:read')
+  @AllowWithoutFeature()
   @Get('assistant')
   getAssistant(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappAssistantDto> {
     return this.assistant.getForTenant(user.tenantId);
   }
 
   @RequirePermission('settings:manage')
+  @AllowWithoutFeature()
   @Put('assistant')
   updateAssistant(
     @CurrentUser() user: AuthenticatedUser,
@@ -117,12 +161,15 @@ export class WhatsappSettingsController {
     });
   }
 
-  /** Prueba la clave de IA propia del tenant. */
+  /** Prueba la clave de IA propia del tenant (la escrita, si llega; si no, la guardada). */
   @RequirePermission('settings:manage')
   @Post('assistant/test')
   @HttpCode(HttpStatus.OK)
-  testAssistant(@CurrentUser() user: AuthenticatedUser): Promise<WhatsappAiTestResultDto> {
-    return this.assistant.testOwn(user.tenantId);
+  testAssistant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: unknown,
+  ): Promise<WhatsappAiTestResultDto> {
+    return this.assistant.testOwn(user.tenantId, parseOptional(TestWhatsappOwnAiSchema, body));
   }
 }
 
@@ -144,7 +191,6 @@ export class WhatsappConversationsController {
     return this.inbox.list(user.tenantId, id ? { customerId: id } : {});
   }
 
-  @RequirePermission('communications:read')
   /** Resumen del WhatsApp (conversaciones, asistente frente a equipo, reservas…). */
   @RequirePermission('communications:read')
   @Get('stats')

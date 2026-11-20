@@ -366,8 +366,12 @@ export class BillingSaasService {
     if (!plan.isActive) {
       throw new BadRequestException({ code: 'plan_inactive', message: 'El plan no esta activo' });
     }
-    // Un plan oculto solo lo contrata quien ya lo tiene asignado.
-    if (!plan.isPublic && plan.id !== currentSub?.planId) {
+    // Un plan oculto solo lo contrata quien ya lo tiene asignado o se lo han propuesto.
+    if (
+      !plan.isPublic &&
+      plan.id !== currentSub?.planId &&
+      !(await this.planOfferedTo(args.tenantId, plan.id))
+    ) {
       throw new BadRequestException({ code: 'plan_not_available', message: 'Plan no disponible' });
     }
     const yearly = args.billingCycle === 'yearly';
@@ -605,7 +609,7 @@ export class BillingSaasService {
     tenantId: string;
     userId: string;
     planId: string;
-    billingCycle?: BillingCycle;
+    billingCycle?: BillingCycle | undefined;
     couponCode?: string | null;
     meta: RequestMeta;
   }): Promise<TenantSubscriptionDto> {
@@ -617,7 +621,11 @@ export class BillingSaasService {
     if (!sub) {
       throw new NotFoundException({ code: 'no_subscription', message: 'Sin suscripción' });
     }
-    if (!plan || !plan.isActive || !plan.isPublic) {
+    if (
+      !plan ||
+      !plan.isActive ||
+      (!plan.isPublic && !(await this.planOfferedTo(args.tenantId, plan.id)))
+    ) {
       throw new BadRequestException({ code: 'plan_not_available', message: 'Plan no disponible' });
     }
     if (plan.id === sub.planId) {
@@ -629,28 +637,35 @@ export class BillingSaasService {
         message: 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
       });
     }
-    await this.assertFitsPlan(args.tenantId, plan, args.billingCycle === 'yearly');
+    // Sin periodicidad elegida conserva la que paga hoy (un anual sigue anual).
+    const cycle: BillingCycle =
+      args.billingCycle ?? billingCycleFromPeriod(sub.currentPeriodStart, sub.currentPeriodEnd);
+    await this.assertFitsPlan(args.tenantId, plan, cycle === 'yearly');
     const coupon = args.couponCode
-      ? await this.stripeCouponFor(
-          args.couponCode,
-          args.tenantId,
-          plan,
-          args.billingCycle === 'yearly',
-        )
+      ? await this.stripeCouponFor(args.couponCode, args.tenantId, plan, cycle === 'yearly')
       : null;
     await this.swapStripePlan({
       tenantId: args.tenantId,
       stripeSubscriptionId: sub.stripeSubscriptionId,
       currentPlanId: sub.planId,
       plan,
-      billingCycle: args.billingCycle ?? 'monthly',
+      billingCycle: args.billingCycle ?? 'current',
     });
     const previousPlanId = sub.planId;
+    let couponApplied: boolean | undefined;
     if (coupon) {
+      couponApplied = false;
       try {
+        // Conserva los descuentos que ya tuviera la suscripción y suma el nuevo.
+        const current = await this.stripe.subscriptions.retrieve(sub.stripeSubscriptionId);
+        const kept = (current.discounts ?? [])
+          .map((d) => (typeof d === 'string' ? d : d?.id))
+          .filter((id): id is string => !!id)
+          .map((id) => ({ discount: id }));
         await this.stripe.subscriptions.update(sub.stripeSubscriptionId, {
-          discounts: [{ coupon: coupon.stripeCouponId }],
+          discounts: [...kept, { coupon: coupon.stripeCouponId }],
         });
+        couponApplied = true;
         await this.coupons.incrementUsage(coupon.couponId).catch(() => undefined);
         await this.coupons.recordRedemption({
           couponId: coupon.couponId,
@@ -684,7 +699,21 @@ export class BillingSaasService {
     });
     await this.acceptQuoteOffers(args.tenantId);
 
-    return this.getCurrentSubscription(args.tenantId);
+    const result = await this.getCurrentSubscription(args.tenantId);
+    return couponApplied === undefined ? result : { ...result, couponApplied };
+  }
+
+  /** ¿Tiene el tenant una propuesta abierta (sin caducar) con ese plan? */
+  private async planOfferedTo(tenantId: string, planId: string): Promise<boolean> {
+    const n = await this.admin.platformQuoteOffer.count({
+      where: {
+        tenantId,
+        planId,
+        status: 'sent',
+        OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+      },
+    });
+    return n > 0;
   }
 
   /**
@@ -1342,6 +1371,9 @@ export class BillingSaasService {
       stripeSubscriptionId: row.stripeSubscriptionId,
       billingMode: row.billingMode,
       plan,
+      billingCycle: row.stripeSubscriptionId
+        ? billingCycleFromPeriod(row.currentPeriodStart, row.currentPeriodEnd)
+        : null,
     };
   }
 
@@ -1826,4 +1858,13 @@ export class BillingSaasService {
       this.logger.debug(`recordStripeInvoice create race (invoice=${externalId}): ${String(err)}`);
     }
   }
+}
+
+/**
+ * Periodicidad que paga hoy por Stripe, deducida del periodo que Stripe fija
+ * (un mes o un año): la suscripción de Stripe no tiene prueba propia.
+ */
+export function billingCycleFromPeriod(start: Date, end: Date): 'monthly' | 'yearly' {
+  const days = (end.getTime() - start.getTime()) / 86_400_000;
+  return days > 200 ? 'yearly' : 'monthly';
 }

@@ -3,6 +3,7 @@
 import { OFFERED_WEBHOOK_EVENTS, WEBHOOK_EVENT_LABELS } from '@storageos/shared';
 import Link from 'next/link';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import type {
   ApiKeyDto,
@@ -13,6 +14,8 @@ import type {
   WebhookWithSecretDto,
 } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,6 +31,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ApiError } from '@/lib/auth/api';
 import { formatDateTime } from '@/lib/format';
 import {
   useApiKeys,
@@ -47,7 +51,19 @@ const SCOPES: ApiKeyScope[] = [
   'webhooks:trigger',
 ];
 
+const SCOPE_LABELS: Record<ApiKeyScope, string> = {
+  'invoices:read': 'Leer facturas',
+  'invoices:write': 'Crear y cambiar facturas',
+  'contracts:read': 'Leer contratos',
+  'customers:read': 'Leer inquilinos',
+  'webhooks:trigger': 'Lanzar webhooks',
+};
+
 const EVENT_TYPES: WebhookEventType[] = [...OFFERED_WEBHOOK_EVENTS];
+
+function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError ? err.body.message : fallback;
+}
 
 export default function SettingsIntegrationsPage() {
   return (
@@ -55,12 +71,12 @@ export default function SettingsIntegrationsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Integraciones</h1>
         <p className="text-sm text-muted-foreground">
-          API keys para integraciones externas y webhooks para recibir eventos en tu sistema.
+          Avisos a otros sistemas cuando pasa algo en tu cuenta (webhooks) y claves para la API.
         </p>
       </div>
       <Tabs defaultValue="api-keys" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="api-keys">API keys</TabsTrigger>
+          <TabsTrigger value="api-keys">Claves de API</TabsTrigger>
           <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
         </TabsList>
         <TabsContent value="api-keys">
@@ -79,34 +95,63 @@ export default function SettingsIntegrationsPage() {
 // ============================================================================
 
 function ApiKeysSection() {
-  const { data, isLoading } = useApiKeys();
+  const { data, isLoading, isError, refetch } = useApiKeys();
   const revoke = useRevokeApiKey();
+  const ask = useConfirm();
   const [creating, setCreating] = useState(false);
   const [revealed, setRevealed] = useState<ApiKeyWithPlaintextDto | null>(null);
 
+  async function onRevoke(k: ApiKeyDto) {
+    const ok = await ask({
+      title: `¿Revocar la clave «${k.name}»?`,
+      description:
+        'Lo que la use dejará de funcionar al momento. No se puede deshacer: tendrás que crear otra.',
+      confirmLabel: 'Revocar',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await revoke.mutateAsync(k.id);
+      toast.success('Clave revocada.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo revocar la clave.'));
+    }
+  }
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <div>
-          <CardTitle>API keys</CardTitle>
+          <CardTitle>Claves de API</CardTitle>
           <CardDescription>
-            Tokens Bearer (`sk_live_...`) para integraciones programáticas. Se muestran en plano
-            solo una vez al crearlos.
+            Para que otro programa se conecte a tu cuenta. La clave completa solo se ve una vez, al
+            crearla.
           </CardDescription>
         </div>
-        <Button onClick={() => setCreating(true)}>Nueva API key</Button>
+        <Button onClick={() => setCreating(true)}>Nueva clave</Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
+        <Alert>
+          <AlertTitle>La API está empezando</AlertTitle>
+          <AlertDescription>
+            Por ahora solo permite comprobar que la clave funciona (
+            <code className="text-xs">GET /v1/integrations/whoami</code>). Las consultas de
+            facturas, contratos e inquilinos llegarán pronto. Para recibir avisos cuando pasa algo,
+            usa los webhooks.
+          </AlertDescription>
+        </Alert>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : isError ? (
+          <SectionError onRetry={() => void refetch()} />
         ) : data && data.length > 0 ? (
           <div className="space-y-2">
             {data.map((k) => (
-              <ApiKeyRow key={k.id} item={k} onRevoke={() => revoke.mutate(k.id)} />
+              <ApiKeyRow key={k.id} item={k} onRevoke={() => void onRevoke(k)} />
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No tienes API keys todavía.</p>
+          <p className="text-sm text-muted-foreground">No tienes claves de API todavía.</p>
         )}
       </CardContent>
 
@@ -124,18 +169,18 @@ function ApiKeysSection() {
 function ApiKeyRow({ item, onRevoke }: { item: ApiKeyDto; onRevoke: () => void }) {
   const revoked = !!item.revokedAt;
   return (
-    <div className="flex items-center justify-between rounded-md border p-3 text-sm">
-      <div className="flex flex-col gap-1">
+    <div className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+      <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-center gap-2">
           <span className="font-medium">{item.name}</span>
           {revoked ? <Badge variant="outline">Revocada</Badge> : <Badge>Activa</Badge>}
         </div>
-        <code className="text-xs text-muted-foreground">{item.keyPrefix}.***</code>
+        <code className="truncate text-xs text-muted-foreground">{item.keyPrefix}…</code>
         {item.scopes.length > 0 ? (
           <div className="flex flex-wrap gap-1 pt-1">
             {(item.scopes as readonly string[]).map((s) => (
               <Badge key={s} variant={s === '*' ? 'secondary' : 'outline'} className="text-[10px]">
-                {s === '*' ? 'acceso total' : s}
+                {s === '*' ? 'Acceso total' : (SCOPE_LABELS[s as ApiKeyScope] ?? s)}
               </Badge>
             ))}
           </div>
@@ -165,25 +210,28 @@ function CreateApiKeyDialog({
 }) {
   const create = useCreateApiKey();
   const [name, setName] = useState('');
-  // Por defecto todos los scopes marcados. El backend comprime los 5 a
-  // `['*']` (wildcard) al persistir, asi que si el user no toca nada la
-  // key creada tiene acceso total.
-  const [scopes, setScopes] = useState<ApiKeyScope[]>([...SCOPES]);
+  // Hay que marcar al menos un permiso (el servidor rechaza una clave sin
+  // ninguno). Por defecto, solo leer facturas.
+  const [scopes, setScopes] = useState<ApiKeyScope[]>(['invoices:read']);
 
   const submit = async () => {
-    if (!name.trim()) return;
-    const k = await create.mutateAsync({ name: name.trim(), scopes });
-    onCreated(k);
-    setName('');
-    setScopes([...SCOPES]);
-    onOpenChange(false);
+    if (!name.trim() || scopes.length === 0) return;
+    try {
+      const k = await create.mutateAsync({ name: name.trim(), scopes });
+      onCreated(k);
+      setName('');
+      setScopes(['invoices:read']);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo crear la clave.'));
+    }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nueva API key</DialogTitle>
+          <DialogTitle>Nueva clave de API</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
@@ -196,7 +244,7 @@ function CreateApiKeyDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label>Scopes</Label>
+            <Label>Qué puede hacer</Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {SCOPES.map((s) => {
                 const checked = scopes.includes(s);
@@ -209,14 +257,13 @@ function CreateApiKeyDialog({
                         setScopes((cur) => (isOn ? [...cur, s] : cur.filter((x) => x !== s)));
                       }}
                     />
-                    <code className="text-xs">{s}</code>
+                    <span>{SCOPE_LABELS[s]}</span>
                   </label>
                 );
               })}
             </div>
             <p className="text-xs text-muted-foreground">
-              Cada endpoint de `/integrations/*` declara el scope que requiere. Una API key sin
-              ningun scope marcado se crea con acceso total (wildcard) por compatibilidad.
+              Marca solo lo que vaya a necesitar el otro programa (al menos uno).
             </p>
           </div>
         </div>
@@ -224,7 +271,10 @@ function CreateApiKeyDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={submit} disabled={!name.trim() || create.isPending}>
+          <Button
+            onClick={() => void submit()}
+            disabled={!name.trim() || scopes.length === 0 || create.isPending}
+          >
             Crear
           </Button>
         </DialogFooter>
@@ -247,7 +297,7 @@ function RevealedApiKeyDialog({
     <Dialog open={!!item} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>API key creada</DialogTitle>
+          <DialogTitle>Clave creada</DialogTitle>
         </DialogHeader>
         <Alert>
           <AlertTitle>Guarda esta clave ahora</AlertTitle>
@@ -256,7 +306,7 @@ function RevealedApiKeyDialog({
           </AlertDescription>
         </Alert>
         <div className="space-y-2">
-          <Label>Token</Label>
+          <Label>Clave</Label>
           <Input readOnly value={item?.keyPlaintext ?? ''} className="font-mono text-xs" />
           <Button variant="outline" size="sm" onClick={copy}>
             Copiar
@@ -275,19 +325,55 @@ function RevealedApiKeyDialog({
 // ============================================================================
 
 function WebhooksSection() {
-  const { data, isLoading } = useWebhooks();
+  const { data, isLoading, isError, refetch } = useWebhooks();
   const revoke = useRevokeWebhook();
   const rotate = useRotateWebhookSecret();
+  const ask = useConfirm();
   const [creating, setCreating] = useState(false);
   const [revealed, setRevealed] = useState<WebhookWithSecretDto | null>(null);
 
+  async function onRevoke(w: WebhookDto) {
+    const ok = await ask({
+      title: `¿Revocar el webhook «${w.name}»?`,
+      description:
+        'Dejará de recibir avisos al momento. No se puede deshacer: tendrás que crear otro.',
+      confirmLabel: 'Revocar',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await revoke.mutateAsync(w.id);
+      toast.success('Webhook revocado.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo revocar el webhook.'));
+    }
+  }
+
+  async function onRotate(w: WebhookDto) {
+    const ok = await ask({
+      title: '¿Renovar el secreto?',
+      description:
+        'El secreto actual deja de valer al momento: tendrás que poner el nuevo en tu sistema para que siga comprobando la firma.',
+      confirmLabel: 'Renovar',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      setRevealed(await rotate.mutateAsync(w.id));
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo renovar el secreto.'));
+    }
+  }
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <div>
-          <CardTitle>Webhooks salientes</CardTitle>
+          <CardTitle>Webhooks</CardTitle>
           <CardDescription>
-            Recibe eventos firmados con HMAC SHA-256 en tu URL. Retry exponencial: 60s, 5min, 30min.
+            Avisamos a tu dirección cada vez que pasa algo (una factura cobrada, un contrato
+            firmado…), con una firma HMAC SHA-256 para que compruebes que somos nosotros. Si tu
+            servidor no responde, se reintenta dos veces más: al minuto y dos minutos después.
           </CardDescription>
         </div>
         <Button onClick={() => setCreating(true)}>Nuevo webhook</Button>
@@ -295,17 +381,16 @@ function WebhooksSection() {
       <CardContent>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : isError ? (
+          <SectionError onRetry={() => void refetch()} />
         ) : data && data.length > 0 ? (
           <div className="space-y-2">
             {data.map((w) => (
               <WebhookRow
                 key={w.id}
                 item={w}
-                onRevoke={() => revoke.mutate(w.id)}
-                onRotate={async () => {
-                  const r = await rotate.mutateAsync(w.id);
-                  setRevealed(r);
-                }}
+                onRevoke={() => void onRevoke(w)}
+                onRotate={() => void onRotate(w)}
               />
             ))}
           </div>
@@ -335,17 +420,17 @@ function WebhookRow({
   onRotate: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-md border p-3 text-sm">
-      <div className="flex flex-col gap-1">
+    <div className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+      <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-center gap-2">
           <span className="font-medium">{item.name}</span>
           {item.isActive ? <Badge>Activo</Badge> : <Badge variant="outline">Revocado</Badge>}
         </div>
-        <code className="text-xs text-muted-foreground">{item.url}</code>
+        <code className="break-all text-xs text-muted-foreground">{item.url}</code>
         <div className="flex flex-wrap gap-1 pt-1">
           {item.events.map((e) => (
-            <Badge key={e} variant="outline" className="text-[10px]">
-              {e}
+            <Badge key={e} variant="outline" className="text-[10px]" title={e}>
+              {WEBHOOK_EVENT_LABELS[e] ?? e}
             </Badge>
           ))}
         </div>
@@ -357,7 +442,7 @@ function WebhookRow({
         {item.isActive ? (
           <>
             <Button variant="outline" size="sm" onClick={onRotate}>
-              Rotar secret
+              Renovar secreto
             </Button>
             <Button variant="outline" size="sm" onClick={onRevoke}>
               Revocar
@@ -385,12 +470,16 @@ function CreateWebhookDialog({
 
   const submit = async () => {
     if (!name.trim() || !url.trim() || events.length === 0) return;
-    const w = await create.mutateAsync({ name: name.trim(), url: url.trim(), events });
-    onCreated(w);
-    setName('');
-    setUrl('');
-    setEvents([]);
-    onOpenChange(false);
+    try {
+      const w = await create.mutateAsync({ name: name.trim(), url: url.trim(), events });
+      onCreated(w);
+      setName('');
+      setUrl('');
+      setEvents([]);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo crear el webhook.'));
+    }
   };
 
   return (
@@ -405,12 +494,12 @@ function CreateWebhookDialog({
             <Input id="wh-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="wh-url">URL</Label>
+            <Label htmlFor="wh-url">Dirección (https)</Label>
             <Input
               id="wh-url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://mi-app.com/webhooks/storageos"
+              placeholder="https://mi-app.com/webhooks/trasteros"
             />
           </div>
           <div className="space-y-2">
@@ -442,7 +531,7 @@ function CreateWebhookDialog({
             Cancelar
           </Button>
           <Button
-            onClick={submit}
+            onClick={() => void submit()}
             disabled={!name.trim() || !url.trim() || events.length === 0 || create.isPending}
           >
             Crear
@@ -467,16 +556,16 @@ function RevealedWebhookDialog({
     <Dialog open={!!item} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Secret del webhook</DialogTitle>
+          <DialogTitle>Secreto del webhook</DialogTitle>
         </DialogHeader>
         <Alert>
-          <AlertTitle>Guarda este secret ahora</AlertTitle>
+          <AlertTitle>Guarda este secreto ahora</AlertTitle>
           <AlertDescription>
             Lo necesitarás para verificar el HMAC SHA-256 de cada llamada. No volverá a mostrarse.
           </AlertDescription>
         </Alert>
         <div className="space-y-2">
-          <Label>Signing secret</Label>
+          <Label>Secreto para la firma</Label>
           <Input readOnly value={item?.secret ?? ''} className="font-mono text-xs" />
           <Button variant="outline" size="sm" onClick={copy}>
             Copiar

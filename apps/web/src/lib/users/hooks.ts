@@ -79,12 +79,18 @@ export function useUpdateProfile() {
 }
 
 export function useChangePassword() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: ChangePasswordInput) =>
       apiFetch<void>('/me/change-password', {
         method: 'POST',
         json: input,
       }),
+    // Cierra las demás sesiones y anula un cambio de email pendiente.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['me', 'sessions'] });
+      void qc.invalidateQueries({ queryKey: ['me', 'email-change'] });
+    },
   });
 }
 

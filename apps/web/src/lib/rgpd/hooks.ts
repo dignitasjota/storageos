@@ -43,15 +43,31 @@ export function useExportCustomerData() {
   });
 }
 
-/** Anonimiza al inquilino; con `requestId` la solicitud queda atendida. */
+/**
+ * Anonimiza al inquilino; con `requestId` la solicitud queda atendida. Si debe
+ * dinero el servidor responde 409 `customer_has_debt`: se vuelve a pedir con
+ * `confirmDebt` tras confirmarlo.
+ */
 export function useAnonymizeCustomer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ customerId, requestId }: { customerId: string; requestId?: string }) =>
-      apiFetch<void>(
-        `/rgpd/customers/${customerId}/anonymize${requestId ? `?requestId=${requestId}` : ''}`,
-        { method: 'POST' },
-      ),
+    mutationFn: ({
+      customerId,
+      requestId,
+      confirmDebt,
+    }: {
+      customerId: string;
+      requestId?: string;
+      confirmDebt?: boolean;
+    }) => {
+      const qs = new URLSearchParams();
+      if (requestId) qs.set('requestId', requestId);
+      if (confirmDebt) qs.set('confirmDebt', '1');
+      const q = qs.toString();
+      return apiFetch<void>(`/rgpd/customers/${customerId}/anonymize${q ? `?${q}` : ''}`, {
+        method: 'POST',
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: rgpdKey });
       void qc.invalidateQueries({ queryKey: ['customers'] });

@@ -2,7 +2,7 @@ import { CanActivate, type ExecutionContext, ForbiddenException, Injectable } fr
 import { Reflector } from '@nestjs/core';
 import { roleHasAllPermissions } from '@storageos/shared';
 
-import { PERMISSION_KEY } from '../decorators/require-permission.decorator';
+import { ANY_PERMISSION_KEY, PERMISSION_KEY } from '../decorators/require-permission.decorator';
 
 import type { AuthenticatedUser } from '../decorators/current-user.decorator';
 import type { Permission } from '@storageos/shared';
@@ -33,6 +33,21 @@ export class PermissionsGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    const any = this.reflector.getAllAndOverride<Permission[] | undefined>(ANY_PERMISSION_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (any && any.length > 0) {
+      const user = context.switchToHttp().getRequest<{ user?: AuthenticatedUser }>().user;
+      if (!user?.role || !any.some((p) => hasAll(user, [p]))) {
+        throw new ForbiddenException({
+          message: 'Tu rol no tiene permiso para esta accion',
+          code: 'insufficient_permission',
+          details: { requiredPermissions: any },
+        });
+      }
+      return true;
+    }
     const required = this.reflector.getAllAndOverride<Permission[] | undefined>(PERMISSION_KEY, [
       context.getHandler(),
       context.getClass(),

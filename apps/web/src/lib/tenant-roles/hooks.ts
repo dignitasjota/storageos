@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
+import { usersQueryKey } from '../users/hooks';
 
 import type {
   AssignTenantRoleInput,
@@ -11,10 +12,12 @@ import type {
 
 export const tenantRolesKey = ['settings', 'roles'] as const;
 
-export function useTenantRoles() {
+/** Roles a medida. Solo los gestiona el propietario: a los demás no se les piden. */
+export function useTenantRoles(enabled = true) {
   return useQuery({
     queryKey: tenantRolesKey,
     queryFn: () => apiFetch<TenantRoleDto[]>('/settings/roles'),
+    enabled,
   });
 }
 
@@ -51,6 +54,7 @@ export function useAssignTenantRole() {
       apiFetch<void>(`/settings/users/${userId}/tenant-role`, { method: 'PATCH', json: input }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: tenantRolesKey });
+      qc.invalidateQueries({ queryKey: usersQueryKey });
     },
   });
 }
@@ -65,7 +69,7 @@ export function useSetUserFacilities() {
         json: { facilityIds },
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: usersQueryKey });
     },
   });
 }

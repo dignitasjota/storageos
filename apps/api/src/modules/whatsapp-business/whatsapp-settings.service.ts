@@ -1,10 +1,16 @@
 import { createHash, randomBytes } from 'node:crypto';
 
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -14,6 +20,7 @@ import { WhatsappCloudClient, WhatsappCloudError } from './whatsapp-cloud.client
 import type { Env } from '../../config/env.schema';
 import type { RequestMeta } from '../auth/auth.service';
 import type {
+  TestWhatsappSettingsInput,
   UpdateWhatsappSettingsInput,
   WhatsappSettingsDto,
   WhatsappTestResultDto,
@@ -43,7 +50,14 @@ export class WhatsappSettingsService {
     return `${this.config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '')}/webhooks/whatsapp`;
   }
 
-  async get(tenantId: string): Promise<WhatsappSettingsDto> {
+  /**
+   * `includeVerifyToken`: el token de verificación del webhook solo lo ve quien
+   * puede cambiar los ajustes (con él se configura la app de Meta).
+   */
+  async get(
+    tenantId: string,
+    opts: { includeVerifyToken?: boolean } = {},
+  ): Promise<WhatsappSettingsDto> {
     const row = await this.prisma.withTenant(
       (tx) => tx.tenantWhatsappSettings.findUnique({ where: { tenantId } }),
       tenantId,
@@ -76,9 +90,10 @@ export class WhatsappSettingsService {
       webButtonEnabled: row.webButtonEnabled,
       lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
       webhookUrl: this.webhookUrl(),
-      webhookVerifyToken: row.webhookVerifyTokenEncrypted
-        ? this.decrypt(row.webhookVerifyTokenEncrypted, tenantId)
-        : null,
+      webhookVerifyToken:
+        opts.includeVerifyToken && row.webhookVerifyTokenEncrypted
+          ? this.decrypt(row.webhookVerifyTokenEncrypted, tenantId)
+          : null,
       appSecretConfigured: !!row.appSecretEncrypted,
     };
   }
@@ -94,6 +109,26 @@ export class WhatsappSettingsService {
       (tx) => tx.tenantWhatsappSettings.findUnique({ where: { tenantId } }),
       tenantId,
     );
+    // Sin el extra (p. ej. tras bajar de plan) solo se puede apagar o quitar lo
+    // guardado: nada que conecte el número o lo vuelva a encender.
+    if (!(await tenantHasFeature(this.admin, tenantId, 'whatsapp_business'))) {
+      const turnsSomethingOn =
+        !existing ||
+        input.accessToken !== undefined ||
+        !!input.appSecret ||
+        (input.phoneNumberId !== undefined && input.phoneNumberId !== existing.phoneNumberId) ||
+        (input.wabaId !== undefined && (input.wabaId || null) !== existing.wabaId) ||
+        (input.enabled === true && !existing.enabled) ||
+        (input.webButtonEnabled === true && !existing.webButtonEnabled);
+      if (turnsSomethingOn) {
+        throw new ForbiddenException({
+          code: 'feature_not_in_plan',
+          message:
+            'WhatsApp Business no está en tu plan: solo puedes desactivarlo o desconectar el número.',
+          details: { requiredFeature: 'whatsapp_business' },
+        });
+      }
+    }
     const phoneNumberId = input.phoneNumberId ?? existing?.phoneNumberId;
     const accessToken =
       input.accessToken ??
@@ -195,11 +230,71 @@ export class WhatsappSettingsService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return this.get(tenantId);
+    return this.get(tenantId, { includeVerifyToken: true });
   }
 
-  /** Comprueba las credenciales guardadas contra Meta. */
-  async test(tenantId: string): Promise<WhatsappTestResultDto> {
+  /**
+   * Desconecta el número: borra el token, el secreto de la app, la clave de IA
+   * propia y el resto de ajustes, y libera el ID del número para usarlo en otra
+   * cuenta. Las conversaciones se conservan.
+   */
+  async disconnect(args: { tenantId: string; userId: string; meta: RequestMeta }): Promise<void> {
+    const { tenantId } = args;
+    const existing = await this.prisma.withTenant(
+      (tx) => tx.tenantWhatsappSettings.findUnique({ where: { tenantId } }),
+      tenantId,
+    );
+    if (!existing) return;
+    await this.prisma.withTenant(
+      (tx) => tx.tenantWhatsappSettings.delete({ where: { tenantId } }),
+      tenantId,
+    );
+    await this.audit.write({
+      tenantId,
+      userId: args.userId,
+      action: 'tenant.whatsapp.disconnected',
+      entityType: 'Tenant',
+      entityId: tenantId,
+      changes: { phoneNumberId: existing.phoneNumberId },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+  }
+
+  /**
+   * Comprueba las credenciales contra Meta. Con un token en `input` prueba lo
+   * escrito sin guardarlo; si no, lo guardado (y anota la comprobación).
+   */
+  async test(
+    tenantId: string,
+    input: TestWhatsappSettingsInput = {},
+  ): Promise<WhatsappTestResultDto> {
+    if (input.accessToken) {
+      const saved = await this.admin.tenantWhatsappSettings.findUnique({
+        where: { tenantId },
+        select: { phoneNumberId: true },
+      });
+      const phoneNumberId = input.phoneNumberId ?? saved?.phoneNumberId;
+      if (!phoneNumberId) {
+        return {
+          ok: false,
+          displayPhone: null,
+          verifiedName: null,
+          error: 'Indica el ID del número',
+        };
+      }
+      try {
+        const info = await this.client.getPhoneInfo(phoneNumberId, input.accessToken);
+        return { ok: true, ...info, error: null };
+      } catch (err) {
+        return {
+          ok: false,
+          displayPhone: null,
+          verifiedName: null,
+          error: err instanceof Error ? err.message : 'Error desconocido',
+        };
+      }
+    }
     const resolved = await this.resolveForTenant(tenantId);
     if (!resolved) {
       return { ok: false, displayPhone: null, verifiedName: null, error: 'Sin configurar' };

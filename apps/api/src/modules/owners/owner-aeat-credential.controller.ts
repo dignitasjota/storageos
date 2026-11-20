@@ -85,7 +85,7 @@ export class OwnerAeatCredentialController {
     if (!parsed.success) {
       throw new BadRequestException({
         code: 'invalid_fields',
-        message: 'Campos invalidos en el body.',
+        message: 'Campos no válidos: falta la contraseña del certificado.',
       });
     }
     return this.credentials.upload({

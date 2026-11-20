@@ -102,7 +102,8 @@ export class PaymentRetryService {
           );
         }
         // Sin contar, se respeta igualmente el intervalo hasta volver a mirarla.
-        await this.admin.invoice.update({
+        // updateMany: si la factura desaparece entretanto, no corta el repaso del resto.
+        await this.admin.invoice.updateMany({
           where: { id: inv.id },
           data: counts
             ? { autoRetryCount: { increment: 1 }, autoRetryLastAt: now }

@@ -94,6 +94,13 @@ describe('Blog del tenant (e2e)', () => {
     expect(uploadReq.status).toBe(200);
     expect(uploadReq.body.key).toMatch(new RegExp(`^${owner.tenantId}/blog/${id}/`));
     expect(uploadReq.body.requiredHeaders).toEqual({ 'Content-Type': 'image/png' });
+    // La portada se confirma una vez subida (cabecera PNG real).
+    const put = await fetch(uploadReq.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/png' },
+      body: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]),
+    });
+    expect(put.ok).toBe(true);
 
     const setCover = await request(app.getHttpServer())
       .put(`/blog-posts/${id}/cover`)

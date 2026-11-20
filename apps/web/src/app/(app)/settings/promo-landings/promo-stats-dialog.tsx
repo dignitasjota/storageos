@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import type { PromoLandingDto } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ApiError } from '@/lib/auth/api';
 import { usePromoLandingStats } from '@/lib/promo-landings/hooks';
 
 const PERIODS = [
@@ -62,7 +64,15 @@ export function PromoStatsDialog({
           ))}
         </div>
 
-        {stats.isLoading || !s ? (
+        {stats.isError ? (
+          stats.error instanceof ApiError && stats.error.statusCode === 403 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              {stats.error.body.message}
+            </p>
+          ) : (
+            <SectionError onRetry={() => void stats.refetch()} />
+          )
+        ) : stats.isLoading || !s ? (
           <div className="flex justify-center py-8">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>

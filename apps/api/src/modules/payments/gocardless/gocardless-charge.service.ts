@@ -23,6 +23,12 @@ export class GoCardlessChargeService {
     private readonly settings: GoCardlessSettingsService,
   ) {}
 
+  /** ¿Se puede cobrar ahora por GoCardless (activado y con credenciales)? */
+  async available(tenantId: string): Promise<boolean> {
+    const resolved = await this.settings.getResolved(tenantId);
+    return !!resolved?.enabled;
+  }
+
   async charge(args: {
     tenantId: string;
     /** Id del mandato de GoCardless (el token descifrado del PaymentMethod). */

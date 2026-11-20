@@ -581,6 +581,8 @@ export class LeadsService {
    */
   async createFromPromoLanding(args: {
     tenantId: string;
+    /** Landing por la que llega (sus resultados se cuentan por este id). */
+    landingId?: string;
     landingName: string;
     name: string;
     phone: string;
@@ -626,6 +628,7 @@ export class LeadsService {
               marketingConsentAt: args.acceptsMarketing ? new Date() : null,
               metadata: {
                 origin: 'promo_landing',
+                ...(args.landingId ? { promoLandingId: args.landingId } : {}),
                 userAgent: args.meta.userAgent ?? null,
                 ipAddress: args.meta.ipAddress ?? null,
               } satisfies Prisma.InputJsonValue,

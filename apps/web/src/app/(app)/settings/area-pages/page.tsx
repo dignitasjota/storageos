@@ -10,6 +10,7 @@ import { SettingsHeader } from '../settings-header';
 import { AreaPageDialog, type AreaPageTarget } from './area-page-dialog';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +21,11 @@ import { useTenantBranding } from '@/lib/branding/hooks';
 
 function Status({ p }: { p: AreaPageOverviewDto }) {
   if (p.redirect?.to === 'home') return <Badge variant="secondary">Lleva a la portada</Badge>;
-  if (p.warnings.includes('not_published')) return <Badge variant="secondary">Apagada</Badge>;
+  if (p.warnings.includes('not_published')) {
+    return (
+      <Badge variant="secondary">{p.kind === 'city' ? 'Texto propio apagado' : 'Apagada'}</Badge>
+    );
+  }
   if (p.warnings.includes('no_facilities')) return <Badge variant="destructive">Sin locales</Badge>;
   if (!p.indexable) return <Badge variant="outline">En la web, sin ofrecer a Google</Badge>;
   return <Badge>En Google</Badge>;
@@ -32,6 +37,9 @@ function Warnings({ p }: { p: AreaPageOverviewDto }) {
     lines.push(
       `Es tu único local en esta ciudad: la página muestra la ficha completa de ${p.soleFacilityName} y su dirección redirige aquí.`,
     );
+  }
+  if (p.kind === 'city' && p.warnings.includes('not_published')) {
+    lines.push('El texto propio está apagado: la página sale con el texto generado.');
   }
   if (p.warnings.includes('no_intro'))
     lines.push('Sin texto propio: ahora solo tiene el texto generado.');
@@ -169,6 +177,12 @@ export default function AreaPagesPage() {
         <div className="flex justify-center py-10">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
+      ) : data.isError ? (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void data.refetch()} />
+          </CardContent>
+        </Card>
       ) : (
         <>
           <Card>

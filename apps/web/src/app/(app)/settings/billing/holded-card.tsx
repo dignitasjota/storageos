@@ -137,7 +137,17 @@ export function HoldedCard() {
   async function runBackfill() {
     try {
       const res = await backfill.mutateAsync();
-      toast.success(`${res.synced} factura(s) copiada(s) a Holded.`);
+      const sent =
+        res.synced === 0
+          ? 'No se ha enviado nada nuevo a Holded.'
+          : res.synced === 1
+            ? '1 factura enviada a Holded.'
+            : `${res.synced} facturas enviadas a Holded.`;
+      toast.success(
+        res.remaining > 0
+          ? `${sent} Quedan ${res.remaining}: vuelve a pulsar «Enviar pendientes».`
+          : `${sent} No queda nada pendiente.`,
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error al enviar a Holded');
     }
@@ -268,6 +278,15 @@ export function HoldedCard() {
           <p className="text-xs text-destructive">Último error: {data.lastError}</p>
         )}
 
+        {(data?.pendingCount ?? 0) > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            {data!.pendingCount === 1
+              ? 'Falta 1 factura por enviar a Holded (o sus cobros).'
+              : `Faltan ${data!.pendingCount} facturas por enviar a Holded (o sus cobros).`}{' '}
+            Pulsa «Enviar pendientes».
+          </p>
+        )}
+
         {(data?.reviewCount ?? 0) > 0 && <HoldedReviewList />}
 
         <div className="flex flex-wrap gap-2">
@@ -282,7 +301,9 @@ export function HoldedCard() {
           <Button
             variant="ghost"
             onClick={runBackfill}
-            disabled={backfill.isPending || !data?.ready}
+            // También emitiendo en Holded sin copia: reintenta los cobros de
+            // las facturas que emite Holded.
+            disabled={backfill.isPending || !(data?.ready || data?.issuingReady)}
           >
             {backfill.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             Enviar pendientes

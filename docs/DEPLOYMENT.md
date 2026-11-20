@@ -2915,3 +2915,19 @@ Migraciones `20270213100000_report_schedules` y `20270213110000_ai_scheduled_que
 - **Preguntar al asistente** desde la ficha de un inquilino, contrato, factura o trastero: el asistente ya sabe de quién se habla.
 - **Sugerencias del día** según lo que pasa: facturas vencidas, entradas y salidas de hoy, contratos que vencen, tareas atrasadas y trasteros libres.
 - **Preguntas programadas**: una pregunta que el asistente responde cada día o cada semana y llega por correo a quien la programó (cada respuesta gasta una consulta). La tarea va en el **API** (el asistente no está en el worker).
+
+## 172. Revisión de Configuración del panel del tenant: fallos (2026-11-20)
+
+Migración `20270214100000_invoice_series_single_default` (se aplica sola): deja una sola serie por defecto por emisor (si hubiera varias, se queda la más antigua activa) y crea un índice único. Sin variables nuevas.
+
+Qué cambia para los usuarios:
+
+- **Entrar con verificación en dos pasos** ya no rompe el panel (también al aceptar una invitación).
+- **Desactivar la verificación en dos pasos** funciona otra vez (antes la página se rompía).
+- **Cerrar la sesión de otro dispositivo** ya no cierra también la tuya.
+- **Roles a medida**: solo el propietario puede transferir la propiedad, crear roles, asignarlos y asignar locales.
+- **Claves de API**: las nuevas tienen otro formato (`sk_live_<negocio>.<id>_<secreto>`); las antiguas siguen valiendo. Ahora piden al menos un permiso.
+- **Recargo por mora**: se configura solo en Escalado de impagos.
+- **Páginas sin permiso**: quien abra por dirección una página de Configuración que no le corresponde ve un aviso en vez del formulario.
+
+Tras desplegar, revisar en Facturación que cada emisor tiene su serie por defecto.

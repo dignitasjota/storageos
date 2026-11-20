@@ -12,6 +12,7 @@ import {
   publicCouponRejectMessage,
   buildFirstPaymentQuote,
   firstMonthPlan,
+  parsePromoLandingContent,
   quoteCoupon,
   rentTax,
   type CouponDto,
@@ -456,7 +457,23 @@ export class CouponsService {
         message: 'Este cupón ya se ha usado: desactívalo en lugar de borrarlo',
       });
     }
-    await this.prisma.withTenant((tx) => tx.coupon.delete({ where: { id } }), tenantId);
+    await this.prisma.withTenant(async (tx) => {
+      // Las landings que lo anunciaban dejan de enseñar la oferta (el cupón ya no existe).
+      const landings = await tx.promoLanding.findMany({
+        where: { tenantId, couponId: id },
+        select: { id: true, content: true },
+      });
+      for (const l of landings) {
+        const content = parsePromoLandingContent(l.content);
+        content.offer.enabled = false;
+        content.promotion.enabled = false;
+        await tx.promoLanding.update({
+          where: { id: l.id },
+          data: { couponId: null, content: content as unknown as Prisma.InputJsonValue },
+        });
+      }
+      await tx.coupon.delete({ where: { id } });
+    }, tenantId);
     await this.audit.write({
       tenantId,
       userId,

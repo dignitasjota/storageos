@@ -35,7 +35,9 @@ describe('API keys (e2e)', () => {
     expect(create.status).toBe(201);
     expect(create.body.id).toBeDefined();
     expect(create.body.keyPlaintext).toMatch(/^sk_live_[0-9a-f-]{36}\./);
-    expect(create.body.keyPrefix).toBe(`sk_live_${owner.tenantId}`);
+    expect(create.body.keyPrefix).toBe(
+      `sk_live_${owner.tenantId}.${create.body.id.replace(/-/g, '')}`,
+    );
     expect(create.body.scopes).toEqual(['invoices:read', 'invoices:write']);
     expect(create.body.revokedAt).toBeNull();
 
@@ -48,7 +50,7 @@ describe('API keys (e2e)', () => {
     const row = list.body.find((r: { id: string }) => r.id === create.body.id);
     expect(row).toBeDefined();
     expect(row.keyPlaintext).toBeUndefined();
-    expect(row.keyPrefix).toBe(`sk_live_${owner.tenantId}`);
+    expect(row.keyPrefix).toBe(create.body.keyPrefix);
   });
 
   it('verifica API key autenticando una request via /integrations/whoami', async () => {
@@ -57,7 +59,7 @@ describe('API keys (e2e)', () => {
     const create = await request(app.getHttpServer())
       .post('/settings/api-keys')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ name: 'Verify test', scopes: [] });
+      .send({ name: 'Verify test', scopes: ['invoices:read'] });
     expect(create.status).toBe(201);
     const apiKey = create.body.keyPlaintext as string;
 
@@ -74,7 +76,7 @@ describe('API keys (e2e)', () => {
     const create = await request(app.getHttpServer())
       .post('/settings/api-keys')
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ name: 'To revoke', scopes: [] });
+      .send({ name: 'To revoke', scopes: ['invoices:read'] });
     expect(create.status).toBe(201);
     const apiKey = create.body.keyPlaintext as string;
     const apiKeyId = create.body.id as string;
@@ -104,7 +106,7 @@ describe('API keys (e2e)', () => {
     const createA = await request(app.getHttpServer())
       .post('/settings/api-keys')
       .set('Authorization', `Bearer ${ownerA.accessToken}`)
-      .send({ name: 'A only', scopes: [] });
+      .send({ name: 'A only', scopes: ['invoices:read'] });
     expect(createA.status).toBe(201);
     const idA = createA.body.id as string;
 
@@ -124,7 +126,7 @@ describe('API keys (e2e)', () => {
   it('sin JWT, los endpoints de panel responden 401', async () => {
     const noAuth = await request(app.getHttpServer())
       .post('/settings/api-keys')
-      .send({ name: 'no auth', scopes: [] });
+      .send({ name: 'no auth', scopes: ['invoices:read'] });
     expect(noAuth.status).toBe(401);
 
     const listNoAuth = await request(app.getHttpServer()).get('/settings/api-keys');
@@ -151,37 +153,26 @@ describe('API keys (e2e)', () => {
   // ============================================================================
 
   describe('scopes enforcement (15A.3)', () => {
-    it('crea API key sin scopes => normaliza a wildcard [*] y pasa cualquier @RequireScope', async () => {
+    it('crea API key sin scopes => 400 scope_required', async () => {
       const owner = await registerVerifiedUser(app, 'apikey-scopes-default');
 
       const create = await request(app.getHttpServer())
         .post('/settings/api-keys')
         .set('Authorization', `Bearer ${owner.accessToken}`)
         .send({ name: 'No scopes' });
-      expect(create.status).toBe(201);
-      expect(create.body.scopes).toEqual(['*']);
-
-      const whoami = await request(app.getHttpServer())
-        .get('/integrations/whoami')
-        .set('Authorization', `Bearer ${create.body.keyPlaintext}`);
-      expect(whoami.status).toBe(200);
-      expect(whoami.body.tenantId).toBe(owner.tenantId);
+      expect(create.status).toBe(400);
+      expect(create.body.code).toBe('scope_required');
     });
 
-    it('crea API key con scopes=[] => tambien normaliza a wildcard [*]', async () => {
+    it('crea API key con scopes=[] => 400 scope_required', async () => {
       const owner = await registerVerifiedUser(app, 'apikey-scopes-empty');
 
       const create = await request(app.getHttpServer())
         .post('/settings/api-keys')
         .set('Authorization', `Bearer ${owner.accessToken}`)
         .send({ name: 'Empty scopes', scopes: [] });
-      expect(create.status).toBe(201);
-      expect(create.body.scopes).toEqual(['*']);
-
-      const whoami = await request(app.getHttpServer())
-        .get('/integrations/whoami')
-        .set('Authorization', `Bearer ${create.body.keyPlaintext}`);
-      expect(whoami.status).toBe(200);
+      expect(create.status).toBe(400);
+      expect(create.body.code).toBe('scope_required');
     });
 
     it('crea API key con scope incluyendo invoices:read => /whoami devuelve 200', async () => {

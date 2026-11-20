@@ -30,7 +30,12 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
  * sabe, «web». La campaña es la de la landing si el enlace no trae otra. En la
  * vista previa no se cuenta la visita.
  */
-function useTracking(tenantSlug: string, slug: string, preview: boolean): Record<string, string> {
+function useTracking(
+  tenantSlug: string,
+  slug: string,
+  landingId: string,
+  preview: boolean,
+): Record<string, string> {
   const [utm, setUtm] = useState<Record<string, string>>({});
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -39,6 +44,8 @@ function useTracking(tenantSlug: string, slug: string, preview: boolean): Record
       utm_source: origin?.source || 'web',
       utm_medium: origin?.medium || 'landing',
       utm_campaign: sp.get('utm_campaign') || promoCampaign(slug),
+      // La reserva guarda de qué landing viene (sus resultados no dependen de la dirección).
+      utm_content: landingId,
     };
     setUtm(next);
     // Vista previa o el visitante no quiere que se midan sus visitas: no se cuenta.
@@ -58,7 +65,7 @@ function useTracking(tenantSlug: string, slug: string, preview: boolean): Record
         keepalive: true,
       },
     ).catch(() => undefined);
-  }, [tenantSlug, slug, preview]);
+  }, [tenantSlug, slug, landingId, preview]);
   return utm;
 }
 
@@ -144,7 +151,7 @@ export function PromoBody({ data, locale }: { data: PublicPromoPageDto; locale: 
   const altBg = theme.dark ? 'bg-neutral-900/60' : 'bg-white';
   const coupon = promo.coupon;
   const months = coupon ? monthsFor(coupon.minMonths) : undefined;
-  const utm = useTracking(site.tenantSlug, promo.slug, promo.preview);
+  const utm = useTracking(site.tenantSlug, promo.slug, promo.id, promo.preview);
   const bookParams = (facilityId?: string, unitTypeId?: string) => ({
     utm,
     ...(facilityId ? { facilityId } : {}),

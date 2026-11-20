@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { VerifactuDeclarationCard } from './verifactu-declaration-card';
 import { VerifactuSendingCard } from './verifactu-sending-card';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,15 +45,9 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError } from '@/lib/auth/api';
+import { useHasPermission } from '@/lib/auth/hooks';
 import {
   type AeatCredentialMetadata,
   useRevokeVerifactuCredentialMutation,
@@ -60,6 +55,7 @@ import {
   useUploadVerifactuCredentialMutation,
   useVerifactuCredentialHistoryQuery,
   useVerifactuCredentialQuery,
+  useVerifactuSettingsQuery,
 } from '@/lib/billing/verifactu-hooks';
 
 const MAX_FILE_BYTES = 50 * 1024;
@@ -82,7 +78,6 @@ const UploadSchema = z.object({
     )
     .refine((f) => /\.(p12|pfx)$/i.test(f.name), 'El archivo debe tener extensión .p12 o .pfx.'),
   password: z.string().min(1, 'La contraseña es obligatoria.'),
-  environment: z.enum(['sandbox', 'production']),
 });
 
 type UploadFormValues = z.infer<typeof UploadSchema>;
@@ -92,6 +87,15 @@ const RevokeSchema = z.object({
 });
 type RevokeFormValues = z.infer<typeof RevokeSchema>;
 
+type PlatformMode = 'stub' | 'sandbox' | 'production';
+
+/** Dónde envía la plataforma: es el entorno en el que vale el certificado. */
+function platformModeLabel(mode: PlatformMode | 'sandbox' | 'production'): string {
+  if (mode === 'production') return 'Producción';
+  if (mode === 'sandbox') return 'Pruebas de la AEAT';
+  return 'Simulado';
+}
+
 function daysBetween(from: Date, to: Date): number {
   const ms = to.getTime() - from.getTime();
   return Math.ceil(ms / (24 * 60 * 60 * 1000));
@@ -100,6 +104,9 @@ function daysBetween(from: Date, to: Date): number {
 export default function VerifactuSettingsPage() {
   const t = useTranslations('settings.billing.verifactu');
   const credential = useVerifactuCredentialQuery();
+  const settings = useVerifactuSettingsQuery();
+  const canConfigure = useHasPermission('billing:configure');
+  const platformMode = settings.data?.platformMode ?? null;
   const [uploadOpen, setUploadOpen] = useState(false);
   const [revokeOpen, setRevokeOpen] = useState(false);
 
@@ -114,22 +121,38 @@ export default function VerifactuSettingsPage() {
 
       {credential.isLoading ? (
         <Skeleton className="h-48 w-full" />
+      ) : credential.isError ? (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void credential.refetch()} />
+          </CardContent>
+        </Card>
       ) : credential.data ? (
         <CredentialDetails
           credential={credential.data}
+          platformMode={platformMode}
+          canConfigure={canConfigure}
           onUpload={() => setUploadOpen(true)}
           onRevoke={() => setRevokeOpen(true)}
         />
       ) : (
-        <EmptyState onUpload={() => setUploadOpen(true)} />
+        <EmptyState canConfigure={canConfigure} onUpload={() => setUploadOpen(true)} />
       )}
 
       <CredentialHistory />
 
       <VerifactuDeclarationCard />
 
-      <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
-      <RevokeDialog open={revokeOpen} onOpenChange={setRevokeOpen} />
+      {canConfigure && (
+        <>
+          <UploadDialog
+            open={uploadOpen}
+            onOpenChange={setUploadOpen}
+            platformMode={platformMode}
+          />
+          <RevokeDialog open={revokeOpen} onOpenChange={setRevokeOpen} />
+        </>
+      )}
     </div>
   );
 }
@@ -186,9 +209,7 @@ function CredentialHistory() {
                           {isActive ? t('history.badgeActive') : t('history.badgeRevoked')}
                         </Badge>
                         <Badge variant="outline" className="text-xs">
-                          {row.environment === 'production'
-                            ? t('environment.production')
-                            : t('environment.sandbox')}
+                          {platformModeLabel(row.environment)}
                         </Badge>
                       </div>
                       <p className="font-mono text-xs text-muted-foreground">{row.certNif}</p>
@@ -233,10 +254,14 @@ function CredentialHistory() {
 
 function CredentialDetails({
   credential,
+  platformMode,
+  canConfigure,
   onUpload,
   onRevoke,
 }: {
   credential: AeatCredentialMetadata;
+  platformMode: PlatformMode | null;
+  canConfigure: boolean;
   onUpload: () => void;
   onRevoke: () => void;
 }) {
@@ -270,22 +295,24 @@ function CredentialDetails({
           <div className="flex items-center gap-2">
             <ShieldCheck className="size-5 text-primary" />
             <CardTitle className="text-base">{t('current.title')}</CardTitle>
-            <Badge variant={credential.environment === 'production' ? 'default' : 'outline'}>
-              {credential.environment === 'production'
-                ? t('environment.production')
-                : t('environment.sandbox')}
-            </Badge>
+            {platformMode && (
+              <Badge variant={platformMode === 'production' ? 'default' : 'outline'}>
+                {platformModeLabel(platformMode)}
+              </Badge>
+            )}
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={onUpload}>
-              <Upload className="mr-1 size-4" />
-              {t('actions.replace')}
-            </Button>
-            <Button variant="destructive" size="sm" onClick={onRevoke}>
-              <Trash2 className="mr-1 size-4" />
-              {t('actions.revoke')}
-            </Button>
-          </div>
+          {canConfigure && (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={onUpload}>
+                <Upload className="mr-1 size-4" />
+                {t('actions.replace')}
+              </Button>
+              <Button variant="destructive" size="sm" onClick={onRevoke}>
+                <Trash2 className="mr-1 size-4" />
+                {t('actions.revoke')}
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -318,7 +345,9 @@ function CredentialDetails({
           </dl>
         </CardContent>
       </Card>
-      {credential.representative && <RepresentativeCard credential={credential} />}
+      {credential.representative && (
+        <RepresentativeCard credential={credential} canConfigure={canConfigure} />
+      )}
     </div>
   );
 }
@@ -327,7 +356,13 @@ function CredentialDetails({
  * El certificado es de otra persona o entidad (administrador, gestoría): los
  * envíos llevan sus datos como representante del emisor.
  */
-function RepresentativeCard({ credential }: { credential: AeatCredentialMetadata }) {
+function RepresentativeCard({
+  credential,
+  canConfigure,
+}: {
+  credential: AeatCredentialMetadata;
+  canConfigure: boolean;
+}) {
   const save = useSetAeatRepresentativeMutation();
   const [name, setName] = useState(credential.representative?.name ?? '');
   const rep = credential.representative!;
@@ -360,13 +395,14 @@ function RepresentativeCard({ credential }: { credential: AeatCredentialMetadata
               id="rep-name"
               value={name}
               maxLength={120}
+              disabled={!canConfigure}
               onChange={(e) => setName(e.target.value)}
               className="text-base sm:text-sm"
             />
           </div>
           <Button
             onClick={() => void onSave()}
-            disabled={save.isPending || name.trim() === rep.name}
+            disabled={!canConfigure || save.isPending || name.trim() === rep.name}
           >
             Guardar
           </Button>
@@ -398,7 +434,7 @@ function Field({
   );
 }
 
-function EmptyState({ onUpload }: { onUpload: () => void }) {
+function EmptyState({ canConfigure, onUpload }: { canConfigure: boolean; onUpload: () => void }) {
   const t = useTranslations('settings.billing.verifactu');
   return (
     <Card>
@@ -408,10 +444,14 @@ function EmptyState({ onUpload }: { onUpload: () => void }) {
           <p className="font-medium">{t('empty.title')}</p>
           <p className="text-sm text-muted-foreground">{t('empty.body')}</p>
         </div>
-        <Button onClick={onUpload}>
-          <Upload className="mr-1 size-4" />
-          {t('actions.upload')}
-        </Button>
+        {canConfigure ? (
+          <Button onClick={onUpload}>
+            <Upload className="mr-1 size-4" />
+            {t('actions.upload')}
+          </Button>
+        ) : (
+          <p className="text-sm text-muted-foreground">Solo el propietario puede subirlo.</p>
+        )}
       </CardContent>
     </Card>
   );
@@ -443,9 +483,11 @@ function mapUploadError(err: unknown): string {
 function UploadDialog({
   open,
   onOpenChange,
+  platformMode,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  platformMode: PlatformMode | null;
 }) {
   const t = useTranslations('settings.billing.verifactu');
   const upload = useUploadVerifactuCredentialMutation();
@@ -453,7 +495,6 @@ function UploadDialog({
     resolver: zodResolver(UploadSchema),
     defaultValues: {
       password: '',
-      environment: 'sandbox',
     },
   });
 
@@ -462,10 +503,9 @@ function UploadDialog({
       await upload.mutateAsync({
         file: values.file,
         password: values.password,
-        environment: values.environment,
       });
       toast.success(t('toasts.uploadSuccess'));
-      form.reset({ password: '', environment: 'sandbox' });
+      form.reset({ password: '' });
       onOpenChange(false);
     } catch (err) {
       const key = mapUploadError(err);
@@ -484,7 +524,7 @@ function UploadDialog({
   }
 
   function handleOpenChange(v: boolean) {
-    if (!v) form.reset({ password: '', environment: 'sandbox' });
+    if (!v) form.reset({ password: '' });
     onOpenChange(v);
   }
 
@@ -537,31 +577,15 @@ function UploadDialog({
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="environment"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t('upload.environment')}</FormLabel>
-                  <FormControl>
-                    <Select
-                      value={field.value}
-                      onValueChange={(v) => field.onChange(v as 'sandbox' | 'production')}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sandbox">{t('environment.sandbox')}</SelectItem>
-                        <SelectItem value="production">{t('environment.production')}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <p className="text-xs text-muted-foreground">{t('upload.environmentHint')}</p>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {platformMode && (
+              <p className="text-xs text-muted-foreground">
+                {platformMode === 'production'
+                  ? 'Se usará para los envíos reales a la AEAT.'
+                  : platformMode === 'sandbox'
+                    ? 'La plataforma envía al entorno de pruebas de la AEAT: los envíos no tienen efectos fiscales.'
+                    : 'La plataforma está en modo simulado: no se envía nada a la AEAT.'}
+              </p>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
                 {t('actions.cancel')}

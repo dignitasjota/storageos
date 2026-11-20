@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { InsertComparisonDialog, InsertTargetDialog } from './blog-insert-dialogs';
 
 import { BlogContent } from '@/app/(public)/s/[slug]/blog/blog-content';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -53,6 +54,7 @@ import {
   useUpdateBlogPost,
   useUploadBlogCover,
 } from '@/lib/blog/hooks';
+import { compressImage } from '@/lib/images/compress';
 
 /** Tabla de ejemplo que inserta el botón «Tabla»: cabecera, separador y dos filas. */
 const TABLE_TEMPLATE = [
@@ -63,6 +65,8 @@ const TABLE_TEMPLATE = [
 ].join('\n');
 
 const MAX_RELATED = 3;
+/** Lo que admite el servidor para una portada (también tras comprimirla). */
+const MAX_COVER_BYTES = 5 * 1024 * 1024;
 
 interface Props {
   open: boolean;
@@ -72,6 +76,7 @@ interface Props {
 }
 
 export function BlogPostDialog({ open, onOpenChange, post }: Props) {
+  const ask = useConfirm();
   const me = useMe();
   const allPosts = useBlogPosts();
   const create = useCreateBlogPost();
@@ -100,7 +105,34 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
   const pending = create.isPending || update.isPending;
   const others = (allPosts.data ?? []).filter((p) => p.id !== current?.id);
 
+  // ¿Hay algo escrito sin guardar? (para no perderlo al cerrar sin querer)
+  const dirty =
+    title !== (current?.title ?? '') ||
+    slug !== (current?.slug ?? '') ||
+    excerpt !== (current?.excerpt ?? '') ||
+    contentMarkdown !== (current?.contentMarkdown ?? '') ||
+    seoTitle !== (current?.seoTitle ?? '') ||
+    seoDescription !== (current?.seoDescription ?? '') ||
+    coverImageAlt !== (current?.coverImageAlt ?? '') ||
+    isPublished !== (current?.isPublished ?? false) ||
+    relatedPostIds.join() !== (current?.relatedPostIds ?? []).join();
+
+  async function requestOpenChange(next: boolean) {
+    if (!next && dirty && !pending) {
+      const ok = await ask({
+        title: '¿Cerrar sin guardar?',
+        description: 'Perderás los cambios que no has guardado.',
+        confirmLabel: 'Cerrar sin guardar',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    onOpenChange(next);
+  }
+
   async function submit() {
+    // Solo las relacionadas que siguen existiendo (otra pudo borrarse mientras se editaba).
+    const existing = allPosts.data ? new Set(allPosts.data.map((p) => p.id)) : null;
     const input = {
       title,
       slug,
@@ -109,7 +141,7 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
       seoTitle,
       seoDescription,
       coverImageAlt,
-      relatedPostIds,
+      relatedPostIds: existing ? relatedPostIds.filter((id) => existing.has(id)) : relatedPostIds,
       isPublished,
     };
     try {
@@ -128,22 +160,34 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
   }
 
   async function onPickCover(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const picked = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !current) return;
-    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    if (!picked || !current) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(picked.type)) {
       toast.error('Formato no soportado (PNG/JPG/WebP).');
+      return;
+    }
+    // Se reduce en el navegador (una foto de cámara pesa varios MB).
+    const file = await compressImage(picked);
+    if (file.size > MAX_COVER_BYTES) {
+      toast.error('La imagen pesa más de 5 MB incluso reducida. Usa una más pequeña.');
       return;
     }
     // Sin nombre escrito, el del fichero (o el título).
     const name =
-      blogImageFileName(coverFileName) || blogImageFileName(file.name) || blogImageFileName(title);
+      blogImageFileName(coverFileName) ||
+      blogImageFileName(picked.name) ||
+      blogImageFileName(title);
     setCoverFileName(name);
     try {
       setSaved(await uploadCover.mutateAsync({ id: current.id, file, fileName: name }));
       toast.success('Portada subida.');
-    } catch {
-      toast.error('No se pudo subir la portada.');
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError
+          ? err.body.message
+          : 'No se pudo subir la portada. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -188,7 +232,7 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => void requestOpenChange(o)}>
       <DialogContent className="max-h-[90vh] max-w-5xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{current ? 'Editar entrada' : 'Nueva entrada'}</DialogTitle>
@@ -444,8 +488,12 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancelar
+          <Button
+            variant="outline"
+            onClick={() => void requestOpenChange(false)}
+            disabled={pending}
+          >
+            {saved && !post ? 'Cerrar' : 'Cancelar'}
           </Button>
           <Button onClick={submit} disabled={pending || !title.trim() || !contentMarkdown.trim()}>
             {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}

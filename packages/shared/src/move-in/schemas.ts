@@ -84,6 +84,8 @@ export const PublicBookingSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/)
     .optional(),
   ...utmFields,
+  /** `utm_content`: el id de la landing de promoción desde la que se reserva. */
+  utmContent: z.string().trim().max(120).optional(),
   clickIds: AdClickIdsSchema.optional(),
 });
 export type PublicBookingInput = z.infer<typeof PublicBookingSchema>;

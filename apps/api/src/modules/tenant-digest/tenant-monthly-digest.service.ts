@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Queue } from 'bullmq';
 
+import { todayInTimezone } from '../../common/format';
 import { AnalyticsTrendsService } from '../analytics/analytics-trends.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { InsightsService } from '../analytics/insights.service';
@@ -65,12 +66,22 @@ export class TenantMonthlyDigestService {
     const recipients = await this.recipientsFor(tenantId);
     if (recipients.length === 0) return { sent: false, recipients: 0 };
 
-    // Mes natural anterior (el que acaba de cerrar).
-    const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    // Mes natural anterior (el que acaba de cerrar), en la zona del negocio: a
+    // las 00:30 del día 1 en Madrid ya ha cerrado el mes, aunque en UTC no.
+    const zone = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    const today = todayInTimezone(zone?.timezone ?? 'Europe/Madrid', now);
+    const prev = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
     const ym = prev.toISOString().slice(0, 7);
-    const before = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1));
+    const before = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 2, 1));
     const ymBefore = before.toISOString().slice(0, 7);
-    const monthLabel = prev.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+    const monthLabel = prev.toLocaleDateString('es-ES', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
 
     const [tenant, occ, aging, custs, leads, monthly, history, churn, risk] = await Promise.all([
       this.admin.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }),

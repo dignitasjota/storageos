@@ -10,6 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma, type TenantEmailDomain } from '@storageos/database';
 import {
   type EmailDnsRecordDto,
   type PlatformDomainProviderStatus,
@@ -39,7 +40,6 @@ import {
 } from './domain-ownership.checker';
 
 import type { Env } from '../../config/env.schema';
-import type { Prisma, TenantEmailDomain } from '@storageos/database';
 
 interface Actor {
   tenantId: string;
@@ -126,11 +126,22 @@ export class EmailDomainsService {
         lastCheckedAt: new Date(),
         lastError: null,
       };
-      row = current
-        ? await this.admin.tenantEmailDomain.update({ where: { id: current.id }, data })
-        : await this.admin.tenantEmailDomain.create({
-            data: { tenantId: actor.tenantId, ...data },
+      try {
+        row = current
+          ? await this.admin.tenantEmailDomain.update({ where: { id: current.id }, data })
+          : await this.admin.tenantEmailDomain.create({
+              data: { tenantId: actor.tenantId, ...data },
+            });
+      } catch (err) {
+        // Dos altas a la vez (otra cuenta con el mismo dominio, o un doble clic).
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          throw new ConflictException({
+            code: 'domain_taken',
+            message: 'Ese dominio ya está en uso en otra cuenta.',
           });
+        }
+        throw err;
+      }
     }
 
     await this.audit.write({
@@ -305,14 +316,15 @@ export class EmailDomainsService {
   }
 
   /**
-   * Revisión diaria (cron): los pendientes se verifican solos cuando el tenant
-   * pone los DNS; si un dominio verificado deja de estarlo, sus correos vuelven
-   * a salir desde la plataforma y se avisa al tenant.
+   * Revisión diaria (cron): los pendientes y los que fallaron se verifican
+   * solos cuando el tenant pone (o arregla) los DNS; si un dominio verificado
+   * deja de estarlo, sus correos vuelven a salir desde la plataforma y se avisa
+   * al tenant.
    */
   async recheckAll(): Promise<{ checked: number; verified: number; failed: number }> {
     if (!this.brevo.available) return { checked: 0, verified: 0, failed: 0 };
     const rows = await this.admin.tenantEmailDomain.findMany({
-      where: { status: { in: ['pending', 'verified'] } },
+      where: { status: { in: ['pending', 'failed', 'verified'] } },
       orderBy: { lastCheckedAt: { sort: 'asc', nulls: 'first' } },
       take: 200,
     });
@@ -321,15 +333,20 @@ export class EmailDomainsService {
     for (const row of rows) {
       try {
         const state =
-          row.status === 'pending'
-            ? await this.brevo.authenticate(row.domain)
-            : await this.brevo.get(row.domain);
+          row.status === 'verified'
+            ? await this.brevo.get(row.domain)
+            : await this.brevo.authenticate(row.domain);
         const updated = await this.applyState(row, state);
         if (row.status !== 'verified' && updated.status === 'verified') {
           verified++;
+          // Sin «Dominio propio» (bajó de plan) el dominio queda verificado pero
+          // sus correos siguen saliendo desde la plataforma: no se le promete.
+          const active = await this.hasFeature(row.tenantId);
           await this.notify(row.tenantId, {
-            title: `Correo desde ${row.domain} activado`,
-            body: `Tus correos a inquilinos ya salen desde ${row.fromLocalPart}@${row.domain}.`,
+            title: `Correo desde ${row.domain} verificado`,
+            body: active
+              ? `Tus correos a inquilinos ya salen desde ${row.fromLocalPart}@${row.domain}.`
+              : `El dominio está verificado, pero para enviar desde ${row.fromLocalPart}@${row.domain} necesitas «Dominio propio» en tu plan.`,
           });
         } else if (row.status === 'verified' && updated.status === 'failed') {
           failed++;
@@ -364,7 +381,11 @@ export class EmailDomainsService {
       row.ownershipVerifiedAt !== null ||
       (await this.ownership.check(row.domain, row.ownershipToken));
     const status: EmailDomainStatus =
-      state.authenticated && owned ? 'verified' : row.status === 'verified' ? 'failed' : 'pending';
+      state.authenticated && owned
+        ? 'verified'
+        : row.status === 'verified' || row.status === 'failed'
+          ? 'failed'
+          : 'pending';
     return this.admin.tenantEmailDomain.update({
       where: { id: row.id },
       data: {
@@ -393,10 +414,16 @@ export class EmailDomainsService {
     try {
       return await fn();
     } catch (err) {
+      if (err instanceof BrevoDomainsError && err.status === 0) {
+        throw new ServiceUnavailableException({
+          code: 'email_domain_provider_unavailable',
+          message: 'El proveedor de correo no responde. Inténtalo de nuevo en unos minutos.',
+        });
+      }
       if (err instanceof BrevoDomainsError) {
         throw new BadRequestException({
           code: 'email_domain_provider_error',
-          message: `Brevo rechazó la operación: ${err.message}`,
+          message: `El proveedor de correo rechazó el dominio: ${err.message}`,
         });
       }
       throw err;

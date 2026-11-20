@@ -75,6 +75,7 @@ export class InvitationsController {
     return this.invitations.create({
       tenantId: user.tenantId,
       inviterUserId: user.sub,
+      inviterRole: user.role,
       inviterName: inviter.fullName,
       input,
       meta: extractMeta(req),
@@ -106,6 +107,7 @@ export class InvitationsController {
     return this.invitations.resend({
       tenantId: user.tenantId,
       userId: user.sub,
+      inviterRole: user.role,
       inviterName: inviter.fullName,
       invitationId: id,
       meta: extractMeta(req),

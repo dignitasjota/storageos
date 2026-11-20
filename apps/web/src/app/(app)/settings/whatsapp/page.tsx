@@ -1,19 +1,24 @@
 'use client';
 
-import { CheckCircle2, Copy, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Copy, Loader2, Unplug, XCircle } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { AssistantCard } from './assistant-card';
 
+import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { formatDateTime } from '@/lib/format';
 import {
+  useDisconnectWhatsapp,
   useTestWhatsapp,
   useUpdateWhatsappSettings,
   useWhatsappSettings,
@@ -21,9 +26,15 @@ import {
 
 /** Número de WhatsApp Business del negocio (Cloud API de Meta). */
 export default function WhatsappSettingsPage() {
+  const ask = useConfirm();
+  // Sin el extra (p. ej. tras bajar de plan) solo se puede desactivar o
+  // desconectar lo guardado.
+  const hasFeature = useHasFeature('whatsapp_business');
+  const canManage = useHasPermission('settings:manage');
   const settings = useWhatsappSettings();
   const update = useUpdateWhatsappSettings();
   const test = useTestWhatsapp();
+  const disconnect = useDisconnectWhatsapp();
 
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [wabaId, setWabaId] = useState('');
@@ -52,23 +63,91 @@ export default function WhatsappSettingsPage() {
         ...(accessToken.trim() ? { accessToken: accessToken.trim() } : {}),
         enabled,
         webButtonEnabled,
-        ...(appSecret.trim() ? { appSecret: appSecret.trim() } : {}),
       });
       setAccessToken('');
-      setAppSecret('');
       toast.success('WhatsApp guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
     }
   }
 
-  async function runTest() {
+  /** Guarda solo el secreto de la app ('' lo quita). */
+  async function saveSecret(value: string) {
+    if (
+      !value &&
+      !(await ask({
+        title: '¿Quitar la clave secreta de tu app?',
+        description:
+          'Sin ella se rechazan los avisos que lleguen desde tu propia app de Meta: dejarás de recibir mensajes por esa vía.',
+        confirmLabel: 'Quitar',
+        destructive: true,
+      }))
+    )
+      return;
     try {
-      const r = await test.mutateAsync();
-      if (r.ok) toast.success(`Conexión correcta: ${r.displayPhone ?? 'número verificado'}`);
+      await update.mutateAsync({ appSecret: value });
+      setAppSecret('');
+      toast.success(value ? 'Clave secreta guardada.' : 'Clave secreta quitada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  /** Prueba lo escrito si hay un token nuevo; si no, lo guardado. */
+  async function runTest() {
+    const typedToken = accessToken.trim();
+    try {
+      const r = await test.mutateAsync(
+        typedToken
+          ? {
+              accessToken: typedToken,
+              ...(phoneNumberId.trim() ? { phoneNumberId: phoneNumberId.trim() } : {}),
+            }
+          : {},
+      );
+      const what = typedToken
+        ? 'Los datos escritos funcionan (aún sin guardar)'
+        : 'Conexión correcta';
+      if (r.ok) toast.success(`${what}: ${r.displayPhone ?? 'número verificado'}`);
       else toast.error(`No se pudo conectar: ${r.error ?? 'error desconocido'}`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo probar.');
+    }
+  }
+
+  async function disable() {
+    try {
+      await update.mutateAsync({ enabled: false });
+      setEnabled(false);
+      toast.success('WhatsApp desactivado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo desactivar.');
+    }
+  }
+
+  async function runDisconnect() {
+    if (
+      !(await ask({
+        title: '¿Desconectar el número de WhatsApp?',
+        description:
+          'Se borran el token, la clave secreta de tu app, la clave de IA del asistente y estos ajustes, y el número queda libre para conectarlo en otra cuenta. Las conversaciones se conservan, pero no podrás responder desde el panel hasta que vuelvas a conectar un número.',
+        confirmLabel: 'Desconectar',
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await disconnect.mutateAsync();
+      loaded.current = false;
+      setPhoneNumberId('');
+      setWabaId('');
+      setAccessToken('');
+      setAppSecret('');
+      setEnabled(false);
+      setWebButtonEnabled(true);
+      toast.success('Número desconectado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo desconectar.');
     }
   }
 
@@ -79,6 +158,7 @@ export default function WhatsappSettingsPage() {
       </div>
     );
   }
+  if (settings.isError) return <SectionError onRetry={() => void settings.refetch()} />;
   const data = settings.data;
 
   return (
@@ -113,96 +193,141 @@ export default function WhatsappSettingsPage() {
                 </p>
               </div>
             </div>
-            <Button variant="outline" onClick={runTest} disabled={test.isPending}>
-              {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-              Probar conexión
-            </Button>
+            {canManage && (
+              <div className="flex flex-wrap gap-2">
+                {hasFeature ? (
+                  <Button variant="outline" onClick={runTest} disabled={test.isPending}>
+                    {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                    Probar conexión
+                  </Button>
+                ) : (
+                  data.enabled && (
+                    <Button variant="outline" onClick={disable} disabled={update.isPending}>
+                      Desactivar
+                    </Button>
+                  )
+                )}
+                <Button variant="outline" onClick={runDisconnect} disabled={disconnect.isPending}>
+                  {disconnect.isPending ? (
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                  ) : (
+                    <Unplug className="mr-2 size-4" />
+                  )}
+                  Desconectar número
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Conexión con WhatsApp</CardTitle>
-          <CardDescription>
-            Los datos están en Meta (developers.facebook.com → tu app → WhatsApp → Configuración de
-            la API). Usa un token de acceso permanente de un usuario del sistema.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="wa-phone-id">ID del número de teléfono</Label>
-              <Input
-                id="wa-phone-id"
-                inputMode="numeric"
-                value={phoneNumberId}
-                onChange={(e) => setPhoneNumberId(e.target.value)}
-                placeholder="Ej.: 123456789012345"
-                className="text-base sm:text-sm"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="wa-waba-id">ID de la cuenta de WhatsApp Business (opcional)</Label>
-              <Input
-                id="wa-waba-id"
-                inputMode="numeric"
-                value={wabaId}
-                onChange={(e) => setWabaId(e.target.value)}
-                placeholder="Ej.: 987654321098765"
-                className="text-base sm:text-sm"
-              />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="wa-token">Token de acceso</Label>
-            <Input
-              id="wa-token"
-              type="password"
-              autoComplete="off"
-              value={accessToken}
-              onChange={(e) => setAccessToken(e.target.value)}
-              placeholder={
-                data?.tokenLast4
-                  ? `Guardado (termina en ${data.tokenLast4}). Escribe uno nuevo para cambiarlo.`
-                  : 'Pega aquí el token'
-              }
-              className="text-base sm:text-sm"
-            />
-          </div>
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
-            <span>
-              Activar WhatsApp
-              <span className="block text-xs text-muted-foreground">
-                Al activarlo se comprueba el número con WhatsApp.
-              </span>
-            </span>
-          </label>
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox
-              checked={webButtonEnabled}
-              onCheckedChange={(v) => setWebButtonEnabled(v === true)}
-            />
-            <span>
-              Mostrar el botón de WhatsApp en tu web
-              <span className="block text-xs text-muted-foreground">
-                Un botón flotante en todas las páginas de tu web que abre una conversación contigo.
-              </span>
-            </span>
-          </label>
-          <p className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-            WhatsApp solo deja escribir libremente durante las 24 horas siguientes al último mensaje
-            de cada contacto. Pasado ese plazo hay que esperar a que vuelva a escribir.
-          </p>
-          <Button onClick={save} disabled={update.isPending || !phoneNumberId.trim()}>
-            {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-            Guardar
-          </Button>
-        </CardContent>
-      </Card>
+      {!hasFeature && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          WhatsApp Business ya no está en tu plan. Puedes desactivarlo o desconectar el número; para
+          volver a usarlo,{' '}
+          <Link href="/settings/saas-billing" className="font-medium underline">
+            contrátalo en Planes y extras
+          </Link>
+          .
+        </p>
+      )}
 
-      {data?.configured && (
+      {hasFeature && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Conexión con WhatsApp</CardTitle>
+            <CardDescription>
+              Los datos están en Meta (developers.facebook.com → tu app → WhatsApp → Configuración
+              de la API). Usa un token de acceso permanente de un usuario del sistema.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-phone-id">ID del número de teléfono</Label>
+                <Input
+                  id="wa-phone-id"
+                  inputMode="numeric"
+                  value={phoneNumberId}
+                  onChange={(e) => setPhoneNumberId(e.target.value)}
+                  placeholder="Ej.: 123456789012345"
+                  className="text-base sm:text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="wa-waba-id">ID de la cuenta de WhatsApp Business (opcional)</Label>
+                <Input
+                  id="wa-waba-id"
+                  inputMode="numeric"
+                  value={wabaId}
+                  onChange={(e) => setWabaId(e.target.value)}
+                  placeholder="Ej.: 987654321098765"
+                  className="text-base sm:text-sm"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="wa-token">Token de acceso</Label>
+              <Input
+                id="wa-token"
+                type="password"
+                autoComplete="off"
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                placeholder={
+                  data?.tokenLast4
+                    ? `Guardado (termina en ${data.tokenLast4}). Escribe uno nuevo para cambiarlo.`
+                    : 'Pega aquí el token'
+                }
+                className="text-base sm:text-sm"
+              />
+            </div>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} />
+              <span>
+                Activar WhatsApp
+                <span className="block text-xs text-muted-foreground">
+                  Al activarlo se comprueba el número con WhatsApp.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={webButtonEnabled}
+                onCheckedChange={(v) => setWebButtonEnabled(v === true)}
+              />
+              <span>
+                Mostrar el botón de WhatsApp en tu web
+                <span className="block text-xs text-muted-foreground">
+                  Un botón flotante en todas las páginas de tu web que abre una conversación
+                  contigo.
+                </span>
+              </span>
+            </label>
+            <p className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+              WhatsApp solo deja escribir libremente durante las 24 horas siguientes al último
+              mensaje de cada contacto. Pasado ese plazo hay que esperar a que vuelva a escribir.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={save}
+                disabled={update.isPending || !canManage || !phoneNumberId.trim()}
+              >
+                {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                Guardar
+              </Button>
+              {canManage && accessToken.trim() && (
+                <Button variant="outline" onClick={runTest} disabled={test.isPending}>
+                  {test.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                  Probar estos datos
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {hasFeature && data?.configured && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Si usas tu propia app de Meta</CardTitle>
@@ -214,10 +339,16 @@ export default function WhatsappSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <CopyField label="URL de devolución de llamada" value={data.webhookUrl} />
-            <CopyField
-              label="Token de verificación"
-              value={data.webhookVerifyToken ?? 'Se genera al guardar'}
-            />
+            {canManage ? (
+              <CopyField
+                label="Token de verificación"
+                value={data.webhookVerifyToken ?? 'Se genera al guardar'}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                El token de verificación solo lo ven quienes pueden cambiar los ajustes.
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="wa-app-secret">Clave secreta de tu app</Label>
               <Input
@@ -237,18 +368,31 @@ export default function WhatsappSettingsPage() {
                 Con ella comprobamos que los avisos vienen de tu app. Sin ella, se rechazan.
               </p>
             </div>
-            <Button
-              variant="outline"
-              onClick={save}
-              disabled={update.isPending || !appSecret.trim()}
-            >
-              Guardar clave secreta
-            </Button>
+            {canManage && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => void saveSecret(appSecret.trim())}
+                  disabled={update.isPending || appSecret.trim().length < 16}
+                >
+                  Guardar clave secreta
+                </Button>
+                {data.appSecretConfigured && (
+                  <Button
+                    variant="ghost"
+                    onClick={() => void saveSecret('')}
+                    disabled={update.isPending}
+                  >
+                    Quitar clave secreta
+                  </Button>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {data?.configured && <AssistantCard />}
+      {data?.configured && <AssistantCard limited={!hasFeature} />}
     </div>
   );
 }

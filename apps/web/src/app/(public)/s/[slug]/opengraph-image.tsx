@@ -58,6 +58,36 @@ async function isSafeImageUrl(url: string): Promise<boolean> {
   }
 }
 
+/** Tipos de logo que se incrustan en la imagen (los que se pueden subir). */
+const LOGO_TYPES = ['image/png', 'image/jpeg'];
+const LOGO_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Descarga el logo nosotros (sin seguir redirecciones: una redirección podría
+ * llevar a una dirección interna que no se ha comprobado) y lo pasa a Satori
+ * ya incrustado. Cualquier problema → sin logo.
+ */
+async function logoDataUrl(url: string): Promise<string | null> {
+  if (!(await isSafeImageUrl(url))) return null;
+  try {
+    const res = await fetch(url, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(5000),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const type = (res.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+    if (!LOGO_TYPES.includes(type)) return null;
+    const declared = Number(res.headers.get('content-length') ?? '0');
+    if (declared > LOGO_MAX_BYTES) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > LOGO_MAX_BYTES) return null;
+    return `data:${type};base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 function cities(data: PublicLandingDto): string {
   const set = [...new Set(data.facilities.map((f) => f.city).filter(Boolean))] as string[];
   return set.join(', ');
@@ -73,7 +103,7 @@ export default async function OpengraphImage({ params }: { params: Promise<{ slu
   const name = data?.tenantName ?? 'Trasteros';
   const where = data ? cities(data) : '';
   const headline = data?.webHeadline ?? `Trasteros${where ? ` en ${where}` : ''}`;
-  const logoUrl = data?.logoUrl && (await isSafeImageUrl(data.logoUrl)) ? data.logoUrl : null;
+  const logoUrl = data?.logoUrl ? await logoDataUrl(data.logoUrl) : null;
 
   return new ImageResponse(
     <div

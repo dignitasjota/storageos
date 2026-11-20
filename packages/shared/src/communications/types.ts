@@ -174,7 +174,14 @@ export interface WidgetUnitTypeDto {
   id: string;
   name: string;
   description: string | null;
+  /**
+   * Cuota sin IVA que se anuncia: la del trastero más barato disponible de ese
+   * tamaño en el local (el que se asigna al reservar), igual que la web; si
+   * está agotado, la del más barato que tenga.
+   */
   defaultPriceMonthly: number;
+  /** IVA de la cuota (0 en viviendas). */
+  taxRate: number;
   color: string;
   availableUnits: number;
 }

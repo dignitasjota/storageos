@@ -49,7 +49,7 @@ export class AreaPagesController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateAreaPageDto,
   ): Promise<AreaPagesSettingsDto> {
-    return this.pages.create(user.tenantId, body);
+    return this.pages.create(user.tenantId, body, user.sub);
   }
 
   @RequirePermission('settings:manage')
@@ -59,7 +59,7 @@ export class AreaPagesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateAreaPageDto,
   ): Promise<AreaPagesSettingsDto> {
-    return this.pages.update(user.tenantId, id, body);
+    return this.pages.update(user.tenantId, id, body, user.sub);
   }
 
   @RequirePermission('settings:manage')
@@ -68,6 +68,6 @@ export class AreaPagesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<AreaPagesSettingsDto> {
-    return this.pages.remove(user.tenantId, id);
+    return this.pages.remove(user.tenantId, id, user.sub);
   }
 }

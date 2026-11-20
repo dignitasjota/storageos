@@ -28,6 +28,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useDraftAreaPage, useSaveAreaPage } from '@/lib/area-pages/hooks';
 import { ApiError } from '@/lib/auth/api';
+import { useMe } from '@/lib/auth/hooks';
 import { useFacilities } from '@/lib/facilities/hooks';
 
 export type AreaPageTarget =
@@ -54,6 +55,7 @@ export function AreaPageDialog({
   const draft = useDraftAreaPage();
   const ask = useConfirm();
   const facilities = useFacilities();
+  const me = useMe();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [facilityIds, setFacilityIds] = useState<string[]>([]);
@@ -64,27 +66,95 @@ export function AreaPageDialog({
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDescription, setSeoDescription] = useState('');
   const [published, setPublished] = useState(true);
+  // Lo que había al abrir: para avisar antes de cerrar con cambios sin guardar.
+  const [baseline, setBaseline] = useState('');
+
+  // Solo los locales que siguen existiendo (uno borrado no se puede volver a guardar).
+  const liveIds = new Set((facilities.data ?? []).map((f) => f.id));
+  // (con alcance por local la lista no trae todos: entonces lo filtra el servidor).
+  const chosenFacilities =
+    facilities.data && !me.data?.facilityScope
+      ? facilityIds.filter((id) => liveIds.has(id))
+      : facilityIds;
 
   useEffect(() => {
     if (!target) return;
     const p = target.page;
-    setName(p?.name ?? (target.kind === 'city' ? target.name : ''));
-    setSlug(p?.slug ?? (target.kind === 'city' ? target.slug : ''));
-    setFacilityIds(p?.facilityIds ?? []);
-    setNearestNote(p?.nearestNote ?? '');
-    setIntro(p?.intro ?? '');
-    setAreas((p?.nearbyAreas ?? []).join(', '));
-    setFaqs(p?.faqs ?? []);
-    setSeoTitle(p?.seoTitle ?? '');
-    setSeoDescription(p?.seoDescription ?? '');
-    setPublished(p?.isPublished ?? true);
+    const v = {
+      name: p?.name ?? (target.kind === 'city' ? target.name : ''),
+      slug: p?.slug ?? (target.kind === 'city' ? target.slug : ''),
+      facilityIds: p?.facilityIds ?? [],
+      nearestNote: p?.nearestNote ?? '',
+      intro: p?.intro ?? '',
+      areas: (p?.nearbyAreas ?? []).join(', '),
+      faqs: p?.faqs ?? [],
+      seoTitle: p?.seoTitle ?? '',
+      seoDescription: p?.seoDescription ?? '',
+      published: p?.isPublished ?? true,
+    };
+    setName(v.name);
+    setSlug(v.slug);
+    setFacilityIds(v.facilityIds);
+    setNearestNote(v.nearestNote);
+    setIntro(v.intro);
+    setAreas(v.areas);
+    setFaqs(v.faqs);
+    setSeoTitle(v.seoTitle);
+    setSeoDescription(v.seoDescription);
+    setPublished(v.published);
+    setBaseline(JSON.stringify(Object.values(v)));
   }, [target]);
+
+  const snapshot = JSON.stringify([
+    name,
+    slug,
+    facilityIds,
+    nearestNote,
+    intro,
+    areas,
+    faqs,
+    seoTitle,
+    seoDescription,
+    published,
+  ]);
+  const dirty = baseline !== '' && snapshot !== baseline;
 
   if (!target) return null;
   const city = target.kind === 'city';
   const words = wordCount(intro);
   const minWords = city ? AREA_PAGE_CITY_MIN_WORDS : AREA_PAGE_MIN_WORDS;
   const autoSlug = citySlug(name);
+  const areaList = areas
+    .split(',')
+    .map((a) => a.trim())
+    .filter((a) => a.length >= 2);
+  // Los mismos límites que el servidor: se avisa antes de guardar.
+  const issues: string[] = [];
+  if (areaList.length > 15) issues.push('Como mucho 15 zonas cercanas.');
+  if (areaList.some((a) => a.length > 60))
+    issues.push('Cada zona cercana, 60 caracteres como mucho.');
+  if (
+    faqs.some(
+      (f) =>
+        (f.question.trim() || f.answer.trim()) &&
+        (f.question.trim().length < 3 || f.answer.trim().length < 3),
+    )
+  ) {
+    issues.push('Cada pregunta necesita pregunta y respuesta (3 caracteres o más).');
+  }
+
+  async function close() {
+    if (dirty && !save.isPending) {
+      const ok = await ask({
+        title: '¿Cerrar sin guardar?',
+        description: 'Perderás los cambios que no has guardado (también el borrador de la IA).',
+        confirmLabel: 'Cerrar sin guardar',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    onClose();
+  }
 
   async function writeWithAi() {
     const hasText = intro.trim() || faqs.length > 0 || seoTitle.trim() || seoDescription.trim();
@@ -102,7 +172,7 @@ export function AreaPageDialog({
     try {
       const d = await draft.mutateAsync({
         name: name.trim(),
-        facilityIds: city ? [] : facilityIds,
+        facilityIds: city ? [] : chosenFacilities,
       });
       setIntro(d.intro);
       if (!city && d.nearestNote) setNearestNote(d.nearestNote);
@@ -122,13 +192,10 @@ export function AreaPageDialog({
       name: name.trim(),
       ...(city ? { slug: target.kind === 'city' ? target.slug : undefined } : {}),
       ...(!city && (slug.trim() || autoSlug) ? { slug: slug.trim() || autoSlug } : {}),
-      facilityIds: city ? [] : facilityIds,
+      facilityIds: city ? [] : chosenFacilities,
       nearestNote: city ? null : nearestNote.trim() || null,
       intro: intro.trim() || null,
-      nearbyAreas: areas
-        .split(',')
-        .map((a) => a.trim())
-        .filter((a) => a.length >= 2),
+      nearbyAreas: areaList,
       faqs: faqs.filter((f) => f.question.trim() && f.answer.trim()),
       seoTitle: seoTitle.trim() || null,
       seoDescription: seoDescription.trim() || null,
@@ -144,7 +211,7 @@ export function AreaPageDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && void close()}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -167,6 +234,7 @@ export function AreaPageDialog({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Paterna"
+                  maxLength={80}
                 />
               </div>
               <div className="space-y-1.5">
@@ -176,6 +244,7 @@ export function AreaPageDialog({
                   value={slug}
                   onChange={(e) => setSlug(e.target.value.toLowerCase())}
                   placeholder={autoSlug || 'paterna'}
+                  maxLength={80}
                 />
                 <p className="text-xs text-muted-foreground">
                   /trasteros-en-{slug.trim() || autoSlug || '…'}
@@ -212,6 +281,7 @@ export function AreaPageDialog({
                 id="ap-near"
                 value={nearestNote}
                 onChange={(e) => setNearestNote(e.target.value)}
+                maxLength={200}
                 placeholder="Nuestro local más cercano está en Mislata, a 8 km (10 minutos en coche)."
               />
             </div>
@@ -228,7 +298,9 @@ export function AreaPageDialog({
               variant="outline"
               onClick={writeWithAi}
               disabled={
-                draft.isPending || name.trim().length < 2 || (!city && facilityIds.length === 0)
+                draft.isPending ||
+                name.trim().length < 2 ||
+                (!city && chosenFacilities.length === 0)
               }
             >
               {draft.isPending ? (
@@ -253,6 +325,7 @@ export function AreaPageDialog({
               id="ap-intro"
               rows={7}
               value={intro}
+              maxLength={4000}
               onChange={(e) => setIntro(e.target.value)}
               placeholder={
                 city
@@ -267,7 +340,7 @@ export function AreaPageDialog({
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Separa los párrafos con una línea en blanco.
+              Separa los párrafos con una línea en blanco. {intro.length}/4000 caracteres.
             </p>
           </div>
 
@@ -307,6 +380,7 @@ export function AreaPageDialog({
                 <div className="flex gap-2">
                   <Input
                     value={f.question}
+                    maxLength={200}
                     placeholder="Pregunta"
                     onChange={(e) =>
                       setFaqs((all) =>
@@ -327,6 +401,7 @@ export function AreaPageDialog({
                 <Textarea
                   rows={2}
                   value={f.answer}
+                  maxLength={1500}
                   placeholder="Respuesta"
                   onChange={(e) =>
                     setFaqs((all) =>
@@ -368,10 +443,17 @@ export function AreaPageDialog({
             <Checkbox checked={published} onCheckedChange={(v) => setPublished(v === true)} />
             {city ? 'Mostrar este texto en la web' : 'Publicar esta página'}
           </label>
+          {issues.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-destructive">
+              {issues.map((i) => (
+                <li key={i}>{i}</li>
+              ))}
+            </ul>
+          )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={() => void close()}>
             Cancelar
           </Button>
           <Button
@@ -379,7 +461,8 @@ export function AreaPageDialog({
             disabled={
               save.isPending ||
               name.trim().length < 2 ||
-              (!city && facilityIds.length === 0) ||
+              (!city && chosenFacilities.length === 0) ||
+              issues.length > 0 ||
               seoTitle.length > 70 ||
               seoDescription.length > 200
             }

@@ -24,19 +24,18 @@ import {
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
 import {
-  type AeatEnvironment,
   type TenantAeatCredentialMetadata,
   TenantAeatCredentialsService,
 } from './tenant-aeat-credentials.service';
 
 /**
- * Body multipart: el `file` viaja como Buffer en `@UploadedFile()`. Los
- * campos de texto (password, environment) llegan como `string` en el body
- * y se validan con Zod manualmente porque `createZodDto` se enfoca a JSON.
+ * Body multipart: el `file` viaja como Buffer en `@UploadedFile()`. La
+ * contraseña llega como `string` en el body y se valida con Zod a mano porque
+ * `createZodDto` se enfoca a JSON. El entorno ya no se elige (es el de la
+ * plataforma): si llega, se ignora.
  */
 const UploadFieldsSchema = z.object({
-  password: z.string().min(1, 'password requerido'),
-  environment: z.enum(['sandbox', 'production']).default('sandbox'),
+  password: z.string().min(1, 'La contraseña es obligatoria'),
 });
 
 const RepresentativeBodySchema = z.object({
@@ -72,24 +71,22 @@ export class TenantAeatCredentialsController {
     if (!file || !file.buffer || file.buffer.length === 0) {
       throw new BadRequestException({
         code: 'file_required',
-        message: 'Falta el campo `file` (.p12/.pfx).',
+        message: 'Falta el archivo del certificado (.p12 o .pfx).',
       });
     }
     const parsed = UploadFieldsSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException({
         code: 'invalid_fields',
-        message: 'Campos invalidos en el body.',
+        message: 'Campos no válidos: falta la contraseña del certificado.',
         issues: parsed.error.flatten(),
       });
     }
-    const { password, environment } = parsed.data;
     return this.service.upload({
       tenantId: user.tenantId,
       userId: user.sub,
       p12Buffer: file.buffer,
-      password,
-      environment: environment as AeatEnvironment,
+      password: parsed.data.password,
     });
   }
 
@@ -105,6 +102,18 @@ export class TenantAeatCredentialsController {
     return this.service.listHistory(user.tenantId);
   }
 
+  /**
+   * El certificado activo o `{ credential: null }` si aún no hay ninguno. Lo
+   * usa el panel: no tener certificado no es un error (`GET me` da 404).
+   */
+  @RequirePermission('invoices:manage')
+  @Get('current')
+  async getCurrent(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ credential: TenantAeatCredentialMetadata | null }> {
+    return { credential: await this.service.getMetadata(user.tenantId) };
+  }
+
   @RequirePermission('invoices:manage')
   @Get('me')
   async getMine(@CurrentUser() user: AuthenticatedUser): Promise<TenantAeatCredentialMetadata> {
@@ -112,7 +121,7 @@ export class TenantAeatCredentialsController {
     if (!meta) {
       throw new NotFoundException({
         code: 'aeat_credential_not_found',
-        message: 'No hay credencial AEAT activa para este tenant.',
+        message: 'No hay ningún certificado de la AEAT activo.',
       });
     }
     return meta;
@@ -153,7 +162,7 @@ export class TenantAeatCredentialsController {
     if (!parsed.success) {
       throw new BadRequestException({
         code: 'invalid_fields',
-        message: 'Body invalido (reason requerido).',
+        message: 'Indica el motivo para quitar el certificado.',
         issues: parsed.error.flatten(),
       });
     }
@@ -161,7 +170,7 @@ export class TenantAeatCredentialsController {
     if (!revoked) {
       throw new NotFoundException({
         code: 'aeat_credential_not_found',
-        message: 'No hay credencial AEAT activa para revocar.',
+        message: 'No hay ningún certificado de la AEAT activo que quitar.',
       });
     }
   }

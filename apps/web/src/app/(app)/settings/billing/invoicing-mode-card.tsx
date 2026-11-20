@@ -1,6 +1,7 @@
 'use client';
 
 import { CalendarClock, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 
 import type { InvoicingModeValue } from '@storageos/shared';
@@ -104,7 +105,11 @@ export function InvoicingModeCard() {
                   </p>
                   {!data.holdedReady && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Configura abajo tu Holded y elige las series para emitir.
+                      Antes conecta tu Holded y elige las series para emitir en{' '}
+                      <Link href="/settings/accounting" className="underline underline-offset-2">
+                        Contabilidad
+                      </Link>
+                      .
                     </p>
                   )}
                 </div>

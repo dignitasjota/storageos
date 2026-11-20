@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { use, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 
+import { formatPrice, grossPrice } from '@/app/(public)/s/[slug]/price-format';
 import { EmailTypoHint } from '@/components/email-typo-hint';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,6 +29,8 @@ interface PageProps {
 export default function WidgetPage({ params }: PageProps) {
   const { slug } = use(params);
   const [facilities, setFacilities] = useState<WidgetFacilityDto[] | null>(null);
+  // La web del negocio no está disponible (no publicada, suspendida o no existe).
+  const [unavailable, setUnavailable] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Tracking de campañas: captura los utm_* de la URL al cargar (origen de captación).
@@ -65,7 +68,10 @@ export default function WidgetPage({ params }: PageProps) {
     fetch(`${env.apiUrl}/public/widget/${slug}/facilities`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((data: WidgetFacilityDto[]) => setFacilities(data))
-      .catch(() => setFacilities([]));
+      .catch((status: unknown) => {
+        if (status === 404) setUnavailable(true);
+        setFacilities([]);
+      });
   }, [slug]);
 
   const onSubmit = async (input: WidgetLeadInput) => {
@@ -91,6 +97,16 @@ export default function WidgetPage({ params }: PageProps) {
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+
+  if (unavailable) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-sm text-muted-foreground">
+          Las reservas online de este negocio no están disponibles ahora mismo.
+        </CardContent>
+      </Card>
     );
   }
 
@@ -144,11 +160,10 @@ export default function WidgetPage({ params }: PageProps) {
                     </span>
                   </span>
                   <span className="shrink-0 text-right font-semibold tabular-nums">
-                    {(t.defaultPriceMonthly * 1.21).toLocaleString('es-ES', {
-                      style: 'currency',
-                      currency: 'EUR',
-                      maximumFractionDigits: 0,
-                    })}
+                    {formatPrice(
+                      grossPrice({ priceMonthly: t.defaultPriceMonthly, taxRate: t.taxRate }),
+                      'es',
+                    )}
                     <span className="block text-xs font-normal text-muted-foreground">
                       /mes · IVA incl.
                     </span>

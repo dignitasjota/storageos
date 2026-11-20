@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { FaviconCard } from './favicon-card';
 import { LogoField } from './logo-field';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,35 +17,51 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasFeature } from '@/lib/auth/hooks';
 import { useTenantBranding, useUpdateTenantBranding } from '@/lib/branding/hooks';
 
+/** El azul de TrasterOS: lo que se ve cuando el negocio no elige color. */
+const DEFAULT_BRAND_COLOR = '#2563eb';
+
 export default function BrandingSettingsPage() {
   const branding = useTenantBranding();
   const update = useUpdateTenantBranding();
   const panelBranded = useHasFeature('branded_panel');
 
-  const [color, setColor] = useState('#2563eb');
+  // '' = sin color propio (la web y el portal usan el de TrasterOS).
+  const [color, setColor] = useState('');
   const [headerBranded, setHeaderBranded] = useState(false);
-  const [logoUrl, setLogoUrl] = useState('');
+  // Enlace pegado a mano; con un logo subido empieza vacío.
+  const [pastedLogoUrl, setPastedLogoUrl] = useState('');
   const [siteVerification, setSiteVerification] = useState('');
   const [analyticsId, setAnalyticsId] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
+  // Se rellena una sola vez: al subir el logo o guardar una tarjeta se vuelve a
+  // pedir la marca y no debe borrar lo que se esté escribiendo en las demás.
   useEffect(() => {
-    if (branding.data) {
-      setColor(branding.data.portalBrandColor ?? '#2563eb');
+    if (branding.data && !loaded) {
+      setLoaded(true);
+      setColor(branding.data.portalBrandColor ?? '');
       setHeaderBranded(branding.data.webHeaderBranded);
-      setLogoUrl(branding.data.portalLogoUrl ?? '');
+      setPastedLogoUrl(branding.data.logoUploaded ? '' : (branding.data.portalLogoUrl ?? ''));
       setSiteVerification(branding.data.googleSiteVerification ?? '');
       setAnalyticsId(branding.data.googleAnalyticsId ?? '');
     }
-  }, [branding.data]);
+  }, [branding.data, loaded]);
 
-  const colorValid = /^#[0-9a-fA-F]{6}$/.test(color.trim());
+  const colorValid = color.trim() === '' || /^#[0-9a-fA-F]{6}$/.test(color.trim());
+  // Lo que se ve en las vistas previas sin color propio.
+  const shownColor = color.trim() === '' || !colorValid ? DEFAULT_BRAND_COLOR : color.trim();
+  const logoUploaded = branding.data?.logoUploaded ?? false;
 
   async function saveBranding() {
     try {
       await update.mutateAsync({
         portalBrandColor: color.trim(),
-        portalLogoUrl: logoUrl,
         webHeaderBranded: headerBranded,
+        // Con un logo subido, el enlace solo se manda si se ha escrito uno (lo
+        // sustituye); vacío deja el subido.
+        ...(logoUploaded && pastedLogoUrl.trim() === ''
+          ? {}
+          : { portalLogoUrl: pastedLogoUrl.trim() }),
       });
       toast.success('Marca del portal actualizada.');
     } catch (err) {
@@ -70,6 +87,9 @@ export default function BrandingSettingsPage() {
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+  if (branding.isError || !branding.data) {
+    return <SectionError onRetry={() => void branding.refetch()} />;
   }
 
   return (
@@ -101,10 +121,10 @@ export default function BrandingSettingsPage() {
         <CardContent className="space-y-4">
           <div className="space-y-1">
             <Label>Color de marca</Label>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <input
                 type="color"
-                value={color}
+                value={shownColor}
                 onChange={(e) => setColor(e.target.value)}
                 className="h-9 w-12 cursor-pointer rounded border bg-background"
                 aria-label="Color de marca"
@@ -113,15 +133,25 @@ export default function BrandingSettingsPage() {
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
                 className="w-32 font-mono"
-                placeholder="#2563eb"
+                placeholder="Sin color"
+                aria-label="Color de marca en formato #RRGGBB"
                 aria-invalid={!colorValid}
               />
+              {color.trim() !== '' && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setColor('')}>
+                  Quitar color
+                </Button>
+              )}
             </div>
-            {!colorValid && (
+            {!colorValid ? (
               <p className="text-xs text-destructive">
                 Escribe el color en formato #RRGGBB (por ejemplo #2563eb).
               </p>
-            )}
+            ) : color.trim() === '' ? (
+              <p className="text-xs text-muted-foreground">
+                Sin color propio: tu web y el portal usan el azul de TrasterOS.
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-2">
@@ -142,7 +172,7 @@ export default function BrandingSettingsPage() {
             </label>
             <div
               className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm"
-              style={headerBranded ? { backgroundColor: color, color: '#fff' } : undefined}
+              style={headerBranded ? { backgroundColor: shownColor, color: '#fff' } : undefined}
               aria-hidden
             >
               <span className="font-semibold">Tu negocio</span>
@@ -154,8 +184,8 @@ export default function BrandingSettingsPage() {
                   className="rounded px-3 py-1 text-xs font-medium"
                   style={
                     headerBranded
-                      ? { backgroundColor: '#fff', color }
-                      : { backgroundColor: color, color: '#fff' }
+                      ? { backgroundColor: '#fff', color: shownColor }
+                      : { backgroundColor: shownColor, color: '#fff' }
                   }
                 >
                   Reservar
@@ -165,10 +195,11 @@ export default function BrandingSettingsPage() {
           </div>
 
           <LogoField
-            logoUrl={logoUrl}
-            logoUploaded={branding.data?.logoUploaded ?? false}
-            onLogoUrlChange={setLogoUrl}
-            color={color}
+            savedLogoUrl={branding.data?.portalLogoUrl ?? null}
+            logoUploaded={logoUploaded}
+            pastedUrl={pastedLogoUrl}
+            onPastedUrlChange={setPastedLogoUrl}
+            color={shownColor}
           />
 
           <Button onClick={saveBranding} disabled={update.isPending || !colorValid}>

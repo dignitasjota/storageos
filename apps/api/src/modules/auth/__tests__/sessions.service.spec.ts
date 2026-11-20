@@ -169,14 +169,11 @@ describe('SessionsService', () => {
       expect(result.refreshToken.split('.')).toHaveLength(3);
     });
 
-    it('condición de carrera: si el CAS pierde (count:0, otra request ya rotó/revocó la sesión), dispara el revoke-all paranoid en vez de crear una segunda sesión', async () => {
+    it('condición de carrera: si el CAS pierde (count:0) y la relectura muestra un cierre a mano, 401 sin crear otra sesión ni cerrar las demás', async () => {
       const { secret, secretHash } = await tokens.generateRefreshSecret();
       // La lectura ve la sesión TODAVÍA activa (revokedAt: null) — simula la
-      // ventana de la carrera: el reuso ya ocurrió en BD para cuando este
-      // request llega al UPDATE, pero su propia lectura fue anterior a eso.
+      // ventana de la carrera: se cerró desde otro dispositivo justo antes.
       const session = buildSession({ refreshTokenHash: secretHash });
-      // La relectura tras perder el CAS muestra que la revocación NO fue una
-      // rotación reciente (logout) → reuso real, fuera de la gracia.
       tx.session.findUnique.mockResolvedValueOnce(session).mockResolvedValueOnce(
         buildSession({
           refreshTokenHash: secretHash,
@@ -184,32 +181,38 @@ describe('SessionsService', () => {
           revokedReason: 'logout',
         }),
       );
-      // 1ª llamada a updateMany = el intento de CAS de la rotación -> pierde.
-      // 2ª llamada = el revoke-all paranoid subsiguiente.
-      tx.session.updateMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 2 });
+      tx.session.updateMany.mockResolvedValueOnce({ count: 0 });
 
       const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
       await expect(svc.rotate({ refreshToken })).rejects.toBeInstanceOf(UnauthorizedException);
 
-      expect(tx.session.updateMany).toHaveBeenNthCalledWith(
-        1,
+      expect(tx.session.updateMany).toHaveBeenCalledTimes(1);
+      expect(tx.session.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: SESSION_ID, revokedAt: null },
           data: expect.objectContaining({ revokedReason: 'rotated' }),
         }),
       );
-      expect(tx.session.updateMany).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({
-          where: { userId: USER_ID, revokedAt: null },
-          data: expect.objectContaining({ revokedReason: 'refresh_reuse' }),
-        }),
-      );
       // Nunca se crea una segunda sesión a partir del mismo uso del token.
       expect(tx.session.create).not.toHaveBeenCalled();
-      expect(securityEvents.record).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: 'refresh_token_reuse', reason: 'revoked_session' }),
-      );
+      expect(securityEvents.record).not.toHaveBeenCalled();
+    });
+
+    it('una sesión cerrada desde otro dispositivo o al cambiar la contraseña da 401 sin cerrar las demás', async () => {
+      const { secret, secretHash } = await tokens.generateRefreshSecret();
+      for (const reason of ['logout', 'logout_all', 'refresh_reuse']) {
+        tx.session.findUnique.mockResolvedValueOnce(
+          buildSession({
+            refreshTokenHash: secretHash,
+            revokedAt: new Date(Date.now() - 3_600_000),
+            revokedReason: reason,
+          }),
+        );
+        const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
+        await expect(svc.rotate({ refreshToken })).rejects.toBeInstanceOf(UnauthorizedException);
+      }
+      expect(tx.session.updateMany).not.toHaveBeenCalled();
+      expect(securityEvents.record).not.toHaveBeenCalled();
     });
 
     it('rechaza un refresh con secret incorrecto sin revocar nada', async () => {
@@ -337,18 +340,37 @@ describe('SessionsService', () => {
       });
     });
 
-    it('revoca TODAS si la sesion esta expirada', async () => {
+    it('una sesión caducada sin rotar da 401 sin cerrar las demás', async () => {
       const { secret, secretHash } = await tokens.generateRefreshSecret();
       const session = buildSession({
         refreshTokenHash: secretHash,
         expiresAt: new Date(Date.now() - 60_000),
       });
       tx.session.findUnique.mockResolvedValue(session);
+
+      const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
+      await expect(svc.rotate({ refreshToken })).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(tx.session.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('revoca TODAS si reaparece un token caducado que ya había rotado', async () => {
+      const { secret, secretHash } = await tokens.generateRefreshSecret();
+      const session = buildSession({
+        refreshTokenHash: secretHash,
+        expiresAt: new Date(Date.now() - 60_000),
+        revokedAt: new Date(Date.now() - 120_000),
+        revokedReason: 'rotated',
+      });
+      tx.session.findUnique.mockResolvedValue(session);
       tx.session.updateMany.mockResolvedValue({ count: 2 });
 
       const refreshToken = tokens.formatRefreshToken(TENANT_A, SESSION_ID, secret);
       await expect(svc.rotate({ refreshToken })).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(tx.session.updateMany).toHaveBeenCalled();
+      expect(tx.session.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ revokedReason: 'refresh_reuse' }),
+        }),
+      );
     });
 
     it('rechaza si la sesion existe pero pertenece a otro tenant', async () => {

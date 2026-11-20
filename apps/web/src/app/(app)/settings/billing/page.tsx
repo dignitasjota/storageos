@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 
 import { InvoicingModeCard } from './invoicing-mode-card';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -63,7 +64,11 @@ export default function BillingSettingsPage() {
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState<InvoiceSeriesDto | null>(null);
   const [newName, setNewName] = useState('');
-  const currentDefault = (series.data ?? []).find((s) => s.isDefault && !s.isRectification);
+  // Las series de los propietarios se numeran aparte (cada uno la suya): no
+  // cuentan como la serie por defecto del negocio.
+  const businessSeries = (series.data ?? []).filter((s) => !s.ownerId);
+  const ownerSeries = (series.data ?? []).filter((s) => !!s.ownerId);
+  const currentDefault = businessSeries.find((s) => s.isDefault && !s.isRectification);
 
   const form = useForm<CreateInvoiceSeriesInput>({
     resolver: zodResolver(CreateInvoiceSeriesSchema),
@@ -80,12 +85,14 @@ export default function BillingSettingsPage() {
     row: InvoiceSeriesDto,
     input: Parameters<typeof updateSeries.mutateAsync>[0]['input'],
     ok: string,
-  ) {
+  ): Promise<boolean> {
     try {
       await updateSeries.mutateAsync({ id: row.id, input });
       toast.success(ok);
+      return true;
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+      return false;
     }
   }
 
@@ -107,7 +114,7 @@ export default function BillingSettingsPage() {
     }
   }
 
-  const columns: ColumnDef<InvoiceSeriesDto>[] = [
+  const columnsFor = (owner: boolean): ColumnDef<InvoiceSeriesDto>[] => [
     { accessorKey: 'code', header: 'Código' },
     { accessorKey: 'name', header: 'Nombre' },
     {
@@ -131,10 +138,10 @@ export default function BillingSettingsPage() {
     },
     {
       accessorKey: 'isDefault',
-      header: 'Default',
+      header: 'Por defecto',
       cell: ({ row }) =>
         row.original.isDefault ? (
-          <Badge>Default</Badge>
+          <Badge>{owner ? 'Del propietario' : 'Por defecto'}</Badge>
         ) : row.original.isRectification ? (
           <Badge variant="outline" title="Las rectificativas van siempre en su propia serie">
             Rectificativas
@@ -169,7 +176,7 @@ export default function BillingSettingsPage() {
             >
               Renombrar
             </Button>
-            {!r.isDefault && !r.isRectification && r.isActive && (
+            {!owner && !r.isDefault && !r.isRectification && r.isActive && (
               <Button
                 size="sm"
                 variant="ghost"
@@ -212,6 +219,7 @@ export default function BillingSettingsPage() {
         </p>
       </div>
 
+      <BillingSettingsError />
       <AutoIssueCard />
       <DueDaysCard />
       <FirstPaymentCard />
@@ -219,47 +227,93 @@ export default function BillingSettingsPage() {
 
       <InvoicingModeCard />
 
-      <DataTable
-        columns={columns}
-        data={series.data ?? []}
-        isLoading={series.isLoading}
-        toolbarRight={
-          <Dialog
-            open={open}
-            onOpenChange={(o) => {
-              if (o) {
-                form.reset({
-                  code: (series.data?.length ?? 0) === 0 ? 'A' : '',
-                  name: (series.data?.length ?? 0) === 0 ? 'Serie principal' : '',
-                  prefix: (series.data?.length ?? 0) === 0 ? 'FA' : '',
-                  yearScope: true,
-                  // Marcarla por defecto cambia la serie en la que se emite todo.
-                  isDefault: !(series.data ?? []).some((s) => s.isDefault),
-                });
-              }
-              setOpen(o);
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-1 h-4 w-4" /> Nueva serie
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nueva serie de facturación</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {series.isError ? (
+        <Card>
+          <CardContent>
+            <SectionError onRetry={() => void series.refetch()} />
+          </CardContent>
+        </Card>
+      ) : (
+        <DataTable
+          columns={columnsFor(false)}
+          data={businessSeries}
+          isLoading={series.isLoading}
+          toolbarRight={
+            <Dialog
+              open={open}
+              onOpenChange={(o) => {
+                if (o) {
+                  form.reset({
+                    code: (series.data?.length ?? 0) === 0 ? 'A' : '',
+                    name: (series.data?.length ?? 0) === 0 ? 'Serie principal' : '',
+                    prefix: (series.data?.length ?? 0) === 0 ? 'FA' : '',
+                    yearScope: true,
+                    // Marcarla por defecto cambia la serie en la que se emite todo.
+                    isDefault: !businessSeries.some((s) => s.isDefault && !s.isRectification),
+                  });
+                }
+                setOpen(o);
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-1 h-4 w-4" /> Nueva serie
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Nueva serie de facturación</DialogTitle>
+                </DialogHeader>
+                <Form {...form}>
+                  <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <FormField
+                        control={form.control}
+                        name="code"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Código</FormLabel>
+                            <FormControl>
+                              <Input {...field} maxLength={20} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="prefix"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Prefijo</FormLabel>
+                            <FormControl>
+                              <Input {...field} maxLength={20} />
+                            </FormControl>
+                            <FormMessage />
+                            {field.value?.trim() && (
+                              <p className="text-xs text-muted-foreground">
+                                Número de factura:{' '}
+                                <code className="font-mono">
+                                  {field.value.trim().toUpperCase()}
+                                  {form.watch('yearScope') !== false
+                                    ? `/${new Date().getFullYear()}`
+                                    : ''}
+                                  /00001
+                                </code>
+                              </p>
+                            )}
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                     <FormField
                       control={form.control}
-                      name="code"
+                      name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Código</FormLabel>
+                          <FormLabel>Nombre</FormLabel>
                           <FormControl>
-                            <Input {...field} maxLength={20} />
+                            <Input {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -267,82 +321,66 @@ export default function BillingSettingsPage() {
                     />
                     <FormField
                       control={form.control}
-                      name="prefix"
+                      name="yearScope"
                       render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Prefijo</FormLabel>
+                        <FormItem className="flex items-center gap-2">
                           <FormControl>
-                            <Input {...field} maxLength={20} />
+                            <Checkbox
+                              checked={field.value ?? true}
+                              onCheckedChange={(v) => field.onChange(v === true)}
+                            />
                           </FormControl>
-                          <FormMessage />
+                          <FormLabel className="!mt-0">Incluir año en la numeración</FormLabel>
                         </FormItem>
                       )}
                     />
-                  </div>
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nombre</FormLabel>
-                        <FormControl>
-                          <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
+                    <FormField
+                      control={form.control}
+                      name="isDefault"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center gap-2">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value ?? false}
+                              onCheckedChange={(v) => field.onChange(v === true)}
+                            />
+                          </FormControl>
+                          <FormLabel className="!mt-0">Marcar como serie por defecto</FormLabel>
+                        </FormItem>
+                      )}
+                    />
+                    {form.watch('isDefault') && currentDefault && (
+                      <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                        Las facturas nuevas dejarán de numerarse en «{currentDefault.name}» (
+                        {currentDefault.prefix}) y pasarán a esta serie.
+                      </p>
                     )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="yearScope"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center gap-2">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value ?? true}
-                            onCheckedChange={(v) => field.onChange(v === true)}
-                          />
-                        </FormControl>
-                        <FormLabel className="!mt-0">Incluir año en la numeración</FormLabel>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="isDefault"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center gap-2">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value ?? false}
-                            onCheckedChange={(v) => field.onChange(v === true)}
-                          />
-                        </FormControl>
-                        <FormLabel className="!mt-0">Marcar como serie por defecto</FormLabel>
-                      </FormItem>
-                    )}
-                  />
-                  {form.watch('isDefault') && currentDefault && (
-                    <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-                      Las facturas nuevas dejarán de numerarse en «{currentDefault.name}» (
-                      {currentDefault.prefix}) y pasarán a esta serie.
-                    </p>
-                  )}
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                      Cancelar
-                    </Button>
-                    <Button type="submit" disabled={form.formState.isSubmitting}>
-                      {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        }
-        emptyText="Aún no has creado ninguna serie. Crea al menos una antes de emitir facturas."
-      />
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={form.formState.isSubmitting}>
+                        {form.formState.isSubmitting ? 'Creando...' : 'Crear'}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          }
+          emptyText="Aún no has creado ninguna serie. Crea al menos una antes de emitir facturas."
+        />
+      )}
+      {ownerSeries.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold">Series de los propietarios</h2>
+          <p className="text-sm text-muted-foreground">
+            Cada propietario numera sus facturas en su propia serie, que se crea sola con su primera
+            factura.
+          </p>
+          <DataTable columns={columnsFor(true)} data={ownerSeries} isLoading={false} />
+        </div>
+      )}
       <p className="text-xs text-muted-foreground">
         Una serie con facturas emitidas no puede cambiar su prefijo ni su numeración: para empezar
         otra, crea una serie nueva y márcala por defecto.
@@ -362,8 +400,10 @@ export default function BillingSettingsPage() {
               disabled={!newName.trim() || updateSeries.isPending}
               onClick={async () => {
                 if (!renaming) return;
-                await patchSeries(renaming, { name: newName.trim() }, 'Serie renombrada.');
-                setRenaming(null);
+                // Si falla, el diálogo sigue abierto con lo escrito.
+                if (await patchSeries(renaming, { name: newName.trim() }, 'Serie renombrada.')) {
+                  setRenaming(null);
+                }
               }}
             >
               Guardar
@@ -578,23 +618,16 @@ function FirstPaymentCard() {
   );
 }
 
-/** Recargo por mora (opt-in). Solo owner (billing:configure). */
+/**
+ * Recargo por mora: se configura en «Escalado de impagos», junto al resto del
+ * calendario y con su vista previa. Aquí solo se dice si está activado.
+ */
 function LateFeeCard() {
   const canConfigure = useHasPermission('billing:configure');
   const settings = useTenantBillingSettings(canConfigure);
-  const update = useUpdateTenantBillingSettings();
 
   if (!canConfigure || settings.isLoading || !settings.data) return null;
   const s = settings.data;
-
-  async function save(patch: Partial<Omit<typeof s, 'transferIban'>>) {
-    try {
-      await update.mutateAsync(patch);
-      toast.success('Recargo por mora actualizado.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'Error');
-    }
-  }
 
   return (
     <Card>
@@ -606,77 +639,37 @@ function LateFeeCard() {
           </Badge>
         </div>
         <CardDescription>
-          A los días indicados de vencimiento, el escalado de impagos emite una factura de recargo
-          (separada, conforme a Veri*Factu). También puedes aplicarlo a mano desde una factura
-          vencida. Todo el calendario de impagos, en{' '}
-          <Link href="/settings/dunning" className="font-medium underline-offset-2 hover:underline">
+          {s.lateFeeEnabled
+            ? `A los ${s.lateFeeGraceDays} ${s.lateFeeGraceDays === 1 ? 'día' : 'días'} del vencimiento se emite una factura de recargo de ${
+                s.lateFeeType === 'percentage'
+                  ? `${s.lateFeeValue.toLocaleString('es-ES')} %`
+                  : `${s.lateFeeValue.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €`
+              }. `
+            : 'No se cobra recargo a las facturas vencidas. '}
+          Se configura en{' '}
+          <Link
+            href="/settings/dunning"
+            className="font-medium underline underline-offset-2 hover:no-underline"
+          >
             Escalado de impagos
           </Link>
-          .
+          , junto al resto del calendario de impagos.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
-            <label className="text-sm font-medium" htmlFor="late-fee-type">
-              Tipo
-            </label>
-            <Select
-              value={s.lateFeeType}
-              onValueChange={(v) => void save({ lateFeeType: v as 'percentage' | 'fixed' })}
-              disabled={update.isPending}
-            >
-              <SelectTrigger id="late-fee-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="percentage">Porcentaje (%)</SelectItem>
-                <SelectItem value="fixed">Importe fijo (€)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium">
-              {s.lateFeeType === 'percentage' ? 'Porcentaje' : 'Euros'}
-            </label>
-            <Input
-              type="number"
-              defaultValue={s.lateFeeValue}
-              min={0}
-              step="0.01"
-              onBlur={(e) => {
-                const v = Number(e.target.value);
-                if (v !== s.lateFeeValue) void save({ lateFeeValue: v });
-              }}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm font-medium">Días tras vencimiento</label>
-            <Input
-              type="number"
-              defaultValue={s.lateFeeGraceDays}
-              min={0}
-              onBlur={(e) => {
-                const v = Number(e.target.value);
-                if (v !== s.lateFeeGraceDays) void save({ lateFeeGraceDays: v });
-              }}
-            />
-          </div>
-        </div>
-        <Button
-          onClick={() => save({ lateFeeEnabled: !s.lateFeeEnabled })}
-          variant={s.lateFeeEnabled ? 'destructive' : 'default'}
-          disabled={update.isPending}
-        >
-          {update.isPending
-            ? 'Guardando…'
-            : s.lateFeeEnabled
-              ? 'Desactivar recargo'
-              : 'Activar recargo por mora'}
-        </Button>
-      </CardContent>
     </Card>
   );
 }
 
-/** Config del acreedor para remesas SEPA. Solo owner (billing:configure). */
+/** Los ajustes de facturación no se han podido cargar: se dice, no desaparecen. */
+function BillingSettingsError() {
+  const canConfigure = useHasPermission('billing:configure');
+  const settings = useTenantBillingSettings(canConfigure);
+  if (!canConfigure || !settings.isError) return null;
+  return (
+    <Card>
+      <CardContent>
+        <SectionError onRetry={() => void settings.refetch()} />
+      </CardContent>
+    </Card>
+  );
+}

@@ -50,6 +50,28 @@ export class InvoicingModeService {
       t.invoicingModePendingFrom &&
       t.invoicingModePendingFrom <= todayInTimezone(t.timezone)
     ) {
+      // Pasar a Holded exige que siga listo (clave y series de emisión): si
+      // desde que se programó se quitó algo, no se cambia (las facturas se
+      // quedarían sin poder emitirse) y se avisa al equipo.
+      if (t.invoicingModePending === 'holded') {
+        const holded = await this.holded.resolveIssuing(tenantId);
+        if ('reason' in holded) {
+          await tx.tenant.update({
+            where: { id: tenantId },
+            data: { invoicingModePending: null, invoicingModePendingFrom: null },
+          });
+          await tx.notification.create({
+            data: {
+              tenantId,
+              type: 'invoicing_mode.holded_not_ready',
+              title: 'No se ha pasado a emitir en Holded',
+              body: `El cambio programado a Holded no se ha aplicado y tus facturas se siguen emitiendo aquí: ${holded.reason}. Revísalo en Configuración → Contabilidad y vuelve a elegir Holded en Facturación.`,
+              link: '/settings/accounting',
+            },
+          });
+          return asMode(t.invoicingMode);
+        }
+      }
       await tx.tenant.update({
         where: { id: tenantId },
         data: {
@@ -171,6 +193,8 @@ export class InvoicingModeService {
       where: {
         tenantId,
         kind: 'invoice',
+        // Las de los propietarios se emiten siempre aquí (otro NIF): no cuentan.
+        ownerId: null,
         status: { not: 'draft' },
         // Un borrador anulado sin emitir no cuenta como factura emitida.
         NOT: { invoiceNumber: { startsWith: 'DRAFT-' } },

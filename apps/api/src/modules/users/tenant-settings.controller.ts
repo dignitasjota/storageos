@@ -24,6 +24,7 @@ import {
   UpdateWebSettingsSchema,
   RequestWebHeroUploadSchema,
   SetWebHeroImageSchema,
+  permissionsForRole,
   type WebHeroUploadDto,
   type WebSettingsResponse,
 } from '@storageos/shared';
@@ -34,7 +35,10 @@ import {
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
-import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../../common/decorators/require-permission.decorator';
 
 import { ConfigHealthService } from './config-health.service';
 import { CustomDomainCheckService } from './custom-domain-check.service';
@@ -98,7 +102,7 @@ export class TenantSettingsController {
   @RequirePermission('settings:read')
   @Get('health')
   getHealth(@CurrentUser() user: AuthenticatedUser): Promise<ConfigHealthItemDto[]> {
-    return this.health.check(user.tenantId);
+    return this.health.check(user.tenantId, user.permissions ?? permissionsForRole(user.role));
   }
 
   /** Nombre comercial y zona horaria del negocio. */
@@ -154,7 +158,7 @@ export class TenantSettingsController {
     });
   }
 
-  @RequirePermission('settings:read')
+  @RequireAnyPermission('settings:read', 'billing:configure')
   @Get('billing')
   async getBilling(@CurrentUser() user: AuthenticatedUser): Promise<TenantBillingSettingsResponse> {
     return this.settings.getBilling(user.tenantId);

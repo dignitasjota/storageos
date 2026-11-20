@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Req,
 } from '@nestjs/common';
 import {
   type RedsysRedirectDto,
@@ -21,10 +22,17 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../../common/decorators/current-user.decorator';
-import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../../../common/decorators/require-permission.decorator';
+import { settingsChanges } from '../../../common/settings-audit';
+import { AuditService } from '../../auth/audit.service';
 
 import { RedsysSettingsService } from './redsys-settings.service';
 import { RedsysService } from './redsys.service';
+
+import type { Request } from 'express';
 
 class UpdateRedsysSettingsBody extends createZodDto(UpdateRedsysSettingsSchema) {}
 class RedsysRedirectBody extends createZodDto(RedsysRedirectRequestSchema) {}
@@ -34,9 +42,10 @@ export class RedsysController {
   constructor(
     private readonly settings: RedsysSettingsService,
     private readonly redsys: RedsysService,
+    private readonly audit: AuditService,
   ) {}
 
-  @RequirePermission('settings:read')
+  @RequireAnyPermission('settings:read', 'billing:configure')
   @Get()
   get(@CurrentUser() user: AuthenticatedUser): Promise<RedsysSettingsDto> {
     return this.settings.get(user.tenantId);
@@ -44,11 +53,24 @@ export class RedsysController {
 
   @RequirePermission('billing:configure')
   @Put()
-  update(
+  async update(
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: UpdateRedsysSettingsBody,
+    @Req() req: Request,
   ): Promise<RedsysSettingsDto> {
-    return this.settings.update(user.tenantId, body);
+    const before = await this.settings.get(user.tenantId);
+    const after = await this.settings.update(user.tenantId, body);
+    await this.audit.write({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      action: 'settings.redsys_changed',
+      entityType: 'RedsysSettings',
+      entityId: null,
+      changes: settingsChanges(before, after, { secretKey: body.secretKey }),
+      ipAddress: req.ip ?? null,
+      userAgent: req.header('user-agent') ?? null,
+    });
+    return after;
   }
 
   @RequirePermission('payments:charge')

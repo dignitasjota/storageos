@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -30,6 +31,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { userCan } from '../../common/guards/permissions.guard';
 
 import { PromoLandingsService } from './promo-landings.service';
 
@@ -57,6 +59,14 @@ export class PromoLandingsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query('days') days?: string,
   ): Promise<PromoLandingStatsDto> {
+    // Los resultados llevan ingresos: hace falta poder ver facturas o cobros.
+    if (!userCan(user, 'invoices:read') && !userCan(user, 'payments:read')) {
+      throw new ForbiddenException({
+        code: 'insufficient_permission',
+        message: 'Para ver los resultados hace falta permiso para ver facturas o cobros.',
+        details: { requiredPermissions: ['invoices:read'] },
+      });
+    }
     const n = Number(days ?? 30);
     return this.promos.stats(
       user.tenantId,
@@ -80,7 +90,7 @@ export class PromoLandingsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreatePromoLandingDto,
   ): Promise<PromoLandingDto> {
-    return this.promos.create(user.tenantId, body);
+    return this.promos.create(user.tenantId, body, user.sub);
   }
 
   @RequirePermission('settings:manage')
@@ -90,7 +100,7 @@ export class PromoLandingsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdatePromoLandingDto,
   ): Promise<PromoLandingDto> {
-    return this.promos.update(user.tenantId, id, body);
+    return this.promos.update(user.tenantId, id, body, user.sub);
   }
 
   /** Enlace de vista previa (también de un borrador), válido 30 minutos. */
@@ -110,7 +120,7 @@ export class PromoLandingsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<PromoLandingDto> {
-    return this.promos.duplicate(user.tenantId, id);
+    return this.promos.duplicate(user.tenantId, id, user.sub);
   }
 
   @RequirePermission('settings:manage')
@@ -120,7 +130,7 @@ export class PromoLandingsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.promos.remove(user.tenantId, id);
+    await this.promos.remove(user.tenantId, id, user.sub);
   }
 
   @RequirePermission('settings:manage')

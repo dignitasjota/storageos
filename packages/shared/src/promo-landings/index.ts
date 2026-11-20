@@ -163,6 +163,8 @@ export function promoLandingIsLive(
 
 /** Lo que la web pública necesita de la landing. */
 export interface PublicPromoLandingDto {
+  /** Va en las reservas hechas desde la landing (`utm_content`) para contar sus resultados. */
+  id: string;
   slug: string;
   headline: string;
   subheadline: string | null;

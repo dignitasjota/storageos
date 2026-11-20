@@ -13,13 +13,13 @@ import {
   RESERVED_FACILITY_SLUGS,
 } from '@storageos/shared';
 
-
 import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
+import { forgetFacilityInWeb } from '../promo-landings/landing-refs';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { ContractStatus, Facility } from '@storageos/database';
@@ -740,6 +740,8 @@ export class FacilitiesService {
           data: { isActive: false },
         }),
       ]);
+      // Las landings de promoción y las páginas de zona dejan de apuntar a él.
+      await forgetFacilityInWeb(tx, args.tenantId, facilityId);
       await tx.facility.update({
         where: { id: facilityId },
         // Libera su dirección pública: un local nuevo con el mismo nombre la usa.

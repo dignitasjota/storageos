@@ -58,6 +58,41 @@ export class SubscriptionPlansService {
     return rows.map((r) => ({ ...this.toDto(r, unitPrice), pricesIncludeVat: includeVat }));
   }
 
+  /**
+   * Planes que ve un tenant en su suscripción: los públicos, el que tiene
+   * (aunque sea oculto o ya no se ofrezca) y los de sus propuestas abiertas.
+   */
+  async listForTenant(tenantId: string): Promise<SubscriptionPlanDto[]> {
+    const [sub, offers] = await Promise.all([
+      this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        select: { planId: true },
+      }),
+      this.admin.platformQuoteOffer.findMany({
+        where: {
+          tenantId,
+          status: 'sent',
+          OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+        },
+        select: { planId: true },
+      }),
+    ]);
+    const extra = [sub?.planId, ...offers.map((o) => o.planId)].filter((id): id is string => !!id);
+    const rows = await this.admin.subscriptionPlan.findMany({
+      where: {
+        OR: [
+          { isActive: true, isPublic: true },
+          ...(sub?.planId ? [{ id: sub.planId }] : []),
+          ...(extra.length > 0 ? [{ id: { in: extra }, isActive: true }] : []),
+        ],
+      },
+      orderBy: [{ priceMonthly: 'asc' }],
+    });
+    const { includeVat } = await platformPricing(this.admin);
+    const unitPrice = await this.extraUnitPrice();
+    return rows.map((r) => ({ ...this.toDto(r, unitPrice), pricesIncludeVat: includeVat }));
+  }
+
   /** Lista TODOS los planes (incluye inactivos y ocultos) con sus tenants y MRR. Solo admin. */
   async listAll(): Promise<SubscriptionPlanDto[]> {
     const [rows, all, paying] = await Promise.all([

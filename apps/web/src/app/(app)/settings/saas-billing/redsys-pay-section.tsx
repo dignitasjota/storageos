@@ -73,8 +73,11 @@ export function RedsysPaySection() {
     }
   }
 
-  const owed = Math.min(12, Math.max(1, o.monthsOwed));
-  const payMonths = Math.min(12, months ?? owed);
+  const maxMonths = Math.min(12, Math.max(1, o.maxMonths));
+  const owed = Math.min(maxMonths, Math.max(1, o.monthsOwed));
+  const payMonths = Math.min(maxMonths, months ?? owed);
+  // Lo que puede elegir: con un plan por trastero, solo los meses que debe.
+  const monthChoices = Math.min(maxMonths, Math.max(owed, 3));
   const card = o.savedCard;
   const cardName = card
     ? `${card.brand ? (BRANDS[card.brand] ?? card.brand) : 'Tarjeta'}${card.last4 ? ` ···· ${card.last4}` : ''}`
@@ -125,11 +128,14 @@ export function RedsysPaySection() {
           </p>
         )}
 
-        {owed > 1 || payMonths > 1 ? (
+        {monthChoices > 1 ? (
           <div className="space-y-1">
-            {owed > 1 ? (
+            {o.monthsOwed > 1 ? (
               <p className="text-destructive">
-                Debes {owed} meses ({formatEur(o.amount * owed)}).
+                Debes {o.monthsOwed} meses ({formatEur(o.amount * o.monthsOwed)}).
+                {o.monthsOwed > maxMonths
+                  ? ` De una vez se pueden pagar como mucho ${maxMonths}; el resto, en otro pago.`
+                  : ''}
               </p>
             ) : null}
             <label className="flex flex-wrap items-center gap-2">
@@ -139,7 +145,7 @@ export function RedsysPaySection() {
                 value={payMonths}
                 onChange={(e) => setMonths(Number(e.target.value))}
               >
-                {Array.from({ length: Math.max(owed, 3) }, (_, i) => i + 1).map((n) => (
+                {Array.from({ length: monthChoices }, (_, i) => i + 1).map((n) => (
                   <option key={n} value={n}>
                     {n === 1 ? '1 mes' : `${n} meses`} · {formatEur(o.amount * n)}
                   </option>

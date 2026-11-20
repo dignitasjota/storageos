@@ -186,12 +186,17 @@ export class IntegrationsController {
     const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw) || 50)) : 50;
     const normalizedStatus =
       status === 'pending' || status === 'success' || status === 'failed' ? status : undefined;
-    const parsedFrom = fromDate ? new Date(fromDate) : undefined;
-    const parsedTo = toDate ? new Date(toDate) : undefined;
+    // `YYYY-MM-DD` = día del negocio (el servidor aplica su zona horaria y
+    // «hasta» incluye el día entero); se siguen admitiendo instantes ISO.
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    const parsedFrom = fromDate && !day.test(fromDate) ? new Date(fromDate) : undefined;
+    const parsedTo = toDate && !day.test(toDate) ? new Date(toDate) : undefined;
     return this.webhooks.listDeliveries(user.tenantId, id, {
       limit,
       ...(cursor ? { cursor } : {}),
       ...(normalizedStatus ? { status: normalizedStatus } : {}),
+      ...(fromDate && day.test(fromDate) ? { fromDay: fromDate } : {}),
+      ...(toDate && day.test(toDate) ? { toDay: toDate } : {}),
       ...(parsedFrom && !Number.isNaN(parsedFrom.getTime()) ? { fromDate: parsedFrom } : {}),
       ...(parsedTo && !Number.isNaN(parsedTo.getTime()) ? { toDate: parsedTo } : {}),
     });

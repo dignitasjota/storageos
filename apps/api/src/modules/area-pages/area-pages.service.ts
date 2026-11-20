@@ -23,6 +23,7 @@ import {
 } from '@storageos/shared';
 
 import { AiService } from '../ai/ai.service';
+import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { LandingService } from '../landing/landing.service';
 
@@ -43,6 +44,7 @@ export class AreaPagesService {
     private readonly prisma: PrismaService,
     private readonly landing: LandingService,
     private readonly ai: AiService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -89,6 +91,13 @@ export class AreaPagesService {
         facilities,
         existingFaqs: site.faqs.map((f) => f.question),
       }),
+      // Si la respuesta no se puede leer, la consulta se devuelve.
+      accept: (reply) => parseAreaPageDraft(reply, kind) !== null,
+      rejected: () =>
+        new BadGatewayException({
+          code: 'ai_draft_failed',
+          message: 'No se ha podido redactar el texto. Inténtalo de nuevo: no ha gastado consulta.',
+        }),
     });
     const draft = parseAreaPageDraft(text, kind);
     if (!draft) {
@@ -117,7 +126,10 @@ export class AreaPagesService {
       const row = bySlug.get(p.slug) ?? null;
       const words = wordCount(row?.intro);
       const warnings: AreaPageOverviewDto['warnings'] = [];
-      if (p.kind === 'city' && p.redirect?.to !== 'home') {
+      // Texto propio de la ciudad apagado: la página sale con el texto generado.
+      const textOff = p.kind === 'city' && !!row && !row.isPublished;
+      if (textOff) warnings.push('not_published');
+      if (p.kind === 'city' && p.redirect?.to !== 'home' && !textOff) {
         if (words === 0) warnings.push('no_intro');
         else if (words < AREA_PAGE_CITY_MIN_WORDS) warnings.push('short_intro');
       }
@@ -162,15 +174,20 @@ export class AreaPagesService {
     };
   }
 
-  async create(tenantId: string, input: CreateAreaPageInput): Promise<AreaPagesSettingsDto> {
+  async create(
+    tenantId: string,
+    input: CreateAreaPageInput,
+    userId: string | null = null,
+  ): Promise<AreaPagesSettingsDto> {
     const slug = areaPageSlug(input);
     if (!slug) {
       throw new BadRequestException({ code: 'invalid_slug', message: 'Nombre no válido' });
     }
-    await this.prisma.withTenant(async (tx) => {
+    const createdId = await this.prisma.withTenant(async (tx) => {
       const isCity = await this.isCity(tx, tenantId, slug);
+      let facilityIds: string[] = [];
       if (!isCity) {
-        await this.assertFacilities(tx, tenantId, input.facilityIds);
+        facilityIds = await this.liveFacilities(tx, tenantId, input.facilityIds);
         const nearby = await this.countNearby(tx, tenantId);
         if (nearby >= MAX_NEARBY_AREA_PAGES) {
           throw new BadRequestException({
@@ -180,12 +197,12 @@ export class AreaPagesService {
         }
       }
       try {
-        await tx.webAreaPage.create({
+        const created = await tx.webAreaPage.create({
           data: {
             tenantId,
             slug,
             name: input.name,
-            facilityIds: isCity ? [] : input.facilityIds,
+            facilityIds,
             nearestNote: isCity ? null : (input.nearestNote ?? null),
             intro: input.intro ?? null,
             nearbyAreas: input.nearbyAreas,
@@ -195,6 +212,7 @@ export class AreaPagesService {
             isPublished: input.isPublished,
           },
         });
+        return created.id;
       } catch (err) {
         if ((err as { code?: string }).code === 'P2002') {
           throw new ConflictException({
@@ -205,6 +223,14 @@ export class AreaPagesService {
         throw err;
       }
     }, tenantId);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'area_page.created',
+      entityType: 'AreaPage',
+      entityId: createdId,
+      changes: { name: input.name, slug, isPublished: input.isPublished },
+    });
     return this.settings(tenantId);
   }
 
@@ -212,23 +238,26 @@ export class AreaPagesService {
     tenantId: string,
     id: string,
     input: UpdateAreaPageInput,
+    userId: string | null = null,
   ): Promise<AreaPagesSettingsDto> {
-    await this.prisma.withTenant(async (tx) => {
+    const { before, after } = await this.prisma.withTenant(async (tx) => {
       const row = await this.findOrThrow(tx, tenantId, id);
       // La dirección solo cambia si se pide (cambiar el nombre no rompe enlaces).
       const slug = input.slug ? areaPageSlug({ name: row.name, slug: input.slug }) : row.slug;
       const isCity = await this.isCity(tx, tenantId, slug);
-      if (!isCity && input.facilityIds)
-        await this.assertFacilities(tx, tenantId, input.facilityIds);
+      const facilityIds =
+        input.facilityIds === undefined
+          ? undefined
+          : isCity
+            ? []
+            : await this.liveFacilities(tx, tenantId, input.facilityIds);
       try {
-        await tx.webAreaPage.update({
+        const updated = await tx.webAreaPage.update({
           where: { id },
           data: {
             slug,
             ...(input.name !== undefined ? { name: input.name } : {}),
-            ...(input.facilityIds !== undefined
-              ? { facilityIds: isCity ? [] : input.facilityIds }
-              : {}),
+            ...(facilityIds !== undefined ? { facilityIds } : {}),
             ...(input.nearestNote !== undefined ? { nearestNote: input.nearestNote || null } : {}),
             ...(input.intro !== undefined ? { intro: input.intro || null } : {}),
             ...(input.nearbyAreas !== undefined ? { nearbyAreas: input.nearbyAreas } : {}),
@@ -240,6 +269,7 @@ export class AreaPagesService {
             ...(input.isPublished !== undefined ? { isPublished: input.isPublished } : {}),
           },
         });
+        return { before: row, after: updated };
       } catch (err) {
         if ((err as { code?: string }).code === 'P2002') {
           throw new ConflictException({
@@ -250,14 +280,45 @@ export class AreaPagesService {
         throw err;
       }
     }, tenantId);
+    const changes: Record<string, unknown> = {};
+    if (before.isPublished !== after.isPublished) changes.isPublished = after.isPublished;
+    if (before.slug !== after.slug) changes.slug = { from: before.slug, to: after.slug };
+    if (Object.keys(changes).length > 0) {
+      await this.audit.write({
+        tenantId,
+        userId,
+        action:
+          before.slug !== after.slug
+            ? 'area_page.slug_changed'
+            : after.isPublished
+              ? 'area_page.published'
+              : 'area_page.unpublished',
+        entityType: 'AreaPage',
+        entityId: id,
+        changes: { name: after.name, ...changes },
+      });
+    }
     return this.settings(tenantId);
   }
 
-  async remove(tenantId: string, id: string): Promise<AreaPagesSettingsDto> {
-    await this.prisma.withTenant(async (tx) => {
-      await this.findOrThrow(tx, tenantId, id);
+  async remove(
+    tenantId: string,
+    id: string,
+    userId: string | null = null,
+  ): Promise<AreaPagesSettingsDto> {
+    const row = await this.prisma.withTenant(async (tx) => {
+      const found = await this.findOrThrow(tx, tenantId, id);
       await tx.webAreaPage.delete({ where: { id } });
+      return found;
     }, tenantId);
+    await this.audit.write({
+      tenantId,
+      userId,
+      action: 'area_page.deleted',
+      entityType: 'AreaPage',
+      entityId: id,
+      changes: { name: row.name, slug: row.slug },
+    });
     return this.settings(tenantId);
   }
 
@@ -287,23 +348,30 @@ export class AreaPagesService {
     return rows.filter((r) => !cities.has(r.slug)).length;
   }
 
-  private async assertFacilities(
+  /**
+   * Los locales elegidos que siguen existiendo (uno borrado mientras se
+   * editaba se quita sin dar error). Al menos uno.
+   */
+  private async liveFacilities(
     tx: Prisma.TransactionClient,
     tenantId: string,
     ids: string[],
-  ): Promise<void> {
-    if (ids.length === 0) {
+  ): Promise<string[]> {
+    const found = ids.length
+      ? await tx.facility.findMany({
+          where: { tenantId, id: { in: ids }, deletedAt: null },
+          select: { id: true },
+        })
+      : [];
+    const live = new Set(found.map((f) => f.id));
+    const kept = [...new Set(ids)].filter((id) => live.has(id));
+    if (kept.length === 0) {
       throw new BadRequestException({
         code: 'area_page_facilities_required',
         message: 'Elige el local o los locales que se muestran en esta zona.',
       });
     }
-    const found = await tx.facility.count({
-      where: { tenantId, id: { in: ids }, deletedAt: null },
-    });
-    if (found !== new Set(ids).size) {
-      throw new BadRequestException({ code: 'invalid_facility', message: 'Local no válido' });
-    }
+    return kept;
   }
 
   private async findOrThrow(

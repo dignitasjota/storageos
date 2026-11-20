@@ -98,9 +98,12 @@ export function BookPageBody({
   // Origen de la visita (utm del enlace, anuncio o web de la que viene, aunque
   // entrara por la portada): se reenvía en el lead y en la reserva para que el
   // rendimiento de marketing pueda atribuir la conversión.
-  const [utm, setUtm] = useState<{ utmSource?: string; utmMedium?: string; utmCampaign?: string }>(
-    {},
-  );
+  const [utm, setUtm] = useState<{
+    utmSource?: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+    utmContent?: string;
+  }>({});
 
   // Enlace del aviso de la lista de espera: el trastero guardado cuenta como libre.
   const [holdToken, setHoldToken] = useState<string | null>(null);
@@ -147,7 +150,12 @@ export function BookPageBody({
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    setUtm(trafficSourceToUtm(currentTrafficSource(slug)));
+    // `utm_content`: la landing de promoción de la que viene (cuenta en sus resultados).
+    const content = sp.get('utm_content')?.trim();
+    setUtm({
+      ...trafficSourceToUtm(currentTrafficSource(slug)),
+      ...(content && /^[0-9a-f-]{36}$/i.test(content) ? { utmContent: content } : {}),
+    });
     // Desde una landing de promoción: cupón ya aplicado y meses que pide.
     const coupon = sp.get('coupon')?.trim().toUpperCase();
     if (coupon) {

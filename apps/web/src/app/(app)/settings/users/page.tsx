@@ -10,6 +10,7 @@ import { InviteUserDialog } from './invite-user-dialog';
 
 import type { InvitationDto, UserDetailDto, UserRole } from '@storageos/shared';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -176,6 +177,104 @@ export default function UsersSettingsPage() {
     return true;
   });
 
+  function renderTwoFactor(u: UserDetailDto) {
+    if (u.twoFactorEnabled) return <Badge variant="secondary">Activada</Badge>;
+    return (
+      <span
+        className={
+          requires2fa && (u.role === 'owner' || u.role === 'manager')
+            ? 'text-xs font-medium text-amber-700 dark:text-amber-300'
+            : 'text-xs text-muted-foreground'
+        }
+      >
+        Sin dos pasos
+      </span>
+    );
+  }
+
+  function renderUserActions(u: UserDetailDto) {
+    const isSelf = u.id === meId;
+    const targetIsOwner = u.role === 'owner';
+    const canEdit = canManage && !targetIsOwner;
+    const canTransfer = isOwner && !targetIsOwner && u.isActive;
+    if (!canEdit && !canTransfer) return null;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={t('columns.actions')}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {canEdit && (
+            <DropdownMenuItem onClick={() => setEditing(u)}>{t('actions.edit')}</DropdownMenuItem>
+          )}
+          {canEdit && u.isActive && !isSelf && (
+            <DropdownMenuItem onClick={() => setDeactivating(u)} className="text-destructive">
+              {t('actions.deactivate')}
+            </DropdownMenuItem>
+          )}
+          {canEdit && !u.isActive && (
+            <DropdownMenuItem onClick={() => handleReactivate(u)}>
+              {t('actions.reactivate')}
+            </DropdownMenuItem>
+          )}
+          {canTransfer && (
+            <DropdownMenuItem onClick={() => setTransferring(u)}>
+              {t('actions.transferOwnership')}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  function renderInvitationStatus(inv: InvitationDto) {
+    if (inv.status === 'revoked') {
+      return (
+        <Badge variant="outline" className="ml-2 text-muted-foreground">
+          Revocada
+        </Badge>
+      );
+    }
+    if (inv.status === 'expired') {
+      return (
+        <Badge variant="outline" className="ml-2 text-amber-700 dark:text-amber-300">
+          Caducada
+        </Badge>
+      );
+    }
+    return null;
+  }
+
+  function renderInvitationActions(inv: InvitationDto) {
+    // Las invitaciones de gestor solo las reenvía el propietario.
+    const canResend = isOwner || inv.role !== 'manager';
+    const canRevoke = inv.status !== 'revoked';
+    if (!canResend && !canRevoke) return null;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" aria-label={t('columns.actions')}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {canResend && (
+            <DropdownMenuItem onClick={() => handleResend(inv)}>
+              {t('actions.resend')}
+            </DropdownMenuItem>
+          )}
+          {canRevoke && (
+            <DropdownMenuItem onClick={() => setRevokingInv(inv)} className="text-destructive">
+              {t('actions.revoke')}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex items-start justify-between">
@@ -190,196 +289,173 @@ export default function UsersSettingsPage() {
         <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
           Exiges la verificación en dos pasos a propietarios y gestores, pero{' '}
           {missing2fa.map((u) => u.fullName).join(', ')}{' '}
-          {missing2fa.length === 1 ? 'aún no la tiene' : 'aún no la tienen'}: se les pedirá
-          activarla la próxima vez que entren.
+          {missing2fa.length === 1 ? 'aún no la tiene' : 'aún no la tienen'}: tendrán que activarla
+          para seguir usando el panel.
         </p>
       )}
 
       <section className="space-y-3">
         <h2 className="text-lg font-medium">{t('tableTitle')}</h2>
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('columns.name')}</TableHead>
-                <TableHead>{t('columns.email')}</TableHead>
-                <TableHead>{t('columns.role')}</TableHead>
-                <TableHead>{t('columns.status')}</TableHead>
-                <TableHead>Dos pasos</TableHead>
-                <TableHead>{t('columns.lastLogin')}</TableHead>
-                <TableHead className="w-[60px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.isLoading && (
-                <TableRow>
-                  <TableCell colSpan={7}>
-                    <Skeleton className="h-6 w-full" />
-                  </TableCell>
-                </TableRow>
-              )}
-              {users.data?.map((u) => {
-                const isSelf = u.id === meId;
-                const targetIsOwner = u.role === 'owner';
-                const canEdit = canManage && !targetIsOwner;
-                const canTransfer = isOwner && !targetIsOwner && u.isActive;
-                return (
-                  <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.fullName}</TableCell>
-                    <TableCell>{u.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={roleVariant(u.role)}>{t(`role.${u.role}`)}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={u.isActive ? 'default' : 'outline'}>
-                        {u.isActive ? t('status.active') : t('status.inactive')}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {u.twoFactorEnabled ? (
-                        <Badge variant="secondary">Activada</Badge>
-                      ) : (
-                        <span
-                          className={
-                            requires2fa && (u.role === 'owner' || u.role === 'manager')
-                              ? 'text-xs font-medium text-amber-700 dark:text-amber-300'
-                              : 'text-xs text-muted-foreground'
-                          }
-                        >
-                          No
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(u.lastLoginAt)}
-                    </TableCell>
-                    <TableCell>
-                      {(canEdit || canTransfer) && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" aria-label="Acciones">
-                              <MoreHorizontal className="h-4 w-4" />
-                              <span className="sr-only">{t('columns.actions')}</span>
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            {canEdit && (
-                              <DropdownMenuItem onClick={() => setEditing(u)}>
-                                {t('actions.edit')}
-                              </DropdownMenuItem>
-                            )}
-                            {canEdit && u.isActive && !isSelf && (
-                              <DropdownMenuItem
-                                onClick={() => setDeactivating(u)}
-                                className="text-destructive"
-                              >
-                                {t('actions.deactivate')}
-                              </DropdownMenuItem>
-                            )}
-                            {canEdit && !u.isActive && (
-                              <DropdownMenuItem onClick={() => handleReactivate(u)}>
-                                {t('actions.reactivate')}
-                              </DropdownMenuItem>
-                            )}
-                            {canTransfer && (
-                              <DropdownMenuItem onClick={() => setTransferring(u)}>
-                                {t('actions.transferOwnership')}
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </TableCell>
+        {users.isError ? (
+          <div className="rounded-md border">
+            <SectionError onRetry={() => void users.refetch()} />
+          </div>
+        ) : (
+          <>
+            {/* Móvil: una tarjeta por persona. */}
+            <div className="space-y-2 md:hidden">
+              {users.isLoading && <Skeleton className="h-20 w-full" />}
+              {users.data?.map((u) => (
+                <div key={u.id} className="space-y-2 rounded-md border p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{u.fullName}</p>
+                      <p className="truncate text-sm text-muted-foreground">{u.email}</p>
+                    </div>
+                    {renderUserActions(u)}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Badge variant={roleVariant(u.role)}>{t(`role.${u.role}`)}</Badge>
+                    <Badge variant={u.isActive ? 'default' : 'outline'}>
+                      {u.isActive ? t('status.active') : t('status.inactive')}
+                    </Badge>
+                    {renderTwoFactor(u)}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('columns.lastLogin')}: {formatDate(u.lastLoginAt)}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="hidden rounded-md border md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('columns.name')}</TableHead>
+                    <TableHead>{t('columns.email')}</TableHead>
+                    <TableHead>{t('columns.role')}</TableHead>
+                    <TableHead>{t('columns.status')}</TableHead>
+                    <TableHead>Dos pasos</TableHead>
+                    <TableHead>{t('columns.lastLogin')}</TableHead>
+                    <TableHead className="w-[60px]" />
                   </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                </TableHeader>
+                <TableBody>
+                  {users.isLoading && (
+                    <TableRow>
+                      <TableCell colSpan={7}>
+                        <Skeleton className="h-6 w-full" />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {users.data?.map((u) => (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-medium">{u.fullName}</TableCell>
+                      <TableCell>{u.email}</TableCell>
+                      <TableCell>
+                        <Badge variant={roleVariant(u.role)}>{t(`role.${u.role}`)}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={u.isActive ? 'default' : 'outline'}>
+                          {u.isActive ? t('status.active') : t('status.inactive')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{renderTwoFactor(u)}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDate(u.lastLoginAt)}
+                      </TableCell>
+                      <TableCell>{renderUserActions(u)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
       </section>
 
       {canManage && (
         <section className="space-y-3">
           <h2 className="text-lg font-medium">{t('invitationsTitle')}</h2>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('columns.email')}</TableHead>
-                  <TableHead>{t('columns.role')}</TableHead>
-                  <TableHead>{t('columns.invitedBy')}</TableHead>
-                  <TableHead>{t('columns.expires')}</TableHead>
-                  <TableHead className="w-[60px]" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invitations.isLoading && (
-                  <TableRow>
-                    <TableCell colSpan={5}>
-                      <Skeleton className="h-6 w-full" />
-                    </TableCell>
-                  </TableRow>
-                )}
+          {invitations.isError ? (
+            <div className="rounded-md border">
+              <SectionError onRetry={() => void invitations.refetch()} />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2 md:hidden">
+                {invitations.isLoading && <Skeleton className="h-16 w-full" />}
                 {!invitations.isLoading && pendingInvitations.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-sm text-muted-foreground">
-                      {t('noInvitations')}
-                    </TableCell>
-                  </TableRow>
+                  <p className="rounded-md border p-3 text-center text-sm text-muted-foreground">
+                    {t('noInvitations')}
+                  </p>
                 )}
                 {pendingInvitations.map((inv) => (
-                  <TableRow key={inv.id}>
-                    <TableCell className="font-medium">{inv.email}</TableCell>
-                    <TableCell>
+                  <div key={inv.id} className="space-y-2 rounded-md border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 truncate font-medium">{inv.email}</p>
+                      {renderInvitationActions(inv)}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <Badge variant={roleVariant(inv.role)}>{t(`role.${inv.role}`)}</Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {inv.invitedByName ?? '—'}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(inv.expiresAt)}
-                      {inv.status === 'revoked' && (
-                        <Badge variant="outline" className="ml-2 text-muted-foreground">
-                          Revocada
-                        </Badge>
-                      )}
-                      {inv.status === 'expired' && (
-                        <Badge
-                          variant="outline"
-                          className="ml-2 text-amber-700 dark:text-amber-300"
-                        >
-                          Caducada
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label="Acciones">
-                            <MoreHorizontal className="h-4 w-4" />
-                            <span className="sr-only">{t('columns.actions')}</span>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleResend(inv)}>
-                            {t('actions.resend')}
-                          </DropdownMenuItem>
-                          {inv.status !== 'revoked' && (
-                            <DropdownMenuItem
-                              onClick={() => setRevokingInv(inv)}
-                              className="text-destructive"
-                            >
-                              {t('actions.revoke')}
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
+                      <span>
+                        {t('columns.expires')}: {formatDate(inv.expiresAt)}
+                      </span>
+                      {renderInvitationStatus(inv)}
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
-          </div>
+              </div>
+              <div className="hidden rounded-md border md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('columns.email')}</TableHead>
+                      <TableHead>{t('columns.role')}</TableHead>
+                      <TableHead>{t('columns.invitedBy')}</TableHead>
+                      <TableHead>{t('columns.expires')}</TableHead>
+                      <TableHead className="w-[60px]" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invitations.isLoading && (
+                      <TableRow>
+                        <TableCell colSpan={5}>
+                          <Skeleton className="h-6 w-full" />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {!invitations.isLoading && pendingInvitations.length === 0 && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={5}
+                          className="text-center text-sm text-muted-foreground"
+                        >
+                          {t('noInvitations')}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {pendingInvitations.map((inv) => (
+                      <TableRow key={inv.id}>
+                        <TableCell className="font-medium">{inv.email}</TableCell>
+                        <TableCell>
+                          <Badge variant={roleVariant(inv.role)}>{t(`role.${inv.role}`)}</Badge>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {inv.invitedByName ?? '—'}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(inv.expiresAt)}
+                          {renderInvitationStatus(inv)}
+                        </TableCell>
+                        <TableCell>{renderInvitationActions(inv)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </section>
       )}
 

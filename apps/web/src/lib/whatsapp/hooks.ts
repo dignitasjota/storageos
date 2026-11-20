@@ -4,6 +4,8 @@ import { apiFetch } from '../auth/api';
 
 import type {
   SendWhatsappTemplateInput,
+  TestWhatsappOwnAiInput,
+  TestWhatsappSettingsInput,
   WhatsappMediaUploadDto,
   WhatsappStatsDto,
   WhatsappTemplatesDto,
@@ -39,12 +41,25 @@ export function useUpdateWhatsappSettings() {
   });
 }
 
+/** Prueba lo escrito (si llega un token) o lo guardado. */
 export function useTestWhatsapp() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch<WhatsappTestResultDto>('/settings/whatsapp/test', { method: 'POST' }),
+    mutationFn: (input: TestWhatsappSettingsInput = {}) =>
+      apiFetch<WhatsappTestResultDto>('/settings/whatsapp/test', { method: 'POST', json: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: settingsKey }),
+  });
+}
+
+/** Desconecta el número (las conversaciones se conservan). */
+export function useDisconnectWhatsapp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<void>('/settings/whatsapp', { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: settingsKey });
+      void qc.invalidateQueries({ queryKey: ['settings', 'whatsapp', 'assistant'] });
+    },
   });
 }
 
@@ -185,10 +200,14 @@ export function useUpdateWhatsappAssistant() {
   });
 }
 
+/** Prueba la clave escrita (si llega) o la guardada. */
 export function useTestWhatsappAssistant() {
   return useMutation({
-    mutationFn: () =>
-      apiFetch<WhatsappAiTestResultDto>('/settings/whatsapp/assistant/test', { method: 'POST' }),
+    mutationFn: (input: TestWhatsappOwnAiInput = {}) =>
+      apiFetch<WhatsappAiTestResultDto>('/settings/whatsapp/assistant/test', {
+        method: 'POST',
+        json: input,
+      }),
   });
 }
 

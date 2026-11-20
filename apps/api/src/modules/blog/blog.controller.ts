@@ -67,7 +67,7 @@ export class BlogController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: CreateBlogPostDto,
   ): Promise<BlogPostDto> {
-    return this.blog.create(user.tenantId, body);
+    return this.blog.create(user.tenantId, body, user.sub);
   }
 
   @RequirePermission('settings:manage')
@@ -77,7 +77,7 @@ export class BlogController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateBlogPostDto,
   ): Promise<BlogPostDto> {
-    return this.blog.update(user.tenantId, id, body);
+    return this.blog.update(user.tenantId, id, body, user.sub);
   }
 
   @RequirePermission('settings:manage')
@@ -87,7 +87,7 @@ export class BlogController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<void> {
-    await this.blog.remove(user.tenantId, id);
+    await this.blog.remove(user.tenantId, id, user.sub);
   }
 
   @RequirePermission('settings:manage')

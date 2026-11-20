@@ -440,6 +440,8 @@ export interface GoCardlessSettingsDto {
   hasAccessToken: boolean;
   /** true si hay webhook secret guardado. */
   hasWebhookSecret: boolean;
+  /** Dirección completa que hay que dar de alta como webhook en GoCardless. */
+  webhookUrl: string;
 }
 
 /** Resultado de probar la conexión con GoCardless. */

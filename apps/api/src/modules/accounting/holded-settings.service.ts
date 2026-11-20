@@ -33,7 +33,7 @@ export class HoldedSettingsService {
     private readonly crypto: CryptoService,
   ) {}
 
-  async get(tenantId: string): Promise<Omit<HoldedSettingsDto, 'reviewCount'>> {
+  async get(tenantId: string): Promise<Omit<HoldedSettingsDto, 'reviewCount' | 'pendingCount'>> {
     const row = await this.row(tenantId);
     const hasApiKey = !!row?.apiKeyEncrypted;
     const enabled = row?.enabled ?? false;
@@ -54,13 +54,32 @@ export class HoldedSettingsService {
   async update(
     tenantId: string,
     input: UpdateHoldedSettingsInput,
-  ): Promise<Omit<HoldedSettingsDto, 'reviewCount'>> {
+  ): Promise<Omit<HoldedSettingsDto, 'reviewCount' | 'pendingCount'>> {
     const existing = await this.row(tenantId);
     if (input.enabled && !input.apiKey && !existing?.apiKeyEncrypted) {
       throw new BadRequestException({
         code: 'holded_api_key_required',
         message: 'Necesitas una API key de Holded para activar la integración',
       });
+    }
+    // Emitiendo en Holded (o con el cambio programado), sin series de emisión
+    // no se podría emitir ninguna factura.
+    if (input.issuingInvoiceSeriesId === null || input.issuingCreditNoteSeriesId === null) {
+      const tenant = await this.prisma.withTenant(
+        (tx) =>
+          tx.tenant.findUnique({
+            where: { id: tenantId },
+            select: { invoicingMode: true, invoicingModePending: true },
+          }),
+        tenantId,
+      );
+      if (tenant?.invoicingMode === 'holded' || tenant?.invoicingModePending === 'holded') {
+        throw new BadRequestException({
+          code: 'holded_issuing_series_required',
+          message:
+            'Tus facturas se emiten en Holded: no puedes dejar sin elegir las series de emisión. Cambia antes dónde se emiten en Configuración → Facturación.',
+        });
+      }
     }
     const apiKey =
       input.apiKey ??

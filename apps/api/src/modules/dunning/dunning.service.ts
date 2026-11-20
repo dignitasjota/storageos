@@ -439,9 +439,17 @@ export class DunningService {
             });
             result = { ...result, lateFeeInvoiceId: fee.id };
           } catch (err) {
-            // Ya tenía recargo (puesto a mano): el paso está hecho.
-            if (errorCode(err) !== 'late_fee_already_applied') throw err;
-            result = { ...result, lateFeeSkipped: 'already_applied' };
+            // Ya tenía recargo (puesto a mano): el paso está hecho. Un recargo
+            // configurado a 0 no se puede aplicar nunca: se salta (no se
+            // reprograma cada día).
+            const code = errorCode(err);
+            if (code === 'late_fee_already_applied') {
+              result = { ...result, lateFeeSkipped: 'already_applied' };
+            } else if (code === 'late_fee_zero') {
+              result = { ...result, lateFeeSkipped: 'zero_amount' };
+            } else {
+              throw err;
+            }
           }
         } else {
           result = { ...result, lateFeeSkipped: 'disabled' };

@@ -34,7 +34,11 @@ export function useUpdateSepaSettings() {
   return useMutation({
     mutationFn: (input: UpdateSepaSettingsInput) =>
       apiFetch<SepaSettingsDto>('/sepa/settings', { method: 'PUT', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: settingsKey }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: settingsKey });
+      // Apagar las remesas o vaciar el domicilio apaga la domiciliación del portal.
+      void qc.invalidateQueries({ queryKey: ['settings', 'tenant', 'billing'] });
+    },
   });
 }
 

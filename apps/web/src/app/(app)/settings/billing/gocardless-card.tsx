@@ -1,9 +1,10 @@
 'use client';
 
-import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Copy, Loader2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -58,12 +59,52 @@ export function GoCardlessCard() {
   }
 
   async function runTest() {
-    const res = await test.mutateAsync();
-    if (res.ok) {
-      toast.success(`Conexión correcta${res.creditorName ? ` — ${res.creditorName}` : ''}.`);
-    } else {
-      toast.error(`No se pudo conectar: ${res.error ?? 'error'}`);
+    try {
+      const res = await test.mutateAsync();
+      if (res.ok) {
+        toast.success(`Conexión correcta${res.creditorName ? ` — ${res.creditorName}` : ''}.`);
+      } else {
+        toast.error(`No se pudo conectar: ${res.error ?? 'error'}`);
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se ha podido probar la conexión.',
+      );
     }
+  }
+
+  async function copyWebhookUrl(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Dirección copiada.');
+    } catch {
+      toast.error('No se ha podido copiar. Selecciónala y cópiala a mano.');
+    }
+  }
+
+  if (settings.isError) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Domiciliación SEPA — GoCardless</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SectionError onRetry={() => void settings.refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
+  if (!data) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Domiciliación SEPA — GoCardless</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -99,9 +140,7 @@ export function GoCardlessCard() {
             type="password"
             value={accessToken}
             onChange={(e) => setAccessToken(e.target.value)}
-            placeholder={
-              data?.hasAccessToken ? '•••••••• (guardado)' : 'Access token de GoCardless'
-            }
+            placeholder={data.hasAccessToken ? '•••••••• (guardado)' : 'Access token de GoCardless'}
           />
         </div>
 
@@ -112,13 +151,31 @@ export function GoCardlessCard() {
             value={webhookSecret}
             onChange={(e) => setWebhookSecret(e.target.value)}
             placeholder={
-              data?.hasWebhookSecret ? '•••••••• (guardado)' : 'Secret del endpoint de webhook'
+              data.hasWebhookSecret ? '•••••••• (guardado)' : 'Secret del endpoint de webhook'
             }
           />
           <p className="text-xs text-muted-foreground">
-            En el dashboard de GoCardless, crea un webhook apuntando a{' '}
-            <code>/webhooks/gocardless/&lt;tu-tenant-id&gt;</code> y pega aquí su secret.
+            En el panel de GoCardless, crea un webhook con esta dirección y pega aquí su secret:
           </p>
+          <div className="flex items-center gap-2">
+            <Input
+              readOnly
+              value={data.webhookUrl}
+              className="font-mono text-xs"
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Dirección del webhook"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => void copyWebhookUrl(data.webhookUrl)}
+              aria-label="Copiar la dirección del webhook"
+              title="Copiar"
+            >
+              <Copy className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <label className="flex items-center gap-2 text-sm">
@@ -134,7 +191,7 @@ export function GoCardlessCard() {
           <Button
             variant="outline"
             onClick={runTest}
-            disabled={test.isPending || !data?.hasAccessToken}
+            disabled={test.isPending || !data.hasAccessToken}
           >
             {test.isPending ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />

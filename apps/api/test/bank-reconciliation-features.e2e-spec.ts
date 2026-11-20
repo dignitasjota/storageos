@@ -206,7 +206,8 @@ describe('Conciliación bancaria: mejoras (e2e)', () => {
       .set(auth())
       .send({ pattern: 'Endesa Energía', kind: 'expense', expenseCategory: 'utilities' })
       .expect(201);
-    await http().post(`/rgpd/customers/${ana}/anonymize`).set(auth()).expect(204);
+    // Ana debe dinero: anonimizar con deuda hay que confirmarlo.
+    await http().post(`/rgpd/customers/${ana}/anonymize?confirmDebt=1`).set(auth()).expect(204);
     const left = (await http().get('/bank-statements/rules').set(auth()).expect(200))
       .body as BankMatchRuleDto[];
     expect(left.map((r) => r.pattern)).toEqual(['ENDESA ENERGIA']);

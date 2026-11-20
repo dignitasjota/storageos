@@ -1,9 +1,10 @@
 'use client';
 
+import { ShieldOff } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
-import { activeSettingsHref } from './settings-nav';
+import { activeSettingsHref, settingsItemFor } from './settings-nav';
 import { useVisibleSettingsNav } from './use-settings-nav';
 
 import type { ReactNode } from 'react';
@@ -17,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useMe } from '@/lib/auth/hooks';
 import { cn } from '@/lib/utils';
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
@@ -25,6 +27,16 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   const groups = useVisibleSettingsNav();
   const isHome = pathname === '/settings';
   const active = activeSettingsHref(pathname);
+  const me = useMe();
+  // Una página abierta por dirección directa sin el permiso de su entrada: no se
+  // enseña el formulario (el servidor rechazaría guardar). Mientras carga el
+  // usuario no se decide nada.
+  const item = isHome ? null : settingsItemFor(pathname);
+  const forbidden =
+    !!item?.permission && !!me.data && !(me.data.permissions ?? []).includes(item.permission);
+  // Hasta saber los permisos no se pinta una página que los pide: si no, lanza
+  // sus peticiones (y el servidor responde 403) antes de que salga el aviso.
+  const waiting = !!item?.permission && !me.data;
 
   return (
     <div className="px-4 py-4 sm:px-6 sm:py-6">
@@ -98,8 +110,27 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
             ))}
           </div>
         </nav>
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="min-w-0 flex-1">
+          {waiting ? null : forbidden ? <NoPermission /> : children}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function NoPermission() {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-12 text-center">
+      <ShieldOff className="size-6 text-muted-foreground" aria-hidden />
+      <div>
+        <p className="font-medium">No tienes permiso para ver esta página</p>
+        <p className="text-sm text-muted-foreground">
+          Pide a quien gestiona tu cuenta que te dé acceso si lo necesitas.
+        </p>
+      </div>
+      <Link href="/settings" className="text-sm font-medium text-primary hover:underline">
+        Volver a Configuración
+      </Link>
     </div>
   );
 }

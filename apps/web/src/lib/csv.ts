@@ -5,8 +5,8 @@
 export function downloadCsv(filename: string, rows: (string | number)[][]): void {
   const escape = (v: string | number) => {
     // «64,05», no «64.05»: con punto, Excel en español lo lee como texto.
-    const s = typeof v === 'number' ? String(v).replace('.', ',') : v;
-    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const s = typeof v === 'number' ? String(v).replace('.', ',') : neutralizeFormula(v);
+    return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const csv = rows.map((r) => r.map(escape).join(';')).join('\n');
   // BOM (U+FEFF) para que Excel detecte UTF-8.
@@ -19,4 +19,13 @@ export function downloadCsv(filename: string, rows: (string | number)[][]): void
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * Un texto que empieza por `=`, `+`, `-`, `@` (o tabulador/retorno) Excel lo
+ * ejecuta como fórmula: se le antepone un apóstrofo para que sea texto. Los
+ * números van aparte (un importe negativo sigue siendo número).
+ */
+export function neutralizeFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }

@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
@@ -26,7 +27,18 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
-import { TenantRolesService } from './tenant-roles.service';
+import { type RoleActor, TenantRolesService } from './tenant-roles.service';
+
+import type { Request } from 'express';
+
+function actorOf(user: AuthenticatedUser, req: Request): RoleActor {
+  return {
+    userId: user.sub,
+    role: user.role,
+    ipAddress: req.ip ?? null,
+    userAgent: req.header('user-agent') ?? null,
+  };
+}
 
 class CreateTenantRoleDto extends createZodDto(CreateTenantRoleSchema) {}
 class UpdateTenantRoleDto extends createZodDto(UpdateTenantRoleSchema) {}
@@ -49,8 +61,9 @@ export class TenantRolesController {
   create(
     @CurrentUser() user: AuthenticatedUser,
     @Body() input: CreateTenantRoleDto,
+    @Req() req: Request,
   ): Promise<TenantRoleDto> {
-    return this.service.create(user.tenantId, input);
+    return this.service.create(user.tenantId, input, actorOf(user, req));
   }
 
   @Patch('roles/:id')
@@ -58,8 +71,9 @@ export class TenantRolesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() input: UpdateTenantRoleDto,
+    @Req() req: Request,
   ): Promise<TenantRoleDto> {
-    return this.service.update(user.tenantId, id, input);
+    return this.service.update(user.tenantId, id, input, actorOf(user, req));
   }
 
   @Delete('roles/:id')
@@ -67,8 +81,9 @@ export class TenantRolesController {
   async remove(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.service.remove(user.tenantId, id);
+    await this.service.remove(user.tenantId, id, actorOf(user, req));
   }
 
   @Patch('users/:userId/tenant-role')
@@ -77,8 +92,9 @@ export class TenantRolesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Body() input: AssignTenantRoleDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.service.assignToUser(user.tenantId, userId, input.tenantRoleId);
+    await this.service.assignToUser(user.tenantId, userId, input.tenantRoleId, actorOf(user, req));
   }
 
   /** Permisos por local: fija los locales a los que se restringe un usuario. */
@@ -88,7 +104,13 @@ export class TenantRolesController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('userId', new ParseUUIDPipe()) userId: string,
     @Body() input: AssignUserFacilitiesDto,
+    @Req() req: Request,
   ): Promise<void> {
-    await this.service.setUserFacilities(user.tenantId, userId, input.facilityIds);
+    await this.service.setUserFacilities(
+      user.tenantId,
+      userId,
+      input.facilityIds,
+      actorOf(user, req),
+    );
   }
 }

@@ -360,7 +360,8 @@ export type CreatePortalSessionInput = z.infer<typeof CreatePortalSessionSchema>
 /** Cambio de plan self-service del tenant (upgrade/downgrade). */
 export const SelfChangePlanSchema = z.object({
   planId: z.string().uuid(),
-  billingCycle: BillingCycleEnum.default('monthly'),
+  /** Sin indicar, conserva la periodicidad que paga hoy. */
+  billingCycle: BillingCycleEnum.optional(),
   couponCode: z.string().trim().min(2).max(60).optional(),
 });
 export type SelfChangePlanInput = z.infer<typeof SelfChangePlanSchema>;

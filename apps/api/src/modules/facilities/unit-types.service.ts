@@ -9,6 +9,7 @@ import { tenantHasFeature } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
+import { forgetUnitTypeInWeb } from '../promo-landings/landing-refs';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, UnitType } from '@storageos/database';
@@ -256,10 +257,11 @@ export class UnitTypesService {
       });
       return;
     }
-    await this.prisma.withTenant(
-      (tx) => tx.unitType.delete({ where: { id: existing.id } }),
-      args.tenantId,
-    );
+    await this.prisma.withTenant(async (tx) => {
+      await tx.unitType.delete({ where: { id: existing.id } });
+      // Las landings de promoción dejan de apuntar a él.
+      await forgetUnitTypeInWeb(tx, args.tenantId, existing.id);
+    }, args.tenantId);
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,

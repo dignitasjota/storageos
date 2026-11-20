@@ -103,6 +103,26 @@ export async function performRefresh(): Promise<string | null> {
       }
       // Servidor caído o límite de peticiones: tampoco dice que la sesión acabó.
       if (res.status >= 500 || res.status === 429) throw new RefreshUnavailableError();
+      if (res.status === 403) {
+        // La empresa exige la verificación en dos pasos y aún no está activada:
+        // se lleva a la persona a activarla (la sesión ya no se puede renovar).
+        const body = (await res.json().catch(() => null)) as {
+          code?: string;
+          details?: { enrolmentToken?: string };
+        } | null;
+        useAuthStore.getState().clear();
+        const token = body?.details?.enrolmentToken;
+        if (
+          body?.code === 'two_factor_enrolment_required' &&
+          token &&
+          typeof window !== 'undefined'
+        ) {
+          window.location.assign(`/security/enrolment/${encodeURIComponent(token)}`);
+          // La página se va: no se resuelve, para que nadie mande al login entretanto.
+          await new Promise<never>(() => undefined);
+        }
+        return null;
+      }
       if (!res.ok) {
         useAuthStore.getState().clear();
         return null;

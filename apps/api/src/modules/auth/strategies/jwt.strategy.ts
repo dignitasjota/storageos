@@ -23,6 +23,24 @@ interface RawAccessPayload {
   exp: number;
 }
 
+/**
+ * Alcance por local a partir de las asignaciones: sin asignaciones, todos
+ * (`null`); los locales borrados no cuentan. Si solo quedan locales borrados,
+ * la persona sigue restringida y no ve ninguno (`[]`), nunca todos.
+ */
+export function liveFacilityScope(
+  rows: { facilityId: string; facility: { deletedAt: Date | null } }[],
+): string[] | null {
+  if (rows.length === 0) return null;
+  return rows.filter((r) => r.facility.deletedAt === null).map((r) => r.facilityId);
+}
+
+function samePermissions(a: readonly string[], b: readonly string[]): boolean {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((p) => y.has(p));
+}
+
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
@@ -79,7 +97,8 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         isActive: true,
         role: true,
         tenantRoleId: true,
-        facilities: { select: { facilityId: true } },
+        tenantRole: { select: { permissions: true } },
+        facilities: { select: { facilityId: true, facility: { select: { deletedAt: true } } } },
       },
     });
     if (!user || !user.isActive || user.tenantId !== payload.tenantId) {
@@ -100,6 +119,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         message: 'Tus permisos han cambiado. Vuelve a cargar la página.',
       });
     }
+    // Se editaron los permisos del rol a medida: el token ya no los refleja.
+    if (
+      !impersonation &&
+      user.role !== 'owner' &&
+      user.tenantRole &&
+      payload.permissions &&
+      !samePermissions(payload.permissions, user.tenantRole.permissions)
+    ) {
+      throw new UnauthorizedException({
+        code: 'session_outdated',
+        message: 'Tus permisos han cambiado. Vuelve a cargar la página.',
+      });
+    }
     return {
       sub: payload.sub,
       tenantId: payload.tenantId,
@@ -108,10 +140,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // De la base de datos, no del token: quien crea un local lo ve al momento
       // y quitarle uno a alguien no espera a que le caduque el token. El
       // propietario ve siempre todos; sin locales asignados, también.
-      facilityScope:
-        user.role === 'owner' || user.facilities.length === 0
-          ? null
-          : user.facilities.map((f) => f.facilityId),
+      facilityScope: user.role === 'owner' ? null : liveFacilityScope(user.facilities),
       ...(impersonation ? { impersonation } : {}),
     };
   }

@@ -10,7 +10,10 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../../common/decorators/current-user.decorator';
-import { RequirePermission } from '../../../common/decorators/require-permission.decorator';
+import {
+  RequireAnyPermission,
+  RequirePermission,
+} from '../../../common/decorators/require-permission.decorator';
 
 import { StripeConnectService } from './stripe-connect.service';
 
@@ -21,7 +24,7 @@ class UpdateCardProviderBody extends createZodDto(UpdateCardProviderSchema) {}
 export class StripeConnectController {
   constructor(private readonly connect: StripeConnectService) {}
 
-  @RequirePermission('settings:read')
+  @RequireAnyPermission('settings:read', 'billing:configure')
   @Get()
   status(@CurrentUser() user: AuthenticatedUser): Promise<StripeConnectStatusDto> {
     return this.connect.getStatus(user.tenantId);

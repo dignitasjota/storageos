@@ -62,7 +62,7 @@ export function EditUserDialog({ user, onClose }: Props) {
   const update = useUpdateUser();
   const me = useMe();
   const isCurrentOwner = me.data?.user.role === 'owner';
-  const tenantRoles = useTenantRoles();
+  const tenantRoles = useTenantRoles(isCurrentOwner);
   const assignRole = useAssignTenantRole();
   const facilities = useFacilities();
   const setFacilities = useSetUserFacilities();
@@ -89,18 +89,27 @@ export function EditUserDialog({ user, onClose }: Props) {
 
   if (!user) return null;
   const isOwner = user.role === 'owner';
+  // Nadie cambia sus propios permisos (rol, rol a medida ni locales).
+  const isSelf = user.id === me.data?.user.id;
+  const canAssignAccess = isCurrentOwner && !isOwner && !isSelf;
+  // Solo el propietario da el rol de gestor.
+  const roleOptions = ROLES.filter(
+    (r) => r !== 'manager' || isCurrentOwner || user.role === 'manager',
+  );
 
   async function onSubmit(values: UpdateUserInput) {
     if (!user) return;
     try {
-      await update.mutateAsync({ id: user.id, input: values });
-      // Asignación de rol custom (solo owner; endpoint separado).
+      const input: UpdateUserInput = { ...values };
+      if (isSelf) delete input.role;
+      await update.mutateAsync({ id: user.id, input });
+      // Asignación de rol a medida (solo el propietario; endpoint separado).
       const desired = customRoleId === NO_CUSTOM_ROLE ? null : customRoleId;
-      if (isCurrentOwner && user.role !== 'owner' && desired !== (user.tenantRoleId ?? null)) {
+      if (canAssignAccess && desired !== (user.tenantRoleId ?? null)) {
         await assignRole.mutateAsync({ userId: user.id, input: { tenantRoleId: desired } });
       }
-      // Permisos por local (solo owner; endpoint separado).
-      if (isCurrentOwner && !sameSet(selectedFacilities, user.facilityIds)) {
+      // Permisos por local (solo el propietario; endpoint separado).
+      if (canAssignAccess && !sameSet(selectedFacilities, user.facilityIds)) {
         await setFacilities.mutateAsync({ userId: user.id, facilityIds: selectedFacilities });
       }
       toast.success(t('editDialog.success'));
@@ -157,7 +166,7 @@ export function EditUserDialog({ user, onClose }: Props) {
                 </FormItem>
               )}
             />
-            {!isOwner && (
+            {!isOwner && !isSelf && (
               <FormField
                 control={form.control}
                 name="role"
@@ -171,7 +180,7 @@ export function EditUserDialog({ user, onClose }: Props) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {ROLES.map((role) => (
+                        {roleOptions.map((role) => (
                           <SelectItem key={role} value={role}>
                             {t(`role.${role}`)}
                           </SelectItem>
@@ -183,7 +192,7 @@ export function EditUserDialog({ user, onClose }: Props) {
                 )}
               />
             )}
-            {!isOwner && isCurrentOwner && (
+            {canAssignAccess && (
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Rol personalizado</label>
                 <Select value={customRoleId} onValueChange={setCustomRoleId}>
@@ -204,7 +213,7 @@ export function EditUserDialog({ user, onClose }: Props) {
                 </p>
               </div>
             )}
-            {!isOwner && isCurrentOwner && (
+            {canAssignAccess && (
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Locales asignados</label>
                 <div className="max-h-40 space-y-1.5 overflow-auto rounded-md border p-2">
@@ -234,7 +243,7 @@ export function EditUserDialog({ user, onClose }: Props) {
                 </p>
               </div>
             )}
-            {!isOwner && (
+            {!isOwner && !isSelf && (
               <FormField
                 control={form.control}
                 name="isActive"

@@ -327,7 +327,13 @@ export function VerifactuSendingCard() {
         )}
         {s.platformMode === 'stub' && (
           <p className="text-muted-foreground">
-            La plataforma está en modo de pruebas: el envío es simulado y no llega a la AEAT.
+            La plataforma está en modo simulado: el envío no llega a la AEAT.
+          </p>
+        )}
+        {s.platformMode === 'sandbox' && (
+          <p className="text-muted-foreground">
+            La plataforma envía al entorno de pruebas de la AEAT: los envíos se registran allí pero
+            no tienen efectos fiscales.
           </p>
         )}
       </CardContent>
