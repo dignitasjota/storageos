@@ -68,6 +68,25 @@ export function systemText(system: AiSystemPrompt): string {
 
 export const AI_PROVIDER = Symbol('AI_PROVIDER');
 
+/**
+ * Fallo del proveedor que se puede explicar al usuario: `busy` (saturado o
+ * demasiadas peticiones), `aborted` (el usuario se fue o pulsó «Detener») y
+ * `failed` (cualquier otro).
+ */
+export class AiProviderError extends Error {
+  constructor(readonly kind: 'busy' | 'aborted' | 'failed') {
+    super(`ai_provider_${kind}`);
+  }
+}
+
+/** Una petición al modelo. `signal` corta la llamada si el usuario se va. */
+export interface AiRequest {
+  system: AiSystemPrompt;
+  messages: AiMessageParam[];
+  tools: AiToolDef[];
+  signal?: AbortSignal;
+}
+
 export abstract class AiProvider {
   /** ¿Está configurado y operativo? (p.ej. hay API key). */
   abstract readonly available: boolean;
@@ -75,21 +94,14 @@ export abstract class AiProvider {
   /** Modelo que se usa (para registrar el consumo). */
   abstract readonly modelName: string;
 
-  abstract createMessage(args: {
-    system: AiSystemPrompt;
-    messages: AiMessageParam[];
-    tools: AiToolDef[];
-  }): Promise<AiCompletion>;
+  abstract createMessage(args: AiRequest): Promise<AiCompletion>;
 
   /**
    * Como `createMessage`, pero va entregando el texto a `onText` según se
    * genera (streaming). Devuelve la respuesta completa al terminar. Por defecto
    * (stub y providers sin streaming) entrega el texto de una vez.
    */
-  async streamMessage(
-    args: { system: AiSystemPrompt; messages: AiMessageParam[]; tools: AiToolDef[] },
-    onText: (delta: string) => void,
-  ): Promise<AiCompletion> {
+  async streamMessage(args: AiRequest, onText: (delta: string) => void): Promise<AiCompletion> {
     const completion = await this.createMessage(args);
     for (const block of completion.content) {
       if (block.type === 'text' && block.text) onText(block.text);

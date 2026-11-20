@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useResetTenantData, useTenantDataExport, useTenantResetPreview } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
-import { formatNumber } from '@/lib/format';
+import { formatCount } from '@/lib/format';
 
 /**
  * «Vaciar los datos de prueba» de un tenant antes de empezar en real. Dos
@@ -75,9 +75,9 @@ export function ResetDataDialog({
     try {
       const r = await reset.mutateAsync({ confirmSlug, reason, exported: true });
       toast.success(
-        `Datos de prueba borrados: ${formatNumber(r.counts.customers)} inquilinos, ${formatNumber(
+        `Datos de prueba borrados: ${formatCount(r.counts.customers)} inquilinos, ${formatCount(
           r.counts.invoices,
-        )} facturas y ${formatNumber(r.counts.contracts)} contratos. Las series empiezan en 1.`,
+        )} facturas y ${formatCount(r.counts.contracts)} contratos. Las series empiezan en 1.`,
       );
       close();
     } catch (err) {
@@ -128,7 +128,7 @@ export function ResetDataDialog({
                 {TENANT_RESET_COUNT_KEYS.map((k) => (
                   <li key={k} className="flex justify-between gap-2">
                     <span className="text-muted-foreground">{TENANT_RESET_COUNT_LABELS[k]}</span>
-                    <span className="font-medium tabular-nums">{formatNumber(p.counts[k])}</span>
+                    <span className="font-medium tabular-nums">{formatCount(p.counts[k])}</span>
                   </li>
                 ))}
               </ul>
@@ -146,7 +146,7 @@ export function ResetDataDialog({
                     <li key={f.label} className="flex justify-between gap-2">
                       <span className="text-muted-foreground">{f.label}</span>
                       <span className="font-medium tabular-nums">
-                        {formatNumber(f.objects)} · {formatBytes(f.bytes)}
+                        {formatCount(f.objects)} · {formatBytes(f.bytes)}
                       </span>
                     </li>
                   ))}
@@ -160,10 +160,10 @@ export function ResetDataDialog({
             <div>
               <p className="mb-1.5 font-medium">Se conserva</p>
               <p className="text-muted-foreground">
-                {formatNumber(p.kept.facilities)} locales, {formatNumber(p.kept.units)} trasteros
-                (los alquilados o reservados quedan libres), {formatNumber(p.kept.products)}{' '}
-                productos (el stock queda como esté), {formatNumber(p.kept.leads)} contactos,{' '}
-                {formatNumber(p.kept.users)} usuarios y toda la configuración.
+                {formatCount(p.kept.facilities)} locales, {formatCount(p.kept.units)} trasteros (los
+                alquilados o reservados quedan libres), {formatCount(p.kept.products)} productos (el
+                stock queda como esté), {formatCount(p.kept.leads)} contactos,{' '}
+                {formatCount(p.kept.users)} usuarios y toda la configuración.
               </p>
             </div>
 
@@ -172,7 +172,7 @@ export function ResetDataDialog({
                 <p className="mb-1.5 font-medium">La numeración vuelve a 1</p>
                 <p className="text-muted-foreground">
                   {p.series
-                    .map((s) => `${s.prefix} (iba por el ${formatNumber(s.nextNumber)})`)
+                    .map((s) => `${s.prefix} (iba por el ${formatCount(s.nextNumber)})`)
                     .join(' · ')}
                 </p>
               </div>
@@ -195,10 +195,9 @@ export function ResetDataDialog({
         ) : (
           <div className="space-y-4 text-sm">
             <div className="rounded-md border border-red-300 bg-red-50 p-3 text-red-900 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200">
-              No se puede deshacer. Se borrarán {formatNumber(p.counts.customers)} inquilinos,{' '}
-              {formatNumber(p.counts.contracts)} contratos, {formatNumber(p.counts.invoices)}{' '}
-              facturas y {formatNumber(p.counts.payments)} cobros de <strong>{p.tenantName}</strong>
-              .
+              No se puede deshacer. Se borrarán {formatCount(p.counts.customers)} inquilinos,{' '}
+              {formatCount(p.counts.contracts)} contratos, {formatCount(p.counts.invoices)} facturas
+              y {formatCount(p.counts.payments)} cobros de <strong>{p.tenantName}</strong>.
             </div>
 
             <div className="space-y-2">

@@ -58,6 +58,6 @@ describe('AnthropicStreamAccumulator', () => {
     const acc = new AnthropicStreamAccumulator(() => undefined);
     expect(() =>
       acc.handleEvent(ev({ type: 'error', error: { type: 'overloaded_error', message: 'x' } })),
-    ).toThrow('anthropic_stream_error_overloaded_error');
+    ).toThrow('ai_provider_busy');
   });
 });

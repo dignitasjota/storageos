@@ -3,7 +3,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Bot, History, Loader2, Plus, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import type { AiMessageDto, AiPendingActionDto, AiUsageDto } from '@storageos/shared';
@@ -63,10 +64,32 @@ const SUGGESTIONS = [
 ];
 
 export default function AssistantPage() {
+  return (
+    <Suspense>
+      <Assistant />
+    </Suspense>
+  );
+}
+
+function Assistant() {
   const ask = useConfirm();
   const conversations = useAiConversations();
   const usage = useAiUsage();
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // La conversación abierta va en la dirección (?c=): al recargar sigue abierta.
+  const activeId = searchParams.get('c');
+  const setActiveId = useCallback(
+    (id: string | null) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set('c', id);
+      else params.delete('c');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
   const detail = useAiConversation(activeId);
   const chat = useAiChat();
   const del = useDeleteConversation();
@@ -371,6 +394,7 @@ function UserBubble({ content }: { content: string }) {
 
 const ACTION_STATUS: Record<AiPendingActionDto['status'], string> = {
   proposed: 'Pendiente de tu confirmación',
+  executing: 'En curso…',
   confirmed: 'Hecho',
   discarded: 'Descartado',
   failed: 'No se pudo hacer',
@@ -410,10 +434,10 @@ function ActionCard({ action }: { action: AiPendingActionDto }) {
           </>
         ) : null}
       </p>
-      {action.status === 'proposed' && (
+      {(action.status === 'proposed' || action.status === 'failed') && (
         <div className="flex gap-2">
           <Button size="sm" onClick={() => void run('confirm')} disabled={decide.isPending}>
-            Confirmar
+            {action.status === 'failed' ? 'Reintentar' : 'Confirmar'}
           </Button>
           <Button
             size="sm"

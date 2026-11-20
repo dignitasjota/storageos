@@ -62,6 +62,11 @@ export function formatNumber(n: number | null | undefined, decimals = 2): string
   });
 }
 
+/** Recuento sin decimales: «1.250». */
+export function formatCount(n: number | null | undefined): string {
+  return formatNumber(n, 0);
+}
+
 /**
  * Importe escrito a mano en español: «1.500», «1.500,50», «12,5», «25 €» o
  * «10 %». null si no es un número.

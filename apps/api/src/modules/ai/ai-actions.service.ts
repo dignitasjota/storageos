@@ -19,7 +19,17 @@ export const ACTION_PERMISSIONS: Record<AiActionType, Permission> = {
   customer_message: 'customers:write',
 };
 
-const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** Fecha AAAA-MM-DD que existe (antes «2026-13-45» pasaba y fallaba al confirmar). */
+const dateOnly = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, 'Fecha no válida');
+
+/** Una acción «en curso» más tiempo que esto se cortó a medias. */
+const EXECUTING_STALE_MS = 10 * 60_000;
 const CreateTaskPayload = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional(),
@@ -243,12 +253,14 @@ export class AiActionsService {
         message: 'No tienes permiso para esta acción',
       });
     }
-    // Reserva atómica: un doble clic no ejecuta dos veces.
+    // Reserva atómica: un doble clic no ejecuta dos veces. Queda «en curso»
+    // hasta saber el resultado (antes se marcaba hecha antes de hacerla). Una
+    // que falló se puede reintentar.
     const claimed = await this.prisma.withTenant(
       (tx) =>
         tx.aiPendingAction.updateMany({
-          where: { id: action.id, status: 'proposed' },
-          data: { status: 'confirmed', resolvedAt: new Date() },
+          where: { id: action.id, status: { in: ['proposed', 'failed'] } },
+          data: { status: 'executing', resolvedAt: new Date() },
         }),
       args.tenantId,
     );
@@ -349,7 +361,7 @@ export class AiActionsService {
     await this.prisma.withTenant(
       (tx) =>
         tx.aiPendingAction.updateMany({
-          where: { id: action.id, status: 'proposed' },
+          where: { id: action.id, status: { in: ['proposed', 'failed'] } },
           data: { status: 'discarded', resolvedAt: new Date() },
         }),
       tenantId,
@@ -375,9 +387,29 @@ export class AiActionsService {
     status: string;
     payload: unknown;
     result: unknown;
+    resolvedAt?: Date | null;
     createdAt: Date;
   }): AiPendingActionDto {
     const result = (r.result ?? {}) as { link?: string; error?: string };
+    // Se cortó a medias: no se sabe si se hizo.
+    if (
+      r.status === 'executing' &&
+      (!r.resolvedAt || Date.now() - r.resolvedAt.getTime() > EXECUTING_STALE_MS)
+    ) {
+      return {
+        id: r.id,
+        type: r.type as AiActionType,
+        summary: r.summary,
+        details: actionDetails(
+          r.type,
+          (r.payload ?? {}) as { body?: string; description?: string },
+        ),
+        status: 'failed',
+        resultLink: null,
+        resultError: 'No se sabe si se completó: compruébalo antes de repetirla.',
+        createdAt: r.createdAt.toISOString(),
+      };
+    }
     const payload = (r.payload ?? {}) as { body?: string; description?: string };
     return {
       id: r.id,

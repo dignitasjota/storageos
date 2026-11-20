@@ -2880,3 +2880,17 @@ Migración `20270212100000_report_run_scope` (se aplica sola al arrancar el API)
 - «Facturas de octubre» ya incluye las del día 31 (el filtro se corría un día).
 - Una consulta que falla ya no deja la pregunta sin respuesta; el chat no repite sola una pregunta que ya estaba en marcha; la conexión no se corta mientras el asistente piensa.
 - Pantalla: «4 de 300 consultas» (salía «4,00 de 300,00»), conversaciones anteriores también en el móvil, el mensaje que se va a enviar se lee entero antes de confirmar y no se pierde lo escrito si falla el envío.
+
+## 170. Asistente IA: arreglos pendientes de la revisión (2026-11-19)
+
+Sin migración ni variables nuevas.
+
+- **Cortes claros**: si Anthropic está saturado o tarda más de 2 minutos, el usuario ve «El asistente está muy ocupado…» en vez de un error genérico, y la consulta no cuenta. Una respuesta cortada por larga lo avisa al final; el tope de la respuesta sube de 2.048 a 4.096 tokens.
+- **Si el usuario se va**, se deja de llamar al modelo (antes seguía gastando hasta el final).
+- **Conversaciones largas**: se mandan los 40 últimos mensajes (antes, todos en cada pregunta).
+- La octava vuelta de herramientas ya no deja acciones preparadas sin explicar.
+- Acciones: una fecha que no existe se rechaza al prepararla; mientras se ejecuta sale «En curso»; una que falló se puede reintentar.
+- «Sugerencias de hoy» usa la clave propia del negocio si la tiene (antes, la de la plataforma).
+- El asistente trata como datos, no como órdenes, los textos que escriben inquilinos y contactos.
+- La conversación abierta va en la dirección (`/assistant?c=…`): al recargar sigue abierta.
+- Recuentos sin decimales («12» y no «12,00») en Mensajes, el informe de accesos, la tarjeta de IA del admin y el vaciado de datos de prueba.

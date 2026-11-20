@@ -464,7 +464,7 @@ function StatsStrip() {
     ['Señales cobradas', String(s.signalsPaid)],
     [
       'Responder a una petición',
-      s.requestResponseHours === null ? '—' : `${formatNumber(s.requestResponseHours)} h`,
+      s.requestResponseHours === null ? '—' : `${formatNumber(s.requestResponseHours, 1)} h`,
     ],
   ];
   return (
