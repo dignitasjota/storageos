@@ -21,7 +21,14 @@ export interface ConfirmOptions {
   /** Botón rojo (borrar, devolver, limpiar…). */
   destructive?: boolean;
   /** Pide además un texto opcional (p. ej. el motivo). */
-  input?: { label: string; placeholder?: string; required?: boolean };
+  input?: {
+    label: string;
+    placeholder?: string;
+    required?: boolean;
+    /** Texto ya escrito al abrir (se puede cambiar). */
+    defaultValue?: string;
+    type?: 'text' | 'email';
+  };
 }
 
 /** `false` si se cancela; si no, `{ value }` con el texto escrito (o ''). */
@@ -42,7 +49,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const confirm = useCallback<ConfirmFn>((opts) => {
     setOptions(opts);
-    setValue('');
+    setValue(opts.input?.defaultValue ?? '');
     return new Promise<ConfirmResult>((resolve) => {
       resolver.current = resolve;
     });
@@ -68,6 +75,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               <Label htmlFor="confirm-input">{options.input.label}</Label>
               <Input
                 id="confirm-input"
+                type={options.input.type ?? 'text'}
                 value={value}
                 placeholder={options.input.placeholder}
                 onChange={(e) => setValue(e.target.value)}

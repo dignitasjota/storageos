@@ -586,16 +586,23 @@ export default function InvoiceDetailPage() {
     const res = await ask({
       title: awaitingPayment ? '¿Reenviarle el primer pago?' : '¿Enviar la factura por correo?',
       description: awaitingPayment
-        ? 'Le llega lo que tiene que pagar (desglose, fianza, total y plazo), el detalle en PDF sin número y el botón «Pagar ahora». El enlace para pagar del correo anterior deja de valer. Va a su email de facturación o, si no tiene, a su email.'
-        : 'Le llega un correo con el importe y un enlace para descargar el PDF. Va a su email de facturación o, si no tiene, a su email.',
+        ? 'Le llega lo que tiene que pagar (desglose, fianza, total y plazo), el detalle en PDF sin número y el botón «Pagar ahora». El enlace para pagar del correo anterior deja de valer.'
+        : 'Le llega un correo con el importe y un enlace para descargar el PDF.',
       confirmLabel: 'Enviar',
-      input: { label: 'Otra dirección (opcional)', placeholder: 'contabilidad@empresa.com' },
+      // El email del inquilino ya escrito (el de facturación si lo tiene); se puede cambiar.
+      input: {
+        label: 'Enviar a',
+        type: 'email',
+        placeholder: 'contabilidad@empresa.com',
+        defaultValue: i.customerEmail ?? '',
+        required: true,
+      },
     });
     if (!res) return;
     try {
       const sent = await sendEmail.mutateAsync({
         id: i.id,
-        input: res.value ? { email: res.value } : {},
+        input: { email: res.value },
       });
       toast.success(
         awaitingPayment

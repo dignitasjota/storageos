@@ -66,6 +66,8 @@ export interface InvoiceDto {
    */
   customerId: string | null;
   customerName: string | null;
+  /** Adonde se envía la factura: el email de facturación del inquilino o, si no tiene, el suyo. */
+  customerEmail: string | null;
   contractId: string | null;
   contractNumber: string | null;
   /** Trastero y local del contrato facturado (null en F2 o facturas sin contrato). */
