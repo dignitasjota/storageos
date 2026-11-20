@@ -1,12 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { loadPuppeteer } from '../../../common/puppeteer';
+import { EUR_FORMAT } from '../generators/report-helpers';
+
 import type { ReportResult } from '../generators/types';
 
 type Browser = import('puppeteer').Browser;
 
 /**
  * Renderiza un ReportResult a un PDF en bytes via Puppeteer + HTML+CSS.
- * Patron ESM-only dynamic import identico a InvoicePdfService / ContractPdfService.
+ * Puppeteer se carga con `loadPuppeteer()` (solo se publica como ESM).
  */
 @Injectable()
 export class PdfRenderer {
@@ -20,6 +23,8 @@ export class PdfRenderer {
       await page.setContent(this.htmlFor(result), { waitUntil: 'domcontentloaded' });
       const pdf = await page.pdf({
         format: 'A4',
+        // Con muchas columnas, apaisado: en vertical se parten las cifras.
+        landscape: result.columns.length > 7,
         printBackground: true,
         margin: { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' },
       });
@@ -40,11 +45,16 @@ export class PdfRenderer {
   private async getBrowser(): Promise<Browser> {
     if (!this.browserPromise) {
       this.browserPromise = (async () => {
-        const { default: puppeteer } = await import('puppeteer');
-        return puppeteer.launch({
+        const puppeteer = await loadPuppeteer();
+        const browser = await puppeteer.launch({
           headless: true,
           args: ['--no-sandbox', '--disable-setuid-sandbox'],
         });
+        // Si Chromium se cierra, el siguiente informe abre otro.
+        browser.on('disconnected', () => {
+          this.browserPromise = null;
+        });
+        return browser;
       })().catch((err) => {
         this.logger.error('Fallo al lanzar puppeteer', err);
         this.browserPromise = null;
@@ -64,7 +74,8 @@ export class PdfRenderer {
           .map((c) => {
             const raw = row[c.key];
             const v = raw == null ? '' : formatValue(raw, c.type);
-            return `<td style="text-align:${c.align ?? 'left'}">${escape(v)}</td>`;
+            const num = c.type === 'currency' || c.type === 'number' ? ' class="num"' : '';
+            return `<td${num} style="text-align:${c.align ?? 'left'}">${escape(v)}</td>`;
           })
           .join('');
         return `<tr>${tds}</tr>`;
@@ -84,6 +95,10 @@ export class PdfRenderer {
   table { border-collapse: collapse; width: 100%; }
   th, td { padding: 6px 8px; border-bottom: 1px solid #eee; }
   th { background: #f5f5f5; font-weight: 600; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .empty { padding: 16px 8px; color: #666; }
   .summary { margin-top: 20px; padding: 12px; background: #fafafa; border-radius: 6px; }
   .summary ul { list-style: none; padding: 0; margin: 0; }
   .summary li { display: flex; justify-content: space-between; padding: 4px 0; }
@@ -93,8 +108,9 @@ export class PdfRenderer {
   <h1>${escape(r.title)}</h1>
   ${r.subtitle ? `<div class="sub">${escape(r.subtitle)}</div>` : ''}
   <table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>
+  ${r.rows.length === 0 ? '<div class="empty">No hay datos para este periodo.</div>' : ''}
   ${summary}
-  <div class="footer">Generado el ${r.generatedAt.toISOString()} · TrasterOS</div>
+  <div class="footer">Generado el ${escape(generatedLabel(r))} · TrasterOS</div>
 </body></html>`;
   }
 }
@@ -109,10 +125,26 @@ function escape(s: string | number): string {
 
 function formatValue(v: string | number, type?: string): string {
   if (type === 'currency' && typeof v === 'number') {
-    return v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+    return v.toLocaleString('es-ES', EUR_FORMAT);
   }
   if (type === 'number' && typeof v === 'number') {
     return v.toLocaleString('es-ES');
   }
+  if (type === 'date' && typeof v === 'string') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  }
   return String(v);
+}
+
+/** «19/11/2026, 21:30» en la hora del negocio. */
+export function generatedLabel(r: ReportResult): string {
+  return r.generatedAt.toLocaleString('es-ES', {
+    timeZone: r.timezone ?? 'Europe/Madrid',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }

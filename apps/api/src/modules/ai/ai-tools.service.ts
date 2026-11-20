@@ -1,6 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { NON_CASH_PAYMENT_METHODS } from '@storageos/shared';
 
+import { customerScopeWhere } from '../../common/customer-scope';
+import { invoiceFacilityWhere } from '../../common/facility-scope';
+import { todayInTimezone } from '../../common/format';
+import { leadScopeWhere } from '../../common/lead-scope';
+import { liveMrr } from '../analytics/analytics-scope';
+import {
+  CASH_METHOD_WHERE,
+  INVOICED_SELECT,
+  INVOICED_STATUSES,
+  invoicedAmount,
+  tenantTimezone,
+  unitCounts,
+  zonedMonthKey,
+  zonedMonthStart,
+} from '../analytics/business-metrics';
 import { PrismaService } from '../database/prisma.service';
 
 import { ACTION_PERMISSIONS, AiActionsService } from './ai-actions.service';
@@ -67,13 +81,22 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
 }
 
 const MS_PER_DAY = 86_400_000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Facturas visibles para un usuario limitado por local (mismo criterio que `InvoicesService.list`). */
+/**
+ * Facturas visibles para un usuario limitado por local: el mismo criterio que
+ * el panel (las de sus locales y las que no son de ningún local).
+ */
 function invoiceScope(scope: string[] | null): Prisma.InvoiceWhereInput {
-  if (!scope) return {};
-  return { OR: [{ contract: { unit: { facilityId: { in: scope } } } }, { contractId: null }] };
+  return (invoiceFacilityWhere(scope) ?? {}) as Prisma.InvoiceWhereInput;
 }
+
+/** El dinero (cuotas, facturado, cobrado, deuda) pide los mismos permisos que el panel. */
+const moneyVisible = (ctx: Pick<AiToolContext, 'permissions'>) =>
+  ctx.permissions.includes('invoices:read') && ctx.permissions.includes('payments:read');
+
+const NO_MONEY = 'Sin permiso para ver importes (facturas y cobros)';
 
 function contractScope(scope: string[] | null): Prisma.ContractWhereInput {
   return scope ? { unit: { facilityId: { in: scope } } } : {};
@@ -317,18 +340,26 @@ export class AiToolsService {
     }
     switch (toolName) {
       case 'get_business_metrics':
-        return JSON.stringify(await this.businessMetrics(tenantId, scope));
+        return JSON.stringify(await this.businessMetrics(tenantId, scope, moneyVisible(ctx)));
       case 'get_occupancy':
         return JSON.stringify(await this.occupancy(tenantId, scope));
       case 'list_overdue_invoices':
         return JSON.stringify(await this.overdueInvoices(tenantId, scope));
       case 'search_customers':
-        return JSON.stringify(await this.searchCustomers(tenantId, String(input.query ?? '')));
+        return JSON.stringify(
+          await this.searchCustomers(tenantId, String(input.query ?? ''), scope),
+        );
       case 'get_customer_summary':
         return JSON.stringify(
-          await this.customerSummary(tenantId, String(input.customerId ?? ''), scope),
+          await this.customerSummary(
+            tenantId,
+            String(input.customerId ?? ''),
+            scope,
+            ctx.permissions.includes('invoices:read'),
+          ),
         );
       case 'get_monthly_revenue':
+        if (!moneyVisible(ctx)) return JSON.stringify({ error: NO_MONEY });
         return JSON.stringify(
           await this.monthlyRevenue(tenantId, scope, clampInt(input.months, 1, 12, 6)),
         );
@@ -339,7 +370,9 @@ export class AiToolsService {
       case 'get_unit_availability':
         return JSON.stringify(await this.unitAvailability(tenantId, scope));
       case 'get_leads_summary':
-        return JSON.stringify(await this.leadsSummary(tenantId, clampInt(input.days, 1, 365, 30)));
+        return JSON.stringify(
+          await this.leadsSummary(tenantId, scope, clampInt(input.days, 1, 365, 30)),
+        );
       case 'list_open_tasks':
         return JSON.stringify(await this.openTasks(tenantId, scope));
       case 'list_open_incidents':
@@ -353,39 +386,36 @@ export class AiToolsService {
     }
   }
 
-  private async businessMetrics(tenantId: string, scope: string[] | null) {
+  /** Las mismas cifras que el Resumen del panel (una sola definición de cada una). */
+  private async businessMetrics(tenantId: string, scope: string[] | null, money: boolean) {
     return this.prisma.withTenant(async (tx) => {
-      const active = await tx.contract.findMany({
-        where: { tenantId, status: { in: ['active', 'ending'] }, ...contractScope(scope) },
-        select: { priceMonthly: true },
-      });
-      const mrr = active.reduce((s, c) => s + Number(c.priceMonthly), 0);
-      const units = await tx.unit.groupBy({
-        by: ['status'],
-        where: { tenantId, ...(scope ? { facilityId: { in: scope } } : {}) },
-        _count: true,
-      });
-      const total = units.reduce((s, u) => s + u._count, 0);
-      const occupied = units.find((u) => u.status === 'occupied')?._count ?? 0;
-      const pending = await tx.invoice.findMany({
-        where: {
-          tenantId,
-          status: { in: ['issued', 'overdue'] },
-          deletedAt: null,
-          ...invoiceScope(scope),
-        },
-        select: { total: true, amountPaid: true },
-      });
+      const analyticsScope = { ids: scope ?? undefined, explicit: false };
+      const [live, units, pending] = await Promise.all([
+        liveMrr(tx, analyticsScope),
+        unitCounts(tx, analyticsScope),
+        money
+          ? tx.invoice.findMany({
+              where: {
+                status: { in: ['issued', 'overdue'] },
+                deletedAt: null,
+                // Las fianzas no son deuda de alquiler.
+                kind: 'invoice',
+                ...invoiceScope(scope),
+              },
+              select: { total: true, amountPaid: true },
+            })
+          : [],
+      ]);
       const pendingTotal = pending.reduce(
         (s, i) => s + Math.max(0, Number(i.total) - Number(i.amountPaid)),
         0,
       );
       return {
-        mrr: Math.round(mrr * 100) / 100,
-        activeContracts: active.length,
-        occupancyPct: total > 0 ? Math.round((occupied / total) * 100) : 0,
-        pendingToCollect: Math.round(pendingTotal * 100) / 100,
-        currency: 'EUR',
+        activeContracts: live.contracts,
+        occupancyPct: units.total > 0 ? Math.round((units.occupied / units.total) * 100) : 0,
+        ...(money
+          ? { mrr: live.mrr, pendingToCollect: round2(pendingTotal), currency: 'EUR' }
+          : { money: NO_MONEY }),
       };
     }, tenantId);
   }
@@ -395,7 +425,11 @@ export class AiToolsService {
       const facilityFilter = scope ? { in: scope } : undefined;
       const grouped = await tx.unit.groupBy({
         by: ['facilityId', 'status'],
-        where: { tenantId, ...(facilityFilter ? { facilityId: facilityFilter } : {}) },
+        where: {
+          tenantId,
+          facility: { deletedAt: null },
+          ...(facilityFilter ? { facilityId: facilityFilter } : {}),
+        },
         _count: true,
       });
       const facilities = await tx.facility.findMany({
@@ -424,7 +458,13 @@ export class AiToolsService {
   private async overdueInvoices(tenantId: string, scope: string[] | null) {
     return this.prisma.withTenant(async (tx) => {
       const invoices = await tx.invoice.findMany({
-        where: { tenantId, status: 'overdue', deletedAt: null, ...invoiceScope(scope) },
+        where: {
+          tenantId,
+          status: 'overdue',
+          deletedAt: null,
+          kind: 'invoice',
+          ...invoiceScope(scope),
+        },
         select: {
           invoiceNumber: true,
           total: true,
@@ -446,7 +486,7 @@ export class AiToolsService {
     }, tenantId);
   }
 
-  private async searchCustomers(tenantId: string, query: string) {
+  private async searchCustomers(tenantId: string, query: string, scope: string[] | null) {
     const q = query.trim();
     if (!q) return [];
     return this.prisma.withTenant(async (tx) => {
@@ -454,6 +494,8 @@ export class AiToolsService {
         where: {
           tenantId,
           deletedAt: null,
+          // Solo los inquilinos que esta persona puede abrir en el panel.
+          AND: [customerScopeWhere(scope)],
           OR: [
             { firstName: { contains: q, mode: 'insensitive' } },
             { lastName: { contains: q, mode: 'insensitive' } },
@@ -476,11 +518,16 @@ export class AiToolsService {
     }, tenantId);
   }
 
-  private async customerSummary(tenantId: string, customerId: string, scope: string[] | null) {
-    if (!/^[0-9a-f-]{36}$/i.test(customerId)) return { error: 'customerId no válido' };
+  private async customerSummary(
+    tenantId: string,
+    customerId: string,
+    scope: string[] | null,
+    money: boolean,
+  ) {
+    if (!UUID_RE.test(customerId)) return { error: 'customerId no válido' };
     return this.prisma.withTenant(async (tx) => {
       const customer = await tx.customer.findFirst({
-        where: { id: customerId, tenantId, deletedAt: null },
+        where: { id: customerId, tenantId, deletedAt: null, ...customerScopeWhere(scope) },
         select: {
           customerType: true,
           firstName: true,
@@ -495,21 +542,25 @@ export class AiToolsService {
         where: {
           tenantId,
           customerId,
+          deletedAt: null,
           status: { in: ['active', 'ending'] },
           ...contractScope(scope),
         },
-        select: { priceMonthly: true, unit: { select: { code: true } } },
+        select: { priceMonthly: true, discountAmount: true, unit: { select: { code: true } } },
       });
-      const invoices = await tx.invoice.findMany({
-        where: {
-          tenantId,
-          customerId,
-          status: { in: ['issued', 'overdue'] },
-          deletedAt: null,
-          ...invoiceScope(scope),
-        },
-        select: { invoiceNumber: true, total: true, amountPaid: true, status: true },
-      });
+      const invoices = money
+        ? await tx.invoice.findMany({
+            where: {
+              tenantId,
+              customerId,
+              status: { in: ['issued', 'overdue'] },
+              deletedAt: null,
+              kind: 'invoice',
+              ...invoiceScope(scope),
+            },
+            select: { invoiceNumber: true, total: true, amountPaid: true, status: true },
+          })
+        : [];
       const debt = invoices.reduce(
         (s, i) => s + Math.max(0, Number(i.total) - Number(i.amountPaid)),
         0,
@@ -520,62 +571,66 @@ export class AiToolsService {
         phone: customer.phone,
         activeContracts: contracts.map((c) => ({
           unit: c.unit?.code ?? null,
-          monthlyPrice: Number(c.priceMonthly),
+          ...(money
+            ? { monthlyPrice: round2(Number(c.priceMonthly) - Number(c.discountAmount)) }
+            : {}),
         })),
-        pendingInvoices: invoices.length,
-        totalDebt: Math.round(debt * 100) / 100,
+        ...(money
+          ? { pendingInvoices: invoices.length, totalDebt: round2(debt) }
+          : { account: 'Sin permiso para ver facturas' }),
       };
     }, tenantId);
   }
 
-  /** Primer día (UTC) del mes, `offset` meses atrás respecto al actual. */
-  private monthStart(offset: number): Date {
-    const now = new Date();
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
-  }
-
+  /** Facturado y cobrado por mes, con las definiciones y la zona horaria del Resumen. */
   private async monthlyRevenue(tenantId: string, scope: string[] | null, months: number) {
-    const from = this.monthStart(months - 1);
     return this.prisma.withTenant(async (tx) => {
+      const tz = await tenantTimezone(tx, tenantId);
+      const today = todayInTimezone(tz);
+      const year = today.getUTCFullYear();
+      const month = today.getUTCMonth() + 1;
+      const keys: string[] = [];
+      for (let i = months - 1; i >= 0; i--) {
+        keys.push(new Date(Date.UTC(year, month - 1 - i, 1)).toISOString().slice(0, 7));
+      }
+      const firstDay = new Date(Date.UTC(year, month - months, 1));
       const [invoices, payments] = await Promise.all([
         tx.invoice.findMany({
           where: {
             tenantId,
             deletedAt: null,
-            status: { notIn: ['draft', 'cancelled'] },
+            status: { in: [...INVOICED_STATUSES] },
             kind: 'invoice',
-            issueDate: { gte: from },
+            issueDate: { gte: firstDay },
             ...invoiceScope(scope),
           },
-          select: { issueDate: true, total: true },
+          select: INVOICED_SELECT,
         }),
         tx.payment.findMany({
           where: {
             tenantId,
             status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
-            paidAt: { gte: from },
-            invoice: { kind: 'invoice', ...(scope ? invoiceScope(scope) : {}) },
-            methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
+            paidAt: { gte: zonedMonthStart(year, month - months + 1, tz) },
+            invoice: { kind: 'invoice', ...invoiceScope(scope) },
+            methodType: CASH_METHOD_WHERE, // sin compensaciones ni fianzas aplicadas
           },
           select: { paidAt: true, amount: true, refundedAmount: true },
         }),
       ]);
-      const buckets = new Map<string, { invoiced: number; collected: number }>();
-      for (let i = months - 1; i >= 0; i--) {
-        buckets.set(this.monthStart(i).toISOString().slice(0, 7), { invoiced: 0, collected: 0 });
-      }
+      const buckets = new Map(keys.map((k) => [k, { invoiced: 0, collected: 0 }]));
       for (const inv of invoices) {
         const b = inv.issueDate ? buckets.get(inv.issueDate.toISOString().slice(0, 7)) : undefined;
-        if (b) b.invoiced += Number(inv.total);
+        // Una factura que sustituye a otra cuenta solo la diferencia.
+        if (b) b.invoiced += invoicedAmount(inv);
       }
       for (const p of payments) {
-        const b = p.paidAt ? buckets.get(p.paidAt.toISOString().slice(0, 7)) : undefined;
+        const b = p.paidAt ? buckets.get(zonedMonthKey(p.paidAt, tz)) : undefined;
         if (b) b.collected += Number(p.amount) - Number(p.refundedAmount);
       }
       return {
         currency: 'EUR',
-        months: [...buckets].map(([month, b]) => ({
-          month,
+        months: [...buckets].map(([key, b]) => ({
+          month: key,
           invoiced: round2(b.invoiced),
           collected: round2(b.collected),
         })),
@@ -628,7 +683,7 @@ export class AiToolsService {
       const [all, available, facilities, types] = await Promise.all([
         tx.unit.groupBy({
           by: ['facilityId', 'unitTypeId'],
-          where: { tenantId, ...facilityFilter },
+          where: { tenantId, facility: { deletedAt: null }, ...facilityFilter },
           _count: true,
         }),
         tx.unit.groupBy({
@@ -663,11 +718,16 @@ export class AiToolsService {
     }, tenantId);
   }
 
-  /** Leads a nivel de empresa (en el panel tampoco se acotan por local). */
-  private async leadsSummary(tenantId: string, days: number) {
+  /** Contactos: los de sus locales y los que no han elegido local, como en el panel. */
+  private async leadsSummary(tenantId: string, scope: string[] | null, days: number) {
     const since = new Date(Date.now() - days * MS_PER_DAY);
     return this.prisma.withTenant(async (tx) => {
-      const where = { tenantId, deletedAt: null, createdAt: { gte: since } };
+      const where = {
+        tenantId,
+        deletedAt: null,
+        createdAt: { gte: since },
+        ...leadScopeWhere(scope),
+      };
       const [byStatus, bySource] = await Promise.all([
         tx.lead.groupBy({ by: ['status'], where, _count: true }),
         tx.lead.groupBy({ by: ['source'], where, _count: true }),
@@ -686,8 +746,11 @@ export class AiToolsService {
   }
 
   private async openTasks(tenantId: string, scope: string[] | null) {
-    const today = new Date().toISOString().slice(0, 10);
     return this.prisma.withTenant(async (tx) => {
+      // «Hoy» en la zona del negocio (de madrugada, UTC va un día por detrás).
+      const today = todayInTimezone(await tenantTimezone(tx, tenantId))
+        .toISOString()
+        .slice(0, 10);
       const rows = await tx.task.findMany({
         where: {
           tenantId,
@@ -735,8 +798,9 @@ export class AiToolsService {
   }
 
   private async expensesSummary(tenantId: string, scope: string[] | null, months: number) {
-    const from = this.monthStart(months - 1);
     return this.prisma.withTenant(async (tx) => {
+      const today = todayInTimezone(await tenantTimezone(tx, tenantId));
+      const from = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - months + 1, 1));
       const where = { tenantId, expenseDate: { gte: from }, ...optionalFacilityScope(scope) };
       const [byCategory, byFacility, facilities] = await Promise.all([
         tx.expense.groupBy({ by: ['category'], where, _sum: { amount: true } }),

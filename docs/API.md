@@ -1241,12 +1241,14 @@ El riesgo de baja pesa entero lo de los últimos 90 días (antes, la mitad), sum
 
 ### Endpoints — Reports
 
-| Metodo | Ruta               | Auth | Roles          | Descripcion                                                 |
-| ------ | ------------------ | ---- | -------------- | ----------------------------------------------------------- |
-| GET    | `/reports/catalog` | SI   | cualquiera     | Lista generators con `paramsSchema` para pintar formularios |
-| GET    | `/reports`         | SI   | cualquiera     | Lista report_runs del tenant (paginacion in-memory 50)      |
-| GET    | `/reports/:id`     | SI   | cualquiera     | Status + downloadUrl si done                                |
-| POST   | `/reports/run`     | SI   | owner, manager | Encola job; devuelve run en `pending`                       |
+| Metodo | Ruta                    | Auth | Roles          | Descripcion                                                                                                                                                                                                                                     |
+| ------ | ----------------------- | ---- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/reports/catalog`      | SI   | `reports:read` | Informes que esta persona puede pedir (según sus permisos y locales), con `paramsSchema`; con más de un local a la vista añade el desplegable `facilityId`                                                                                      |
+| GET    | `/reports`              | SI   | `reports:read` | Últimos 50 informes visibles: con `generatorName`, `paramsLabel` y quién lo pidió. Quien solo ve algunos locales, solo los suyos                                                                                                                |
+| GET    | `/reports/:id`          | SI   | `reports:read` | Estado del informe (404 si no lo puede ver)                                                                                                                                                                                                     |
+| GET    | `/reports/:id/download` | SI   | `reports:read` | URL firmada (5 min) que descarga el fichero con su nombre                                                                                                                                                                                       |
+| POST   | `/reports/run`          | SI   | `reports:run`  | Comprueba permisos, formato y parámetros (400 `invalid_date`, `invalid_date_range`, `date_range_too_long`, `report_param_required`, `report_format_unsupported`; 403 `report_not_allowed`; 404 `facility_not_found`) y lo encola. 10 por minuto |
+| DELETE | `/reports/:id`          | SI   | `reports:run`  | Quita el informe de la lista y borra su fichero                                                                                                                                                                                                 |
 
 Generators registrados en Fase 6: `invoices_period`, `contracts_active`,
 `aging_at_date`. Anadir uno = anadir clase implementando `ReportGenerator`

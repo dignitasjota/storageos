@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 
+import { generatedLabel } from './pdf-renderer';
+
 import type { ReportResult } from '../generators/types';
 
 @Injectable()
@@ -9,7 +11,13 @@ export class XlsxRenderer {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'TrasterOS';
     wb.created = result.generatedAt;
-    const sheet = wb.addWorksheet(result.title.slice(0, 31));
+    // Excel no admite : \ / ? * [ ] en el nombre de la hoja, ni más de 31 letras.
+    const sheet = wb.addWorksheet(
+      result.title
+        .replace(/[:\\/?*[\]]/g, ' ')
+        .trim()
+        .slice(0, 31) || 'Informe',
+    );
 
     // Titulo
     sheet.addRow([result.title]).font = { size: 14, bold: true };
@@ -45,9 +53,11 @@ export class XlsxRenderer {
         const cell = r.getCell(i + 1);
         if (c.type === 'currency') cell.numFmt = '#,##0.00 €';
         if (c.type === 'number') cell.numFmt = '#,##0';
-        if (c.type === 'date') cell.numFmt = 'yyyy-mm-dd';
+        if (c.type === 'date') cell.numFmt = 'dd/mm/yyyy';
       });
     }
+
+    if (result.rows.length === 0) sheet.addRow(['No hay datos para este periodo.']);
 
     // Resumen
     if (result.summary?.length) {
@@ -58,6 +68,11 @@ export class XlsxRenderer {
         sheet.addRow([s.label, s.value]);
       }
     }
+    sheet.addRow([]);
+    sheet.addRow([`Generado el ${generatedLabel(result)} · TrasterOS`]).font = {
+      size: 9,
+      color: { argb: 'FF999999' },
+    };
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf);

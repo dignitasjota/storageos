@@ -1,8 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
+import {
+  contractWhere,
+  LIVE_CONTRACT_WHERE,
+  MONTHLY_FEE_SELECT,
+  monthlyFee,
+} from '../../analytics/analytics-scope';
 import { PrismaService } from '../../database/prisma.service';
 
-import { eur } from './new-reports.helpers';
+import { dayLabel, eur, zonedDayKey } from './report-helpers';
 
 import type { ReportGenerator, ReportGeneratorContext, ReportResult } from './types';
 
@@ -12,34 +18,38 @@ export class OccupancySnapshotGenerator implements ReportGenerator {
   readonly code = 'occupancy_snapshot';
   readonly name = 'Ocupación por local';
   readonly description =
-    'Trasteros ocupados, reservados, libres y fuera de servicio de cada local, con su ocupación y lo que facturan al mes.';
+    'Trasteros ocupados, reservados, libres y fuera de servicio de cada local, con su ocupación y las cuotas que suman al mes.';
   readonly formats = ['pdf', 'xlsx'] as const as ('pdf' | 'xlsx')[];
+  readonly requires = ['units:read', 'contracts:read'] as const as ['units:read', 'contracts:read'];
+  readonly byFacility = true;
   readonly paramsSchema = {};
 
   constructor(private readonly prisma: PrismaService) {}
 
   async run(ctx: ReportGeneratorContext): Promise<ReportResult> {
+    const inScope = ctx.scope.ids ? { in: ctx.scope.ids } : undefined;
     const { facilities, units, contracts } = await this.prisma.withTenant(async (tx) => {
       const [facilities, units, contracts] = await Promise.all([
         tx.facility.findMany({
-          where: { deletedAt: null },
+          where: { deletedAt: null, ...(inScope ? { id: inScope } : {}) },
           select: { id: true, name: true },
           orderBy: { name: 'asc' },
         }),
-        tx.unit.groupBy({ by: ['facilityId', 'status'], _count: { _all: true } }),
+        tx.unit.groupBy({
+          by: ['facilityId', 'status'],
+          where: { facility: { deletedAt: null }, ...(inScope ? { facilityId: inScope } : {}) },
+          _count: { _all: true },
+        }),
         tx.contract.findMany({
-          where: { status: { in: ['active', 'ending'] }, deletedAt: null },
-          select: {
-            priceMonthly: true,
-            discountAmount: true,
-            unit: { select: { facilityId: true } },
-          },
+          // Los mismos contratos que cuentan en «Cuotas al mes» del Resumen.
+          where: { ...LIVE_CONTRACT_WHERE, ...contractWhere(ctx.scope) },
+          select: { ...MONTHLY_FEE_SELECT, unit: { select: { facilityId: true } } },
         }),
       ]);
       return { facilities, units, contracts };
     }, ctx.tenantId);
 
-    let totals = { total: 0, occupied: 0, mrr: 0 };
+    let totals = { total: 0, occupied: 0, feeCents: 0 };
     const rows = facilities.map((f) => {
       const of = (status: string) =>
         units.find((u) => u.facilityId === f.id && u.status === status)?._count._all ?? 0;
@@ -49,16 +59,13 @@ export class OccupancySnapshotGenerator implements ReportGenerator {
       const occupied = of('occupied');
       const reserved = of('reserved');
       const available = of('available');
-      const mrr = contracts
+      const feeCents = contracts
         .filter((c) => c.unit.facilityId === f.id)
-        .reduce(
-          (sum, c) => sum + Math.max(0, Number(c.priceMonthly) - Number(c.discountAmount)),
-          0,
-        );
+        .reduce((sum, c) => sum + Math.round(monthlyFee(c) * 100), 0);
       totals = {
         total: totals.total + total,
         occupied: totals.occupied + occupied,
-        mrr: totals.mrr + mrr,
+        feeCents: totals.feeCents + feeCents,
       };
       return {
         facility: f.name,
@@ -68,14 +75,15 @@ export class OccupancySnapshotGenerator implements ReportGenerator {
         available,
         outOfService: total - occupied - reserved - available,
         occupancy: total === 0 ? '0 %' : `${Math.round((occupied / total) * 100)} %`,
-        mrr: Math.round(mrr * 100) / 100,
+        fee: feeCents / 100,
       };
     });
 
     return {
       title: 'Ocupación por local',
-      subtitle: `A ${new Date().toLocaleDateString('es-ES')}`,
+      subtitle: `A ${dayLabel(zonedDayKey(new Date(), ctx.timezone))}`,
       generatedAt: new Date(),
+      timezone: ctx.timezone,
       columns: [
         { key: 'facility', label: 'Local', width: 26 },
         { key: 'total', label: 'Trasteros', type: 'number', align: 'right' },
@@ -84,7 +92,7 @@ export class OccupancySnapshotGenerator implements ReportGenerator {
         { key: 'available', label: 'Libres', type: 'number', align: 'right' },
         { key: 'outOfService', label: 'Fuera de servicio', type: 'number', align: 'right' },
         { key: 'occupancy', label: 'Ocupación', align: 'right' },
-        { key: 'mrr', label: 'Cuotas/mes', type: 'currency', align: 'right' },
+        { key: 'fee', label: 'Cuotas al mes', type: 'currency', align: 'right' },
       ],
       rows,
       summary: [
@@ -93,7 +101,7 @@ export class OccupancySnapshotGenerator implements ReportGenerator {
           value:
             totals.total === 0 ? '0 %' : `${Math.round((totals.occupied / totals.total) * 100)} %`,
         },
-        { label: 'Cuotas al mes', value: eur(totals.mrr) },
+        { label: 'Cuotas al mes (sin IVA)', value: eur(totals.feeCents / 100) },
       ],
     };
   }
