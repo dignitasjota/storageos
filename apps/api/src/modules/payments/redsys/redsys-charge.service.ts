@@ -15,6 +15,19 @@ import {
 
 import type { Env } from '../../../config/env.schema';
 import type { ChargeResult } from '../payment-gateway.interface';
+import type { RedsysTestResultDto } from '@storageos/shared';
+
+// Códigos del glosario oficial de Redsys (manual de conexión por Web Service).
+/** SIS0041 «Error en el cálculo de la HASH», SIS0042 «La firma enviada no es correcta». */
+const REDSYS_BAD_KEY_CODES = new Set(['SIS0041', 'SIS0042']);
+/** SIS0026 «No existe el comercio / terminal enviado», SIS0028 «Comercio / terminal está dado de baja». */
+const REDSYS_BAD_MERCHANT_CODES = new Set(['SIS0026', 'SIS0028']);
+/**
+ * SIS0054 «No existe operación sobre la que realizar la devolución» y SIS0055
+ * «Existe más de un pago con el mismo número de pedido»: Redsys ya comprobó el
+ * comercio, el terminal y la firma, así que los datos son correctos.
+ */
+const REDSYS_NOT_FOUND_CODES = new Set(['SIS0054', 'SIS0055']);
 
 const TIMEOUT_MS = 20_000;
 
@@ -56,6 +69,143 @@ export class RedsysChargeService {
   async available(tenantId: string): Promise<boolean> {
     const cfg = await this.settings.getResolved(tenantId);
     return !!cfg?.enabled && !!cfg.cardOnFileEnabled;
+  }
+
+  /**
+   * «Probar TPV»: pide a Redsys la devolución de 0,01 € de una operación que
+   * no existe. No mueve dinero: si el comercio, el terminal y la clave están
+   * bien, Redsys responde que no encuentra la operación; si no, da un error de
+   * firma o de comercio distinto.
+   *
+   * Simulado con `NODE_ENV=test` o `REDSYS_MODE=stub`: una clave que empieza
+   * por `invalid` da error de firma y el comercio `000000000`, de comercio.
+   */
+  async testCredentials(cfg: {
+    merchantCode: string;
+    terminal: string;
+    secretKey: string;
+    environment: 'test' | 'live';
+  }): Promise<RedsysTestResultDto> {
+    if (!/^\d{1,9}$/.test(cfg.merchantCode) || !/^\d{1,3}$/.test(cfg.terminal)) {
+      return {
+        ok: false,
+        status: 'bad_merchant',
+        code: null,
+        message:
+          'El código de comercio (FUC) son 9 cifras y el terminal, de 1 a 3 cifras. Revisa los datos que te dio el banco.',
+      };
+    }
+    const keyBytes = Buffer.from(cfg.secretKey, 'base64').length;
+    if (keyBytes !== 24) {
+      return {
+        ok: false,
+        status: 'bad_key',
+        code: null,
+        message:
+          'La clave secreta no tiene el formato de Redsys (32 caracteres, la «clave SHA-256» del panel del TPV).',
+      };
+    }
+    if (this.stub) {
+      if (cfg.secretKey.startsWith('invalid')) {
+        return this.testOutcome('SIS0042');
+      }
+      if (cfg.merchantCode === '000000000') return this.testOutcome('SIS0026');
+      return this.testOutcome('SIS0054');
+    }
+    const order = generateRedsysOrder();
+    const params: Record<string, string> = {
+      DS_MERCHANT_AMOUNT: '1',
+      DS_MERCHANT_ORDER: order,
+      DS_MERCHANT_MERCHANTCODE: cfg.merchantCode,
+      DS_MERCHANT_CURRENCY: '978',
+      // Devolución: sobre una operación que no existe, Redsys la rechaza siempre.
+      DS_MERCHANT_TRANSACTIONTYPE: '3',
+      DS_MERCHANT_TERMINAL: cfg.terminal,
+    };
+    const merchantParameters = encodeMerchantParameters(params);
+    let json: Record<string, string>;
+    try {
+      const res = await fetch(REDSYS_REST_ENDPOINTS[cfg.environment], {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          Ds_SignatureVersion: REDSYS_SIGNATURE_VERSION,
+          Ds_MerchantParameters: merchantParameters,
+          Ds_Signature: signRequest(merchantParameters, order, cfg.secretKey),
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      json = (await res.json()) as Record<string, string>;
+    } catch (err) {
+      this.logger.warn(
+        `[redsys] prueba del TPV sin respuesta: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return {
+        ok: false,
+        status: 'unreachable',
+        code: null,
+        message: 'No hemos podido conectar con Redsys. Prueba de nuevo en unos minutos.',
+      };
+    }
+    if (json.errorCode) return this.testOutcome(json.errorCode);
+    // Una respuesta firmada: la clave es buena si la firma cuadra.
+    if (json.Ds_MerchantParameters && json.Ds_Signature) {
+      const { valid } = verifyNotification(
+        json.Ds_MerchantParameters,
+        json.Ds_Signature,
+        cfg.secretKey,
+      );
+      return valid
+        ? {
+            ok: true,
+            status: 'ok',
+            code: null,
+            message: 'Los datos del TPV son correctos: Redsys ha aceptado la firma.',
+          }
+        : this.testOutcome('SIS0042');
+    }
+    return {
+      ok: false,
+      status: 'unknown',
+      code: null,
+      message: 'Redsys ha respondido algo inesperado. Revisa los datos con tu banco.',
+    };
+  }
+
+  private testOutcome(code: string): RedsysTestResultDto {
+    if (REDSYS_NOT_FOUND_CODES.has(code)) {
+      return {
+        ok: true,
+        status: 'ok',
+        code,
+        message:
+          'Los datos del TPV son correctos: Redsys ha reconocido el comercio, el terminal y la clave. No se ha cobrado nada.',
+      };
+    }
+    if (REDSYS_BAD_KEY_CODES.has(code)) {
+      return {
+        ok: false,
+        status: 'bad_key',
+        code,
+        message:
+          'Redsys no acepta la firma: la clave secreta no es la de este comercio y entorno (pruebas y producción tienen claves distintas).',
+      };
+    }
+    if (REDSYS_BAD_MERCHANT_CODES.has(code)) {
+      return {
+        ok: false,
+        status: 'bad_merchant',
+        code,
+        message:
+          'Redsys no encuentra el comercio o el terminal, o están dados de baja. Revisa el código de comercio, el terminal y el entorno.',
+      };
+    }
+    return {
+      ok: false,
+      status: 'unknown',
+      code,
+      message: `Redsys ha respondido con el código ${code}. No podemos asegurar que los datos sean correctos: consúltalo con tu banco.`,
+    };
   }
 
   async charge(args: {

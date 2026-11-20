@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
+import { savedMethodsWarning, useSavedMethodsSummary } from '@/lib/payments/saved-methods';
 import { useSepaSettings, useUpdateSepaSettings } from '@/lib/sepa/hooks';
 import {
   useTenantBillingSettings,
@@ -349,6 +351,8 @@ export function SepaSettingsCard() {
   const canConfigure = useHasPermission('billing:configure');
   const settings = useSepaSettings(canConfigure);
   const update = useUpdateSepaSettings();
+  const confirm = useConfirm();
+  const saved = useSavedMethodsSummary(canConfigure);
 
   const [creditorName, setCreditorName] = useState('');
   const [creditorId, setCreditorId] = useState('');
@@ -407,6 +411,28 @@ export function SepaSettingsCard() {
     if (!s.configured && !creditorIban.trim()) {
       toast.error('Indica el IBAN del acreedor.');
       return;
+    }
+    // Apagar las remesas deja fuera a los inquilinos con mandato firmado.
+    const warning =
+      s.enabled && !enabled
+        ? savedMethodsWarning(
+            saved.data?.sepa,
+            {
+              saved: ['mandato SEPA firmado', 'mandatos SEPA firmados'],
+              charge: 'entrar en la remesa de tu banco',
+              reversible: true,
+            },
+            false,
+          )
+        : null;
+    if (warning) {
+      const ok = await confirm({
+        title: 'Desactivar las remesas SEPA',
+        description: warning,
+        confirmLabel: 'Desactivar',
+        destructive: true,
+      });
+      if (!ok) return;
     }
     try {
       await update.mutateAsync({

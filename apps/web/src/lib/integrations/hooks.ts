@@ -7,9 +7,11 @@ import type {
   ApiKeyWithPlaintextDto,
   CreateApiKeyInput,
   CreateWebhookInput,
+  TestWebhookInput,
   UpdateWebhookInput,
   WebhookDeliveryDto,
   WebhookDto,
+  WebhookTestResultDto,
   WebhookWithSecretDto,
 } from '@storageos/shared';
 
@@ -71,6 +73,19 @@ export function useUpdateWebhook(id: string) {
   });
 }
 
+/** Envío de prueba: queda en la lista de envíos del webhook. */
+export function useSendWebhookTest(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TestWebhookInput) =>
+      apiFetch<WebhookTestResultDto>(`/settings/webhooks/${id}/test`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['settings', 'webhooks', id, 'deliveries'] }),
+  });
+}
+
 export function useRevokeWebhook() {
   const qc = useQueryClient();
   return useMutation({
@@ -117,6 +132,12 @@ export function useWebhookDeliveries(
     queryKey: webhookDeliveriesKey(webhookId, filters),
     initialPageParam: '' as string,
     getNextPageParam: (last: WebhookDeliveriesPage) => last.nextCursor ?? undefined,
+    // Mientras haya envíos en curso (una prueba recién mandada, reintentos),
+    // la lista se refresca sola.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((p) => p.items.some((d) => d.status === 'pending'))
+        ? 5000
+        : false,
     queryFn: ({ pageParam }): Promise<WebhookDeliveriesPage> => {
       const params = new URLSearchParams();
       params.set('limit', String(filters.limit ?? 50));

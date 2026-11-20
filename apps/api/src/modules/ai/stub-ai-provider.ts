@@ -7,6 +7,7 @@ import {
   type AiSystemPrompt,
   systemText,
 } from './ai-provider';
+import { webDraftStub } from './web-draft-stubs';
 
 /** Comienzo del prompt del chat de la web pública (el simulador responde como él). */
 export const WEB_CHAT_PROMPT_MARKER = 'Eres el asistente virtual de la web de';
@@ -108,15 +109,17 @@ export class StubAiProvider extends AiProvider {
     tools?: unknown[];
   }): Promise<AiCompletion> {
     const system = args.system ? systemText(args.system) : '';
-    const completion = system.includes(AREA_PAGE_DRAFT_MARKER)
-      ? AREA_PAGE_DRAFT_STUB
-      : system.includes(COMPETITOR_PARSE_MARKER)
-        ? COMPETITOR_PARSE_STUB
-        : system.includes(EXPENSE_RECEIPT_MARKER)
-          ? EXPENSE_RECEIPT_STUB
-          : system.startsWith(WEB_CHAT_PROMPT_MARKER)
-            ? this.webChat(args.messages)
-            : await this.respond(args);
+    const completion =
+      webDraftStub(system) ??
+      (system.includes(AREA_PAGE_DRAFT_MARKER)
+        ? AREA_PAGE_DRAFT_STUB
+        : system.includes(COMPETITOR_PARSE_MARKER)
+          ? COMPETITOR_PARSE_STUB
+          : system.includes(EXPENSE_RECEIPT_MARKER)
+            ? EXPENSE_RECEIPT_STUB
+            : system.startsWith(WEB_CHAT_PROMPT_MARKER)
+              ? this.webChat(args.messages)
+              : await this.respond(args));
     const tokens = (text: string) => Math.max(1, Math.ceil(text.length / 4));
     const inputTokens = tokens(JSON.stringify(args.messages));
     const outputTokens = tokens(JSON.stringify(completion.content));

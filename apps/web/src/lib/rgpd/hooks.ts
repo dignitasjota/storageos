@@ -1,9 +1,10 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 import { rgpdKey } from '../billing/hooks';
 
 import type {
+  AnonymizePreviewDto,
   CreateDataSubjectRequestInput,
   DataSubjectRequestDto,
   UpdateDataSubjectRequestInput,
@@ -72,5 +73,15 @@ export function useAnonymizeCustomer() {
       void qc.invalidateQueries({ queryKey: rgpdKey });
       void qc.invalidateQueries({ queryKey: ['customers'] });
     },
+  });
+}
+
+/** Qué se borra, qué se conserva y qué impide anonimizar a un inquilino. */
+export function useAnonymizePreview(customerId: string | null | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['rgpd', 'anonymize-preview', customerId] as const,
+    queryFn: () => apiFetch<AnonymizePreviewDto>(`/rgpd/customers/${customerId}/anonymize-preview`),
+    enabled: enabled && !!customerId,
+    staleTime: 0,
   });
 }

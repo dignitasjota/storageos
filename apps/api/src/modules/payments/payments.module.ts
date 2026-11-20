@@ -16,6 +16,8 @@ import { PaymentsController } from './payments.controller';
 import { PaymentsService } from './payments.service';
 import { RedsysCoreModule } from './redsys/redsys-core.module';
 import { ReturnedReceiptsService } from './returned-receipts.service';
+import { SavedMethodsSummaryController } from './saved-methods-summary.controller';
+import { SavedMethodsSummaryService } from './saved-methods-summary.service';
 import { StaleChargesCron } from './stale-charges.cron';
 import { StaleChargesService } from './stale-charges.service';
 import { StripeConnectWebhookController } from './stripe-connect/stripe-connect-webhook.controller';
@@ -39,11 +41,13 @@ import { StripeGateway } from './stripe.gateway';
   controllers: [
     PaymentMethodsController,
     PaymentsController,
+    SavedMethodsSummaryController,
     StripeWebhookController,
     StripeConnectWebhookController,
   ],
   providers: [
     ReturnedReceiptsService,
+    SavedMethodsSummaryService,
     StripeGateway,
     { provide: PAYMENT_GATEWAY, useExisting: StripeGateway },
     PaymentMethodsService,

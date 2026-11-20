@@ -9,7 +9,7 @@ import {
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { TermsVersionsCard } from './versions-card';
@@ -20,7 +20,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { UnsavedChangesBar } from '@/components/unsaved-changes-bar';
 import { ApiError } from '@/lib/auth/api';
+import { runSaveSteps, useUnsavedChangesGuard } from '@/lib/unsaved-changes';
 import { useUpdateWebLegal, useWebLegal } from '@/lib/web-legal/hooks';
 
 /** Textos legales de la web pública: aviso legal, privacidad, cookies y condiciones. */
@@ -30,15 +32,38 @@ export default function WebLegalPage() {
   const [drafts, setDrafts] = useState<Partial<Record<TenantLegalDoc, string>>>({});
   const savedOf = (d: TenantLegalDoc) => data?.texts[TENANT_LEGAL_FIELD[d]] ?? '';
   const textOf = (d: TenantLegalDoc) => drafts[d] ?? savedOf(d);
-  const anyDirty = data ? TENANT_LEGAL_DOCS.some((d) => textOf(d) !== savedOf(d)) : false;
+  const changedDocs = data ? TENANT_LEGAL_DOCS.filter((d) => textOf(d) !== savedOf(d)) : [];
+  const anyDirty = changedDocs.length > 0;
+  const update = useUpdateWebLegal();
+  const [saving, setSaving] = useState(false);
+  useUnsavedChangesGuard(anyDirty);
 
-  // Aviso al cerrar o recargar la pestaña con cambios sin guardar.
-  useEffect(() => {
-    if (!anyDirty) return;
-    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [anyDirty]);
+  /** Guarda cada texto cambiado; si uno falla, sigue escrito y se dice cuál. */
+  async function save() {
+    setSaving(true);
+    const done: TenantLegalDoc[] = [];
+    const failed = await runSaveSteps(
+      changedDocs.map((d) => ({
+        label: TENANT_LEGAL_TITLES[d],
+        run: async () => {
+          await update.mutateAsync({ [TENANT_LEGAL_FIELD[d]]: textOf(d).trim() });
+          done.push(d);
+        },
+      })),
+      (err) => (err instanceof ApiError ? err.body.message : 'No se pudo guardar.'),
+    );
+    setSaving(false);
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const d of done) delete next[d];
+      return next;
+    });
+    if (failed.length > 0) {
+      toast.error(failed.map((f) => `${f.label}: ${f.message}`).join(' · '));
+      return;
+    }
+    toast.success('Textos legales guardados.');
+  }
 
   if (isLoading) {
     return (
@@ -90,13 +115,6 @@ export default function WebLegalPage() {
               data={data}
               text={textOf(d)}
               setText={(value) => setDrafts((prev) => ({ ...prev, [d]: value }))}
-              onSaved={() =>
-                setDrafts((prev) => {
-                  const next = { ...prev };
-                  delete next[d];
-                  return next;
-                })
-              }
             />
             {d === 'condiciones-contratacion' && !data.texts.terms && (
               <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-100">
@@ -110,6 +128,12 @@ export default function WebLegalPage() {
           </TabsContent>
         ))}
       </Tabs>
+      <UnsavedChangesBar
+        dirty={anyDirty}
+        saving={saving}
+        onSave={() => void save()}
+        onDiscard={() => setDrafts({})}
+      />
     </div>
   );
 }
@@ -119,28 +143,14 @@ function LegalEditor({
   data,
   text,
   setText,
-  onSaved,
 }: {
   doc: TenantLegalDoc;
   data: WebLegalSettingsDto;
   text: string;
   setText: (value: string) => void;
-  onSaved: () => void;
 }) {
-  const field = TENANT_LEGAL_FIELD[doc];
-  const saved = data.texts[field] ?? '';
-  const update = useUpdateWebLegal();
+  const saved = data.texts[TENANT_LEGAL_FIELD[doc]] ?? '';
   const custom = text.trim().length > 0;
-
-  async function save(value: string) {
-    try {
-      await update.mutateAsync({ [field]: value });
-      onSaved();
-      toast.success(value ? 'Texto guardado.' : 'Se usa de nuevo el texto generado.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -160,27 +170,20 @@ function LegalEditor({
             className="font-mono text-xs"
           />
           <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => void save(text.trim())}
-              disabled={update.isPending || text === saved}
-            >
-              Guardar
-            </Button>
             <Button variant="outline" onClick={() => setText(data.generated[doc])}>
               Partir del texto generado
             </Button>
-            {saved && (
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setText('');
-                  void save('');
-                }}
-              >
+            {(saved || text) && (
+              <Button variant="ghost" onClick={() => setText('')}>
                 Volver al generado
               </Button>
             )}
           </div>
+          {saved && !text.trim() && (
+            <p className="text-xs text-muted-foreground">
+              Al guardar se publicará otra vez el texto generado.
+            </p>
+          )}
         </CardContent>
       </Card>
       <Card>

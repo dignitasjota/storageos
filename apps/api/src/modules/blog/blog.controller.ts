@@ -14,9 +14,11 @@ import {
 import {
   type BlogCoverUploadResponseDto,
   type BlogImageDto,
+  type BlogPostDraftDto,
   type BlogPostDto,
   ConfirmBlogImageSchema,
   CreateBlogPostSchema,
+  DraftBlogPostSchema,
   RequestBlogImageUploadSchema,
   RequestBlogCoverUploadSchema,
   SetBlogPostCoverSchema,
@@ -39,6 +41,7 @@ class RequestBlogCoverUploadDto extends createZodDto(RequestBlogCoverUploadSchem
 class SetBlogPostCoverDto extends createZodDto(SetBlogPostCoverSchema) {}
 class RequestBlogImageUploadDto extends createZodDto(RequestBlogImageUploadSchema) {}
 class ConfirmBlogImageDto extends createZodDto(ConfirmBlogImageSchema) {}
+class DraftBlogPostDto extends createZodDto(DraftBlogPostSchema) {}
 
 /** Gestión del blog del tenant (lado staff). Feature `web_premium`. */
 @RequireFeature('web_premium')
@@ -50,6 +53,17 @@ export class BlogController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<BlogPostDto[]> {
     return this.blog.list(user.tenantId);
+  }
+
+  /** Borrador con IA (no guarda nada; gasta una consulta del asistente). */
+  @RequirePermission('settings:manage')
+  @Post('draft')
+  @HttpCode(HttpStatus.OK)
+  draft(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: DraftBlogPostDto,
+  ): Promise<BlogPostDraftDto> {
+    return this.blog.draft(user.tenantId, user.sub, body);
   }
 
   @RequirePermission('settings:read')

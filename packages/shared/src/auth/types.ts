@@ -276,10 +276,22 @@ export interface ConfigHealthItemDto {
   href: string;
 }
 
+/** Lo que responde el DNS de un nombre del dominio propio (con o sin `www.`). */
+export interface CustomDomainHostCheckDto {
+  host: string;
+  /** `primary`: el dominio guardado; `alternate`: su forma con o sin `www.`. */
+  purpose: 'primary' | 'alternate';
+  pointsToPlatform: boolean;
+  found: string[];
+}
+
 /** POST /settings/tenant/domain/check — ¿apunta ya el dominio a la plataforma? */
 export interface CustomDomainCheckDto {
   domain: string;
+  /** El dominio guardado (el principal). */
   pointsToPlatform: boolean;
+  /** Cada nombre por separado: el principal y su forma con o sin `www.`. */
+  hosts: CustomDomainHostCheckDto[];
   /** Lo que devuelve hoy el DNS del dominio (direcciones o el CNAME). */
   found: string[];
   /** A qué tiene que apuntar. */

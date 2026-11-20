@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { AdClickIdsSchema, utmFields } from '../communications/schemas';
-import { OpeningHoursSchema, type OpeningHours } from '../facilities/schemas';
+import { TeamHoursSchema, type TeamHours } from '../messages/team-hours';
 
 /**
  * Chat con IA en la web pública del tenant: lo usa un visitante anónimo, solo
@@ -241,7 +241,7 @@ export interface WebChatSettingsDto {
   /** Va con la clave de IA del propio negocio: sin límite de respuestas. */
   ownKey: boolean;
   /** Horario del equipo (null = siempre): fuera de él, pedir una persona avisa y pide los datos. */
-  teamHours: OpeningHours | null;
+  teamHours: TeamHours | null;
 }
 
 export const UpdateWebChatSettingsSchema = z.object({
@@ -252,7 +252,7 @@ export const UpdateWebChatSettingsSchema = z.object({
   handoffEnabled: z.boolean().optional(),
   sharedInstructions: z.boolean().optional(),
   /** Horario del equipo; null lo quita (siempre disponible). */
-  teamHours: OpeningHoursSchema.nullable().optional(),
+  teamHours: TeamHoursSchema.nullable().optional(),
 });
 export type UpdateWebChatSettingsInput = z.infer<typeof UpdateWebChatSettingsSchema>;
 

@@ -3,10 +3,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, type CustomerType } from '@storageos/database';
+import {
+  DUNNING_WHATSAPP_DEFAULT_TEXT,
+  DUNNING_WHATSAPP_DEFAULT_TEXT_EN,
+  DUNNING_WHATSAPP_TEMPLATE_CODE,
+  DUNNING_WHATSAPP_TEMPLATE_VARIABLES,
+} from '@storageos/shared';
 import { Queue } from 'bullmq';
 
 import { emailLocale, formatDateLong, formatEur, todayInTimezone } from '../../common/format';
-import { subtractAmounts } from '../../common/money';
+import { addAmounts, subtractAmounts } from '../../common/money';
 import { invoiceInActivePlan } from '../../common/payment-plan-guard';
 import { tenantPortalLoginUrl } from '../../common/portal-url';
 import { isUniqueViolation } from '../../common/prisma-errors';
@@ -19,12 +25,15 @@ import { InvoicesService } from '../billing/invoices.service';
 import { buildReminderSummary } from '../billing/reminder-summary';
 import { CollectionsService } from '../collections/collections.service';
 import { CommunicationsService } from '../communications/communications.service';
+import { renderText, TEMPLATE_VARIABLES_BY_TRIGGER } from '../communications/template-engine';
+import { buildWhatsappTemplateParams } from '../communications/whatsapp-template.util';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import {
   JOB_DUNNING_EXECUTE_ACTION,
   JOB_DUNNING_PROCESS_INVOICE,
   QUEUE_DUNNING,
 } from '../queues/queues.module';
+import { WhatsappCampaignSender } from '../whatsapp-business/whatsapp-campaign.sender';
 
 import { dunningCalendar } from './dunning-calendar';
 
@@ -49,6 +58,14 @@ export interface ProcessInvoiceJobData {
   invoiceId: string;
   /** Días vencidos al momento del enqueue (para idempotencia). */
   daysOverdue: number;
+}
+
+/** Una factura de un recordatorio (sola o agrupada con otras del inquilino). */
+interface ReminderInvoice {
+  id: string;
+  number: string;
+  pending: number;
+  dueDate: Date | null;
 }
 
 export interface ExecuteActionJobData {
@@ -93,6 +110,7 @@ export class DunningService {
     private readonly config: ConfigService<Env, true>,
     private readonly access: AccessIntegrationsService,
     private readonly collections: CollectionsService,
+    private readonly whatsapp: WhatsappCampaignSender,
   ) {}
 
   /**
@@ -336,6 +354,8 @@ export class DunningService {
             companyName: true,
             customerType: true,
             locale: true,
+            phone: true,
+            whatsappOptOutAt: true,
           },
         },
       },
@@ -387,17 +407,43 @@ export class DunningService {
           );
           return null;
         });
+        const stage = action.actionType === 'email_reminder_final' ? 'final' : 'first';
         if (merged) {
-          result = { ...result, emailEnqueued: true, invoicesInEmail: merged };
+          result = { ...result, emailEnqueued: true, invoicesInEmail: merged.length };
         } else {
           const sent = await this.sendReminderEmail(
             action.tenantId,
             action.invoiceId,
             invoice,
-            action.actionType === 'email_reminder_final' ? 'final' : 'first',
+            stage,
           );
           result = { ...result, emailEnqueued: sent };
         }
+        // También por WhatsApp, si el negocio lo tiene activado. Nunca bloquea
+        // el recordatorio por correo.
+        const whatsapp = await this.sendWhatsappReminder(
+          action.tenantId,
+          action.invoiceId,
+          invoice,
+          merged ?? [
+            {
+              id: action.invoiceId,
+              number: invoice.invoiceNumber,
+              pending: subtractAmounts(
+                subtractAmounts(invoice.total, invoice.amountPaid),
+                invoice.amountRefunded,
+              ),
+              dueDate: invoice.dueDate,
+            },
+          ],
+          stage,
+        ).catch((err: unknown) => {
+          this.logger.warn(
+            `dunning.${action.actionType}: WhatsApp sin enviar para ${invoice.invoiceNumber}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return 'error';
+        });
+        if (whatsapp !== 'off') result = { ...result, whatsapp };
       }
       if (action.actionType === 'access_block') {
         // `accessBlocked` dice lo que pasó de verdad: el panel, el área de
@@ -620,7 +666,7 @@ export class DunningService {
         locale?: string | null;
       } | null;
     },
-  ): Promise<number | null> {
+  ): Promise<ReminderInvoice[] | null> {
     const email = invoice.customer?.billingEmail ?? invoice.customer?.email;
     if (!invoice.customerId || !email) return null;
     const final = action.actionType === 'email_reminder_final';
@@ -744,7 +790,190 @@ export class DunningService {
       });
       throw err;
     }
-    return list.length;
+    return list;
+  }
+
+  /**
+   * El recordatorio por WhatsApp (si el negocio lo tiene activado): dentro de
+   * las 24 h desde el último mensaje del inquilino, el texto de la plantilla
+   * «Recordatorio de pago por WhatsApp»; fuera, su plantilla de Meta. Respeta
+   * la baja de WhatsApp del inquilino y queda en Comunicaciones. Devuelve qué
+   * pasó (`off` = no aplica y no se anota nada).
+   */
+  private async sendWhatsappReminder(
+    tenantId: string,
+    invoiceId: string,
+    invoice: {
+      customerId: string | null;
+      contractId: string | null;
+      customer: {
+        firstName: string | null;
+        lastName: string | null;
+        companyName: string | null;
+        customerType: CustomerType;
+        locale?: string | null;
+        phone?: string | null;
+        whatsappOptOutAt?: Date | null;
+      } | null;
+    },
+    list: ReminderInvoice[],
+    stage: 'first' | 'final',
+  ): Promise<string> {
+    const customer = invoice.customer;
+    if (!invoice.customerId || !customer?.phone) return 'off';
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        dunningWhatsappReminders: true,
+        name: true,
+        slug: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+      },
+    });
+    if (!tenant?.dunningWhatsappReminders) return 'off';
+    if (!(await this.whatsapp.ready(tenantId))) return 'off';
+    // El primer aviso lo sustituye una automatización propia (como el correo).
+    if (stage === 'first' && (await this.hasOverdueAutomation(tenantId))) return 'off';
+
+    const source =
+      stage === 'final' ? 'dunning.whatsapp_reminder_final' : 'dunning.whatsapp_reminder';
+    const record = async (data: {
+      status: 'sent' | 'failed' | 'skipped';
+      recipient: string;
+      bodyText: string;
+      providerMessageId?: string;
+      errorMessage?: string;
+      template?: { name: string; language: string; params: string[] } | null;
+    }) => {
+      const now = new Date();
+      await this.admin.communication.create({
+        data: {
+          tenantId,
+          channel: 'whatsapp',
+          status: data.status,
+          recipient: data.recipient,
+          subject: stage === 'final' ? 'Segundo recordatorio de pago' : 'Recordatorio de pago',
+          bodyText: data.bodyText,
+          customerId: invoice.customerId,
+          invoiceId,
+          contractId: invoice.contractId,
+          variables: { invoiceIds: list.map((i) => i.id) },
+          source,
+          provider: 'whatsapp_business',
+          providerMessageId: data.providerMessageId ?? null,
+          ...(data.template
+            ? {
+                whatsappTemplateName: data.template.name,
+                whatsappTemplateLanguage: data.template.language,
+                whatsappTemplateParams: Object.fromEntries(
+                  data.template.params.map((v, i) => [String(i + 1), v]),
+                ),
+              }
+            : {}),
+          ...(data.status === 'sent'
+            ? { sentAt: now }
+            : data.status === 'failed'
+              ? { failedAt: now, errorMessage: data.errorMessage ?? null }
+              : { errorMessage: data.errorMessage ?? null }),
+        },
+      });
+    };
+    if (customer.whatsappOptOutAt) {
+      await record({
+        status: 'skipped',
+        recipient: customer.phone,
+        bodyText: 'Recordatorio de pago por WhatsApp',
+        errorMessage: 'El inquilino se ha dado de baja de los mensajes por WhatsApp',
+      });
+      return 'opted_out';
+    }
+
+    const locale = emailLocale(customer.locale);
+    const total = list.reduce((acc, i) => addAmounts(acc, i.pending), 0);
+    const scope: Record<string, unknown> = {
+      customer: {
+        firstName: customer.firstName ?? '',
+        displayName: this.customerDisplayName(customer),
+      },
+      invoice: {
+        number: list.map((i) => i.number).join(', '),
+        amountPending: formatEur(total, locale),
+        dueDate: list[0]?.dueDate ? formatDateLong(list[0].dueDate, 'Europe/Madrid', locale) : '',
+      },
+      portal: {
+        url: tenantPortalLoginUrl(this.config.get('WEB_BASE_URL', { infer: true }), tenant),
+      },
+      tenant: { name: tenant.name },
+    };
+    const row = await this.admin.messageTemplate.findUnique({
+      where: { tenantId_code: { tenantId, code: DUNNING_WHATSAPP_TEMPLATE_CODE } },
+      select: {
+        bodyText: true,
+        isActive: true,
+        deletedAt: true,
+        whatsappTemplateName: true,
+        whatsappTemplateLanguage: true,
+        whatsappTemplateVariables: true,
+      },
+    });
+    const usable = row && !row.deletedAt && row.isActive ? row : null;
+    // Un inquilino en inglés recibe el texto por defecto en inglés si el negocio no lo cambió.
+    const sourceText =
+      !usable || (locale === 'en' && usable.bodyText === DUNNING_WHATSAPP_DEFAULT_TEXT)
+        ? locale === 'en'
+          ? DUNNING_WHATSAPP_DEFAULT_TEXT_EN
+          : DUNNING_WHATSAPP_DEFAULT_TEXT
+        : usable.bodyText;
+    const text = renderText(sourceText, scope, TEMPLATE_VARIABLES_BY_TRIGGER.invoice_overdue);
+    const flat: Record<string, unknown> = {
+      'customer.firstName': customer.firstName || (locale === 'en' ? 'there' : 'cliente'),
+      'customer.displayName': this.customerDisplayName(customer),
+      'invoice.number': (scope.invoice as Record<string, unknown>).number,
+      'invoice.amountPending': (scope.invoice as Record<string, unknown>).amountPending,
+      'invoice.dueDate': (scope.invoice as Record<string, unknown>).dueDate,
+      'portal.url': (scope.portal as Record<string, unknown>).url,
+      'tenant.name': tenant.name,
+    };
+    const template = usable?.whatsappTemplateName
+      ? {
+          name: usable.whatsappTemplateName,
+          language: usable.whatsappTemplateLanguage ?? 'es',
+          params: Object.values(
+            buildWhatsappTemplateParams(
+              usable.whatsappTemplateVariables.length > 0
+                ? usable.whatsappTemplateVariables
+                : [...DUNNING_WHATSAPP_TEMPLATE_VARIABLES],
+              flat,
+            ),
+          ),
+        }
+      : null;
+    const res = await this.whatsapp.sendNotice({
+      tenantId,
+      phone: customer.phone,
+      contactName: this.customerDisplayName(customer),
+      customerId: invoice.customerId,
+      text,
+      template,
+    });
+    if (res.ok) {
+      await record({
+        status: 'sent',
+        recipient: res.waId,
+        bodyText: res.body,
+        providerMessageId: res.messageId,
+        template: res.via === 'template' ? template : null,
+      });
+      return res.via === 'template' ? 'template' : 'sent';
+    }
+    await record({
+      status: res.skipped ? 'skipped' : 'failed',
+      recipient: res.waId ?? customer.phone,
+      bodyText: text,
+      errorMessage: res.error,
+    });
+    return res.skipped ? 'skipped' : 'failed';
   }
 
   /** ¿Queda un corte del acceso programado para alguna de estas facturas? */

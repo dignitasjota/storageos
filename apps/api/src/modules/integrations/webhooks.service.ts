@@ -12,6 +12,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { JOB_WEBHOOK_DELIVER, QUEUE_WEBHOOKS } from '../queues/queues.module';
 
+import { sampleWebhookData } from './webhook-events';
+
 import type { RequestMeta } from '../auth/auth.service';
 import type { Prisma, Webhook, WebhookDelivery } from '@storageos/database';
 import type {
@@ -20,6 +22,8 @@ import type {
   WebhookDeliveryDto,
   WebhookDto,
   WebhookEventType,
+  WebhookTestEvent,
+  WebhookTestResultDto,
   WebhookWithSecretDto,
 } from '@storageos/shared';
 
@@ -105,7 +109,13 @@ export class WebhooksService {
     input: UpdateWebhookInput;
     meta: RequestMeta;
   }): Promise<WebhookDto> {
-    await this.findOrThrow(args.tenantId, args.id);
+    const current = await this.findOrThrow(args.tenantId, args.id);
+    if (current.revokedAt) {
+      throw new BadRequestException({
+        code: 'webhook_revoked',
+        message: 'Este webhook está revocado y ya no se puede cambiar: crea otro.',
+      });
+    }
     const data: Prisma.WebhookUncheckedUpdateInput = {};
     if (args.input.name !== undefined) data.name = args.input.name;
     if (args.input.url !== undefined) {
@@ -118,7 +128,11 @@ export class WebhooksService {
       (tx) => tx.webhook.update({ where: { id: args.id }, data }),
       args.tenantId,
     );
-    await this.writeAudit('integration.webhook_updated', args, args.id);
+    // Qué ha cambiado (sin valores: la URL puede llevar un token del destino).
+    const fields = (['name', 'url', 'events', 'isActive'] as const).filter(
+      (f) => args.input[f] !== undefined,
+    );
+    await this.writeAudit('integration.webhook_updated', args, args.id, { fields });
     return this.toDto(updated);
   }
 
@@ -319,38 +333,90 @@ export class WebhooksService {
       });
       if (hooks.length === 0) return;
       for (const hook of hooks) {
-        const secret = this.crypto.decryptString(hook.secret, tenantId);
-        const enriched = { ...payload, type: eventType };
-        const { header } = buildWebhookSignature({ secret, payload: enriched });
-        const delivery = await this.admin.webhookDelivery.create({
-          data: {
-            tenantId,
-            webhookId: hook.id,
-            eventType,
-            payload: enriched as Prisma.InputJsonValue,
-            signature: header,
-            scheduledFor: new Date(),
-          },
-        });
-        await this.queue.add(
-          JOB_WEBHOOK_DELIVER,
-          { deliveryId: delivery.id, tenantId } satisfies DeliverJobData,
-          {
-            // Retry exponencial: 3 intentos totales con base 60s
-            // (60s, 120s entre reintentos). El detalle "60s, 5min, 30min"
-            // referido en el spec es indicativo: lo importante es que
-            // tras `attempts >= 3`, el delivery queda `failed` y no se
-            // reintenta automaticamente.
-            attempts: 3,
-            backoff: { type: 'exponential', delay: 60_000 },
-          },
-        );
+        await this.enqueueDelivery(hook, eventType, { ...payload, type: eventType });
       }
     } catch (err) {
       this.logger.error(
         `dispatch webhook fallo tenant=${tenantId} event=${eventType}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /** ¿Hay algún webhook activo suscrito? (evita consultas para nadie). */
+  async hasSubscribers(tenantId: string, eventType: WebhookEventType): Promise<boolean> {
+    const count = await this.admin.webhook.count({
+      where: { tenantId, isActive: true, revokedAt: null, events: { has: eventType } },
+    });
+    return count > 0;
+  }
+
+  /**
+   * Envío de prueba a UN webhook: entrega real (firmada como las demás y con
+   * sus reintentos) con datos de ejemplo del evento elegido y `test: true`,
+   * aunque el webhook no esté suscrito a ese evento. Queda en sus envíos.
+   */
+  async sendTest(args: {
+    tenantId: string;
+    userId: string;
+    id: string;
+    event: WebhookTestEvent;
+    meta: RequestMeta;
+  }): Promise<WebhookTestResultDto> {
+    const hook = await this.findOrThrow(args.tenantId, args.id);
+    if (!hook.isActive || hook.revokedAt) {
+      throw new BadRequestException({
+        code: 'webhook_inactive',
+        message: 'El webhook está desactivado: actívalo antes de enviar una prueba.',
+      });
+    }
+    const payload = {
+      ...sampleWebhookData(args.tenantId, args.event),
+      test: true,
+      type: args.event,
+    };
+    const deliveryId = await this.enqueueDelivery(hook, args.event, payload);
+    await this.audit.write({
+      action: 'integration.webhook_test_sent',
+      tenantId: args.tenantId,
+      userId: args.userId,
+      entityType: 'Webhook',
+      entityId: hook.id,
+      changes: { event: args.event },
+      ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
+      ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
+    });
+    return { deliveryId, event: args.event };
+  }
+
+  /** Crea la fila del envío (firmada) y la pone en la cola de entrega. */
+  private async enqueueDelivery(
+    hook: Webhook,
+    eventType: string,
+    payload: Record<string, unknown>,
+  ): Promise<string> {
+    const secret = this.crypto.decryptString(hook.secret, hook.tenantId);
+    const { header } = buildWebhookSignature({ secret, payload });
+    const delivery = await this.admin.webhookDelivery.create({
+      data: {
+        tenantId: hook.tenantId,
+        webhookId: hook.id,
+        eventType,
+        payload: payload as Prisma.InputJsonValue,
+        signature: header,
+        scheduledFor: new Date(),
+      },
+    });
+    await this.queue.add(
+      JOB_WEBHOOK_DELIVER,
+      { deliveryId: delivery.id, tenantId: hook.tenantId } satisfies DeliverJobData,
+      {
+        // 3 intentos en total: al minuto y dos minutos después. Tras el
+        // tercero el envío queda `failed` y solo se reintenta a mano.
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+      },
+    );
+    return delivery.id;
   }
 
   // ---------------------------------------------------------------
@@ -430,6 +496,7 @@ export class WebhooksService {
     action: string,
     args: { tenantId: string; userId: string; meta: RequestMeta },
     entityId: string,
+    changes?: Prisma.InputJsonValue,
   ): Promise<void> {
     await this.audit.write({
       action,
@@ -437,6 +504,7 @@ export class WebhooksService {
       userId: args.userId,
       entityType: 'Webhook',
       entityId,
+      ...(changes ? { changes } : {}),
       ...(args.meta.ipAddress ? { ipAddress: args.meta.ipAddress } : {}),
       ...(args.meta.userAgent ? { userAgent: args.meta.userAgent } : {}),
     });

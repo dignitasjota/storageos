@@ -9,7 +9,7 @@ import {
   MESSAGE_THREAD_PAGE,
   type MessageAttachmentInput,
   type MessageAttachmentUploadDto,
-  type OpeningHours,
+  type TeamHours,
 } from '@storageos/shared';
 
 import { customerScopeSql, customerVisibilityFacilities } from '../../common/customer-scope';
@@ -461,7 +461,7 @@ export class CustomerMessagesService {
       },
     });
     if (!tenant?.messageAutoReplyEnabled) return;
-    const hours = tenant.messageHours as OpeningHours | null;
+    const hours = tenant.messageHours as TeamHours | null;
     if (isWithinHours(hours, tenant.timezone)) return;
     const claimed = await claimAlert(
       this.admin,

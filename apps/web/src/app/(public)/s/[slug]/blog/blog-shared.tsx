@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
 import {
@@ -37,16 +37,27 @@ export async function getBlogList(slug: string): Promise<PublicBlogListDto | nul
   }
 }
 
-export async function getBlogPost(
+/** Dirección antigua de una entrada: la actual (y el dominio propio, si lo hay). */
+type BlogPostMoved = { movedTo: string; customDomain: string | null };
+
+async function lookupBlogPost(
   slug: string,
   postSlug: string,
-): Promise<PublicBlogPostDto | null> {
+): Promise<PublicBlogPostDto | BlogPostMoved | null> {
   try {
     const res = await fetch(
       `${API_URL}/public/landing/${encodeURIComponent(slug)}/blog/${encodeURIComponent(postSlug)}`,
       { headers: internalApiHeaders(), next: { revalidate: 60 } },
     );
-    if (res.status === 404) return null;
+    if (res.status === 404) {
+      const body = (await res.json().catch(() => null)) as {
+        code?: string;
+        details?: { slug?: string; customDomain?: string | null };
+      } | null;
+      return body?.code === 'blog_post_moved' && body.details?.slug
+        ? { movedTo: body.details.slug, customDomain: body.details.customDomain ?? null }
+        : null;
+    }
     if (!res.ok) throw new ApiUnavailableError(res.status);
     return (await res.json()) as PublicBlogPostDto;
   } catch (err) {
@@ -54,6 +65,14 @@ export async function getBlogPost(
     // buscadores no den de baja la web por una caída.
     throw err instanceof ApiUnavailableError ? err : new ApiUnavailableError(0);
   }
+}
+
+export async function getBlogPost(
+  slug: string,
+  postSlug: string,
+): Promise<PublicBlogPostDto | null> {
+  const found = await lookupBlogPost(slug, postSlug);
+  return found && 'movedTo' in found ? null : found;
 }
 
 /** `hreflang` alternates es/en + x-default para el listado del blog. */
@@ -132,7 +151,10 @@ export async function buildBlogPostMetadata(
   postSlug: string,
   locale: PublicWebLocale,
 ): Promise<Metadata> {
-  const data = await getBlogPost(slug, postSlug);
+  const found = await lookupBlogPost(slug, postSlug);
+  // Dirección antigua: la página redirige (308); no se indexa.
+  if (found && 'movedTo' in found) return { robots: { index: false, follow: true } };
+  const data = found;
   if (!data) {
     return {
       title: locale === 'en' ? 'Not found' : 'No encontrado',
@@ -211,10 +233,15 @@ export async function BlogPostPageBody({
   postSlug: string;
   locale: PublicWebLocale;
 }) {
-  const [data, landing] = await Promise.all([
-    getBlogPost(slug, postSlug),
+  const [found, landing] = await Promise.all([
+    lookupBlogPost(slug, postSlug),
     getLanding(slug).catch(() => null),
   ]);
+  // Dirección antigua de la entrada: 308 a la actual (con el dominio propio si lo hay).
+  if (found && 'movedTo' in found) {
+    permanentRedirect(blogPostHref(slug, found.movedTo, locale, found.customDomain));
+  }
+  const data = found;
   if (!data) notFound();
   const messages = await getPublicWebMessages(locale);
   // La misma cabecera y el mismo pie que la portada; los datos de la portada

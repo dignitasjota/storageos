@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-import { OpeningHoursSchema, type OpeningHours } from '../facilities/schemas';
+import { TeamHoursSchema, type TeamHours } from './team-hours';
+
+export * from './team-hours';
 
 /**
  * Adjuntos de los mensajes (tickets de soporte y chat inquilino ↔ equipo):
@@ -205,14 +207,14 @@ export function fillCannedResponse(body: string, variables: Record<string, strin
 export const UpdateMessageSettingsSchema = z.object({
   autoReplyEnabled: z.boolean(),
   autoReply: z.string().trim().max(1000).optional(),
-  hours: OpeningHoursSchema.optional(),
+  hours: TeamHoursSchema.optional(),
 });
 export type UpdateMessageSettingsInput = z.infer<typeof UpdateMessageSettingsSchema>;
 
 export interface MessageSettingsDto {
   autoReplyEnabled: boolean;
   autoReply: string;
-  hours: OpeningHours | null;
+  hours: TeamHours | null;
 }
 
 export const DEFAULT_AUTO_REPLY =

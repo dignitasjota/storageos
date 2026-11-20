@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { faqTranslationComplete } from '@storageos/shared';
 
 import { PrismaService } from '../database/prisma.service';
 
@@ -8,16 +9,33 @@ type FaqRow = {
   id: string;
   question: string;
   answer: string;
+  questionEn: string | null;
+  answerEn: string | null;
   position: number;
   isPublished: boolean;
   createdAt: Date;
 };
+
+/** '' o espacios = sin traducción. */
+function englishOrNull(v: string | null | undefined): string | null {
+  return v?.trim() ? v.trim() : null;
+}
+
+function incompleteTranslation(): BadRequestException {
+  return new BadRequestException({
+    code: 'faq_translation_incomplete',
+    message:
+      'Para la versión en inglés escribe la pregunta y la respuesta (o deja las dos vacías).',
+  });
+}
 
 function toDto(row: FaqRow): FaqEntryDto {
   return {
     id: row.id,
     question: row.question,
     answer: row.answer,
+    questionEn: row.questionEn,
+    answerEn: row.answerEn,
     position: row.position,
     isPublished: row.isPublished,
     createdAt: row.createdAt.toISOString(),
@@ -67,6 +85,8 @@ export class FaqService {
             tenantId,
             question: input.question,
             answer: input.answer,
+            questionEn: englishOrNull(input.questionEn),
+            answerEn: englishOrNull(input.answerEn),
             position: input.position ?? 0,
             isPublished: input.isPublished ?? true,
           },
@@ -77,7 +97,12 @@ export class FaqService {
   }
 
   async update(tenantId: string, id: string, input: UpdateFaqEntryInput): Promise<FaqEntryDto> {
-    await this.findOrThrow(tenantId, id);
+    const current = await this.findOrThrow(tenantId, id);
+    const questionEn =
+      input.questionEn !== undefined ? englishOrNull(input.questionEn) : current.questionEn;
+    const answerEn =
+      input.answerEn !== undefined ? englishOrNull(input.answerEn) : current.answerEn;
+    if (!faqTranslationComplete({ questionEn, answerEn })) throw incompleteTranslation();
     const updated = await this.prisma.withTenant(
       (tx) =>
         tx.faqEntry.update({
@@ -85,6 +110,8 @@ export class FaqService {
           data: {
             ...(input.question !== undefined ? { question: input.question } : {}),
             ...(input.answer !== undefined ? { answer: input.answer } : {}),
+            ...(input.questionEn !== undefined ? { questionEn } : {}),
+            ...(input.answerEn !== undefined ? { answerEn } : {}),
             ...(input.position !== undefined ? { position: input.position } : {}),
             ...(input.isPublished !== undefined ? { isPublished: input.isPublished } : {}),
           },
@@ -99,9 +126,16 @@ export class FaqService {
     await this.prisma.withTenant((tx) => tx.faqEntry.delete({ where: { id } }), tenantId);
   }
 
-  private async findOrThrow(tenantId: string, id: string): Promise<void> {
+  private async findOrThrow(
+    tenantId: string,
+    id: string,
+  ): Promise<{ questionEn: string | null; answerEn: string | null }> {
     const row = await this.prisma.withTenant(
-      (tx) => tx.faqEntry.findFirst({ where: { id, tenantId }, select: { id: true } }),
+      (tx) =>
+        tx.faqEntry.findFirst({
+          where: { id, tenantId },
+          select: { questionEn: true, answerEn: true },
+        }),
       tenantId,
     );
     if (!row) {
@@ -110,5 +144,6 @@ export class FaqService {
         message: 'Entrada no encontrada',
       });
     }
+    return row;
   }
 }

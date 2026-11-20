@@ -13,6 +13,7 @@ import {
   promoLandingIsLive,
   parsePromoLandingContent,
   promoCampaign,
+  customDomainHosts,
   isValidCustomDomain,
   isWebTemplate,
   parseWebContent,
@@ -116,6 +117,7 @@ export class LandingService {
       where: { tenantId_slug: { tenantId: tenant.id, slug: promoSlug.toLowerCase() } },
       include: { coupon: true },
     });
+    if (!promo) await this.throwIfPromoMoved(tenant.id, promoSlug.toLowerCase());
     // Por la dirección corta (`/<nombre>`) solo valen las landings que la tienen
     // activada; el resto de direcciones de un segmento son otras páginas.
     if (viaShortPath && !promo?.shortPath) {
@@ -609,12 +611,18 @@ export class LandingService {
   private async loadFaqs(tenantId: string): Promise<PublicFaqDto[]> {
     const rows = await this.admin.faqEntry.findMany({
       where: { tenantId, isPublished: true },
-      select: { question: true, answer: true },
+      select: { question: true, answer: true, questionEn: true, answerEn: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
       // Las mismas que ve el inquilino en su área de clientes (antes se cortaba a 20).
       take: FAQ_WEB_MAX,
     });
-    return rows.map((r) => ({ question: r.question, answer: r.answer }));
+    // Con su versión en inglés (la web en inglés la elige si está completa).
+    return rows.map((r) => ({
+      question: r.question,
+      answer: r.answer,
+      questionEn: r.questionEn,
+      answerEn: r.answerEn,
+    }));
   }
 
   /**
@@ -888,10 +896,24 @@ export class LandingService {
     if (!isValidCustomDomain(domain)) {
       throw new NotFoundException({ code: 'domain_not_found', message: 'No encontrado' });
     }
-    const tenant = await this.admin.tenant.findFirst({
-      where: { customDomain: domain, customDomainVerifiedAt: { not: null }, deletedAt: null },
-      select: { id: true, slug: true, webTemplate: true, externalSiteUrl: true },
+    // La web responde con y sin `www.`: el guardado es el principal y la otra
+    // forma redirige a él. Si (de antes) hay dos cuentas con cada forma, gana
+    // la que coincide exacta.
+    const candidates = await this.admin.tenant.findMany({
+      where: {
+        customDomain: { in: customDomainHosts(domain) },
+        customDomainVerifiedAt: { not: null },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        slug: true,
+        webTemplate: true,
+        externalSiteUrl: true,
+        customDomain: true,
+      },
     });
+    const tenant = candidates.find((c) => c.customDomain === domain) ?? candidates[0] ?? null;
     // Sin la función de dominio propio en su plan (bajó de plan, perdió el
     // extra) la web deja de servirse bajo ese dominio.
     if (!tenant || !(await tenantHasFeature(this.admin, tenant.id, 'custom_domain'))) {
@@ -905,7 +927,11 @@ export class LandingService {
       tenant.webTemplate === 'external' &&
       tenant.externalSiteUrl != null &&
       (await this.hasWebPremium(tenant.id));
-    return { tenantSlug: tenant.slug, hasExternalSite };
+    return {
+      tenantSlug: tenant.slug,
+      hasExternalSite,
+      canonicalHost: tenant.customDomain ?? domain,
+    };
   }
 
   /**
@@ -1217,7 +1243,19 @@ export class LandingService {
       this.loadFacilityLinks(tenant.id),
     ]);
     if (!row) {
-      throw new NotFoundException({ code: 'blog_post_not_found', message: 'No encontrado' });
+      // Dirección antigua de una entrada: la web redirige (308) a la actual.
+      const moved = await this.movedTarget(tenant.id, 'blog', postSlug);
+      const target = moved
+        ? await this.admin.blogPost.findFirst({
+            where: { tenantId: tenant.id, id: moved, isPublished: true },
+            select: { slug: true },
+          })
+        : null;
+      throw new NotFoundException({
+        code: target ? 'blog_post_moved' : 'blog_post_not_found',
+        message: 'No encontrado',
+        ...(target ? { details: { slug: target.slug, customDomain: tenant.customDomain } } : {}),
+      });
     }
     const related = await this.relatedBlogPosts(tenant.id, row.id, row.relatedPostIds);
     return {
@@ -1246,6 +1284,39 @@ export class LandingService {
       },
       related,
     };
+  }
+
+  /** Página a la que lleva una dirección antigua del blog o de una landing, o null. */
+  private async movedTarget(
+    tenantId: string,
+    kind: 'blog' | 'promo',
+    oldSlug: string,
+  ): Promise<string | null> {
+    const row = await this.admin.webSlugRedirect.findUnique({
+      where: { tenantId_kind_oldSlug: { tenantId, kind, oldSlug } },
+      select: { targetId: true },
+    });
+    return row?.targetId ?? null;
+  }
+
+  /**
+   * Dirección antigua de una landing de promoción: 404 `promo_moved` con la
+   * actual para que la web responda 308 (los enlaces y QR repartidos siguen
+   * valiendo). Si no lo es, no hace nada.
+   */
+  private async throwIfPromoMoved(tenantId: string, oldSlug: string): Promise<void> {
+    const moved = await this.movedTarget(tenantId, 'promo', oldSlug);
+    if (!moved) return;
+    const target = await this.admin.promoLanding.findFirst({
+      where: { tenantId, id: moved },
+      select: { slug: true, shortPath: true },
+    });
+    if (!target) return;
+    throw new NotFoundException({
+      code: 'promo_moved',
+      message: 'No encontrado',
+      details: { slug: target.slug, shortPath: target.shortPath },
+    });
   }
 
   private blogSummary(r: Prisma.BlogPostGetPayload<{ select: typeof BLOG_SUMMARY_SELECT }>) {

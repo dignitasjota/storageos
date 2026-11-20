@@ -23,6 +23,8 @@ export interface BlogPostDto {
   seoDescription: string | null;
   isPublished: boolean;
   publishedAt: string | null;
+  /** Publicación programada (fecha y hora futuras), o null. */
+  publishAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +43,11 @@ export const CreateBlogPostSchema = z.object({
   /** Hasta 3 entradas relacionadas; sin ninguna, la web enseña las últimas. */
   relatedPostIds: z.array(z.string().uuid()).max(3, 'Máximo 3 entradas').optional(),
   isPublished: z.boolean().optional(),
+  /**
+   * Programar la publicación (instante futuro, con zona). La entrada queda en
+   * borrador hasta entonces; `null` cancela la programación.
+   */
+  publishAt: z.string().datetime({ offset: true }).nullable().optional(),
 });
 export type CreateBlogPostInput = z.infer<typeof CreateBlogPostSchema>;
 
@@ -90,3 +97,4 @@ export const SetBlogPostCoverSchema = z.object({
 export type SetBlogPostCoverInput = z.infer<typeof SetBlogPostCoverSchema>;
 
 export * from './content';
+export * from './draft';

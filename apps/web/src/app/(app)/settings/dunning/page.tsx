@@ -14,6 +14,7 @@ import {
   KeyRound,
   Loader2,
   Mail,
+  MessageCircle,
   Percent,
   type LucideIcon,
 } from 'lucide-react';
@@ -39,6 +40,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasPermission } from '@/lib/auth/hooks';
 import { useDunningSettings, useUpdateDunningSettings } from '@/lib/collections/hooks';
 import { localDateString } from '@/lib/dates';
+import { useWhatsappTemplates } from '@/lib/whatsapp/hooks';
 
 /** Lo que se edita (los números como texto, para poder escribirlos). */
 interface Draft {
@@ -51,6 +53,9 @@ interface Draft {
   accessCutMode: 'all' | 'extras' | 'none';
   accessCutDays: string;
   legalNoticeDays: string;
+  whatsappReminders: boolean;
+  whatsappTemplateName: string;
+  whatsappTemplateLanguage: string;
 }
 
 const toDraft = (s: DunningSettingsDto): Draft => ({
@@ -63,6 +68,9 @@ const toDraft = (s: DunningSettingsDto): Draft => ({
   accessCutMode: s.accessCutMode,
   accessCutDays: String(s.accessCutDays),
   legalNoticeDays: String(s.legalNoticeDays),
+  whatsappReminders: s.whatsappReminders,
+  whatsappTemplateName: s.whatsappTemplateName ?? '',
+  whatsappTemplateLanguage: s.whatsappTemplateLanguage,
 });
 
 /** Un campo vacío no es 0: queda sin número y la validación lo señala. */
@@ -83,6 +91,9 @@ const toInput = (d: Draft): DunningSettingsInput => ({
   accessCutMode: d.accessCutMode,
   accessCutDays: d.accessCutMode !== 'none' ? num(d.accessCutDays) : numOr0(d.accessCutDays) || 1,
   legalNoticeDays: num(d.legalNoticeDays),
+  whatsappReminders: d.whatsappReminders,
+  whatsappTemplateName: d.whatsappTemplateName.trim() || null,
+  whatsappTemplateLanguage: d.whatsappTemplateLanguage.trim() || 'es',
 });
 
 /** A qué campo se refiere cada error (los mensajes del esquema no lo dicen). */
@@ -93,6 +104,8 @@ const FIELD_LABELS: Partial<Record<keyof DunningSettingsInput, string>> = {
   lateFeeGraceDays: 'Recargo por mora',
   accessCutDays: 'Corte del acceso',
   legalNoticeDays: 'Aviso legal',
+  whatsappTemplateName: 'Plantilla de WhatsApp',
+  whatsappTemplateLanguage: 'Plantilla de WhatsApp',
 };
 
 const STEP_ICONS: Record<DunningPreviewKey, LucideIcon> = {
@@ -227,6 +240,13 @@ export default function DunningSettingsPage() {
               </p>
             </CardContent>
           </Card>
+
+          <WhatsappRemindersCard
+            draft={draft}
+            settings={settings.data}
+            disabled={disabled}
+            onChange={(patch) => setDraft({ ...draft, ...patch })}
+          />
 
           <Card>
             <CardHeader>
@@ -411,6 +431,167 @@ export default function DunningSettingsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+/**
+ * Los dos recordatorios también por WhatsApp, con el número del negocio:
+ * dentro de las 24 h desde el último mensaje del inquilino como texto; fuera,
+ * con una plantilla aprobada en Meta (si no hay, ese día no sale).
+ */
+function WhatsappRemindersCard({
+  draft,
+  settings,
+  disabled,
+  onChange,
+}: {
+  draft: Draft;
+  settings: DunningSettingsDto;
+  disabled: boolean;
+  onChange: (patch: Partial<Draft>) => void;
+}) {
+  const canReadMessages = useHasPermission('communications:read');
+  const available = settings.whatsappAvailable;
+  const templates = useWhatsappTemplates(available && draft.whatsappReminders && canReadMessages);
+  const approved = templates.data?.wabaConfigured ? templates.data.templates : null;
+  const chosen = approved?.find(
+    (t) => t.name === draft.whatsappTemplateName && t.language === draft.whatsappTemplateLanguage,
+  );
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageCircle className="size-4 text-muted-foreground" />
+          Recordatorios por WhatsApp
+        </CardTitle>
+        <CardDescription>
+          Los dos recordatorios salen también por WhatsApp desde tu número, con el importe y el
+          enlace para pagar. No se mandan a quien se haya dado de baja de WhatsApp y quedan en
+          Comunicaciones.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={draft.whatsappReminders}
+            onCheckedChange={(v) => onChange({ whatsappReminders: v === true })}
+            disabled={disabled || (!available && !draft.whatsappReminders)}
+          />
+          Mandar también los recordatorios por WhatsApp
+        </label>
+        {!available && (
+          <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950 dark:text-amber-200">
+            {draft.whatsappReminders
+              ? 'Está activado, pero tu número de WhatsApp no está conectado o está desactivado: ahora mismo no sale ninguno. '
+              : 'Necesitas el extra WhatsApp Business con tu número conectado y activo. '}
+            <Link href="/settings/whatsapp" className="font-medium underline underline-offset-2">
+              Configurar WhatsApp
+            </Link>
+          </p>
+        )}
+        {draft.whatsappReminders && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Si el inquilino te ha escrito en las últimas 24 h sale como mensaje normal (el texto
+              se cambia en{' '}
+              {settings.templates.whatsapp ? (
+                <Link
+                  href="/message-templates"
+                  className="font-medium underline-offset-2 hover:underline"
+                >
+                  Plantillas de mensajes, «Recordatorio de pago por WhatsApp»
+                </Link>
+              ) : (
+                'Plantillas de mensajes al elegir una plantilla de Meta'
+              )}
+              ). Si no, WhatsApp solo deja mandar una plantilla aprobada en Meta, con{' '}
+              <code>{'{{1}}'}</code> el nombre, <code>{'{{2}}'}</code> lo que debe y{' '}
+              <code>{'{{3}}'}</code> el enlace para pagar. Sin plantilla, ese día solo sale el
+              correo.
+            </p>
+            {approved && approved.length > 0 ? (
+              <div className="space-y-1">
+                <Label className="text-xs">Plantilla de Meta</Label>
+                <Select
+                  value={
+                    draft.whatsappTemplateName
+                      ? `${draft.whatsappTemplateName}|${draft.whatsappTemplateLanguage}`
+                      : 'none'
+                  }
+                  onValueChange={(v) => {
+                    if (v === 'none') onChange({ whatsappTemplateName: '' });
+                    else {
+                      const [name, language] = v.split('|');
+                      onChange({
+                        whatsappTemplateName: name ?? '',
+                        whatsappTemplateLanguage: language ?? 'es',
+                      });
+                    }
+                  }}
+                  disabled={disabled}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin plantilla (solo dentro de las 24 h)</SelectItem>
+                    {draft.whatsappTemplateName && !chosen && (
+                      <SelectItem
+                        value={`${draft.whatsappTemplateName}|${draft.whatsappTemplateLanguage}`}
+                      >
+                        {draft.whatsappTemplateName} ({draft.whatsappTemplateLanguage}) — no aparece
+                        aprobada
+                      </SelectItem>
+                    )}
+                    {approved.map((t) => (
+                      <SelectItem key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`}>
+                        {t.name} ({t.language})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {chosen && (
+                  <p className="whitespace-pre-line text-xs text-muted-foreground">
+                    {chosen.body}
+                    {chosen.paramCount !== 3 &&
+                      `\n\nOjo: esta plantilla tiene ${chosen.paramCount} ${
+                        chosen.paramCount === 1 ? 'variable' : 'variables'
+                      } y el recordatorio manda 3 (nombre, importe y enlace).`}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-[1fr_8rem]">
+                <div className="space-y-1">
+                  <Label htmlFor="wa-template" className="text-xs">
+                    Nombre de la plantilla en Meta
+                  </Label>
+                  <Input
+                    id="wa-template"
+                    value={draft.whatsappTemplateName}
+                    placeholder="recordatorio_pago"
+                    onChange={(e) => onChange({ whatsappTemplateName: e.target.value.trim() })}
+                    disabled={disabled}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="wa-template-lang" className="text-xs">
+                    Idioma
+                  </Label>
+                  <Input
+                    id="wa-template-lang"
+                    value={draft.whatsappTemplateLanguage}
+                    placeholder="es"
+                    onChange={(e) => onChange({ whatsappTemplateLanguage: e.target.value.trim() })}
+                    disabled={disabled}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

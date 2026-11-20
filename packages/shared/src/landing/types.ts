@@ -153,6 +153,9 @@ export interface PublicTestimonialDto {
 export interface PublicFaqDto {
   question: string;
   answer: string;
+  /** Versión en inglés (la web en inglés la usa si está completa; si no, la española). */
+  questionEn?: string | null;
+  answerEn?: string | null;
 }
 
 /** Landing de un único local (`/s/<tenant>/<facilitySlug>`). */
@@ -304,6 +307,11 @@ export interface ResolveDomainDto {
    * dominio propio hacia `/tenant-site/<slug>` en vez de nuestras plantillas.
    */
   hasExternalSite: boolean;
+  /**
+   * El dominio guardado (el principal). Si se pidió su forma con o sin `www.`,
+   * el middleware redirige a este con un 308.
+   */
+  canonicalHost: string;
 }
 
 /**

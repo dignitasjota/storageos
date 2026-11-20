@@ -16,9 +16,14 @@ import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
 /**
  * Resultado de buscar una landing: en vigor (`page`), que existe pero ya no se
- * sirve (`gone`: apagada, caducada, sin Web Premium) o que no existe.
+ * sirve (`gone`: apagada, caducada, sin Web Premium), dirección antigua de una
+ * landing (`movedTo`, con si tiene dirección corta) o que no existe.
  */
-export type PromoLookup = { page: PublicPromoPageDto } | { gone: true } | null;
+export type PromoLookup =
+  | { page: PublicPromoPageDto }
+  | { gone: true }
+  | { movedTo: string; shortPath: boolean }
+  | null;
 
 /**
  * Landing en vigor (activarla o apagarla se nota al momento). Con un enlace de
@@ -43,13 +48,43 @@ export async function lookupPromo(
     );
     if (res.ok) return { page: (await res.json()) as PublicPromoPageDto };
     if (res.status === 404) {
-      const body = (await res.json().catch(() => null)) as { code?: string } | null;
+      const body = (await res.json().catch(() => null)) as {
+        code?: string;
+        details?: { slug?: string; shortPath?: boolean };
+      } | null;
+      if (body?.code === 'promo_moved' && body.details?.slug) {
+        return { movedTo: body.details.slug, shortPath: body.details.shortPath === true };
+      }
       return body?.code === 'promo_not_available' ? { gone: true } : null;
     }
     return null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Dirección actual de una landing que cambió de nombre (para el 308), con lo
+ * que traía la petición (orígenes de campaña, vista previa).
+ */
+export function movedPromoHref(
+  slug: string,
+  moved: { movedTo: string; shortPath: boolean },
+  onCustomDomain: boolean,
+  search: Record<string, string | string[] | undefined> = {},
+): string {
+  const segment = encodeURIComponent(moved.movedTo);
+  const path = onCustomDomain
+    ? moved.shortPath
+      ? `/${segment}`
+      : `/promo/${segment}`
+    : `/s/${encodeURIComponent(slug)}/promo/${segment}`;
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(search)) {
+    for (const one of Array.isArray(v) ? v : v !== undefined ? [v] : []) qs.append(k, one);
+  }
+  const q = qs.toString();
+  return q ? `${path}?${q}` : path;
 }
 
 /** Dirección canónica: la corta si la tiene y hay dominio propio. */

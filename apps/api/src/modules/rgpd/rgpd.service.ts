@@ -6,7 +6,16 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { phoneKey } from '@storageos/shared';
+import {
+  type AnonymizePreviewDto,
+  type AnonymizePreviewItemDto,
+  type CreateDataSubjectRequestInput,
+  DATA_SUBJECT_REQUEST_MAX_BACKDATE_DAYS,
+  type DataSubjectRequestDto,
+  type UpdateDataSubjectRequestInput,
+} from '@storageos/shared';
 
+import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { attachmentKeysOf } from '../../common/message-attachments';
 import { subtractAmounts } from '../../common/money';
 import { readOpsFiles } from '../../common/ops-files';
@@ -18,17 +27,13 @@ import {
 import { AuditService } from '../auth/audit.service';
 import { DOMAIN_EVENTS, type UnitAvailablePayload } from '../automations/domain-events';
 import { addMonthsUtc } from '../billing-saas/platform-due';
+import { CommunicationsService } from '../communications/communications.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
 import type { RequestMeta } from '../auth/auth.service';
 import type { DataSubjectRequest, Prisma } from '@storageos/database';
-import type {
-  CreateDataSubjectRequestInput,
-  DataSubjectRequestDto,
-  UpdateDataSubjectRequestInput,
-} from '@storageos/shared';
 
 /**
  * Servicio RGPD. Gestiona los derechos del titular de los datos:
@@ -82,6 +87,7 @@ export class RgpdService {
     private readonly files: FilesService,
     private readonly events: EventEmitter2,
     private readonly contracts: ContractsService,
+    private readonly communications: CommunicationsService,
   ) {}
 
   async list(tenantId: string): Promise<DataSubjectRequestDto[]> {
@@ -114,9 +120,11 @@ export class RgpdService {
     meta: RequestMeta;
   }): Promise<DataSubjectRequestDto> {
     const submittedAt = new Date();
-    // Un mes natural (art. 12.3 RGPD) sin desbordar: 31 de enero → 28/29 de febrero.
-    const dueAt = addMonthsUtc(submittedAt, 1);
     const created = await this.prisma.withTenant(async (tx) => {
+      const tz =
+        (await tx.tenant.findUnique({ where: { id: args.tenantId }, select: { timezone: true } }))
+          ?.timezone ?? 'Europe/Madrid';
+      const { receivedAt, dueAt } = requestDates(submittedAt, args.input.receivedAt, tz);
       if (args.input.customerId) {
         const customer = await tx.customer.findFirst({
           where: { id: args.input.customerId },
@@ -136,6 +144,7 @@ export class RgpdService {
           email: args.input.email,
           requestType: args.input.requestType,
           submittedAt,
+          receivedAt,
           dueAt,
           notes: args.input.notes?.trim() || null,
           handledByUserId: args.userId,
@@ -835,27 +844,228 @@ export class RgpdService {
         });
       }
       const closing = args.input.status === 'fulfilled' || args.input.status === 'denied';
-      return tx.dataSubjectRequest.update({
+      const denying = args.input.status === 'denied';
+      const updated = await tx.dataSubjectRequest.update({
         where: { id: args.id },
         data: {
           status: args.input.status,
           handledByUserId: args.userId,
           fulfilledAt: closing ? (current.fulfilledAt ?? new Date()) : null,
+          // El motivo solo tiene sentido en una denegada.
+          rejectionReason: denying ? (args.input.rejectionReason?.trim() ?? null) : null,
           ...(args.input.notes !== undefined ? { notes: args.input.notes } : {}),
         },
       });
+      const tenant =
+        denying && current.status !== 'denied'
+          ? await tx.tenant.findUnique({
+              where: { id: args.tenantId },
+              select: { name: true, timezone: true },
+            })
+          : null;
+      return { updated, tenant };
     }, args.tenantId);
+    const notified = row.tenant
+      ? await this.notifyDenial(args.tenantId, row.updated, row.tenant)
+      : false;
     await this.audit.write({
       tenantId: args.tenantId,
       userId: args.userId,
       action: 'rgpd.request_updated',
       entityType: 'DataSubjectRequest',
       entityId: args.id,
-      changes: { status: args.input.status },
+      changes: {
+        status: args.input.status,
+        ...(args.input.status === 'denied'
+          ? { rejectionReason: row.updated.rejectionReason, notified }
+          : {}),
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
-    return this.toDto(row);
+    return this.toDto(row.updated);
+  }
+
+  /**
+   * Comunica al interesado que se deniega su solicitud, por qué y que puede
+   * reclamar ante la AEPD. Sale con la marca del negocio (outbox). Devuelve si
+   * se ha encolado el correo.
+   */
+  private async notifyDenial(
+    tenantId: string,
+    request: DataSubjectRequest,
+    tenant: { name: string; timezone: string },
+  ): Promise<boolean> {
+    if (!request.email.includes('@')) return false;
+    const received = request.receivedAt ?? request.submittedAt;
+    const day = new Intl.DateTimeFormat('es-ES', {
+      timeZone: tenant.timezone,
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(received);
+    const bodyText = [
+      'Hola:',
+      `El ${day} nos pediste ${REQUEST_TYPE_TEXT[request.requestType]}. Hemos revisado tu solicitud y no podemos atenderla.`,
+      `Motivo: ${request.rejectionReason ?? ''}`,
+      'Si no estás de acuerdo, puedes presentar una reclamación ante la Agencia Española de Protección de Datos (www.aepd.es).',
+      `Un saludo,\n${tenant.name}`,
+    ].join('\n\n');
+    try {
+      await this.communications.enqueue({
+        tenantId,
+        channel: 'email',
+        recipient: request.email,
+        subject: `Tu solicitud sobre tus datos personales — ${tenant.name}`,
+        bodyText,
+        ...(request.customerId ? { customerId: request.customerId } : {}),
+        source: 'rgpd.request_denied',
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Qué pasará al anonimizar a un inquilino: lo que se borra, lo que se
+   * conserva por ley y lo que lo impide o pide confirmación.
+   */
+  async anonymizePreview(tenantId: string, customerId: string): Promise<AnonymizePreviewDto> {
+    return this.prisma.withTenant(async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId },
+        select: {
+          email: true,
+          phone: true,
+          firstName: true,
+          lastName: true,
+          companyName: true,
+        },
+      });
+      if (!customer) {
+        throw new NotFoundException({
+          code: 'customer_not_found',
+          message: 'El inquilino no existe.',
+        });
+      }
+      const [
+        documents,
+        documentRequests,
+        contacts,
+        authorized,
+        paymentMethods,
+        credentials,
+        messages,
+        interactions,
+        communications,
+        whatsapp,
+        webChats,
+        photos,
+        incidentsWithPhotos,
+        waitlist,
+        invoices,
+        contracts,
+        mandates,
+        liveContracts,
+        reservations,
+        drafts,
+        debt,
+      ] = await Promise.all([
+        tx.customerDocument.count({ where: { customerId } }),
+        tx.customerDocumentRequest.count({ where: { customerId } }),
+        tx.customerContact.count({ where: { customerId } }),
+        tx.customerAuthorizedPerson.count({ where: { customerId } }),
+        tx.paymentMethod.count({ where: { customerId } }),
+        tx.accessCredential.count({ where: { customerId, revokedAt: null } }),
+        tx.customerMessage.count({ where: { customerId } }),
+        tx.customerInteraction.count({ where: { customerId } }),
+        tx.communication.count({ where: { customerId } }),
+        tx.whatsappConversation.count({
+          where: customerWhatsappWhere(customerId, customer.phone),
+        }),
+        tx.webChatConversation.count({ where: webChatConversationsOf(customerId, customer.email) }),
+        tx.contractInspectionPhoto.count({ where: { contract: { customerId } } }),
+        tx.incident.count({ where: { customerId, NOT: { photos: { equals: [] } } } }),
+        tx.waitlistEntry.count({
+          where: { customerId, status: { in: ['waiting', 'notified'] } },
+        }),
+        tx.invoice.count({ where: { customerId, deletedAt: null } }),
+        tx.contract.count({ where: { customerId, deletedAt: null } }),
+        tx.sepaMandate.count({ where: { customerId } }),
+        tx.contract.count({
+          where: { customerId, status: { in: ['active', 'ending'] }, deletedAt: null },
+        }),
+        tx.reservation.count({
+          where: { customerId, status: { in: ['pending', 'confirmed'] } },
+        }),
+        tx.contract.count({ where: { customerId, status: 'draft', deletedAt: null } }),
+        tx.invoice.aggregate({
+          where: { customerId, status: { in: ['issued', 'overdue'] }, deletedAt: null },
+          _sum: { total: true, amountPaid: true },
+        }),
+      ]);
+      const item = (label: string, count: number, note?: string): AnonymizePreviewItemDto[] =>
+        count > 0 ? [{ label, count, ...(note ? { note } : {}) }] : [];
+      const deleted: AnonymizePreviewItemDto[] = [
+        {
+          label: 'Datos personales de la ficha',
+          count: null,
+          note: 'Nombre, email, teléfono, dirección, documento, contacto de emergencia, notas y etiquetas. También el acceso a su área de clientes.',
+        },
+        ...item('Documentos subidos', documents, 'Se borran también los ficheros.'),
+        ...item('Documentos pedidos', documentRequests),
+        ...item('Contactos de la empresa', contacts),
+        ...item('Personas autorizadas', authorized),
+        ...item('Tarjetas y cuentas guardadas', paymentMethods),
+        ...item('Accesos (PIN, tarjetas, cara)', credentials, 'Se revocan: dejan de abrir.'),
+        ...item('Mensajes del chat', messages, 'Se vacía el texto y se borran los adjuntos.'),
+        ...item('Notas del equipo', interactions),
+        ...item('Correos y mensajes enviados', communications, 'Se vacía el texto.'),
+        ...item('Conversaciones de WhatsApp', whatsapp),
+        ...item('Conversaciones del chat de la web', webChats),
+        ...item('Fotos de entrada y salida', photos),
+        ...item('Incidencias con fotos', incidentsWithPhotos, 'Se borran las fotos.'),
+        ...item('Puestos en la lista de espera', waitlist, 'Se cancelan.'),
+      ];
+      const kept: AnonymizePreviewItemDto[] = [
+        ...item(
+          'Facturas',
+          invoices,
+          'Obligación fiscal: se conservan, con el inquilino como «anonimizado».',
+        ),
+        ...item(
+          'Contratos y su firma',
+          contracts,
+          'Prueba de lo firmado y cuándo, sin la IP ni el navegador.',
+        ),
+        ...item(
+          'Mandatos SEPA',
+          mandates,
+          'Se dan de baja, pero se conservan como prueba ante una devolución del banco.',
+        ),
+      ];
+      const pending = subtractAmounts(
+        Number(debt._sum.total ?? 0),
+        Number(debt._sum.amountPaid ?? 0),
+      );
+      const name =
+        customer.companyName ||
+        [customer.firstName, customer.lastName].filter(Boolean).join(' ') ||
+        'Inquilino';
+      return {
+        customerName: name,
+        deleted,
+        kept,
+        blockers: {
+          liveContracts,
+          reservations,
+          debt: Math.max(0, pending),
+          draftContracts: drafts,
+        },
+        canAnonymize: liveContracts === 0 && reservations === 0,
+      };
+    }, tenantId);
   }
 
   private toDto(row: DataSubjectRequest, customerName?: string | null): DataSubjectRequestDto {
@@ -871,8 +1081,59 @@ export class RgpdService {
       fulfilledAt: row.fulfilledAt ? row.fulfilledAt.toISOString() : null,
       exportFileUrl: row.exportFileUrl,
       notes: row.notes,
+      receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
+      rejectionReason: row.rejectionReason,
     };
   }
+}
+
+/** Lo que pidió, en palabras, para el correo de la denegación. */
+const REQUEST_TYPE_TEXT: Record<DataSubjectRequest['requestType'], string> = {
+  access: 'acceso a tus datos personales',
+  rectification: 'que rectificáramos tus datos personales',
+  erasure: 'que borráramos tus datos personales',
+  portability: 'una copia de tus datos personales para llevártelos',
+  restriction: 'que limitáramos el uso de tus datos personales',
+};
+
+/**
+ * Día en que llegó la solicitud y plazo para responder (un mes natural, art.
+ * 12.3 RGPD). Con fecha de recepción (AAAA-MM-DD en la hora del negocio):
+ * no futura, como mucho de hace 30 días, y el plazo acaba al terminar el mismo
+ * día del mes siguiente. Sin ella, cuenta desde que se da de alta.
+ */
+export function requestDates(
+  submittedAt: Date,
+  received: string | undefined,
+  timeZone: string,
+): { receivedAt: Date | null; dueAt: Date } {
+  if (!received) {
+    // 31 de enero → 28/29 de febrero.
+    return { receivedAt: null, dueAt: addMonthsUtc(submittedAt, 1) };
+  }
+  const day = new Date(`${received}T00:00:00Z`);
+  if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== received) {
+    throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida.' });
+  }
+  const today = todayInTimezone(timeZone, submittedAt);
+  if (day.getTime() > today.getTime()) {
+    throw new BadRequestException({
+      code: 'received_in_future',
+      message: 'La fecha de recepción no puede ser posterior a hoy.',
+    });
+  }
+  const oldest = today.getTime() - DATA_SUBJECT_REQUEST_MAX_BACKDATE_DAYS * 86_400_000;
+  if (day.getTime() < oldest) {
+    throw new BadRequestException({
+      code: 'received_too_old',
+      message: `La fecha de recepción puede ser, como mucho, de hace ${DATA_SUBJECT_REQUEST_MAX_BACKDATE_DAYS} días.`,
+    });
+  }
+  const dueDay = addMonthsUtc(day, 1).toISOString().slice(0, 10);
+  return {
+    receivedAt: zonedDayStart(received, timeZone),
+    dueAt: zonedNextDayStart(dueDay, timeZone),
+  };
 }
 
 /**

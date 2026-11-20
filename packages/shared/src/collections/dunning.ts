@@ -36,6 +36,28 @@ export const DunningSettingsSchema = z
     accessCutDays: days(1, 90),
     /** Días hasta el aviso legal (y el expediente, si se usan). */
     legalNoticeDays: days(8, 365),
+    /**
+     * Los dos recordatorios salen también por WhatsApp (con WhatsApp Business
+     * conectado). Sin enviar, no se toca.
+     */
+    whatsappReminders: z.boolean().optional(),
+    /**
+     * Plantilla aprobada en Meta para cuando han pasado más de 24 h desde el
+     * último mensaje del inquilino ({{1}} nombre, {{2}} importe pendiente,
+     * {{3}} enlace para pagar). Vacía = solo texto dentro de las 24 h.
+     */
+    whatsappTemplateName: z
+      .string()
+      .trim()
+      .max(512)
+      .regex(/^[a-z0-9_]*$/, 'El nombre de la plantilla de Meta va en minúsculas, cifras y «_»')
+      .nullable()
+      .optional(),
+    whatsappTemplateLanguage: z
+      .string()
+      .trim()
+      .regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, 'Idioma de la plantilla no válido (p. ej. «es» o «en_US»)')
+      .optional(),
   })
   .refine((s) => s.secondReminderDays > s.firstReminderDays, {
     message: 'El segundo recordatorio va después del primero',
@@ -64,12 +86,44 @@ export const DunningSettingsSchema = z
   });
 export type DunningSettingsInput = z.infer<typeof DunningSettingsSchema>;
 
-export interface DunningSettingsDto extends DunningSettingsInput {
+export interface DunningSettingsDto extends Omit<
+  DunningSettingsInput,
+  'whatsappReminders' | 'whatsappTemplateName' | 'whatsappTemplateLanguage'
+> {
+  whatsappReminders: boolean;
+  /** El negocio tiene WhatsApp Business conectado y activo. */
+  whatsappAvailable: boolean;
+  whatsappTemplateName: string | null;
+  whatsappTemplateLanguage: string;
   /** El negocio usa expedientes de impago (se abren con el aviso legal). */
   collectionsEnabled: boolean;
-  /** Plantillas de los dos recordatorios (para editarlas). */
-  templates: { firstReminder: string | null; secondReminder: string | null };
+  /** Plantillas de los dos recordatorios (para editarlas) y la de WhatsApp. */
+  templates: {
+    firstReminder: string | null;
+    secondReminder: string | null;
+    whatsapp: string | null;
+  };
 }
+
+/**
+ * Plantilla del recordatorio por WhatsApp (canal WhatsApp, editable en
+ * Plantillas de mensajes): su texto sale dentro de las 24 h desde el último
+ * mensaje del inquilino y su plantilla de Meta, fuera.
+ */
+export const DUNNING_WHATSAPP_TEMPLATE_CODE = 'invoice_overdue_whatsapp';
+
+/** Variables de la plantilla de Meta, en orden ({{1}}, {{2}}, {{3}}). */
+export const DUNNING_WHATSAPP_TEMPLATE_VARIABLES = [
+  'customer.firstName',
+  'invoice.amountPending',
+  'portal.url',
+] as const;
+
+export const DUNNING_WHATSAPP_DEFAULT_TEXT =
+  'Hola {{customer.firstName}}, te recordamos que la factura {{invoice.number}} de {{tenant.name}} está pendiente de pago ({{invoice.amountPending}}). Puedes pagarla aquí: {{portal.url}}\n\nSi ya la has pagado, ignora este mensaje.';
+
+export const DUNNING_WHATSAPP_DEFAULT_TEXT_EN =
+  'Hi {{customer.firstName}}, this is a reminder that invoice {{invoice.number}} from {{tenant.name}} is still unpaid ({{invoice.amountPending}}). You can pay it here: {{portal.url}}\n\nIf you have already paid it, please ignore this message.';
 
 /** Códigos de las plantillas de los dos recordatorios de impago. */
 export const DUNNING_TEMPLATE_CODES = {

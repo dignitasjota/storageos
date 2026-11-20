@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   BlogCoverUploadResponseDto,
   CreatePromoLandingInput,
+  DraftPromoLandingInput,
+  PromoLandingDraftDto,
   PromoLandingDto,
   PromoLandingPreviewDto,
   PromoLandingStatsDto,
@@ -101,4 +103,12 @@ export function usePromoLandingStats(id: string | null, days: number) {
 /** Enlace de vista previa (también de un borrador), válido 30 minutos. */
 export function previewPromoLanding(id: string): Promise<PromoLandingPreviewDto> {
   return apiFetch<PromoLandingPreviewDto>(`/promo-landings/${id}/preview`, { method: 'POST' });
+}
+
+/** Borrador con IA de los textos de la landing (no guarda nada; gasta una consulta). */
+export function useDraftPromoLanding() {
+  return useMutation({
+    mutationFn: (input: DraftPromoLandingInput) =>
+      apiFetch<PromoLandingDraftDto>('/promo-landings/draft', { method: 'POST', json: input }),
+  });
 }

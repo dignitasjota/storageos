@@ -18,8 +18,12 @@ type Row = Prisma.AuditLogGetPayload<{ include: typeof include }>;
  */
 const HIDDEN_PREFIX = 'admin.';
 const HIDDEN_ACTIONS = ['support_ticket.internal_note_added', 'support_ticket.assigned'];
-/** Ruido: cada renovación de sesión (salvo que se filtre por «auth»). */
-const NOISE_ACTIONS = ['auth.refresh'];
+/**
+ * Ruido: inicios, cierres y renovaciones de sesión. Se ocultan salvo que se
+ * pidan (`includeSessions`) o se filtre por «auth». Los intentos fallidos se
+ * ven siempre.
+ */
+const SESSION_ACTIONS = ['auth.refresh', 'auth.login.success', 'auth.logout'];
 /** Claves de `changes` que delatan al super admin. */
 const SUPER_ADMIN_KEYS = ['superAdminId', 'actorSuperAdminId', 'newAssignedAdminId'];
 
@@ -66,7 +70,7 @@ export class AuditLogService {
           : 'Europe/Madrid';
       const hidden = [
         ...HIDDEN_ACTIONS,
-        ...(filters.action?.startsWith('auth') ? [] : NOISE_ACTIONS),
+        ...(filters.includeSessions || filters.action?.startsWith('auth') ? [] : SESSION_ACTIONS),
       ];
       const where: Prisma.AuditLogWhereInput = {
         ...(filters.userId ? { userId: filters.userId } : {}),

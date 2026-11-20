@@ -101,12 +101,22 @@ async function bootstrap() {
       .setDescription('SaaS multi-tenant para self-storage')
       .setVersion('1.0.0')
       .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'jwt')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'sk_live_…',
+          description: 'Clave de API del negocio (Configuración → Integraciones).',
+        },
+        'api_key',
+      )
       .addCookieAuth('refresh_token', { type: 'apiKey', in: 'cookie' }, 'refresh')
       .addCookieAuth('super_admin_refresh', { type: 'apiKey', in: 'cookie' }, 'super_admin_refresh')
       .addTag('Auth', 'Autenticación tenant')
       .addTag('Users', 'Gestión de usuarios e invitaciones')
       .addTag('Admin', 'Super admin panel')
       .addTag('Billing', 'Facturación Verifactu')
+      .addTag('Integraciones', 'API pública de lectura con clave de API (120 peticiones/min)')
       .build();
 
     // nestjs-zod 5: `cleanupOpenApiDoc` reemplaza al antiguo `patchNestJsSwagger`

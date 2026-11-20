@@ -12,6 +12,7 @@ import { RedsysPaySection } from './redsys-pay-section';
 import { SepaMandateSection } from './sepa-mandate-section';
 
 import { SalesRepCard } from '@/components/billing/sales-rep-card';
+import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -66,6 +67,7 @@ export default function SaasBillingPage() {
   const portal = useCreatePortalSession();
   const changePlan = useChangePlan();
   const selfAddons = useSelfAddons();
+  const confirm = useConfirm();
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [cycle, setCycleState] = useState<'monthly' | 'yearly'>('monthly');
   // La periodicidad empieza en la que paga hoy, salvo que la elija él o una propuesta.
@@ -202,7 +204,70 @@ export default function SaasBillingPage() {
     }
   }
 
+  /** Pasa el plan actual de mensual a anual (o al revés), con Stripe. */
+  async function onChangeCycle(to: 'monthly' | 'yearly') {
+    const p = catalogPlan;
+    if (!p) return;
+    const yearlyTotal = p.priceYearly;
+    const monthlyTotal = p.priceMonthly * 12;
+    const savings = monthlyTotal - yearlyTotal;
+    const ok = await confirm({
+      title: to === 'yearly' ? 'Pasar a pago anual' : 'Pasar a pago mensual',
+      description:
+        to === 'yearly' ? (
+          <span className="block space-y-2">
+            <span className="block">
+              Pagarás {money(yearlyTotal)} al año{vatSuffix} en lugar de {money(p.priceMonthly)} al
+              mes ({money(monthlyTotal)} al año).
+              {savings > 0 ? ` Ahorras ${money(savings)} al año.` : ''}
+            </span>
+            <span className="block">
+              Stripe te cobra ahora el año completo y descuenta la parte del mes que ya habías
+              pagado. Tu plan y tus extras no cambian.
+            </span>
+          </span>
+        ) : (
+          <span className="block space-y-2">
+            <span className="block">
+              Pagarás {money(p.priceMonthly)} al mes{vatSuffix} ({money(monthlyTotal)} al año) en
+              lugar de {money(yearlyTotal)} al año
+              {savings > 0 ? `: dejas de ahorrar ${money(savings)} al año` : ''}.
+            </span>
+            <span className="block">
+              Lo que queda del año que ya pagaste se descuenta de tus próximas facturas. Tu plan y
+              tus extras no cambian.
+            </span>
+          </span>
+        ),
+      confirmLabel: to === 'yearly' ? 'Pasar a anual' : 'Pasar a mensual',
+    });
+    if (!ok) return;
+    setPendingPlanId(sub.plan.id);
+    try {
+      await changePlan.mutateAsync({ planId: sub.plan.id, billingCycle: to });
+      toast.success(
+        to === 'yearly'
+          ? 'Ya pagas por año. Stripe te enviará la factura con el ajuste.'
+          : 'Ya pagas por mes. Stripe ajustará lo que queda del año en tus próximas facturas.',
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se pudo cambiar la forma de pago.',
+      );
+    } finally {
+      setPendingPlanId(null);
+    }
+  }
+
   async function onChangePlan(planId: string) {
+    const target = plans.data?.find((p) => p.id === planId);
+    const ok = await confirm({
+      title: `Cambiar al plan ${target?.name ?? ''}`.trim(),
+      description:
+        'El cambio es inmediato. Stripe calcula la diferencia por los días que quedan del periodo y la suma o la descuenta en tu próxima factura.',
+      confirmLabel: 'Cambiar de plan',
+    });
+    if (!ok) return;
     setPendingPlanId(planId);
     try {
       const changed = await changePlan.mutateAsync({
@@ -269,6 +334,7 @@ export default function SaasBillingPage() {
           ) : (
             <>
               <Row label="Precio" value={currentPriceLabel} />
+              {sub.billingCycle && <CycleNote sub={sub} catalogPlan={catalogPlan} money={money} />}
               <Row
                 label="Periodo actual"
                 value={`${formatDate(sub.currentPeriodStart)} → ${formatDate(sub.currentPeriodEnd)}`}
@@ -478,6 +544,15 @@ export default function SaasBillingPage() {
                             : p.stripePriceId !== null
                         }
                         pending={pending}
+                        cycleSwitch={
+                          isCurrent && !exempt && cycle !== (currentCycle ?? 'monthly')
+                            ? hasStripeSub
+                              ? { to: cycle, onClick: () => void onChangeCycle(cycle) }
+                              : canSubscribe
+                                ? null
+                                : { to: cycle, support: true }
+                            : null
+                        }
                         mode={
                           exempt || !(canSubscribe || hasStripeSub)
                             ? 'manual'
@@ -510,6 +585,39 @@ export default function SaasBillingPage() {
   );
 }
 
+/**
+ * Cómo paga hoy (mensual o anual) y, si paga por mes, lo que ahorraría al año.
+ * El cambio se hace con el selector «Mensual / Anual» de los planes.
+ */
+function CycleNote({
+  sub,
+  catalogPlan,
+  money,
+}: {
+  sub: { billingCycle: 'monthly' | 'yearly' | null; plan: { priceMonthly: number } };
+  catalogPlan:
+    | { priceYearly: number; priceMonthly: number; includedUnits: number | null }
+    | undefined;
+  money: (n: number) => string;
+}) {
+  const yearly = sub.billingCycle === 'yearly';
+  const savings =
+    catalogPlan && catalogPlan.includedUnits == null && catalogPlan.priceYearly > 0
+      ? catalogPlan.priceMonthly * 12 - catalogPlan.priceYearly
+      : 0;
+  return (
+    <>
+      <Row label="Forma de pago" value={yearly ? 'Anual' : 'Mensual'} />
+      {!yearly && savings > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Con pago anual ahorrarías {money(savings)} al año. Elige «Anual» en los planes de abajo
+          para cambiarlo.
+        </p>
+      )}
+    </>
+  );
+}
+
 /** Botón de un plan según el estado del tenant. */
 function PlanCta({
   isCurrent,
@@ -518,6 +626,7 @@ function PlanCta({
   monthlyOnly,
   hasStripePrice,
   pending,
+  cycleSwitch,
   mode,
   onSubscribe,
   onChange,
@@ -530,10 +639,44 @@ function PlanCta({
   monthlyOnly: boolean;
   hasStripePrice: boolean;
   pending: boolean;
+  /** Su plan con otra periodicidad elegida: pasar a anual o mensual. */
+  cycleSwitch: {
+    to: 'monthly' | 'yearly';
+    onClick?: () => void;
+    /** Sin Stripe: lo gestiona soporte. */
+    support?: boolean;
+  } | null;
   mode: 'subscribe' | 'change' | 'manual';
   onSubscribe: () => void;
   onChange: () => void;
 }) {
+  if (cycleSwitch && !isFree && !monthlyOnly) {
+    const label = cycleSwitch.to === 'yearly' ? 'Pasar a pago anual' : 'Pasar a pago mensual';
+    if (cycleSwitch.support) {
+      return (
+        <div className="space-y-1">
+          <Button asChild className="w-full" variant="outline">
+            <Link href="/support">{label}: escríbenos</Link>
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Tu cuota no se cobra con Stripe: el cambio de periodicidad lo hace soporte.
+          </p>
+        </div>
+      );
+    }
+    if (!hasStripePrice) {
+      return (
+        <Button className="w-full" variant="outline" disabled>
+          {cycleSwitch.to === 'yearly' ? 'Sin pago anual por ahora' : 'Sin pago mensual por ahora'}
+        </Button>
+      );
+    }
+    return (
+      <Button className="w-full" disabled={pending} onClick={cycleSwitch.onClick}>
+        {pending ? 'Procesando...' : label}
+      </Button>
+    );
+  }
   if (isCurrent || (isFree && isCurrentFree)) {
     return (
       <Button className="w-full" variant="outline" disabled>

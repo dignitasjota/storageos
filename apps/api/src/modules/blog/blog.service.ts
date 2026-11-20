@@ -1,20 +1,31 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { blogImageFileName } from '@storageos/shared';
+import { blogImageFileName, parseBlogPostDraft } from '@storageos/shared';
 
+import { forgetOldSlug, forgetRedirectsTo, rememberOldSlug } from '../../common/web-slug-redirects';
+import { AiService } from '../ai/ai.service';
 import { AuditService } from '../auth/audit.service';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
+import { LandingService } from '../landing/landing.service';
+
+import { BLOG_POST_DRAFT_SYSTEM, businessFacts } from './web-draft-context';
 
 import type { BlogPost, Prisma } from '@storageos/database';
-import type { BlogPostDto, CreateBlogPostInput, UpdateBlogPostInput } from '@storageos/shared';
+import type {
+  BlogPostDraftDto,
+  BlogPostDto,
+  CreateBlogPostInput,
+  DraftBlogPostInput,
+  UpdateBlogPostInput,
+} from '@storageos/shared';
 
-/** Slug URL-safe a partir de un texto (sin acentos, minúsculas, guiones). */
 /** Tipos de imagen admitidos en el blog (portada e imágenes del texto). */
 const BLOG_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 /** Tamaño máximo de una imagen del blog (el mismo que admite la URL de subida). */
@@ -31,6 +42,19 @@ function slugTaken(err: unknown): unknown {
   return err;
 }
 
+/** La fecha programada debe ser futura (con un minuto de margen). */
+function scheduledDate(iso: string): Date {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now() + 60_000) {
+    throw new BadRequestException({
+      code: 'publish_at_in_past',
+      message: 'La fecha y hora de publicación deben ser futuras.',
+    });
+  }
+  return at;
+}
+
+/** Slug URL-safe a partir de un texto (sin acentos, minúsculas, guiones). */
 function slugify(s: string): string {
   return s
     .normalize('NFD')
@@ -54,7 +78,73 @@ export class BlogService {
     private readonly prisma: PrismaService,
     private readonly files: FilesService,
     private readonly audit: AuditService,
+    private readonly landing: LandingService,
+    private readonly ai: AiService,
   ) {}
+
+  /**
+   * Borrador con IA de una entrada a partir de un tema y unas palabras clave,
+   * con los datos reales del negocio (locales, ciudades, tamaños y precios con
+   * IVA). Gasta una consulta del asistente; si la respuesta no se puede leer,
+   * se devuelve. No guarda nada: el formulario lo rellena para revisarlo.
+   */
+  async draft(
+    tenantId: string,
+    userId: string,
+    input: DraftBlogPostInput,
+  ): Promise<BlogPostDraftDto> {
+    const tenant = await this.prisma.withTenant(
+      (tx) => tx.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
+      tenantId,
+    );
+    if (!tenant) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    const [site, titles] = await Promise.all([
+      this.landing.getBySlug(tenant.slug),
+      this.prisma.withTenant(
+        (tx) =>
+          tx.blogPost.findMany({
+            where: { tenantId },
+            select: { title: true },
+            orderBy: { createdAt: 'desc' },
+            take: 30,
+          }),
+        tenantId,
+      ),
+    ]);
+    const failed = (spent: boolean) =>
+      new BadGatewayException({
+        code: 'ai_draft_failed',
+        message: spent
+          ? 'No se ha podido redactar el texto. Inténtalo de nuevo.'
+          : 'No se ha podido redactar el texto. Inténtalo de nuevo: no ha gastado consulta.',
+      });
+    const text = await this.ai.completeText({
+      tenantId,
+      userId,
+      feature: 'blog_post_draft',
+      system: BLOG_POST_DRAFT_SYSTEM,
+      user: [
+        businessFacts(site),
+        '',
+        `Tema de la entrada: ${input.topic}`,
+        input.keywords ? `Palabras clave: ${input.keywords}` : '',
+        titles.length > 0
+          ? `Entradas que ya tiene el blog (no las repitas): ${titles.map((t) => t.title).join(' | ')}`
+          : '',
+        'Redacta la entrada.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      // Si la respuesta no se puede leer, la consulta se devuelve.
+      accept: (reply) => parseBlogPostDraft(reply) !== null,
+      rejected: () => failed(false),
+    });
+    const draft = parseBlogPostDraft(text);
+    if (!draft) throw failed(true);
+    return draft;
+  }
 
   async list(tenantId: string): Promise<BlogPostDto[]> {
     const rows = await this.prisma.withTenant(
@@ -94,11 +184,15 @@ export class BlogService {
     input: CreateBlogPostInput,
     userId: string | null = null,
   ): Promise<BlogPostDto> {
-    const isPublished = input.isPublished ?? false;
+    // Programada: queda en borrador hasta la fecha.
+    const publishAt = input.publishAt ? scheduledDate(input.publishAt) : null;
+    const isPublished = publishAt ? false : (input.isPublished ?? false);
     const created = await this.prisma
       .withTenant(async (tx) => {
         const base = slugify(input.slug?.trim() || input.title);
         const slug = await this.freeSlug(tx, tenantId, base);
+        // Si era la dirección antigua de otra entrada, ahora es de esta.
+        await forgetOldSlug(tx, { tenantId, kind: 'blog', slug });
         return tx.blogPost.create({
           data: {
             tenantId,
@@ -112,6 +206,7 @@ export class BlogService {
             relatedPostIds: await this.checkRelated(tx, tenantId, input.relatedPostIds),
             isPublished,
             publishedAt: isPublished ? new Date() : null,
+            publishAt,
           },
         });
       }, tenantId)
@@ -124,7 +219,12 @@ export class BlogService {
       action: 'blog_post.created',
       entityType: 'BlogPost',
       entityId: created.id,
-      changes: { title: created.title, slug: created.slug, isPublished },
+      changes: {
+        title: created.title,
+        slug: created.slug,
+        isPublished,
+        ...(publishAt ? { publishAt: publishAt.toISOString() } : {}),
+      },
     });
     return this.toDto(created);
   }
@@ -136,9 +236,24 @@ export class BlogService {
     userId: string | null = null,
   ): Promise<BlogPostDto> {
     const existing = await this.findOrThrow(tenantId, id);
+    const willBePublished = input.isPublished ?? existing.isPublished;
+    let publishAt: Date | null | undefined;
+    if (input.publishAt) {
+      if (willBePublished) {
+        throw new BadRequestException({
+          code: 'blog_post_already_published',
+          message: 'La entrada ya está publicada. Despublícala si quieres programarla.',
+        });
+      }
+      publishAt = scheduledDate(input.publishAt);
+    } else if (input.publishAt === null || input.isPublished === true) {
+      // Cancelar la programación, o publicar ya (deja de estar programada).
+      publishAt = null;
+    }
     const updated = await this.prisma
       .withTenant(async (tx) => {
         const data: Prisma.BlogPostUpdateInput = {};
+        if (publishAt !== undefined) data.publishAt = publishAt;
         if (input.slug !== undefined) {
           const base = slugify(input.slug?.trim() || existing.title);
           data.slug = await this.freeSlug(tx, tenantId, base, id);
@@ -162,7 +277,16 @@ export class BlogService {
           // se vuelve a publicar luego, no se pisa la fecha original).
           if (input.isPublished && !existing.publishedAt) data.publishedAt = new Date();
         }
-        return tx.blogPost.update({ where: { id }, data });
+        const row = await tx.blogPost.update({ where: { id }, data });
+        // La dirección antigua sigue llevando a la entrada (308 a la nueva).
+        await rememberOldSlug(tx, {
+          tenantId,
+          kind: 'blog',
+          oldSlug: existing.slug,
+          newSlug: row.slug,
+          targetId: id,
+        });
+        return row;
       }, tenantId)
       .catch((err: unknown) => {
         throw slugTaken(err);
@@ -171,6 +295,9 @@ export class BlogService {
     const changes: Record<string, unknown> = {};
     if (updated.isPublished !== existing.isPublished) changes.isPublished = updated.isPublished;
     if (updated.slug !== existing.slug) changes.slug = { from: existing.slug, to: updated.slug };
+    const scheduleChanged =
+      (updated.publishAt?.getTime() ?? null) !== (existing.publishAt?.getTime() ?? null);
+    if (scheduleChanged) changes.publishAt = updated.publishAt?.toISOString() ?? null;
     if (Object.keys(changes).length > 0) {
       await this.audit.write({
         tenantId,
@@ -178,9 +305,13 @@ export class BlogService {
         action:
           updated.slug !== existing.slug
             ? 'blog_post.slug_changed'
-            : updated.isPublished
-              ? 'blog_post.published'
-              : 'blog_post.unpublished',
+            : updated.isPublished !== existing.isPublished
+              ? updated.isPublished
+                ? 'blog_post.published'
+                : 'blog_post.unpublished'
+              : updated.publishAt
+                ? 'blog_post.scheduled'
+                : 'blog_post.schedule_cancelled',
         entityType: 'BlogPost',
         entityId: id,
         changes: { title: updated.title, ...changes },
@@ -219,6 +350,8 @@ export class BlogService {
     const existing = await this.findOrThrow(tenantId, id);
     await this.prisma.withTenant(async (tx) => {
       await tx.blogPost.delete({ where: { id } });
+      // Sus direcciones antiguas ya no llevan a ningún sitio.
+      await forgetRedirectsTo(tx, { tenantId, kind: 'blog', targetId: id });
       // Las entradas que la tenían como relacionada dejan de apuntar a ella.
       const others = await tx.blogPost.findMany({
         where: { tenantId, relatedPostIds: { has: id } },
@@ -370,6 +503,7 @@ export class BlogService {
       seoDescription: row.seoDescription,
       isPublished: row.isPublished,
       publishedAt: row.publishedAt ? row.publishedAt.toISOString() : null,
+      publishAt: row.publishAt ? row.publishAt.toISOString() : null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

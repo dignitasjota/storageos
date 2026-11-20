@@ -14,7 +14,12 @@ import {
 import { siteUrl } from '../landing-shared';
 import { faqPageLd, localBusinessFields } from '../local-business-ld';
 import { grossPrice, priceRangeString } from '../price-format';
-import { buildPromoMetadata, lookupPromo, PromoPageView } from '../promo/promo-page';
+import {
+  buildPromoMetadata,
+  lookupPromo,
+  movedPromoHref,
+  PromoPageView,
+} from '../promo/promo-page';
 import { themeFor } from '../promo/promo-theme';
 import { TenantSiteChrome } from '../tenant-site-chrome';
 import { WebChatWidget } from '../web-chat-widget';
@@ -316,6 +321,8 @@ export async function FacilityPageBody({
     // Dirección corta de una landing de promoción (`/<nombre>` en el dominio propio).
     const promo = await shortPathPromo(slug, facilitySlug, locale, onCustomDomain);
     if (promo && 'page' in promo) return <PromoPageView data={promo.page} />;
+    // Dirección corta antigua de una landing que cambió de nombre: 308 a la actual.
+    if (promo && 'movedTo' in promo) permanentRedirect(movedPromoHref(slug, promo, true));
     if (promo) redirect('/');
     notFound();
   }

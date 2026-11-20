@@ -16,6 +16,8 @@ import {
 import {
   type BlogCoverUploadResponseDto,
   CreatePromoLandingSchema,
+  DraftPromoLandingSchema,
+  type PromoLandingDraftDto,
   type PromoLandingDto,
   type PromoLandingPreviewDto,
   type PromoLandingStatsDto,
@@ -39,6 +41,7 @@ class CreatePromoLandingDto extends createZodDto(CreatePromoLandingSchema) {}
 class UpdatePromoLandingDto extends createZodDto(UpdatePromoLandingSchema) {}
 class RequestPromoImageUploadDto extends createZodDto(RequestBlogCoverUploadSchema) {}
 class SetPromoLandingImageDto extends createZodDto(SetPromoLandingImageSchema) {}
+class DraftPromoLandingDto extends createZodDto(DraftPromoLandingSchema) {}
 
 /** Landings de promoción de la web del tenant (lado staff). Feature `web_premium`. */
 @RequireFeature('web_premium')
@@ -50,6 +53,17 @@ export class PromoLandingsController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser): Promise<PromoLandingDto[]> {
     return this.promos.list(user.tenantId);
+  }
+
+  /** Borrador con IA de los textos (no guarda nada; gasta una consulta del asistente). */
+  @RequirePermission('settings:manage')
+  @Post('draft')
+  @HttpCode(HttpStatus.OK)
+  draft(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: DraftPromoLandingDto,
+  ): Promise<PromoLandingDraftDto> {
+    return this.promos.draft(user.tenantId, user.sub, body);
   }
 
   @RequirePermission('settings:read')

@@ -33,6 +33,7 @@ import { CustomerTimelineTab } from './timeline-tab';
 import { AskAssistantButton } from '@/components/ai/ask-assistant-button';
 import { Can } from '@/components/auth/can';
 import { useConfirm } from '@/components/confirm-provider';
+import { AnonymizeCustomerDialog } from '@/components/rgpd/anonymize-customer-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,7 +54,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useCustomer, useCustomerUnreadSummary, useSetKycVerified } from '@/lib/customers/hooks';
-import { useAnonymizeCustomer, useExportCustomerData } from '@/lib/rgpd/hooks';
+import { useExportCustomerData } from '@/lib/rgpd/hooks';
 
 /** Pestañas de la ficha del inquilino (orden = el de los TabsTrigger). En móvil
  *  se muestran como un desplegable en lugar de una tira de 9 pestañas. */
@@ -88,9 +89,8 @@ export default function CustomerDetailPage() {
   const canMerge = useHasPermission('customers:delete');
   const canRgpd = useHasPermission('rgpd:manage');
   const exportData = useExportCustomerData();
-  const anonymize = useAnonymizeCustomer();
   const router = useRouter();
-  const [dialog, setDialog] = useState<'edit' | 'message' | 'merge' | null>(null);
+  const [dialog, setDialog] = useState<'edit' | 'message' | 'merge' | 'anonymize' | null>(null);
   const [tab, setTab] = useState<string>(useSearchParams().get('tab') ?? 'contracts');
   // Los avisos enlazan a una pestaña concreta (`?tab=chat`).
   useEffect(() => {
@@ -125,38 +125,6 @@ export default function CustomerDetailPage() {
       await exportData.mutateAsync(id!);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudieron descargar.');
-    }
-  }
-
-  async function anonymizeCustomer() {
-    const ok = await ask({
-      title: '¿Anonimizar a este inquilino?',
-      description:
-        'Se borran sus datos personales, documentos y accesos. Las facturas se conservan por obligación fiscal. No se puede deshacer.',
-      confirmLabel: 'Anonimizar',
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      try {
-        await anonymize.mutateAsync({ customerId: id! });
-      } catch (err) {
-        // Con deuda, se confirma otra vez (como al borrar).
-        if (!(err instanceof ApiError) || err.body.code !== 'customer_has_debt') throw err;
-        const again = await ask({
-          title: 'Tiene facturas pendientes de cobro',
-          description:
-            'Las facturas se conservan, pero ya no podrás reclamárselas a su nombre. ¿Anonimizarlo igualmente?',
-          confirmLabel: 'Anonimizar igualmente',
-          destructive: true,
-        });
-        if (!again) return;
-        await anonymize.mutateAsync({ customerId: id!, confirmDebt: true });
-      }
-      toast.success('Inquilino anonimizado.');
-      router.push('/customers');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo anonimizar.');
     }
   }
 
@@ -290,7 +258,7 @@ export default function CustomerDetailPage() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive"
-                      onSelect={() => void anonymizeCustomer()}
+                      onSelect={() => setDialog('anonymize')}
                     >
                       Anonimizar
                     </DropdownMenuItem>
@@ -312,6 +280,14 @@ export default function CustomerDetailPage() {
         <CustomerMessageDialog customer={c} onClose={() => setDialog(null)} />
       )}
       {dialog === 'merge' && <MergeCustomerDialog customer={c} onClose={() => setDialog(null)} />}
+      {canRgpd && (
+        <AnonymizeCustomerDialog
+          customerId={c.id}
+          open={dialog === 'anonymize'}
+          onOpenChange={(o) => setDialog(o ? 'anonymize' : null)}
+          onDone={() => router.push('/customers')}
+        />
+      )}
 
       {/* Si su correo no le llega, se ve nada más abrir la ficha. */}
       <EmailStatusCard customerId={c.id} />

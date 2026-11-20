@@ -1,6 +1,10 @@
 'use client';
 
-import { DataSubjectRequestTypeEnum, type DataSubjectRequestDto } from '@storageos/shared';
+import {
+  DATA_SUBJECT_REQUEST_MAX_BACKDATE_DAYS,
+  DataSubjectRequestTypeEnum,
+  type DataSubjectRequestDto,
+} from '@storageos/shared';
 import { Download, Loader2, Plus, UserX } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -11,6 +15,8 @@ import { SettingsHeader } from '../settings-header';
 import { useConfirm } from '@/components/confirm-provider';
 import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { SectionError } from '@/components/dashboard/section-state';
+import { DateSelect } from '@/components/month-year-select';
+import { AnonymizeCustomerDialog } from '@/components/rgpd/anonymize-customer-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,9 +40,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import { useDataSubjectRequests } from '@/lib/billing/hooks';
 import { useCustomer } from '@/lib/customers/hooks';
-import { formatDate, formatEur } from '@/lib/format';
+import { localDateString } from '@/lib/dates';
+import { formatDate } from '@/lib/format';
 import {
-  useAnonymizeCustomer,
   useCreateDataSubjectRequest,
   useExportCustomerData,
   useUpdateDataSubjectRequest,
@@ -145,12 +151,12 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
   const ask = useConfirm();
   const update = useUpdateDataSubjectRequest();
   const exportData = useExportCustomerData();
-  const anonymize = useAnonymizeCustomer();
+  const [anonymizing, setAnonymizing] = useState(false);
   const overdue = isOpen(r.status) && new Date(r.dueAt).getTime() < Date.now();
   const daysLeft = Math.ceil((new Date(r.dueAt).getTime() - Date.now()) / 86_400_000);
 
   async function setStatus(status: RequestStatus) {
-    let notes: string | undefined;
+    let rejectionReason: string | undefined;
     if (status === 'fulfilled') {
       const ok = await ask({
         title: '¿Marcar la solicitud como atendida?',
@@ -163,20 +169,32 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
       const ok = await ask({
         title: '¿Denegar la solicitud?',
         description:
-          'Queda cerrada. Debes explicar al interesado el motivo y que puede reclamar ante la Agencia Española de Protección de Datos.',
-        confirmLabel: 'Denegar',
+          'Queda cerrada y le enviamos un correo a ' +
+          r.email +
+          ' con el motivo y que puede reclamar ante la Agencia Española de Protección de Datos.',
+        confirmLabel: 'Denegar y avisar',
         destructive: true,
-        input: { label: 'Motivo', placeholder: 'Por qué no se atiende', required: true },
+        input: {
+          label: 'Motivo (lo leerá el interesado)',
+          placeholder: 'Por qué no se puede atender',
+          required: true,
+        },
       });
       if (!ok) return;
-      notes = [r.notes, `Denegada: ${ok.value}`].filter(Boolean).join('\n');
+      rejectionReason = ok.value.trim();
+      if (rejectionReason.length < 3) {
+        toast.error('Explica por qué se deniega la solicitud.');
+        return;
+      }
     }
     try {
       await update.mutateAsync({
         id: r.id,
-        input: { status, ...(notes !== undefined ? { notes } : {}) },
+        input: { status, ...(rejectionReason !== undefined ? { rejectionReason } : {}) },
       });
-      toast.success('Solicitud actualizada.');
+      toast.success(
+        status === 'denied' ? 'Solicitud denegada y aviso enviado.' : 'Solicitud actualizada.',
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo actualizar.');
     }
@@ -188,41 +206,6 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
       await exportData.mutateAsync(r.customerId);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo exportar.');
-    }
-  }
-
-  async function onAnonymize() {
-    if (!r.customerId) return;
-    const ok = await ask({
-      title: '¿Anonimizar al inquilino?',
-      description:
-        'Se borran sus datos personales, documentos, accesos y mensajes. Las facturas se conservan (obligación fiscal). No se puede deshacer.',
-      confirmLabel: 'Anonimizar',
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      try {
-        await anonymize.mutateAsync({ customerId: r.customerId, requestId: r.id });
-      } catch (err) {
-        if (!(err instanceof ApiError) || err.body.code !== 'customer_has_debt') throw err;
-        const amount = Number((err.body.details as { amount?: number } | undefined)?.amount ?? 0);
-        const again = await ask({
-          title: 'Tiene facturas pendientes de cobro',
-          description: `Debe ${formatEur(amount)}. Si lo anonimizas, las facturas se conservan pero ya no podrás reclamárselas a su nombre.`,
-          confirmLabel: 'Anonimizar igualmente',
-          destructive: true,
-        });
-        if (!again) return;
-        await anonymize.mutateAsync({
-          customerId: r.customerId,
-          requestId: r.id,
-          confirmDebt: true,
-        });
-      }
-      toast.success('Inquilino anonimizado y solicitud atendida.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo anonimizar.');
     }
   }
 
@@ -254,9 +237,18 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        Recibida el {formatDate(r.submittedAt)} · responder antes del {formatDate(r.dueAt)}
+        Recibida el {formatDate(r.receivedAt ?? r.submittedAt)}
+        {r.receivedAt && r.receivedAt.slice(0, 10) !== r.submittedAt.slice(0, 10)
+          ? ` (registrada el ${formatDate(r.submittedAt)})`
+          : ''}{' '}
+        · responder antes del {formatDate(r.dueAt)}
         {r.fulfilledAt ? ` · cerrada el ${formatDate(r.fulfilledAt)}` : ''}
       </p>
+      {r.status === 'denied' && r.rejectionReason && (
+        <p className="whitespace-pre-wrap text-xs">
+          <span className="font-medium">Motivo de la denegación:</span> {r.rejectionReason}
+        </p>
+      )}
       {r.notes && <p className="whitespace-pre-wrap text-xs">{r.notes}</p>}
       {isOpen(r.status) && (
         <div className="flex flex-wrap gap-2">
@@ -266,7 +258,7 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
             </Button>
           )}
           {r.customerId && r.requestType === 'erasure' && (
-            <Button size="sm" variant="destructive" onClick={() => void onAnonymize()}>
+            <Button size="sm" variant="destructive" onClick={() => setAnonymizing(true)}>
               <UserX className="mr-1 size-4" /> Anonimizar
             </Button>
           )}
@@ -282,6 +274,14 @@ function RequestRow({ request: r }: { request: DataSubjectRequestDto }) {
             Denegar
           </Button>
         </div>
+      )}
+      {r.customerId && r.requestType === 'erasure' && (
+        <AnonymizeCustomerDialog
+          customerId={r.customerId}
+          requestId={r.id}
+          open={anonymizing}
+          onOpenChange={setAnonymizing}
+        />
       )}
     </li>
   );
@@ -299,7 +299,18 @@ function CreateRequestDialog({
   const [email, setEmail] = useState('');
   const [type, setType] = useState<RequestType>('access');
   const [notes, setNotes] = useState('');
+  const [receivedAt, setReceivedAt] = useState<string | undefined>(() => localDateString());
   const customer = useCustomer(customerId);
+  const today = localDateString();
+  const oldest = localDateString(
+    new Date(Date.now() - DATA_SUBJECT_REQUEST_MAX_BACKDATE_DAYS * 86_400_000),
+  );
+  const receivedError =
+    receivedAt && receivedAt > today
+      ? 'No puede ser posterior a hoy.'
+      : receivedAt && receivedAt < oldest
+        ? `Como mucho, de hace ${DATA_SUBJECT_REQUEST_MAX_BACKDATE_DAYS} días.`
+        : null;
 
   // Al elegir otro inquilino se pone su email (antes se quedaba el del primero).
   useEffect(() => {
@@ -313,11 +324,13 @@ function CreateRequestDialog({
         requestType: type,
         ...(customerId ? { customerId } : {}),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
+        ...(receivedAt ? { receivedAt } : {}),
       });
       toast.success('Solicitud registrada: tienes un mes para responder.');
       setCustomerId(undefined);
       setEmail('');
       setNotes('');
+      setReceivedAt(localDateString());
       onOpenChange(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo registrar.');
@@ -364,6 +377,17 @@ function CreateRequestDialog({
             </Select>
           </div>
           <div className="space-y-1">
+            <Label>Cuándo llegó</Label>
+            <DateSelect value={receivedAt} onChange={setReceivedAt} years={2} />
+            {receivedError ? (
+              <p className="text-xs text-destructive">{receivedError}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                El mes para responder cuenta desde este día.
+              </p>
+            )}
+          </div>
+          <div className="space-y-1">
             <Label htmlFor="rgpd-notes">Notas (opcional)</Label>
             <Textarea
               id="rgpd-notes"
@@ -377,7 +401,10 @@ function CreateRequestDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={() => void submit()} disabled={create.isPending || !email.includes('@')}>
+          <Button
+            onClick={() => void submit()}
+            disabled={create.isPending || !email.includes('@') || !!receivedError}
+          >
             {create.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
             Registrar
           </Button>

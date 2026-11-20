@@ -27,7 +27,7 @@ export function useUpdateTenantBranding() {
         method: 'PATCH',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: brandingKey }),
+    onSuccess: (data) => qc.setQueryData(brandingKey, data),
   });
 }
 

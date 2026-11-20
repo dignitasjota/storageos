@@ -5,6 +5,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -28,6 +29,7 @@ import type {
   UpdateProfileInput,
   UpdateUserInput,
   UserDetailDto,
+  UserLimitsDto,
   UserRole,
 } from '@storageos/shared';
 
@@ -44,6 +46,8 @@ function safeEqual(a: string, b: string): boolean {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
@@ -534,6 +538,123 @@ export class UsersService {
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
+  }
+
+  // ========================== plazas del plan ===============================
+
+  /**
+   * Plazas de usuario del plan: usuarios activos + invitaciones pendientes
+   * (lo mismo que cuenta el límite al invitar).
+   */
+  async limitsSummary(tenantId: string): Promise<UserLimitsDto> {
+    const now = new Date();
+    const [activeUsers, pendingInvitations, limits] = await Promise.all([
+      this.admin.user.count({ where: { tenantId, isActive: true } }),
+      this.admin.invitation.count({
+        where: { tenantId, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } },
+      }),
+      this.limits.resolveLimits(tenantId),
+    ]);
+    return {
+      used: activeUsers + pendingInvitations,
+      activeUsers,
+      pendingInvitations,
+      limit: limits.users,
+    };
+  }
+
+  // ===================== 2FA de un empleado (propietario) ====================
+
+  /**
+   * El propietario quita la verificación en dos pasos a un empleado que ha
+   * perdido el móvil: se borran su secreto y sus códigos de recuperación y se
+   * cierran sus sesiones. Si la empresa la exige, se le pedirá activarla otra
+   * vez al entrar.
+   */
+  async resetTwoFactor(args: {
+    tenantId: string;
+    actorUserId: string;
+    actorRole: UserRole;
+    targetUserId: string;
+    meta: RequestMeta;
+  }): Promise<void> {
+    if (args.actorRole !== 'owner') {
+      throw new ForbiddenException({
+        message: 'Solo el propietario puede quitar la verificación en dos pasos a otra persona.',
+        code: 'insufficient_role',
+      });
+    }
+    if (args.targetUserId === args.actorUserId) {
+      throw new BadRequestException({
+        message:
+          'No puedes quitarte la tuya desde aquí: hazlo en Configuración → Perfil → Verificación en dos pasos.',
+        code: 'cannot_target_self',
+      });
+    }
+    const target = await this.admin.user.findFirst({
+      where: { id: args.targetUserId, tenantId: args.tenantId },
+      include: { tenant: { select: { name: true, requireTwoFactorForManagers: true } } },
+    });
+    if (!target) {
+      throw new NotFoundException({ message: 'Usuario no encontrado', code: 'user_not_found' });
+    }
+    if (!target.twoFactorEnabled) {
+      throw new BadRequestException({
+        message: 'Esta persona no tiene activada la verificación en dos pasos.',
+        code: 'two_factor_not_enabled',
+      });
+    }
+    await this.admin.$transaction([
+      this.admin.user.update({
+        where: { id: target.id },
+        data: {
+          twoFactorSecretEncrypted: null,
+          twoFactorPendingSecretEncrypted: null,
+          twoFactorEnabled: false,
+          twoFactorEnrolledAt: null,
+          twoFactorLastStep: null,
+        },
+      }),
+      this.admin.recoveryCode.deleteMany({ where: { userId: target.id } }),
+    ]);
+    await this.sessions.revokeAllForUser({
+      tenantId: args.tenantId,
+      userId: target.id,
+      reason: 'logout_all',
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.actorUserId,
+      action: 'user.two_factor_reset_by_owner',
+      entityType: 'User',
+      entityId: target.id,
+      changes: { email: target.email },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    const mustEnrol =
+      target.tenant.requireTwoFactorForManagers &&
+      (target.role === 'owner' || target.role === 'manager');
+    const next = mustEnrol
+      ? 'Al volver a entrar te pediremos que la actives otra vez con tu móvil nuevo.'
+      : 'Puedes volver a activarla cuando quieras en Configuración → Perfil.';
+    const tenantName = target.tenant.name;
+    await this.email
+      .sendRendered({
+        to: target.email,
+        kind: 'staff_notice',
+        subject: `Se ha quitado la verificación en dos pasos de tu cuenta en ${tenantName}`,
+        text: [
+          `Hola, ${target.fullName}:`,
+          `El propietario de ${tenantName} ha quitado la verificación en dos pasos de tu cuenta, por ejemplo porque perdiste el móvil. Se han cerrado tus sesiones abiertas y tus códigos de recuperación ya no sirven.`,
+          next,
+          'Si no lo esperabas, habla con el propietario de la cuenta.',
+        ].join('\n\n'),
+        html: `<p>Hola, ${escapeHtml(target.fullName)}:</p><p>El propietario de ${escapeHtml(tenantName)} ha quitado la verificación en dos pasos de tu cuenta, por ejemplo porque perdiste el móvil. Se han cerrado tus sesiones abiertas y tus códigos de recuperación ya no sirven.</p><p>${escapeHtml(next)}</p><p>Si no lo esperabas, habla con el propietario de la cuenta.</p>`,
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(`[2fa] aviso a ${target.id} no enviado: ${String(err)}`);
+      });
   }
 
   // ============================= helpers ===================================

@@ -11,7 +11,8 @@ import type {
   WebSettingsResponse,
 } from '@storageos/shared';
 
-const key = ['settings', 'web'] as const;
+export const webSettingsKey = ['settings', 'web'] as const;
+const key = webSettingsKey;
 
 export function useWebSettings() {
   return useQuery({
@@ -25,7 +26,7 @@ export function useUpdateWebSettings() {
   return useMutation({
     mutationFn: (input: UpdateWebSettingsInput) =>
       apiFetch<WebSettingsResponse>('/settings/tenant/web', { method: 'PATCH', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
+    onSuccess: (data) => qc.setQueryData(key, data),
   });
 }
 

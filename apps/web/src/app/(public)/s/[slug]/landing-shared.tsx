@@ -1,3 +1,4 @@
+import { faqInLanguage, type LandingSection, type PublicLandingDto } from '@storageos/shared';
 import { notFound, redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
@@ -16,7 +17,6 @@ import { TrstromTemplate } from './trstrom-template';
 import { WebChatWidget } from './web-chat-widget';
 import { WhatsappFloatButton } from './whatsapp-float-button';
 
-import type { LandingSection, PublicLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { safeJsonLd } from '@/lib/json-ld';
@@ -352,7 +352,13 @@ export async function LandingPageBody({
   const full = await getLanding(slug);
   if (!full) notFound();
   // El texto de las páginas de zona no viaja al navegador (solo sus enlaces).
-  const data = { ...full, areaPages: [] };
+  // Las preguntas frecuentes, en el idioma de la página (la versión inglesa si
+  // el negocio la escribió; si no, la española).
+  const data = {
+    ...full,
+    areaPages: [],
+    faqs: full.faqs.map((f) => faqInLanguage(f, locale)),
+  };
 
   // Web «externa»: quien llegue por `/s/<slug>` en el dominio de la
   // plataforma (enlace viejo, o el dominio propio se desverificó tras

@@ -273,3 +273,4 @@ export function promoShortPathReserved(slug: string): boolean {
 }
 
 export * from './content';
+export * from './draft';

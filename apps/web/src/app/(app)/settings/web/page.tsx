@@ -1,6 +1,13 @@
 'use client';
 
-import { WEB_TEMPLATES, type WebSections, type WebTemplateValue } from '@storageos/shared';
+import {
+  WEB_TEMPLATES,
+  type UpdateWebSettingsInput,
+  type WebSections,
+  type WebSettingsResponse,
+  type WebTemplateValue,
+} from '@storageos/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ExternalLink,
   Globe,
@@ -15,7 +22,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { WebHeroCard } from './web-hero-card';
-import { WebSeoCard } from './web-seo-card';
+import { emptySeoForm, seoFormFrom, type SeoForm, WebSeoCard } from './web-seo-card';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
@@ -24,14 +31,97 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { UnsavedChangesBar } from '@/components/unsaved-changes-bar';
 import { ApiError } from '@/lib/auth/api';
 import { useMe } from '@/lib/auth/hooks';
 import { useTenantBranding } from '@/lib/branding/hooks';
-import { useUpdateWebSettings, useWebPerformance, useWebSettings } from '@/lib/web-settings/hooks';
+import { runSaveSteps, useUnsavedChangesGuard } from '@/lib/unsaved-changes';
+import {
+  useUpdateWebSettings,
+  useWebPerformance,
+  useWebSettings,
+  webSettingsKey,
+} from '@/lib/web-settings/hooks';
 
 const DEFAULT_SECTIONS: WebSections = { testimonials: false, faq: false, contact: false };
 
 type Item = { title: string; text: string };
+
+/** Todo lo que se edita en la página (se guarda de una vez con la barra de abajo). */
+interface WebForm {
+  template: WebTemplateValue;
+  headline: string;
+  about: string;
+  sections: WebSections;
+  heroSubtitle: string;
+  services: Item[];
+  advantages: string[];
+  steps: Item[];
+  externalSiteUrl: string;
+  seo: SeoForm;
+}
+
+function formFrom(d: WebSettingsResponse): WebForm {
+  const c = d.content ?? {};
+  return {
+    template: d.template,
+    headline: d.headline ?? '',
+    about: d.about ?? '',
+    sections: { ...DEFAULT_SECTIONS, ...(d.sections ?? {}) },
+    heroSubtitle: c.heroSubtitle ?? '',
+    services: (c.services ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })),
+    advantages: c.advantages ?? [],
+    steps: (c.steps ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })),
+    externalSiteUrl: d.externalSiteUrl ?? '',
+    seo: d.seo ? seoFormFrom(d.seo) : emptySeoForm(),
+  };
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+const cleanItems = (items: Item[]) =>
+  items
+    .map((i) => ({ title: i.title.trim(), text: i.text.trim() }))
+    .filter((i) => i.title.length > 0);
+
+function errorMessage(err: unknown): string {
+  return err instanceof ApiError ? err.body.message : 'No se pudo guardar.';
+}
+
+/** Solo lo que ha cambiado respecto a lo guardado. */
+function buildPatch(form: WebForm, saved: WebForm): UpdateWebSettingsInput | null {
+  const patch: Record<string, unknown> = {};
+  if (form.template !== saved.template) patch.template = form.template;
+  if (
+    form.template === 'external' &&
+    (form.externalSiteUrl !== saved.externalSiteUrl || form.template !== saved.template)
+  ) {
+    patch.externalSiteUrl = form.externalSiteUrl.trim();
+  }
+  if (form.headline !== saved.headline) patch.headline = form.headline;
+  if (form.about !== saved.about) patch.about = form.about;
+  if (!same(form.sections, saved.sections)) patch.sections = form.sections;
+  if (
+    form.heroSubtitle !== saved.heroSubtitle ||
+    !same(form.services, saved.services) ||
+    !same(form.advantages, saved.advantages) ||
+    !same(form.steps, saved.steps)
+  ) {
+    patch.content = {
+      heroSubtitle: form.heroSubtitle.trim(),
+      services: cleanItems(form.services),
+      advantages: form.advantages.map((a) => a.trim()).filter((a) => a.length > 0),
+      steps: cleanItems(form.steps),
+    };
+  }
+  if (!same(form.seo, saved.seo)) {
+    // Se mandan todos los campos: '' vuelve al texto generado.
+    const seo = { ...form.seo };
+    for (const k of Object.keys(seo) as (keyof SeoForm)[]) seo[k] = seo[k].trim();
+    patch.seo = seo;
+  }
+  return Object.keys(patch).length > 0 ? (patch as UpdateWebSettingsInput) : null;
+}
 
 /** Plantillas multisección que usan el copy editable de secciones. */
 function usesContent(template: WebTemplateValue): boolean {
@@ -59,81 +149,58 @@ function usesAdvantages(template: WebTemplateValue): boolean {
 export default function WebSettingsPage() {
   const settings = useWebSettings();
   const update = useUpdateWebSettings();
+  const qc = useQueryClient();
   const branding = useTenantBranding();
   const me = useMe();
   const slug = me.data?.tenant.slug;
   const domainVerified = branding.data?.customDomainVerifiedAt != null;
 
-  const [template, setTemplate] = useState<WebTemplateValue>('default');
-  const [headline, setHeadline] = useState('');
-  const [about, setAbout] = useState('');
-  const [sections, setSections] = useState<WebSections>(DEFAULT_SECTIONS);
-  // Copy editable de las secciones (plantillas onepage/escaparate).
-  const [heroSubtitle, setHeroSubtitle] = useState('');
-  const [services, setServices] = useState<Item[]>([]);
-  const [advantages, setAdvantages] = useState<string[]>([]);
-  const [steps, setSteps] = useState<Item[]>([]);
-  // Web externa (proxy hacia una URL que el tenant ya aloja fuera).
-  const [externalSiteUrl, setExternalSiteUrl] = useState('');
+  // Lo que se está escribiendo. Se rellena una sola vez: subir una foto vuelve
+  // a pedir la configuración y no debe borrar lo escrito.
+  const [form, setForm] = useState<WebForm | null>(null);
+  const [saving, setSaving] = useState(false);
+  const saved = settings.data ? formFrom(settings.data) : null;
+  const dirty = form !== null && saved !== null && !same(form, saved);
+  useUnsavedChangesGuard(dirty);
 
-  const [loaded, setLoaded] = useState(false);
-
-  // Se rellena una sola vez: guardar el SEO o subir una foto vuelve a pedir la
-  // configuración y no debe borrar lo que se esté escribiendo aquí.
   useEffect(() => {
-    if (!settings.data || loaded) return;
-    setLoaded(true);
-    setTemplate(settings.data.template);
-    setHeadline(settings.data.headline ?? '');
-    setAbout(settings.data.about ?? '');
-    setSections(settings.data.sections ?? DEFAULT_SECTIONS);
-    const c = settings.data.content ?? {};
-    setHeroSubtitle(c.heroSubtitle ?? '');
-    setServices((c.services ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })));
-    setAdvantages(c.advantages ?? []);
-    setSteps((c.steps ?? []).map((s) => ({ title: s.title, text: s.text ?? '' })));
-    setExternalSiteUrl(settings.data.externalSiteUrl ?? '');
-  }, [settings.data, loaded]);
+    if (settings.data && form === null) setForm(formFrom(settings.data));
+  }, [settings.data, form]);
 
-  async function saveExternalSite() {
-    try {
-      await update.mutateAsync({ template: 'external', externalSiteUrl });
-      setTemplate('external');
-      toast.success('Web externa activada.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
+  function set<K extends keyof WebForm>(key: K, value: WebForm[K]) {
+    setForm((f) => (f ? { ...f, [key]: value } : f));
   }
 
   async function save() {
-    try {
-      const cleanItems = (items: Item[]) =>
-        items
-          .map((i) => ({ title: i.title.trim(), text: i.text.trim() }))
-          .filter((i) => i.title.length > 0);
-      await update.mutateAsync({
-        template,
-        headline,
-        about,
-        sections,
-        content: {
-          heroSubtitle: heroSubtitle.trim(),
-          services: cleanItems(services),
-          advantages: advantages.map((a) => a.trim()).filter((a) => a.length > 0),
-          steps: cleanItems(steps),
+    if (!form || !saved) return;
+    const patch = buildPatch(form, saved);
+    if (!patch) return;
+    setSaving(true);
+    const result: { response: WebSettingsResponse | null } = { response: null };
+    const failed = await runSaveSteps(
+      [
+        {
+          label: 'Web pública',
+          run: async () => {
+            result.response = await update.mutateAsync(patch);
+          },
         },
-      });
-      toast.success('Web actualizada.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+      ],
+      errorMessage,
+    );
+    setSaving(false);
+    if (failed.length > 0) {
+      toast.error(failed.map((f) => `${f.label}: ${f.message}`).join(' · '));
+      return;
     }
+    if (result.response) {
+      qc.setQueryData(webSettingsKey, result.response);
+      setForm(formFrom(result.response));
+    }
+    toast.success('Cambios guardados.');
   }
 
-  function toggle(key: keyof WebSections) {
-    setSections((s) => ({ ...s, [key]: !s[key] }));
-  }
-
-  if (settings.isLoading) {
+  if (settings.isLoading || (settings.data && !form)) {
     return (
       <div className="flex justify-center py-12">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -141,9 +208,12 @@ export default function WebSettingsPage() {
     );
   }
   // Sin la configuración no se enseña el formulario: guardarlo pisaría la web.
-  if (settings.isError || !settings.data) {
+  if (settings.isError || !settings.data || !form) {
     return <SectionError onRetry={() => void settings.refetch()} />;
   }
+
+  const template = form.template;
+  const externalBlocked = template === 'external' && !domainVerified;
 
   return (
     <div className="space-y-6">
@@ -181,7 +251,7 @@ export default function WebSettingsPage() {
                 <button
                   key={tpl.value}
                   type="button"
-                  onClick={() => setTemplate(tpl.value)}
+                  onClick={() => set('template', tpl.value)}
                   className={`rounded-lg border p-4 text-left transition ${
                     active
                       ? 'border-primary bg-primary/5 ring-2 ring-primary'
@@ -217,31 +287,26 @@ export default function WebSettingsPage() {
                 </a>
               </p>
             ) : (
-              <>
-                <div className="space-y-1.5">
-                  <Label>URL de tu web</Label>
-                  <Input
-                    value={externalSiteUrl}
-                    onChange={(e) => setExternalSiteUrl(e.target.value)}
-                    placeholder="https://tu-web-ya-alojada.com"
-                    className="text-base sm:text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Debe empezar por <code>https://</code>. Se sirve en{' '}
-                    <strong>{branding.data?.customDomain}</strong>.
-                  </p>
-                </div>
-                <Button onClick={saveExternalSite} disabled={update.isPending}>
-                  {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-                  Guardar web externa
-                </Button>
-              </>
+              <div className="space-y-1.5">
+                <Label htmlFor="external-site-url">URL de tu web</Label>
+                <Input
+                  id="external-site-url"
+                  value={form.externalSiteUrl}
+                  onChange={(e) => set('externalSiteUrl', e.target.value)}
+                  placeholder="https://tu-web-ya-alojada.com"
+                  className="text-base sm:text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Debe empezar por <code>https://</code>. Se sirve en{' '}
+                  <strong>{branding.data?.customDomain}</strong>.
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>
       )}
 
-      {template === 'cabe' && settings.data && (
+      {template === 'cabe' && (
         <WebHeroCard
           heroImageUrl={settings.data.heroImageUrl ?? null}
           heroBackgroundUrl={settings.data.heroBackgroundUrl ?? null}
@@ -256,20 +321,24 @@ export default function WebSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <SectionToggle
-              checked={sections.testimonials}
-              onToggle={() => toggle('testimonials')}
+              checked={form.sections.testimonials}
+              onToggle={() =>
+                set('sections', { ...form.sections, testimonials: !form.sections.testimonials })
+              }
               label="Testimonios"
               hint="Muestra reseñas positivas de tus clientes (valoraciones NPS ≥ 9 con comentario)."
             />
             <SectionToggle
-              checked={sections.faq}
-              onToggle={() => toggle('faq')}
+              checked={form.sections.faq}
+              onToggle={() => set('sections', { ...form.sections, faq: !form.sections.faq })}
               label="Preguntas frecuentes"
               hint="Muestra las FAQ publicadas en tu centro de ayuda."
             />
             <SectionToggle
-              checked={sections.contact}
-              onToggle={() => toggle('contact')}
+              checked={form.sections.contact}
+              onToggle={() =>
+                set('sections', { ...form.sections, contact: !form.sections.contact })
+              }
               label="Formulario de contacto"
               hint="Un formulario en tu web; cada envío entra como lead en tu panel."
             />
@@ -301,10 +370,11 @@ export default function WebSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-1.5">
-              <Label>Subtítulo del hero</Label>
+              <Label htmlFor="hero-subtitle">Subtítulo del hero</Label>
               <Input
-                value={heroSubtitle}
-                onChange={(e) => setHeroSubtitle(e.target.value)}
+                id="hero-subtitle"
+                value={form.heroSubtitle}
+                onChange={(e) => set('heroSubtitle', e.target.value)}
                 maxLength={200}
                 placeholder="Ej.: Tu espacio extra, fácil y sin complicaciones."
                 className="text-base sm:text-sm"
@@ -331,8 +401,8 @@ export default function WebSettingsPage() {
                     ? 'Tarjetas de ventajas o situaciones (título + descripción).'
                     : 'Tarjetas de servicios/usos (título + descripción).'
               }
-              items={services}
-              onChange={setServices}
+              items={form.services}
+              onChange={(v) => set('services', v)}
               max={6}
               titlePlaceholder="Ej.: Particulares"
               textPlaceholder="Ej.: Mudanzas, reformas, cosas de temporada…"
@@ -350,8 +420,8 @@ export default function WebSettingsPage() {
                         ? 'Las 3 insignias de la portada.'
                         : 'Etiquetas cortas de «Por qué elegirnos» (con icono).'
                 }
-                items={advantages}
-                onChange={setAdvantages}
+                items={form.advantages}
+                onChange={(v) => set('advantages', v)}
                 max={8}
                 placeholder="Ej.: Sin permanencia"
               />
@@ -364,18 +434,13 @@ export default function WebSettingsPage() {
               <ItemsEditor
                 label="Pasos para contratar"
                 hint="Los pasos de «Contratar es muy fácil» (título + descripción)."
-                items={steps}
-                onChange={setSteps}
+                items={form.steps}
+                onChange={(v) => set('steps', v)}
                 max={4}
                 titlePlaceholder="Ej.: Elige tu trastero"
                 textPlaceholder="Ej.: Mira tamaños y precios y quédate con el que encaje."
               />
             )}
-
-            <Button onClick={save} disabled={update.isPending}>
-              {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Guardar cambios
-            </Button>
           </CardContent>
         </Card>
       )}
@@ -388,10 +453,11 @@ export default function WebSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Título / claim (opcional)</Label>
+              <Label htmlFor="web-headline">Título / claim (opcional)</Label>
               <Input
-                value={headline}
-                onChange={(e) => setHeadline(e.target.value)}
+                id="web-headline"
+                value={form.headline}
+                onChange={(e) => set('headline', e.target.value)}
                 maxLength={160}
                 placeholder="Ej.: Guarda tus cosas con total seguridad en el centro"
                 className="text-base sm:text-sm"
@@ -401,31 +467,42 @@ export default function WebSettingsPage() {
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label>Sobre tu empresa (opcional)</Label>
+              <Label htmlFor="web-about">Sobre tu empresa (opcional)</Label>
               <Textarea
-                value={about}
-                onChange={(e) => setAbout(e.target.value)}
+                id="web-about"
+                value={form.about}
+                onChange={(e) => set('about', e.target.value)}
                 rows={5}
                 maxLength={2000}
                 placeholder="Cuenta quién eres, tus ventajas, horarios, cómo llegar… Se muestra bajo el título."
               />
               <p className="text-xs text-muted-foreground">Vacío = no se muestra esta sección.</p>
             </div>
-            <Button onClick={save} disabled={update.isPending}>
-              {update.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Guardar cambios
-            </Button>
           </CardContent>
         </Card>
       )}
 
-      {template !== 'external' && settings.data && (
+      {template !== 'external' && (
         <WebSeoCard
-          seo={settings.data.seo ?? {}}
+          values={form.seo}
+          onChange={(key, value) => set('seo', { ...form.seo, [key]: value })}
           tenantName={me.data?.tenant.name ?? ''}
           domain={domainVerified ? (branding.data?.customDomain ?? null) : null}
         />
       )}
+
+      <UnsavedChangesBar
+        dirty={dirty}
+        saving={saving}
+        onSave={() => void save()}
+        onDiscard={() => saved && setForm(saved)}
+        canSave={!externalBlocked}
+        hint={
+          externalBlocked
+            ? 'Para usar una web externa necesitas un dominio propio verificado.'
+            : undefined
+        }
+      />
     </div>
   );
 }

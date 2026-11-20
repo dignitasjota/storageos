@@ -5,7 +5,7 @@ import {
   DEFAULT_AUTO_REPLY,
   hasOpenDay,
   type CustomerCannedResponseDto,
-  type OpeningHours,
+  type TeamHours,
 } from '@storageos/shared';
 import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -15,7 +15,7 @@ import { SettingsHeader } from '../settings-header';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
-import { OpeningHoursEditor } from '@/components/opening-hours-editor';
+import { TeamHoursEditor, teamHoursIssue } from '@/components/team-hours-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -56,7 +56,7 @@ function AttentionHoursCard() {
   const update = useUpdateMessageSettings();
   const [enabled, setEnabled] = useState(false);
   const [text, setText] = useState(DEFAULT_AUTO_REPLY);
-  const [hours, setHours] = useState<OpeningHours>({});
+  const [hours, setHours] = useState<TeamHours>({});
 
   useEffect(() => {
     if (!settings.data) return;
@@ -67,10 +67,15 @@ function AttentionHoursCard() {
 
   // Con la respuesta automática y sin ningún día marcado, respondería a todas horas.
   const missingHours = enabled && !hasOpenDay(hours);
+  const hoursIssue = teamHoursIssue(hours);
 
   async function save() {
     if (missingHours) {
       toast.error('Marca al menos un día en tu horario de atención.');
+      return;
+    }
+    if (hoursIssue) {
+      toast.error(hoursIssue);
       return;
     }
     try {
@@ -86,8 +91,8 @@ function AttentionHoursCard() {
       <CardHeader>
         <CardTitle className="text-base">Horario de atención</CardTitle>
         <CardDescription>
-          Fuera de estas horas, quien escribe recibe una respuesta automática para saber que le has
-          leído. Sale como mucho una vez cada 12 horas por conversación.
+          Fuera de estas horas (y los días cerrados), quien escribe recibe una respuesta automática
+          para saber que le has leído. Sale como mucho una vez cada 12 horas por conversación.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -99,7 +104,7 @@ function AttentionHoursCard() {
               <Checkbox checked={enabled} onCheckedChange={(c) => setEnabled(c === true)} />
               Responder automáticamente fuera de horario
             </label>
-            <OpeningHoursEditor value={hours} onChange={setHours} />
+            <TeamHoursEditor value={hours} onChange={setHours} />
             {missingHours && (
               <p className="text-sm text-amber-700 dark:text-amber-400">
                 Marca al menos un día: sin horario, la respuesta automática saldría siempre, también
@@ -116,7 +121,7 @@ function AttentionHoursCard() {
                 onChange={(e) => setText(e.target.value)}
               />
             </div>
-            <Button onClick={save} disabled={update.isPending || missingHours}>
+            <Button onClick={save} disabled={update.isPending || missingHours || !!hoursIssue}>
               {update.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
               Guardar
             </Button>

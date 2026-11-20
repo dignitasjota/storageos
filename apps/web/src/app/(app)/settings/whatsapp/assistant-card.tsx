@@ -2,12 +2,10 @@
 
 import {
   hasOpenDay,
-  type OpeningHours,
-  WEEKDAYS,
+  type TeamHours,
   WHATSAPP_AI_PROVIDERS,
   WHATSAPP_INTENT_LABELS,
   WHATSAPP_INTENTS,
-  type Weekday,
   type WhatsappAiProvider,
   type WhatsappAssistantHoursMode,
   type WhatsappIntent,
@@ -18,6 +16,7 @@ import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
+import { TeamHoursEditor, teamHoursIssue } from '@/components/team-hours-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -38,16 +37,6 @@ import {
   useWhatsappAssistant,
   useWhatsappTemplates,
 } from '@/lib/whatsapp/hooks';
-
-const DAY_LABELS: Record<Weekday, string> = {
-  mon: 'Lunes',
-  tue: 'Martes',
-  wed: 'Miércoles',
-  thu: 'Jueves',
-  fri: 'Viernes',
-  sat: 'Sábado',
-  sun: 'Domingo',
-};
 
 /**
  * Asistente automático de WhatsApp: responde con los datos de tu web (locales,
@@ -72,7 +61,7 @@ export function AssistantCard({ limited = false }: { limited?: boolean }) {
   const [templateLanguage, setTemplateLanguage] = useState('es');
   const [privacyUrl, setPrivacyUrl] = useState('');
   const [hoursMode, setHoursMode] = useState<WhatsappAssistantHoursMode>('always');
-  const [teamHours, setTeamHours] = useState<OpeningHours>({});
+  const [teamHours, setTeamHours] = useState<TeamHours>({});
   const [alertIntents, setAlertIntents] = useState<WhatsappIntent[]>([]);
   const [followup, setFollowup] = useState(false);
   const [followupTpl, setFollowupTpl] = useState('');
@@ -126,6 +115,7 @@ export function AssistantCard({ limited = false }: { limited?: boolean }) {
     (savedKey.provider !== provider ||
       (provider === 'openai_compatible' && (savedKey.baseUrl ?? '') !== baseUrl.trim()));
   const missingHours = hoursMode !== 'always' && !hasOpenDay(teamHours);
+  const hoursIssue = hoursMode !== 'always' ? teamHoursIssue(teamHours) : null;
   const missingFollowupTpl = followup && !followupTpl.trim();
 
   async function saveAssistant() {
@@ -133,12 +123,16 @@ export function AssistantCard({ limited = false }: { limited?: boolean }) {
       toast.error('Marca al menos un día en el horario del equipo o elige «Siempre».');
       return;
     }
+    if (hoursIssue) {
+      toast.error(hoursIssue);
+      return;
+    }
     if (missingFollowupTpl) {
       toast.error('Indica la plantilla aprobada para recordar a quien no reservó.');
       return;
     }
     try {
-      await update.mutateAsync({
+      const saved = await update.mutateAsync({
         assistantEnabled: enabled,
         assistantInstructions: instructions,
         assistantBookingsEnabled: bookings,
@@ -152,6 +146,8 @@ export function AssistantCard({ limited = false }: { limited?: boolean }) {
         followupTemplateName: followupTpl.trim(),
         followupTemplateLanguage: followupLang.trim() || 'es',
       });
+      // Los días cerrados ya pasados no se guardan: el editor enseña lo guardado.
+      setTeamHours(saved.teamHours);
       toast.success('Asistente guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -380,52 +376,10 @@ export function AssistantCard({ limited = false }: { limited?: boolean }) {
             {hoursMode !== 'always' && (
               <div className="space-y-1.5 rounded-md border p-3">
                 <p className="text-xs text-muted-foreground">
-                  Horario del equipo (en la zona horaria de tu negocio). Un día sin marcar cuenta
-                  como fuera del horario.
+                  Horario del equipo (en la zona horaria de tu negocio). Un día sin marcar o un día
+                  cerrado cuenta como fuera del horario.
                 </p>
-                {WEEKDAYS.map((day: Weekday) => {
-                  const v = teamHours[day];
-                  return (
-                    <div key={day} className="flex flex-wrap items-center gap-2 text-sm">
-                      <label className="flex w-28 items-center gap-2">
-                        <Checkbox
-                          checked={!!v}
-                          onCheckedChange={(c) =>
-                            setTeamHours((h) => ({
-                              ...h,
-                              [day]: c === true ? { open: '09:00', close: '18:00' } : null,
-                            }))
-                          }
-                        />
-                        {DAY_LABELS[day]}
-                      </label>
-                      {v && (
-                        <>
-                          <Input
-                            type="time"
-                            value={v.open}
-                            onChange={(e) =>
-                              setTeamHours((h) => ({ ...h, [day]: { ...v, open: e.target.value } }))
-                            }
-                            className="h-8 w-28 text-base sm:text-sm"
-                          />
-                          <span>a</span>
-                          <Input
-                            type="time"
-                            value={v.close}
-                            onChange={(e) =>
-                              setTeamHours((h) => ({
-                                ...h,
-                                [day]: { ...v, close: e.target.value },
-                              }))
-                            }
-                            className="h-8 w-28 text-base sm:text-sm"
-                          />
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+                <TeamHoursEditor value={teamHours} onChange={setTeamHours} />
                 {missingHours && (
                   <p className="text-xs text-amber-700 dark:text-amber-400">
                     Marca al menos un día: sin horario, el asistente{' '}

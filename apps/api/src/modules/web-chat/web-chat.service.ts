@@ -2,13 +2,15 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 import {
+  calendarDateIn,
   computeStorageM2,
   isBotUserAgent,
   isWithinHours,
+  normalizeTeamHours,
   normalizeWebChatQuestion,
-  OpeningHoursSchema,
   PublicBookingSchema,
   STORAGE_PRESETS,
+  TeamHoursSchema,
   type PageDto,
   type PublicLandingDto,
   type PublicWebChatBookingInput,
@@ -1237,7 +1239,7 @@ export class WebChatService {
 
   /** El equipo atiende ahora (sin horario puesto, siempre). */
   private teamAvailable(tenant: { webChatTeamHours: unknown; timezone: string }): boolean {
-    const hours = OpeningHoursSchema.safeParse(tenant.webChatTeamHours);
+    const hours = TeamHoursSchema.safeParse(tenant.webChatTeamHours);
     if (!hours.success || !tenant.webChatTeamHours) return true;
     return isWithinHours(hours.data, tenant.timezone);
   }
@@ -2017,7 +2019,7 @@ export class WebChatService {
       resetsOn: usage.resetsOn,
       ownKey: usage.mode === 'own',
       teamHours: (() => {
-        const hours = OpeningHoursSchema.safeParse(tenant?.webChatTeamHours);
+        const hours = TeamHoursSchema.safeParse(tenant?.webChatTeamHours);
         return tenant?.webChatTeamHours && hours.success ? hours.data : null;
       })(),
     };
@@ -2028,6 +2030,18 @@ export class WebChatService {
     input: UpdateWebChatSettingsInput,
     actor: { userId: string; meta: RequestMeta },
   ): Promise<WebChatSettingsDto> {
+    // Los días cerrados que ya han pasado no se guardan (en la zona del negocio).
+    let teamHours = input.teamHours;
+    if (teamHours) {
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      teamHours = normalizeTeamHours(
+        teamHours,
+        calendarDateIn(tenant?.timezone || 'Europe/Madrid'),
+      );
+    }
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: {
@@ -2044,9 +2058,7 @@ export class WebChatService {
         ...(input.sharedInstructions !== undefined
           ? { webChatSharedInstructions: input.sharedInstructions }
           : {}),
-        ...(input.teamHours !== undefined
-          ? { webChatTeamHours: input.teamHours ?? Prisma.DbNull }
-          : {}),
+        ...(teamHours !== undefined ? { webChatTeamHours: teamHours ?? Prisma.DbNull } : {}),
       },
     });
     // Sin paso a una persona, las conversaciones que esperaban vuelven al asistente.
@@ -2056,7 +2068,7 @@ export class WebChatService {
         data: { mode: 'ai' },
       });
     }
-    const { instructions, teamHours, ...flags } = input;
+    const { instructions, teamHours: hoursInput, ...flags } = input;
     await this.audit.write({
       tenantId,
       userId: actor.userId,
@@ -2067,7 +2079,7 @@ export class WebChatService {
       changes: {
         ...flags,
         ...(instructions !== undefined ? { instructions: !!instructions } : {}),
-        ...(teamHours !== undefined ? { teamHours: !!teamHours } : {}),
+        ...(hoursInput !== undefined ? { teamHours: !!hoursInput } : {}),
       },
       ipAddress: actor.meta.ipAddress ?? null,
       userAgent: actor.meta.userAgent ?? null,

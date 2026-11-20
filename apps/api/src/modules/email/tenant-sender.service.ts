@@ -23,8 +23,9 @@ export interface TenantSender {
  * - con dominio propio de correo **verificado** y la funcionalidad
  *   `custom_domain` en su plan → `<local>@<su-dominio>`, enviado por Brevo;
  * - si no → la dirección de la plataforma con el nombre del tenant.
- * Las respuestas van a la dirección configurada, o al email de facturación del
- * tenant, o al del propietario.
+ * Las respuestas van a la dirección del dominio propio (si la tiene), o a la que
+ * el tenant elige en Ajustes → Correo («Las respuestas de tus inquilinos llegan
+ * a»), o al email de facturación del tenant, o al del propietario.
  *
  * Nunca lanza: ante cualquier fallo cae al remitente de la plataforma, para
  * que un problema resolviendo el remitente no bloquee un envío.
@@ -59,6 +60,7 @@ export class TenantSenderService {
       select: {
         name: true,
         billingEmail: true,
+        emailReplyTo: true,
         emailDomain: {
           select: {
             domain: true,
@@ -79,7 +81,7 @@ export class TenantSenderService {
         : null;
     const name = (custom?.fromName && sanitizeDisplayName(custom.fromName)) || tenantName;
 
-    let replyEmail = custom?.replyTo ?? tenant.billingEmail;
+    let replyEmail = custom?.replyTo ?? tenant.emailReplyTo ?? tenant.billingEmail;
     if (!replyEmail) {
       const owner = await this.admin.user.findFirst({
         where: { tenantId, role: 'owner', isActive: true },

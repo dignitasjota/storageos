@@ -4,9 +4,10 @@ import {
   PROMO_SLUG_RE,
   defaultPromoLandingContent,
   type PromoLandingContent,
+  type PromoLandingDraftDto,
   type PromoLandingDto,
 } from '@storageos/shared';
-import { Eye, ImagePlus, Loader2, Trash2 } from 'lucide-react';
+import { Eye, ImagePlus, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -38,6 +39,7 @@ import {
   removePromoLandingImage,
   uploadPromoLandingImage,
   useCreatePromoLanding,
+  useDraftPromoLanding,
   useInvalidatePromoLandings,
   useUpdatePromoLanding,
 } from '@/lib/promo-landings/hooks';
@@ -132,6 +134,10 @@ export function PromoLandingDialog({
   const [form, setForm] = useState<Form>(toForm(landing, timeZone));
   const [slugTouched, setSlugTouched] = useState(!!landing);
   const [uploading, setUploading] = useState(false);
+  const draft = useDraftPromoLanding();
+  const [offer, setOffer] = useState('');
+  // Vuelve a montar el editor de bloques tras el borrador (sus listas guardan el texto escrito).
+  const [draftCount, setDraftCount] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -217,6 +223,62 @@ export function PromoLandingDialog({
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
+  }
+
+  /** Rellena los textos con el borrador de la IA (pregunta antes de sustituir lo escrito). */
+  async function writeWithAi() {
+    const hasText =
+      form.headline.trim() ||
+      form.subheadline.trim() ||
+      form.content.benefits.items.length > 0 ||
+      form.content.conditions.items.length > 0;
+    if (
+      hasText &&
+      !(await ask({
+        title: '¿Sustituir los textos?',
+        description:
+          'El borrador reemplaza el titular, el texto de la portada, las ventajas, las condiciones y los textos para Google. No se guarda hasta que pulses «Guardar».',
+        confirmLabel: 'Redactar',
+      }))
+    ) {
+      return;
+    }
+    let d: PromoLandingDraftDto;
+    try {
+      d = await draft.mutateAsync({
+        offer: offer.trim(),
+        couponId: form.couponId || null,
+        facilityIds: form.facilityIds,
+        unitTypeIds: form.unitTypeIds,
+      });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo redactar el texto');
+      return;
+    }
+    setForm((f) => ({
+      ...f,
+      headline: d.headline,
+      subheadline: d.subheadline ?? '',
+      seoTitle: d.seoTitle ?? f.seoTitle,
+      seoDescription: d.seoDescription ?? f.seoDescription,
+      content: {
+        ...f.content,
+        benefits:
+          d.benefits.length > 0
+            ? {
+                ...f.content.benefits,
+                enabled: true,
+                items: d.benefits.map((b) => ({ icon: '', ...b })),
+              }
+            : f.content.benefits,
+        conditions:
+          d.conditions.length > 0
+            ? { ...f.content.conditions, enabled: true, items: d.conditions }
+            : f.content.conditions,
+      },
+    }));
+    setDraftCount((n) => n + 1);
+    toast.success('Borrador listo. Revísalo antes de guardar.');
   }
 
   async function onPreview() {
@@ -315,8 +377,8 @@ export function PromoLandingDialog({
               )}
               {slugChanged && slugOk && (
                 <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                  Los enlaces y códigos QR que ya hayas repartido con la dirección anterior (/promo/
-                  {current?.slug}) dejarán de funcionar.
+                  La dirección anterior (/promo/{current?.slug}) seguirá funcionando: los enlaces y
+                  códigos QR que ya hayas repartido llevarán a la nueva.
                 </p>
               )}
             </div>
@@ -390,6 +452,39 @@ export function PromoLandingDialog({
               Las fechas van en la hora de tu negocio ({timeZone}). Apagada o fuera de fechas, su
               dirección lleva a la portada de tu web.
             </p>
+          </section>
+
+          <section className="space-y-2 rounded-md border border-dashed p-3">
+            <h3 className="flex items-center gap-1 text-sm font-semibold">
+              <Sparkles className="h-4 w-4" /> Redactar con IA
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Describe la oferta y redactamos el titular, el texto de la portada, las ventajas, las
+              condiciones y los textos para Google con tus locales, tamaños y precios reales (y el
+              cupón, si eliges uno). Gasta una consulta del asistente. Revísalo antes de guardar.
+            </p>
+            <Textarea
+              aria-label="Oferta"
+              rows={2}
+              maxLength={600}
+              value={offer}
+              placeholder="Primer mes gratis contratando 3 meses, hasta el 31 de diciembre"
+              onChange={(e) => setOffer(e.target.value)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void writeWithAi()}
+              disabled={draft.isPending || offer.trim().length < 3}
+            >
+              {draft.isPending ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-4 w-4" />
+              )}
+              {draft.isPending ? 'Redactando…' : 'Redactar'}
+            </Button>
           </section>
 
           <section className="space-y-3">
@@ -522,7 +617,7 @@ export function PromoLandingDialog({
               Cuenta atrás hasta la fecha de fin (en la portada)
             </label>
             <PromoContentEditor
-              key={current?.id ?? 'new'}
+              key={`${current?.id ?? 'new'}-${draftCount}`}
               content={form.content}
               setContent={setContent}
               sizes={landingSizes}

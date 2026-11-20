@@ -7,10 +7,10 @@ import { toast } from 'sonner';
 
 import { WebChatTry } from './web-chat-try';
 
-import type { OpeningHours } from '@storageos/shared';
+import type { TeamHours } from '@storageos/shared';
 
 import { SectionError } from '@/components/dashboard/section-state';
-import { OpeningHoursEditor } from '@/components/opening-hours-editor';
+import { TeamHoursEditor, teamHoursIssue } from '@/components/team-hours-editor';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -21,7 +21,7 @@ import { ApiError } from '@/lib/auth/api';
 import { formatDate, formatNumber } from '@/lib/format';
 
 /** Horario de partida al marcar «El equipo atiende el chat en un horario». */
-const WORK_WEEK: OpeningHours = {
+const WORK_WEEK: TeamHours = {
   mon: { open: '09:00', close: '18:00' },
   tue: { open: '09:00', close: '18:00' },
   wed: { open: '09:00', close: '18:00' },
@@ -37,7 +37,7 @@ export function WebChatCard() {
   const update = useUpdateWebChatSettings();
   const [instructions, setInstructions] = useState('');
   const [hasHours, setHasHours] = useState(false);
-  const [teamHours, setTeamHours] = useState<OpeningHours>({});
+  const [teamHours, setTeamHours] = useState<TeamHours>({});
   const loaded = useRef(false);
   useEffect(() => {
     if (!settings.data || loaded.current) return;
@@ -54,12 +54,14 @@ export function WebChatCard() {
       bookingsEnabled?: boolean;
       handoffEnabled?: boolean;
       sharedInstructions?: boolean;
-      teamHours?: OpeningHours | null;
+      teamHours?: TeamHours | null;
     },
     done: string,
   ) {
     try {
-      await update.mutateAsync(input);
+      const saved = await update.mutateAsync(input);
+      // Los días cerrados ya pasados no se guardan: el editor enseña lo guardado.
+      if (input.teamHours && saved.teamHours) setTeamHours(saved.teamHours);
       toast.success(done);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
@@ -167,10 +169,10 @@ export function WebChatCard() {
             </div>
             {hasHours && (
               <>
-                <OpeningHoursEditor value={teamHours} onChange={setTeamHours} />
+                <TeamHoursEditor value={teamHours} onChange={setTeamHours} />
                 <Button
                   size="sm"
-                  disabled={update.isPending}
+                  disabled={update.isPending || !!teamHoursIssue(teamHours)}
                   onClick={() => save({ teamHours }, 'Horario del equipo guardado.')}
                 >
                   Guardar el horario

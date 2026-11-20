@@ -9,10 +9,12 @@ import { ConfigService } from '@nestjs/config';
 import {
   type AdminTenantWhatsappAiDto,
   assistantRespondsNow,
+  calendarDateIn,
   hasOpenDay,
   isWhatsappAiProvider,
   isWhatsappIntent,
-  OpeningHoursSchema,
+  normalizeTeamHours,
+  TeamHoursSchema,
   type WhatsappIntent,
   WHATSAPP_INTENT_LABELS,
   type PlatformWhatsappAiDto,
@@ -81,7 +83,7 @@ const HANDOFF_SUMMARY_PROMPT =
 
 /** El horario del equipo guardado (jsonb), validado. */
 function teamHoursOf(v: unknown) {
-  const parsed = OpeningHoursSchema.safeParse(v ?? {});
+  const parsed = TeamHoursSchema.safeParse(v ?? {});
   return parsed.success ? parsed.data : {};
 }
 
@@ -411,6 +413,18 @@ export class WhatsappAssistantService {
         });
       }
     }
+    // Los días cerrados que ya han pasado no se guardan (en la zona del negocio).
+    let teamHours = input.teamHours;
+    if (teamHours !== undefined) {
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      teamHours = normalizeTeamHours(
+        teamHours,
+        calendarDateIn(tenant?.timezone || 'Europe/Madrid'),
+      );
+    }
     const data = {
       ...(input.assistantEnabled !== undefined ? { assistantEnabled: input.assistantEnabled } : {}),
       ...(input.assistantInstructions !== undefined
@@ -429,7 +443,7 @@ export class WhatsappAssistantService {
       ...(input.assistantHoursMode !== undefined
         ? { assistantHoursMode: input.assistantHoursMode }
         : {}),
-      ...(input.teamHours !== undefined ? { teamHours: input.teamHours } : {}),
+      ...(teamHours !== undefined ? { teamHours } : {}),
       ...(input.alertIntents !== undefined ? { alertIntents: input.alertIntents } : {}),
       ...(input.followupEnabled !== undefined ? { followupEnabled: input.followupEnabled } : {}),
       ...(input.followupTemplateName !== undefined

@@ -77,6 +77,8 @@ function isPlatformHost(host: string): boolean {
 interface DomainResolution {
   slug: string | null;
   hasExternalSite: boolean;
+  /** El dominio guardado: la forma con o sin `www.` redirige a él. */
+  canonicalHost: string | null;
 }
 
 // Caché host → resolución con TTL corto. En self-hosted (proceso node) el
@@ -89,18 +91,26 @@ async function resolveSlug(host: string): Promise<DomainResolution> {
   const now = Date.now();
   const cached = domainCache.get(host);
   if (cached && cached.exp > now) return cached.value;
-  let value: DomainResolution = { slug: null, hasExternalSite: false };
+  let value: DomainResolution = { slug: null, hasExternalSite: false, canonicalHost: null };
   try {
     const res = await fetch(
       `${API_URL}/public/landing/resolve-domain?host=${encodeURIComponent(host)}`,
       { headers: internalApiHeaders() },
     );
     if (res.ok) {
-      const data = (await res.json()) as { tenantSlug?: string; hasExternalSite?: boolean };
-      value = { slug: data.tenantSlug ?? null, hasExternalSite: data.hasExternalSite ?? false };
+      const data = (await res.json()) as {
+        tenantSlug?: string;
+        hasExternalSite?: boolean;
+        canonicalHost?: string;
+      };
+      value = {
+        slug: data.tenantSlug ?? null,
+        hasExternalSite: data.hasExternalSite ?? false,
+        canonicalHost: data.canonicalHost ?? null,
+      };
     }
   } catch {
-    value = { slug: null, hasExternalSite: false };
+    value = { slug: null, hasExternalSite: false, canonicalHost: null };
   }
   // Tamaño máximo: cualquiera puede mandar peticiones con un `Host` inventado
   // y la caché no debe crecer sin límite (se descarta la entrada más antigua).
@@ -179,7 +189,14 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
 
   // --- Dominio propio de tenant (white-label) ---
   if (host && !isPlatformHost(host)) {
-    const { slug, hasExternalSite } = await resolveSlug(host);
+    const { slug, hasExternalSite, canonicalHost } = await resolveSlug(host);
+    // Con y sin `www.`: la forma que no se guardó redirige a la guardada.
+    if (slug && canonicalHost && canonicalHost !== host.split(':')[0]) {
+      return NextResponse.redirect(
+        new URL(`${pathname}${search}`, `https://${canonicalHost}`),
+        308,
+      );
+    }
     if (slug) {
       const route = resolveCustomDomainRoute(pathname, slug, { externalSite: hasExternalSite });
       // El tenant se identifica SIEMPRE por esta cabecera cuando se accede vía

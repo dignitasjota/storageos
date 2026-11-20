@@ -1,7 +1,13 @@
 'use client';
 
-import { auditActionLabel, type AuditLogDto, type AuditLogFilters } from '@storageos/shared';
-import { ChevronDown, ChevronRight, Download, Loader2 } from 'lucide-react';
+import {
+  auditActionLabel,
+  auditEntityHref,
+  type AuditLogDto,
+  type AuditLogFilters,
+} from '@storageos/shared';
+import { ChevronDown, ChevronRight, Download, ExternalLink, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { Fragment, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -13,6 +19,7 @@ import { SectionError } from '@/components/dashboard/section-state';
 import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -62,7 +69,8 @@ export default function AuditPage() {
   const items = data?.pages.flatMap((p) => p.items) ?? [];
   const [open, setOpen] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const active = Object.values(filters).some(Boolean);
+  // El interruptor de sesiones no cuenta como filtro activo.
+  const active = Object.entries(filters).some(([k, v]) => k !== 'includeSessions' && !!v);
 
   function set<K extends keyof AuditLogFilters>(key: K, value: AuditLogFilters[K] | undefined) {
     setFilters((f) => {
@@ -165,9 +173,20 @@ export default function AuditPage() {
             <Label>Hasta</Label>
             <DateSelect value={filters.to} onChange={(v) => set('to', v)} />
           </div>
+          <label className="flex w-full items-center gap-2 text-sm">
+            <Checkbox
+              checked={filters.includeSessions === true}
+              onCheckedChange={(v) => set('includeSessions', v === true ? true : undefined)}
+            />
+            Mostrar inicios y renovaciones de sesión
+          </label>
           <div className="flex w-full flex-wrap gap-2">
             {active && (
-              <Button size="sm" variant="outline" onClick={() => setFilters({})}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setFilters(filters.includeSessions ? { includeSessions: true } : {})}
+              >
                 Quitar los filtros
               </Button>
             )}
@@ -218,6 +237,7 @@ export default function AuditPage() {
                 ) : (
                   items.map((a) => {
                     const expanded = open === a.id;
+                    const href = auditEntityHref(a.entityType, a.entityId);
                     const hasDetail =
                       a.changes != null || a.ipAddress != null || a.entityId != null;
                     return (
@@ -240,6 +260,15 @@ export default function AuditPage() {
                           <TableCell className="text-sm">{a.userName ?? 'Sistema'}</TableCell>
                           <TableCell className="text-sm" title={a.action}>
                             {auditActionLabel(a.action)}
+                            {href && (
+                              <Link
+                                href={href}
+                                onClick={(e) => e.stopPropagation()}
+                                className="ml-2 inline-flex items-center gap-0.5 whitespace-nowrap text-xs text-primary hover:underline"
+                              >
+                                Ver <ExternalLink className="size-3" aria-hidden />
+                              </Link>
+                            )}
                           </TableCell>
                         </TableRow>
                         {expanded && (

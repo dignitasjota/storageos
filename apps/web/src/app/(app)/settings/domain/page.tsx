@@ -1,11 +1,17 @@
 'use client';
 
-import { CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import {
+  customDomainAlternate,
+  customDomainDnsRecords,
+  isValidCustomDomain,
+  type CustomDomainCheckDto,
+  type CustomDomainHostCheckDto,
+  type CustomDomainTargetDto,
+} from '@storageos/shared';
+import { CheckCircle2, Clock, Copy, Loader2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-
-import type { CustomDomainCheckDto } from '@storageos/shared';
 
 import { FeatureGate } from '@/components/auth/feature-gate';
 import { useConfirm } from '@/components/confirm-provider';
@@ -19,7 +25,7 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useMe } from '@/lib/auth/hooks';
 import { useTenantBranding, useUpdateTenantBranding } from '@/lib/branding/hooks';
 import { useCreateSupportTicket } from '@/lib/support/hooks';
-import { useCheckCustomDomain } from '@/lib/tenant-settings/hooks';
+import { useCheckCustomDomain, useCustomDomainTarget } from '@/lib/tenant-settings/hooks';
 
 /** Dominio propio de la web pública (feature `custom_domain`). */
 export default function DomainSettingsPage() {
@@ -98,6 +104,7 @@ function DomainCard() {
   const [notified, setNotified] = useState(false);
   const checkDns = useCheckCustomDomain();
   const [check, setCheck] = useState<CustomDomainCheckDto | null>(null);
+  const target = useCustomDomainTarget();
 
   async function runCheck() {
     try {
@@ -165,6 +172,12 @@ function DomainCard() {
 
   const savedDomain = branding.data?.customDomain ?? null;
   const verified = branding.data?.customDomainVerifiedAt != null;
+  // El registro DNS se enseña en cuanto el dominio escrito es válido (aunque
+  // aún no se haya guardado) y, si no, el del guardado.
+  const typed = domain.trim().toLowerCase();
+  const recordsDomain = isValidCustomDomain(typed) ? typed : savedDomain;
+  const unsavedDomain = recordsDomain !== null && recordsDomain !== savedDomain;
+  const alternate = recordsDomain ? customDomainAlternate(recordsDomain) : null;
 
   return (
     <Card>
@@ -188,7 +201,25 @@ function DomainCard() {
           <p className="text-xs text-muted-foreground">
             Sin <code>https://</code> ni rutas. Déjalo vacío para desactivarlo.
           </p>
+          {alternate && (
+            <p className="text-xs text-muted-foreground">
+              Tu web responderá en <strong>{recordsDomain}</strong> y en{' '}
+              <strong>{alternate}</strong>: quien entre por {alternate} irá a {recordsDomain}. Si
+              prefieres que la principal sea {alternate}, escríbelo así.
+            </p>
+          )}
         </div>
+
+        {recordsDomain && (!verified || unsavedDomain) && (
+          <DnsRecords
+            domain={recordsDomain}
+            target={target.data}
+            loading={target.isLoading}
+            failed={target.isError}
+            onRetry={() => void target.refetch()}
+            unsaved={unsavedDomain}
+          />
+        )}
 
         {savedDomain && (
           <div className="rounded-md border p-3 text-sm">
@@ -210,9 +241,9 @@ function DomainCard() {
                   <Clock className="size-4" /> Pendiente de activación
                 </span>
                 <p className="text-xs text-muted-foreground">
-                  Crea en tu proveedor de dominios un registro <strong>A</strong> (o CNAME) que
-                  apunte <code>{savedDomain}</code> a la plataforma y pulsa «Ya he configurado el
-                  DNS»: lo activaremos y emitiremos el certificado HTTPS. Te responderemos en{' '}
+                  Crea en tu proveedor de dominios los registros de arriba y pulsa «Ya he
+                  configurado el DNS»: lo activaremos y emitiremos el certificado HTTPS. Te
+                  responderemos en{' '}
                   <Link href="/support" className="underline">
                     Soporte
                   </Link>{' '}
@@ -229,6 +260,7 @@ function DomainCard() {
                     Ya he configurado el DNS
                   </Button>
                 </div>
+                {check && <HostChecks hosts={check.hosts ?? []} expected={check.expected} />}
                 {check && check.pointsToPlatform && (
                   <p className="text-xs text-green-700 dark:text-green-400">
                     El DNS ya apunta a la plataforma. Hemos avisado al equipo de TrasterOS: lo
@@ -238,10 +270,8 @@ function DomainCard() {
                 {check && !check.pointsToPlatform && (
                   <div className="space-y-2 rounded-md bg-muted p-2 text-xs">
                     <p>
-                      Todavía no apunta. Ahora mismo responde:{' '}
-                      <code>{check.found.length ? check.found.join(', ') : 'nada'}</code>. Debe
-                      apuntar a <code>{check.expected.join(', ')}</code>. Los cambios de DNS pueden
-                      tardar unas horas; lo comprobamos solos cada hora.
+                      Todavía no apunta. Debe apuntar a <code>{check.expected.join(', ')}</code>.
+                      Los cambios de DNS pueden tardar unas horas; lo comprobamos solos cada hora.
                     </p>
                     <Button
                       size="sm"
@@ -271,5 +301,132 @@ function DomainCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+const RECORD_TYPE_HINT: Record<'A' | 'CNAME' | 'ALIAS', string> = {
+  A: 'A',
+  CNAME: 'CNAME',
+  ALIAS: 'ALIAS o ANAME',
+};
+
+/** Los registros que hay que crear en el proveedor de dominios, con botón de copiar. */
+function DnsRecords({
+  domain,
+  target,
+  loading,
+  failed,
+  onRetry,
+  unsaved,
+}: {
+  domain: string;
+  target: CustomDomainTargetDto | undefined;
+  loading: boolean;
+  failed: boolean;
+  onRetry: () => void;
+  unsaved: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex justify-center py-4">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (failed || !target) return <SectionError onRetry={onRetry} />;
+  const records = customDomainDnsRecords(domain, target);
+  const hasAlias = records.some((r) => r.type === 'ALIAS');
+
+  async function copy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success('Copiado.');
+    } catch {
+      toast.error('No se pudo copiar. Selecciónalo y cópialo a mano.');
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="text-sm font-medium">
+        Registros que tienes que crear en tu proveedor de dominios
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Entra en la zona DNS de tu dominio (donde lo compraste) y añade estos registros. En
+        «Nombre», <code>@</code> es el dominio sin nada delante; si tu proveedor lo pide completo,
+        escribe el de la derecha.
+        {unsaved && ' Guarda el dominio para que podamos activarlo.'}
+      </p>
+      <div className="divide-y rounded-md border text-xs">
+        {records.map((r) => (
+          <div
+            key={`${r.type}-${r.host}-${r.value}`}
+            className="grid gap-1 p-2 sm:grid-cols-[4.5rem_1fr_1.6fr_auto] sm:items-center"
+          >
+            <span className="font-semibold">{RECORD_TYPE_HINT[r.type]}</span>
+            <span>
+              <span className="text-muted-foreground sm:hidden">Nombre: </span>
+              <code>{r.name}</code> <span className="text-muted-foreground">({r.host})</span>
+            </span>
+            <span className="break-all">
+              <span className="text-muted-foreground sm:hidden">Valor: </span>
+              <code>{r.value}</code>
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="justify-self-start"
+              onClick={() => void copy(r.value)}
+              aria-label={`Copiar el valor del registro ${r.type} de ${r.host}`}
+            >
+              <Copy className="mr-1 size-3.5" /> Copiar
+            </Button>
+          </div>
+        ))}
+      </div>
+      {records.some((r) => r.purpose === 'alternate') && (
+        <p className="text-xs text-muted-foreground">
+          El último sirve para que tu web también se vea con o sin «www».
+        </p>
+      )}
+      {hasAlias && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          No conocemos la IP de la plataforma en este momento: si tu proveedor no admite ALIAS o
+          ANAME en el dominio sin nada delante, escríbenos a soporte y te la damos.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Lo que responde hoy el DNS de cada nombre (con y sin «www»), por separado. */
+function HostChecks({
+  hosts,
+  expected,
+}: {
+  hosts: CustomDomainHostCheckDto[];
+  expected: string[];
+}) {
+  if (hosts.length === 0) return null;
+  return (
+    <ul className="space-y-1 text-xs">
+      {hosts.map((h) => (
+        <li key={h.host} className="flex items-start gap-1.5">
+          {h.pointsToPlatform ? (
+            <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-green-600 dark:text-green-400" />
+          ) : (
+            <XCircle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          )}
+          <span>
+            <strong>{h.host}</strong>
+            {h.purpose === 'alternate' ? ' (con o sin «www»)' : ''}:{' '}
+            {h.pointsToPlatform
+              ? 'ya apunta a la plataforma.'
+              : `todavía no apunta (responde ${h.found.length ? h.found.join(', ') : 'nada'}; debe ser ${expected.join(', ')}).`}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

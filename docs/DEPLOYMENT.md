@@ -2931,3 +2931,25 @@ Qué cambia para los usuarios:
 - **Páginas sin permiso**: quien abra por dirección una página de Configuración que no le corresponde ve un aviso en vez del formulario.
 
 Tras desplegar, revisar en Facturación que cada emisor tiene su serie por defecto.
+
+## 173. Mejoras de Configuración del panel del tenant (2026-11-20)
+
+Migración `20270215100000_settings_improvements` (se aplica sola): rol y locales en las invitaciones, fecha de recepción y motivo en las solicitudes de protección de datos, preguntas frecuentes en inglés, publicación programada del blog, recordatorios de impago por WhatsApp, dirección de respuesta de los correos y la tabla `web_slug_redirects` (con RLS). Sin variables nuevas.
+
+- **Tarea nueva en el worker**: `blog.publish-scheduled` (cada 5 minutos) publica las entradas programadas.
+- **Dominio propio con y sin `www`**: la web responde en las dos formas y redirige a la principal, pero para eso **el Proxy Host de NPM del tenant tiene que incluir las dos** (`dominio.com` y `www.dominio.com`) con su certificado. Al dar de alta un dominio nuevo, añadir las dos. En los que ya están, añadir la forma que falte cuando el tenant lo pida.
+- **API de lectura**: los tenants pueden leer inquilinos, contratos y facturas con sus claves de API (`/v1/integrations/…`), con un límite de 120 peticiones por minuto por clave.
+
+Qué cambia para los usuarios:
+
+- **Equipo**: se ve cuántos usuarios del plan quedan; se puede invitar con un rol a medida y unos locales; el propietario puede quitar la verificación en dos pasos a un empleado que perdió el móvil.
+- **Páginas con un solo «Guardar»**: Web, Marca y SEO, Textos legales y Plantilla de contrato guardan todo de una vez y avisan si sales con cambios sin guardar.
+- **Suscripción**: se puede pasar de mensual a anual (y al revés) en el mismo plan.
+- **Cobros**: «Probar TPV» de Redsys, y aviso de cuántas tarjetas o mandatos hay guardados antes de apagar una pasarela.
+- **Escalado de impagos**: los recordatorios pueden salir también por WhatsApp.
+- **Correo**: vista previa de cada correo automático, «Enviarme uno de prueba» y dirección de respuesta propia.
+- **Horario de atención** con turno partido y días cerrados.
+- **Blog y landings**: publicación programada, «Redactar con IA» y la dirección antigua redirige a la nueva.
+- **Preguntas frecuentes** en inglés.
+- **Protección de datos**: vista previa antes de anonimizar, fecha de recepción y motivo al denegar.
+- **Integraciones**: evento de prueba, editar webhooks, cuatro eventos nuevos y API de lectura.

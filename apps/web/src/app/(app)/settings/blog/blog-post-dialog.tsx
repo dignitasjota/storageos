@@ -7,6 +7,7 @@ import {
   buttonBlock,
   comparisonBlock,
   widgetBlock,
+  type BlogPostDraftDto,
   type BlogPostDto,
   type BlogWidget,
 } from '@storageos/shared';
@@ -23,7 +24,9 @@ import {
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { BlogAiDraft } from './blog-ai-draft';
 import { InsertComparisonDialog, InsertTargetDialog } from './blog-insert-dialogs';
+import { BlogPublishFields, type BlogPublishMode } from './blog-publish-fields';
 
 import { BlogContent } from '@/app/(public)/s/[slug]/blog/blog-content';
 import { useConfirm } from '@/components/confirm-provider';
@@ -55,6 +58,7 @@ import {
   useUploadBlogCover,
 } from '@/lib/blog/hooks';
 import { compressImage } from '@/lib/images/compress';
+import { isoToZonedDateTime, zonedDateTimeToIso } from '@/lib/promo-landings/dates';
 
 /** Tabla de ejemplo que inserta el botón «Tabla»: cabecera, separador y dos filas. */
 const TABLE_TEMPLATE = [
@@ -95,13 +99,29 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
   const [coverImageAlt, setCoverImageAlt] = useState(post?.coverImageAlt ?? '');
   const [coverFileName, setCoverFileName] = useState('');
   const [relatedPostIds, setRelatedPostIds] = useState<string[]>(post?.relatedPostIds ?? []);
-  const [isPublished, setIsPublished] = useState(post?.isPublished ?? false);
+  const timeZone = me.data?.tenant.timezone ?? 'Europe/Madrid';
+  const initialSchedule = isoToZonedDateTime(post?.publishAt ?? null, timeZone);
+  const [mode, setMode] = useState<BlogPublishMode>(
+    post?.isPublished ? 'now' : post?.publishAt ? 'schedule' : 'draft',
+  );
+  const [scheduleDate, setScheduleDate] = useState(initialSchedule.date);
+  const [scheduleTime, setScheduleTime] = useState(initialSchedule.time || '09:00');
   // Tras crear, la entrada recién creada: el diálogo sigue abierto para la portada.
   const [saved, setSaved] = useState<BlogPostDto | null>(null);
   const [insert, setInsert] = useState<{ kind: 'link' | 'button'; text: string } | null>(null);
   const [comparisonOpen, setComparisonOpen] = useState(false);
 
   const current = saved ?? post ?? null;
+  const scheduledIso =
+    mode === 'schedule' ? zonedDateTimeToIso(scheduleDate, scheduleTime, timeZone) : null;
+  const scheduleOk =
+    mode !== 'schedule' || (!!scheduledIso && new Date(scheduledIso).getTime() > Date.now());
+  const savedMode: BlogPublishMode = current?.isPublished
+    ? 'now'
+    : current?.publishAt
+      ? 'schedule'
+      : 'draft';
+  const slugChanged = !!current && !!slug.trim() && slug.trim() !== current.slug;
   const pending = create.isPending || update.isPending;
   const others = (allPosts.data ?? []).filter((p) => p.id !== current?.id);
 
@@ -114,7 +134,8 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
     seoTitle !== (current?.seoTitle ?? '') ||
     seoDescription !== (current?.seoDescription ?? '') ||
     coverImageAlt !== (current?.coverImageAlt ?? '') ||
-    isPublished !== (current?.isPublished ?? false) ||
+    mode !== savedMode ||
+    (mode === 'schedule' && scheduledIso !== (current?.publishAt ?? null)) ||
     relatedPostIds.join() !== (current?.relatedPostIds ?? []).join();
 
   async function requestOpenChange(next: boolean) {
@@ -142,7 +163,9 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
       seoDescription,
       coverImageAlt,
       relatedPostIds: existing ? relatedPostIds.filter((id) => existing.has(id)) : relatedPostIds,
-      isPublished,
+      isPublished: mode === 'now',
+      // Programada: borrador hasta la fecha; en otro caso, sin programar.
+      publishAt: mode === 'schedule' ? scheduledIso : null,
     };
     try {
       if (current) {
@@ -152,11 +175,34 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
       } else {
         const created = await create.mutateAsync(input);
         setSaved(created);
+        setMode(created.isPublished ? 'now' : created.publishAt ? 'schedule' : 'draft');
         toast.success('Entrada creada. Ya puedes subirle una portada.');
       }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
     }
+  }
+
+  /** Rellena el formulario con el borrador de la IA (pregunta antes de sustituir lo escrito). */
+  async function applyDraft(d: BlogPostDraftDto): Promise<boolean> {
+    const hasText = title.trim() || excerpt.trim() || contentMarkdown.trim();
+    if (
+      hasText &&
+      !(await ask({
+        title: '¿Sustituir lo escrito?',
+        description:
+          'El borrador reemplaza el título, el resumen, el texto y los textos para Google que tienes ahora. No se guarda hasta que pulses «Guardar».',
+        confirmLabel: 'Sustituir',
+      }))
+    ) {
+      return false;
+    }
+    setTitle(d.title);
+    setExcerpt(d.excerpt ?? '');
+    setContentMarkdown(d.contentMarkdown);
+    setSeoTitle(d.seoTitle ?? '');
+    setSeoDescription(d.seoDescription ?? '');
+    return true;
   }
 
   async function onPickCover(e: React.ChangeEvent<HTMLInputElement>) {
@@ -240,6 +286,7 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div className="space-y-3">
+            <BlogAiDraft onDraft={applyDraft} />
             <div className="space-y-1">
               <Label>Título</Label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
@@ -252,6 +299,12 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
                 placeholder="se genera del título si lo dejas vacío"
                 maxLength={120}
               />
+              {slugChanged && (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  La dirección anterior (/blog/{current?.slug}) seguirá funcionando: llevará a la
+                  nueva, también desde Google y los enlaces que hayas compartido.
+                </p>
+              )}
             </div>
             <div className="space-y-1">
               <Label>Resumen</Label>
@@ -457,10 +510,16 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
               )}
             </div>
 
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox checked={isPublished} onCheckedChange={(v) => setIsPublished(v === true)} />
-              Publicada (visible en la web pública)
-            </label>
+            <BlogPublishFields
+              mode={mode}
+              onMode={setMode}
+              date={scheduleDate}
+              time={scheduleTime}
+              onDate={setScheduleDate}
+              onTime={setScheduleTime}
+              timeZone={timeZone}
+              scheduledIso={scheduledIso}
+            />
           </div>
 
           <div className="space-y-1">
@@ -495,7 +554,10 @@ export function BlogPostDialog({ open, onOpenChange, post }: Props) {
           >
             {saved && !post ? 'Cerrar' : 'Cancelar'}
           </Button>
-          <Button onClick={submit} disabled={pending || !title.trim() || !contentMarkdown.trim()}>
+          <Button
+            onClick={submit}
+            disabled={pending || !title.trim() || !contentMarkdown.trim() || !scheduleOk}
+          >
             {pending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
             {current ? 'Guardar' : 'Crear'}
           </Button>

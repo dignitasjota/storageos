@@ -5,6 +5,7 @@ import { apiFetch } from '../auth/api';
 import type {
   ConfigHealthItemDto,
   CustomDomainCheckDto,
+  CustomDomainTargetDto,
   TenantBillingSettingsResponse,
   TenantMonthlyDigestResultDto,
   TenantMonthlyDigestSettingsResponse,
@@ -129,6 +130,16 @@ export function useConfigHealth(enabled = true) {
     queryFn: () => apiFetch<ConfigHealthItemDto[]>('/settings/tenant/health'),
     enabled,
     staleTime: 60_000,
+  });
+}
+
+/** A dónde tiene que apuntar el dominio propio (dominio e IP de la plataforma). */
+export function useCustomDomainTarget(enabled = true) {
+  return useQuery({
+    queryKey: ['settings', 'tenant', 'domain-target'] as const,
+    queryFn: () => apiFetch<CustomDomainTargetDto>('/settings/tenant/domain/target'),
+    enabled,
+    staleTime: 10 * 60_000,
   });
 }
 

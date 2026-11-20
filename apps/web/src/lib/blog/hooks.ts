@@ -5,8 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   BlogCoverUploadResponseDto,
   BlogImageDto,
+  BlogPostDraftDto,
   BlogPostDto,
   CreateBlogPostInput,
+  DraftBlogPostInput,
   UpdateBlogPostInput,
 } from '@storageos/shared';
 
@@ -57,6 +59,14 @@ export function useDeleteBlogPost() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<void>(`/blog-posts/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: blogKey }),
+  });
+}
+
+/** Borrador con IA de una entrada (no guarda nada; gasta una consulta). */
+export function useDraftBlogPost() {
+  return useMutation({
+    mutationFn: (input: DraftBlogPostInput) =>
+      apiFetch<BlogPostDraftDto>('/blog-posts/draft', { method: 'POST', json: input }),
   });
 }
 

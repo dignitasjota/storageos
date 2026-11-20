@@ -46,3 +46,46 @@ export function zonedDateToIso(value: string, timeZone: string, endOfDay: boolea
   t = wall - offsetMs(new Date(t), timeZone);
   return new Date(t).toISOString();
 }
+
+/** Día y hora (`YYYY-MM-DD`, `HH:MM`) en la zona de un instante ISO. */
+export function isoToZonedDateTime(
+  iso: string | null,
+  timeZone: string,
+): { date: string; time: string } {
+  if (!iso) return { date: '', time: '' };
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { date: '', time: '' };
+  const time = d.toLocaleTimeString('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  return { date: d.toLocaleDateString('sv-SE', { timeZone }), time };
+}
+
+/** Instante ISO del día y la hora (`HH:MM`) en la zona del negocio. */
+export function zonedDateTimeToIso(date: string, time: string, timeZone: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null;
+  const wall = Date.parse(`${date}T${time}:00Z`);
+  if (Number.isNaN(wall)) return null;
+  // Dos pasadas: el desfase puede cambiar ese día (horario de verano).
+  let t = wall - offsetMs(new Date(wall), timeZone);
+  t = wall - offsetMs(new Date(t), timeZone);
+  return new Date(t).toISOString();
+}
+
+/** «25 de noviembre de 2026, 9:00» en la zona del negocio. */
+export function formatZonedDateTime(iso: string | null, timeZone: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-ES', {
+    timeZone,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}

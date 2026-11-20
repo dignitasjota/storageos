@@ -20,6 +20,8 @@ export interface AuditLogFilters {
   action?: string;
   from?: string;
   to?: string;
+  /** Incluir los inicios, cierres y renovaciones de sesión (ocultos por defecto). */
+  includeSessions?: boolean;
 }
 
 export interface AuditLogListDto {
@@ -28,3 +30,4 @@ export interface AuditLogListDto {
   nextCursor: string | null;
 }
 export * from './labels';
+export * from './links';

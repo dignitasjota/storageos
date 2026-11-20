@@ -11,6 +11,7 @@ export function auditQuery(filters: AuditLogFilters, cursor?: string, limit?: nu
   if (filters.action) p.set('action', filters.action);
   if (filters.from) p.set('from', filters.from);
   if (filters.to) p.set('to', filters.to);
+  if (filters.includeSessions) p.set('sessions', '1');
   if (limit) p.set('limit', String(limit));
   const qs = p.toString();
   return `/audit-logs${qs ? `?${qs}` : ''}`;
