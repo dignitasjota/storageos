@@ -10,6 +10,12 @@ import type {
   PageDto,
   SupportTicketDto,
   MessageAttachmentUploadDto,
+  ServiceStatusDto,
+  SupportResponseTimesDto,
+  SupportTeammateDto,
+  SupportTicketListFilter,
+  SupportTicketPriorityValue,
+  SupportTicketWatcherDto,
   TenantPlatformMessagesPageDto,
 } from '@storageos/shared';
 
@@ -27,16 +33,91 @@ export function useSupportTickets() {
   });
 }
 
-/** Los tickets del tenant por páginas («Cargar más»). */
-export function useSupportTicketsPage() {
+export interface SupportTicketFilters {
+  status?: SupportTicketListFilter | undefined;
+  mine?: boolean | undefined;
+  search?: string | undefined;
+}
+
+/** Los tickets del tenant por páginas («Cargar más»), con filtros en el servidor. */
+export function useSupportTicketsPage(filters: SupportTicketFilters = {}) {
   return useInfiniteQuery({
-    queryKey: [...supportTicketsKey, 'page'] as const,
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
-      apiFetch<PageDto<SupportTicketDto>>(
-        `/support/tickets/page${pageParam ? `?cursor=${pageParam}` : ''}`,
-      ),
+    queryKey: [...supportTicketsKey, 'page', filters] as const,
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+      const qs = new URLSearchParams();
+      if (pageParam) qs.set('cursor', pageParam);
+      if (filters.status) qs.set('status', filters.status);
+      if (filters.mine) qs.set('mine', '1');
+      if (filters.search?.trim()) qs.set('search', filters.search.trim());
+      const q = qs.toString();
+      return apiFetch<PageDto<SupportTicketDto>>(`/support/tickets/page${q ? `?${q}` : ''}`);
+    },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+/** Estado del servicio que publica TrasterOS (aviso arriba si hay una incidencia). */
+export function useServiceStatus() {
+  return useQuery({
+    queryKey: ['support', 'service-status'] as const,
+    queryFn: () => apiFetch<ServiceStatusDto>('/support/service-status'),
+    refetchInterval: 120_000,
+  });
+}
+
+/** Lo que solemos tardar en responder según la prioridad. */
+export function useSupportResponseTimes() {
+  return useQuery({
+    queryKey: ['support', 'response-times'] as const,
+    queryFn: () => apiFetch<SupportResponseTimesDto>('/support/response-times'),
+    staleTime: 10 * 60_000,
+  });
+}
+
+/** Compañeros del negocio que se pueden poner en copia. */
+export function useSupportTeammates(enabled = true) {
+  return useQuery({
+    enabled,
+    queryKey: ['support', 'teammates'] as const,
+    queryFn: () => apiFetch<SupportTeammateDto[]>('/support/teammates'),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Reabrir un ticket cerrado (unos días tras el cierre). */
+export function useReopenTicket(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<SupportTicketDto>(`/support/tickets/${id}/reopen`, { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: supportTicketsKey }),
+  });
+}
+
+/** Cambiar la prioridad del ticket. */
+export function useUpdateTicketPriority(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (priority: SupportTicketPriorityValue) =>
+      apiFetch<SupportTicketDto>(`/support/tickets/${id}`, {
+        method: 'PATCH',
+        json: { priority },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: supportTicketsKey }),
+  });
+}
+
+/** Sustituir la lista de compañeros en copia. */
+export function useSetTicketWatchers(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userIds: string[]) =>
+      apiFetch<SupportTicketWatcherDto[]>(`/support/tickets/${id}/watchers`, {
+        method: 'PUT',
+        json: { userIds },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['support', 'tickets', id] }),
   });
 }
 

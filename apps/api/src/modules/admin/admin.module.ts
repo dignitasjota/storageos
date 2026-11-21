@@ -124,6 +124,9 @@ import { SuperAdminService } from './super-admin.service';
 import { SupportAgilityController } from './support-agility.controller';
 import { SupportAgilityService } from './support-agility.service';
 import { SupportAutoCloseCron } from './support-autoclose.cron';
+import { SupportExtrasTenantController } from './support-extras-tenant.controller';
+import { SupportServiceStatusAdminController } from './support-service-status.controller';
+import { SupportServiceStatusService } from './support-service-status.service';
 import { SupportTicketsAdminController } from './support-tickets-admin.controller';
 import { SupportTicketsTenantController } from './support-tickets-tenant.controller';
 import { SupportTicketsService } from './support-tickets.service';
@@ -225,6 +228,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     WeeklyDigestController,
     AdminOpsHealthController,
     SupportAgilityController,
+    SupportServiceStatusAdminController,
+    SupportExtrasTenantController,
     TenantDataExportController,
   ],
   providers: [
@@ -295,6 +300,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminTenantConfigService,
     AdminUsageService,
     SupportAgilityService,
+    SupportServiceStatusService,
     TenantDataExportService,
     AdminTenantResetService,
     AeatCertExpiryService,

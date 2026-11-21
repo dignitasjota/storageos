@@ -136,6 +136,7 @@ export const STAFF_EMAIL_KINDS = [
   'customer_message',
   'daily_summary',
   'facility_opened',
+  'product_updates_digest',
 ] as const;
 export type StaffEmailKind = (typeof STAFF_EMAIL_KINDS)[number];
 
@@ -171,6 +172,11 @@ export const STAFF_EMAIL_LABELS: Record<StaffEmailKind, { label: string; descrip
     description:
       'A las 8:00, lo que toca hoy: entradas, salidas, cobros, firmas y tareas. Solo si hay algo. Lo activa cada usuario.',
   },
+  product_updates_digest: {
+    label: 'Resumen mensual de novedades',
+    description:
+      'El día 2 de cada mes, lo que hemos añadido y mejorado en TrasterOS el mes anterior. Solo si hubo alguna novedad.',
+  },
 };
 
 export type StaffEmailSettingsDto = Record<StaffEmailKind, boolean>;
@@ -193,6 +199,8 @@ export type UpdateStaffEmailSettingsInput = z.infer<typeof UpdateStaffEmailSetti
 export function defaultStaffNoticeForRole(role: string, kind?: StaffEmailKind): boolean {
   // El resumen del día lo activa cada uno: un correo diario que no se ha pedido molesta.
   if (kind === 'daily_summary') return false;
+  // Las novedades de TrasterOS interesan a todo el equipo; cada uno puede quitarlas.
+  if (kind === 'product_updates_digest') return true;
   return role === 'owner' || role === 'manager';
 }
 

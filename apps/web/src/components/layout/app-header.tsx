@@ -2,6 +2,7 @@
 
 import { FacilitySwitcher } from './facility-switcher';
 import { GlobalSearch } from './global-search';
+import { HelpButton } from './help-button';
 import { NotificationBell } from './notification-bell';
 import { ThemeToggle } from './theme-toggle';
 import { UserMenu } from './user-menu';
@@ -17,6 +18,7 @@ export function AppHeader() {
       <GlobalSearch />
       <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1.5">
         <InstallPwaButton />
+        <HelpButton />
         <NotificationBell />
         <ThemeToggle />
         <UserMenu />

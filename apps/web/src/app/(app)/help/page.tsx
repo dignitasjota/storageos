@@ -1,3 +1,5 @@
+import { Suspense } from 'react';
+
 import { HelpIntro } from './help-intro';
 import { HelpTopics } from './help-topics';
 
@@ -10,7 +12,10 @@ export default function HelpPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Cómo funciona</h1>
         <HelpIntro />
       </div>
-      <HelpTopics />
+      {/* La búsqueda se lee de la dirección (`?q=`). */}
+      <Suspense fallback={null}>
+        <HelpTopics />
+      </Suspense>
     </div>
   );
 }

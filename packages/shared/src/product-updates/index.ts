@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { UserRoles, type UserRole } from '../auth/enums';
 import { TenantFeatures, type TenantFeature } from '../features';
 
 /** «Novedades» de la plataforma que se publican en el panel de los tenants. */
@@ -33,6 +34,20 @@ export const UpsertProductUpdateSchema = z.object({
   highlighted: z.boolean().default(false),
   /** Captura ya subida (`POST /admin/product-updates/image-upload-url`); null la quita. */
   imageKey: z.string().max(500).nullable().optional(),
+  /** Solo para estos planes (slugs); vacío = todos. */
+  targetPlans: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(60)
+        .regex(/^[a-z0-9-]+$/),
+    )
+    .max(20)
+    .default([]),
+  /** Solo para estos roles; vacío = todos. */
+  targetRoles: z.array(z.enum(UserRoles)).max(UserRoles.length).default([]),
 });
 export type UpsertProductUpdateInput = z.infer<typeof UpsertProductUpdateSchema>;
 
@@ -51,6 +66,12 @@ export interface AdminProductUpdateDto {
   imageUrl: string | null;
   /** Usuarios de los tenants que han abierto «Novedades» desde que se publicó. */
   seenBy: number;
+  /** «¿Te ha sido útil?»: cuántos 👍 y 👎. */
+  helpfulUp: number;
+  helpfulDown: number;
+  /** Planes (slugs) y roles a los que va dirigida; vacíos = a todos. */
+  targetPlans: string[];
+  targetRoles: UserRole[];
   authorName: string | null;
   createdAt: string;
   updatedAt: string;
@@ -71,4 +92,97 @@ export interface ProductUpdateDto {
   imageUrl: string | null;
   /** Publicada después de la última vez que el usuario abrió «Novedades». */
   unread: boolean;
+  /** «¿Te ha sido útil?» del usuario (null = sin responder). */
+  myReaction: ProductUpdateReaction | null;
+  /**
+   * Prueba gratis que el negocio puede activar desde la novedad: hay un extra
+   * activo que da la función, no la tiene y nunca lo ha probado. Solo la puede
+   * activar quien gestiona la suscripción (`billing:configure`).
+   */
+  trialOffer: ProductUpdateTrialOfferDto | null;
+}
+
+export interface ProductUpdateTrialOfferDto {
+  addonId: string;
+  addonName: string;
+  days: number;
+}
+
+/** Días de la prueba gratis de un extra activada desde una novedad. */
+export const SELF_ADDON_TRIAL_DAYS = 14;
+
+/** Resultado de activar la prueba gratis de un extra. */
+export interface SelfAddonTrialResultDto {
+  feature: TenantFeature;
+  expiresAt: string;
+}
+
+// --- «¿Te ha sido útil?» ---
+
+export const ProductUpdateReactionEnum = z.enum(['up', 'down']);
+export type ProductUpdateReaction = z.infer<typeof ProductUpdateReactionEnum>;
+
+/** null quita la reacción. */
+export const SetProductUpdateReactionSchema = z.object({
+  value: ProductUpdateReactionEnum.nullable(),
+});
+export type SetProductUpdateReactionInput = z.infer<typeof SetProductUpdateReactionSchema>;
+
+// --- Novedades dirigidas ---
+
+export const PRODUCT_UPDATE_ROLE_LABELS: Record<UserRole, string> = {
+  owner: 'Propietario',
+  manager: 'Gestor',
+  staff: 'Personal',
+  readonly: 'Solo lectura',
+};
+
+/** ¿Le toca a un usuario con este plan y este rol? (vacío = a todos). */
+export function productUpdateTargets(
+  update: { targetPlans: readonly string[]; targetRoles: readonly string[] },
+  planSlug: string | null,
+  role: string,
+): boolean {
+  const planOk =
+    update.targetPlans.length === 0 || (planSlug != null && update.targetPlans.includes(planSlug));
+  const roleOk = update.targetRoles.length === 0 || update.targetRoles.includes(role);
+  return planOk && roleOk;
+}
+
+// --- Filtros de la página de Novedades ---
+
+/** Valor del tipo en la dirección (`?tipo=`), en español. */
+export const PRODUCT_UPDATE_CATEGORY_SLUGS: Record<ProductUpdateCategory, string> = {
+  new: 'novedad',
+  improvement: 'mejora',
+  fix: 'correccion',
+};
+
+export function productUpdateCategoryFromSlug(
+  slug: string | null | undefined,
+): ProductUpdateCategory | null {
+  if (!slug) return null;
+  const entry = (
+    Object.entries(PRODUCT_UPDATE_CATEGORY_SLUGS) as Array<[ProductUpdateCategory, string]>
+  ).find(([, v]) => v === slug);
+  return entry ? entry[0] : null;
+}
+
+// --- Resumen mensual por correo ---
+
+/** Resultado de enviar el resumen mensual de novedades. */
+export interface ProductUpdatesDigestResultDto {
+  /** Mes resumido (AAAA-MM). */
+  month: string;
+  /** Novedades publicadas ese mes. */
+  updates: number;
+  /** Correos encolados. */
+  sent: number;
+}
+
+/** Enlace de baja del resumen (página pública). */
+export interface ProductUpdatesDigestUnsubscribeDto {
+  /** Email enmascarado. */
+  email: string;
+  unsubscribed: boolean;
 }

@@ -6,6 +6,7 @@ import { MESSAGE_MAX_ATTACHMENTS, MessageAttachmentSchema } from '../messages';
 
 import { AddonPriceTiersSchema } from './catalog';
 import { ProfitabilityInputSchema } from './profitability';
+import { SUPPORT_TICKET_MAX_WATCHERS, SupportTicketCategoryEnum } from './support';
 
 /** `sales` = comercial: solo sus pantallas y su cartera. */
 export const SuperAdminRoleEnum = z.enum(['superadmin', 'support', 'sales']);
@@ -311,16 +312,34 @@ export const CreateSupportTicketSchema = z.object({
     .min(1, 'Cuéntanos qué necesitas')
     .max(10_000, 'El mensaje no puede pasar de 10.000 caracteres'),
   priority: SupportTicketPriorityEnum.default('normal'),
-  category: z
-    .string()
-    .trim()
-    .max(80, 'La categoría no puede pasar de 80 caracteres')
-    .optional()
-    .or(z.literal('')),
+  /** Una de la lista fija (las antiguas en texto libre siguen guardadas tal cual). */
+  category: SupportTicketCategoryEnum.optional().or(z.literal('')),
   attachment: MessageAttachmentSchema.optional(),
   attachments: z.array(MessageAttachmentSchema).max(MESSAGE_MAX_ATTACHMENTS).optional(),
+  /** Pantalla del panel desde la que se escribe (ruta, sin dominio). */
+  pageUrl: z
+    .string()
+    .trim()
+    .max(500)
+    .regex(/^\/(?!\/)/, 'La pantalla debe ser una ruta del panel')
+    .optional(),
+  /** Tamaño de la ventana del navegador, «1280x720». */
+  screenSize: z
+    .string()
+    .regex(/^\d{2,5}x\d{2,5}$/)
+    .optional(),
+  /** Lo que respondió el asistente antes de abrir el ticket. */
+  aiAnswer: z.string().trim().max(10_000).optional(),
+  /** Compañeros del negocio que reciben en copia los avisos del ticket. */
+  watcherUserIds: z.array(z.string().uuid()).max(SUPPORT_TICKET_MAX_WATCHERS).optional(),
 });
 export type CreateSupportTicketInput = z.infer<typeof CreateSupportTicketSchema>;
+
+/** Lo que el negocio puede cambiar de un ticket suyo. */
+export const UpdateSupportTicketSchema = z.object({
+  priority: SupportTicketPriorityEnum,
+});
+export type UpdateSupportTicketInput = z.infer<typeof UpdateSupportTicketSchema>;
 
 export const AddTicketMessageSchema = z
   .object({
@@ -1108,6 +1127,7 @@ export const PLATFORM_EMAIL_KINDS = [
   'staff_notice',
   'monthly_report',
   'admin_alert',
+  'product_updates_digest',
 ] as const;
 export type PlatformEmailKind = (typeof PLATFORM_EMAIL_KINDS)[number];
 
@@ -1163,6 +1183,11 @@ export const PLATFORM_EMAIL_KIND_INFO: Record<
     category: 'staff_notices',
     label: 'Alertas y resumen al administrador',
     defaultTipo: 'Alertas',
+  },
+  product_updates_digest: {
+    category: 'admin_messages',
+    label: 'Resumen mensual de novedades',
+    defaultTipo: 'Novedades',
   },
 };
 

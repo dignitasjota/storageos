@@ -927,7 +927,14 @@ export function AppSidebar() {
               isActive={pathname === '/support' || pathname.startsWith('/support/')}
               className="data-[active=true]:font-medium"
             >
-              <Link href="/support">
+              <Link
+                href={
+                  // El ticket guarda la pantalla desde la que se escribe.
+                  pathname.startsWith('/support')
+                    ? '/support'
+                    : `/support?from=${encodeURIComponent(pathname)}`
+                }
+              >
                 <LifeBuoy />
                 <span>{t('support')}</span>
               </Link>

@@ -2964,3 +2964,17 @@ Qué cambia para los usuarios:
 - **Cómo funciona**: once guías nuevas (WhatsApp, Informes, Asistente IA, Vencimientos, Gastos, Propietarios, Mensajes, Lista de espera, Cierre de caja, Cámaras y Veri\*Factu), los enlaces respetan permisos y plan, el enlace a una guía baja hasta ella y el buscador encuentra también por los enlaces y en plural.
 - **Soporte**: validaciones en español, el aviso del menú cuenta los mensajes de TrasterOS, límite de 5 tickets por hora y 20 al día por persona, motivo del cierre en la ficha, no se valora un ticket sin respuesta, quién abrió cada ticket y su categoría, «Cargar más», lista legible en el móvil y firma «Soporte de TrasterOS».
 - **Sesión de soporte (impersonación)**: entrar en el panel de un tenant ya no deja leídos sus tickets, mensajes ni novedades.
+
+## 175. Mejoras de Novedades, Cómo funciona y Soporte del panel del tenant (2026-11-21)
+
+Migraciones (se aplican solas): `20270217100000_product_updates_improvements` (novedades dirigidas por plan y rol, reacciones, pruebas de extras y mes del último resumen enviado), `20270217110000_help_topics` (guías editables, tabla global) y `20270217120000_support_improvements` (contexto del ticket, compañeros en copia y estado del servicio). Sin variables nuevas.
+
+- **Tarea nueva en el worker**: `product-updates.digest` (día 2 a las 9:00 de Madrid) envía a cada usuario el resumen de las novedades del mes anterior; cada uno se da de baja desde su perfil o el enlace del correo.
+- **Estado del servicio**: panel admin → Seguridad y sistema → «Estado del servicio». Cuando haya una incidencia, márcala ahí: los tenants la ven en Soporte y no abren tickets por lo mismo. Al resolverla, vuelve a «Todo bien».
+- **Guías de ayuda**: panel admin → Comunicación → «Guías de ayuda». Las guías del código siguen siendo la base; desde ahí se cambian, se ocultan, se añaden y llevan imagen o vídeo de YouTube/Vimeo.
+
+Qué cambia para los usuarios:
+
+- **Novedades**: filtros por tipo, buscador y «Solo lo de mi plan»; «¿Te ha sido útil?»; «Probar gratis 14 días» en las de una función que no tienen (una prueba por función); resumen mensual por correo; el admin puede dirigir una novedad a unos planes o roles.
+- **Cómo funciona**: botón «?» en la cabecera que lleva a la guía de la pantalla, búsqueda que se guarda en la dirección y resalta lo encontrado, y «Preguntar al asistente» cuando no hay guía.
+- **Soporte**: guías relacionadas al escribir, temas fijos, la pantalla desde la que escribes, «Preguntar antes al asistente», filtros y búsqueda, reabrir durante 7 días, cambiar la prioridad, confirmación por correo, compañeros en copia, plazo de respuesta orientativo y aviso de incidencias.

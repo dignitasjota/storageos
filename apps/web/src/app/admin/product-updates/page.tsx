@@ -3,13 +3,18 @@
 import {
   FEATURE_LABELS,
   PRODUCT_UPDATE_CATEGORY_LABELS,
+  PRODUCT_UPDATE_ROLE_LABELS,
   ProductUpdateCategoryEnum,
   TenantFeatures,
+  UserRoles,
   type AdminProductUpdateDto,
   type ProductUpdateCategory,
+  type ProductUpdatesDigestResultDto,
   type TenantFeature,
+  type UserRole,
 } from '@storageos/shared';
-import { Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import { Loader2, Mail, Pencil, Plus, ThumbsDown, ThumbsUp, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -40,6 +45,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { adminApiFetch } from '@/lib/admin/api';
 import {
   useAdminProductUpdates,
+  useAdminSubscriptionPlans,
   useDeleteProductUpdate,
   useSaveProductUpdate,
 } from '@/lib/admin/hooks';
@@ -58,6 +64,8 @@ interface FormState {
   publishAt: string | null;
   imageKey: string | null;
   imageUrl: string | null;
+  targetPlans: string[];
+  targetRoles: UserRole[];
 }
 
 const EMPTY: FormState = {
@@ -70,14 +78,51 @@ const EMPTY: FormState = {
   publishAt: null,
   imageKey: null,
   imageUrl: null,
+  targetPlans: [],
+  targetRoles: [],
 };
+
+/** Añade o quita un valor de una lista (casillas de selección múltiple). */
+function toggle<T>(list: T[], value: T, on: boolean): T[] {
+  return on ? [...new Set([...list, value])] : list.filter((v) => v !== value);
+}
 
 /** «Novedades» que ven todos los tenants en su panel. */
 export default function AdminProductUpdatesPage() {
   const confirm = useConfirm();
   const updates = useAdminProductUpdates();
   const remove = useDeleteProductUpdate();
+  const plans = useAdminSubscriptionPlans();
+  const planName = (slug: string) => plans.data?.find((p) => p.slug === slug)?.name ?? slug;
   const [editing, setEditing] = useState<AdminProductUpdateDto | 'new' | null>(null);
+  const sendDigest = useMutation({
+    mutationFn: () =>
+      adminApiFetch<ProductUpdatesDigestResultDto>('/admin/product-updates/digest/send', {
+        method: 'POST',
+      }),
+  });
+
+  async function onSendDigest() {
+    if (
+      !(await confirm({
+        title: '¿Enviar ya el resumen del mes pasado?',
+        description:
+          'Le llega a cada usuario con las novedades del mes anterior que le tocan, salvo a quien ya lo recibió o se dio de baja. Normalmente sale solo el día 2.',
+        confirmLabel: 'Enviar',
+      }))
+    )
+      return;
+    try {
+      const res = await sendDigest.mutateAsync();
+      toast.success(
+        res.updates === 0
+          ? `No hubo novedades en ${res.month}: no se ha enviado nada.`
+          : `Resumen de ${res.month} enviado a ${res.sent} usuario(s).`,
+      );
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo enviar.');
+    }
+  }
 
   async function onDelete(u: AdminProductUpdateDto) {
     if (
@@ -103,14 +148,30 @@ export default function AdminProductUpdatesPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Novedades</h1>
           <p className="text-sm text-muted-foreground">
-            Lo que publiques aquí aparece en «Novedades» del panel de todos los tenants, con un
-            aviso en el menú hasta que lo abren.
+            Lo que publiques aquí aparece en «Novedades» del panel de los tenants, con un aviso en
+            el menú hasta que lo abren. El día 2 de cada mes les llega por correo el resumen del mes
+            anterior.
           </p>
         </div>
-        <Button size="sm" onClick={() => setEditing('new')}>
-          <Plus className="mr-1 size-4" />
-          Nueva
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={sendDigest.isPending}
+            onClick={() => void onSendDigest()}
+          >
+            {sendDigest.isPending ? (
+              <Loader2 className="mr-1 size-4 animate-spin" />
+            ) : (
+              <Mail className="mr-1 size-4" />
+            )}
+            Enviar el resumen ahora
+          </Button>
+          <Button size="sm" onClick={() => setEditing('new')}>
+            <Plus className="mr-1 size-4" />
+            Nueva
+          </Button>
+        </div>
       </div>
 
       {updates.isLoading ? (
@@ -148,6 +209,38 @@ export default function AdminProductUpdatesPage() {
                     {u.authorName ? ` · ${u.authorName}` : ''}
                     {u.publishedAt && !u.scheduled ? ` · la han visto ${u.seenBy} usuario(s)` : ''}
                   </p>
+                  {(u.targetPlans.length > 0 || u.targetRoles.length > 0) && (
+                    <p className="text-xs text-muted-foreground">
+                      Solo para{' '}
+                      {[
+                        u.targetPlans.length > 0
+                          ? `plan ${u.targetPlans.map(planName).join(', ')}`
+                          : null,
+                        u.targetRoles.length > 0
+                          ? u.targetRoles
+                              .map((r) => PRODUCT_UPDATE_ROLE_LABELS[r].toLowerCase())
+                              .join(', ')
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
+                  {u.publishedAt && !u.scheduled && (
+                    <p
+                      className="flex items-center gap-3 text-xs text-muted-foreground"
+                      aria-label={`${u.helpfulUp} les ha sido útil y ${u.helpfulDown} no`}
+                    >
+                      <span className="flex items-center gap-1" title="Les ha sido útil">
+                        <ThumbsUp className="size-3.5" />
+                        {u.helpfulUp}
+                      </span>
+                      <span className="flex items-center gap-1" title="No les ha sido útil">
+                        <ThumbsDown className="size-3.5" />
+                        {u.helpfulDown}
+                      </span>
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <Button
@@ -205,9 +298,12 @@ function ProductUpdateDialog({
           publishAt: initial.scheduled ? initial.publishedAt : null,
           imageKey: null,
           imageUrl: initial.imageUrl,
+          targetPlans: initial.targetPlans,
+          targetRoles: initial.targetRoles,
         }
       : EMPTY,
   );
+  const plans = useAdminSubscriptionPlans();
   const [preview, setPreview] = useState(false);
   const [uploading, setUploading] = useState(false);
   // undefined = no tocar la captura; null = quitarla.
@@ -257,6 +353,8 @@ function ProductUpdateDialog({
           published,
           highlighted: form.highlighted,
           publishAt: form.publishAt,
+          targetPlans: form.targetPlans,
+          targetRoles: form.targetRoles,
           ...(imageKey !== undefined ? { imageKey } : {}),
         },
       });
@@ -411,6 +509,57 @@ function ProductUpdateDialog({
               <img src={form.imageUrl} alt="" className="max-h-40 rounded-md border" />
             )}
           </div>
+          <fieldset className="space-y-2 rounded-md border p-3">
+            <legend className="px-1 text-sm font-medium">¿Para quién?</legend>
+            <p className="text-xs text-muted-foreground">
+              Sin marcar nada, la ven todos. Si marcas planes o roles, solo la ven (y cuenta como
+              sin leer y destacada) los usuarios de esos planes y con esos roles.
+            </p>
+            <div className="space-y-1">
+              <p className="text-xs font-medium">Planes</p>
+              {plans.isLoading ? (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              ) : (
+                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                  {(plans.data ?? []).map((p) => (
+                    <label key={p.slug} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.targetPlans.includes(p.slug)}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            targetPlans: toggle(form.targetPlans, p.slug, e.target.checked),
+                          })
+                        }
+                      />
+                      {p.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="space-y-1">
+              <p className="text-xs font-medium">Roles</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {UserRoles.map((r) => (
+                  <label key={r} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.targetRoles.includes(r)}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          targetRoles: toggle(form.targetRoles, r, e.target.checked),
+                        })
+                      }
+                    />
+                    {PRODUCT_UPDATE_ROLE_LABELS[r]}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </fieldset>
           <label className="flex items-start gap-2 text-sm">
             <input
               type="checkbox"

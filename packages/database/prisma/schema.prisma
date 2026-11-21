@@ -799,6 +799,7 @@ model Tenant {
   legalDocVersions        LegalDocVersion[]
   legalDocAcceptances     LegalDocAcceptance[]
   supportTicketReads        SupportTicketRead[]
+  supportTicketWatchers     SupportTicketWatcher[]
   platformMessageReads      TenantPlatformMessageRead[]
   customerConversations     CustomerConversation[]
   customerCannedResponses   CustomerCannedResponse[]
@@ -855,6 +856,8 @@ model User {
   twoFactorPendingSecretEncrypted String?   @map("two_factor_pending_secret")
   /// Hasta cuándo ha visto las «Novedades».
   productUpdatesSeenAt            DateTime?      @map("product_updates_seen_at") @db.Timestamptz(6)
+  /// Último mes (AAAA-MM) del resumen de novedades enviado por correo.
+  productUpdatesDigestMonth       String?   @map("product_updates_digest_month")
   twoFactorEnabled                Boolean   @default(false) @map("two_factor_enabled")
   /// Anti-replay TOTP: último paso de 30 s aceptado en un login.
   twoFactorLastStep               BigInt?   @map("two_factor_last_step")
@@ -950,6 +953,7 @@ model User {
   customerMessageReads CustomerMessageRead[]
   passkeys             UserPasskey[]
   supportTicketReads        SupportTicketRead[]
+  supportTicketWatches      SupportTicketWatcher[]
   platformMessageRead       TenantPlatformMessageRead?
   assignedConversations     CustomerConversation[] @relation("ConversationAssignee")
   delinquencyPickupsResolved DelinquencyPickupRequest[] @relation("DelinquencyPickupResolver")
@@ -5200,6 +5204,13 @@ model SupportTicket {
   replyToken      String?               @unique @map("reply_token")
   /// Ya se recordó que esperamos su respuesta.
   waitingRemindedAt DateTime?           @map("waiting_reminded_at") @db.Timestamptz(6)
+  /// Pantalla del panel desde la que se escribió.
+  pageUrl         String?               @map("page_url")
+  /// Navegador y tamaño de la ventana de quien lo abrió.
+  userAgent       String?               @map("user_agent")
+  screenSize      String?               @map("screen_size")
+  /// Lo que respondió el asistente antes de abrir el ticket.
+  aiAnswer        String?               @map("ai_answer")
   createdAt       DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -5210,10 +5221,54 @@ model SupportTicket {
 
   platformMessages TenantPlatformMessage[]
   reads            SupportTicketRead[]
+  watchers         SupportTicketWatcher[]
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([assignedAdminId])
   @@map("support_tickets")
+}
+
+/// Compañeros en copia de un ticket: reciben por correo sus avisos.
+model SupportTicketWatcher {
+  ticketId  String   @map("ticket_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, userId])
+  @@index([tenantId, userId], map: "support_ticket_watchers_tenant_user_idx")
+  @@map("support_ticket_watchers")
+}
+
+/// Estado del servicio que publica el super admin (un solo registro). Global.
+model PlatformServiceStatus {
+  id            String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// ok | degraded | incident
+  status        String   @default("ok")
+  message       String?
+  since         DateTime @default(now()) @db.Timestamptz(6)
+  updatedByName String?  @map("updated_by_name")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_service_status")
+}
+
+/// Historial de incidencias del servicio. Global.
+model PlatformServiceIncident {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// degraded | incident
+  status        String
+  message       String?
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdByName String?   @map("created_by_name")
+
+  @@index([startedAt(sort: Desc)], map: "platform_service_incidents_started_idx")
+  @@map("platform_service_incidents")
 }
 
 /// Mensaje en un ticket. `authorUserId` o `authorAdminId`, no ambos.
@@ -7624,14 +7679,55 @@ model ProductUpdate {
   imageKey    String?   @map("image_key")
   /// Destacada: se enseña en un aviso al entrar al panel.
   highlighted Boolean   @default(false)
+  /// Solo para estos planes (slugs); vacío = todos.
+  targetPlans String[]  @default([]) @map("target_plans")
+  /// Solo para estos roles (owner, manager, staff, readonly); vacío = todos.
+  targetRoles String[]  @default([]) @map("target_roles")
   createdById String?   @map("created_by_id") @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  createdBy SuperAdmin? @relation("ProductUpdateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdBy SuperAdmin?             @relation("ProductUpdateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  reactions ProductUpdateReaction[]
 
   @@index([publishedAt])
   @@map("product_updates")
+}
+
+/// «¿Te ha sido útil?» de un usuario del tenant sobre una novedad (RLS).
+/// `tenant_id` y `user_id` tienen su clave ajena en SQL (en cascada).
+model ProductUpdateReaction {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  productUpdateId String   @map("product_update_id") @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  /// up | down
+  value           String
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  productUpdate ProductUpdate @relation(fields: [productUpdateId], references: [id], onDelete: Cascade)
+
+  @@unique([productUpdateId, userId])
+  @@index([tenantId])
+  @@map("product_update_reactions")
+}
+
+/// Pruebas gratis de extras que ha tenido cada negocio (RLS). Se conservan al
+/// caducar: el autoservicio solo permite una por extra y negocio.
+/// `tenant_id`, `addon_id` y `started_by_user_id` tienen su clave ajena en SQL.
+model TenantAddonTrial {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  addonId         String   @map("addon_id") @db.Uuid
+  /// admin | self
+  source          String   @default("admin")
+  startedByUserId String?  @map("started_by_user_id") @db.Uuid
+  startedAt       DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
+  expiresAt       DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, addonId])
+  @@map("tenant_addon_trials")
 }
 
 /// Consumo del asistente de IA por llamada al modelo (lo lee el super admin).
@@ -8048,6 +8144,38 @@ model PlatformFounderOffer {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_founder_offer")
+}
+
+/// Guías de «Cómo funciona» editadas desde el panel admin. Con el id de una
+/// guía del código la cambia u oculta; con otro id es una guía nueva. Si
+/// `title` es null, el contenido es el de la guía del código.
+model PlatformHelpTopic {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// Ancla de la guía (`/help#<topicId>`).
+  topicId   String   @unique @map("topic_id")
+  group     String?
+  title     String?
+  summary   String?
+  /// Lista de pasos (texto).
+  steps     Json?
+  /// Lista de `{ label, href }` (solo rutas internas).
+  links     Json?
+  keywords  String?
+  /// Función del plan (TenantFeature) que necesita lo que explica.
+  feature   String?
+  /// Imagen en el bucket público (`platform/help/`).
+  imageKey  String?  @map("image_key")
+  /// Vídeo de YouTube o Vimeo.
+  videoUrl  String?  @map("video_url")
+  /// Orden dentro de su grupo; null = el del código.
+  position  Int?
+  published Boolean  @default(true)
+  /// Oculta una guía del código.
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_help_topics")
 }
 
 /// Ajustes de la web de TrasterOS (un registro): el logo del header y el footer.

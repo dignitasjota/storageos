@@ -15,12 +15,18 @@ import {
   attachmentLabel,
   messageAttachmentsOf,
   replyAddressOf,
+  SUPPORT_TICKET_REOPEN_DAYS,
+  supportResponseTimeText,
   TICKET_WAITING_CLOSE_DAYS,
   TICKET_WAITING_REMINDER_DAYS,
   type MessageAttachmentDto,
   type MessageAttachmentInput,
   type MessageAttachmentUploadDto,
   type RateTicketInput,
+  type SupportTeammateDto,
+  type SupportTicketListFilter,
+  type SupportTicketWatcherDto,
+  type UpdateSupportTicketInput,
 } from '@storageos/shared';
 
 import {
@@ -39,6 +45,7 @@ import { PlatformService } from '../platform/platform.service';
 import { realtimeChannels, RealtimeService } from '../realtime/realtime.service';
 
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import { SupportAgilityService } from './support-agility.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
@@ -100,6 +107,10 @@ type TicketWithRelations = {
   rating: number | null;
   ratingComment: string | null;
   replyToken: string | null;
+  pageUrl?: string | null;
+  userAgent?: string | null;
+  screenSize?: string | null;
+  aiAnswer?: string | null;
   createdAt: Date;
   updatedAt: Date;
   tenant: { name: string; slug: string };
@@ -122,6 +133,37 @@ type MessageRow = {
   authorUser: { fullName: string } | null;
   authorAdmin: { fullName: string } | null;
 };
+
+/** Filtros de la lista del negocio (todos opcionales). */
+export interface TenantTicketFilters {
+  status?: SupportTicketListFilter | undefined;
+  /** Solo los que abrió esta persona o en los que está en copia. */
+  mine?: boolean | undefined;
+  /** Texto en el asunto o en los mensajes. */
+  search?: string | undefined;
+}
+
+const LIST_FILTER_STATUSES: Record<SupportTicketListFilter, SupportTicketStatusValue[]> = {
+  open: ['open', 'in_progress'],
+  waiting: ['waiting_user'],
+  closed: ['resolved', 'closed'],
+};
+
+const PRIORITY_RANK: Record<SupportTicketPriorityValue, number> = {
+  low: 0,
+  normal: 1,
+  high: 2,
+  urgent: 3,
+};
+
+const PRIORITY_LABEL: Record<SupportTicketPriorityValue, string> = {
+  low: 'baja',
+  normal: 'normal',
+  high: 'alta',
+  urgent: 'urgente',
+};
+
+const DAY_MS = 86_400_000;
 
 /** Tope de tickets nuevos por persona: cada uno avisa al soporte por panel y push. */
 export const SUPPORT_TICKETS_PER_HOUR = 5;
@@ -171,6 +213,7 @@ export class SupportTicketsService {
     private readonly email: EmailService,
     private readonly files: FilesService,
     private readonly realtime: RealtimeService,
+    private readonly agility: SupportAgilityService,
     config: ConfigService<Env, true>,
   ) {
     this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true });
@@ -240,10 +283,39 @@ export class SupportTicketsService {
     tenantId: string,
     userId: string,
     page: PageRequest,
+    filters: TenantTicketFilters = {},
   ): Promise<PageDto<SupportTicketDto>> {
+    const search = filters.search?.trim().slice(0, 100);
     const [rows, unread] = await Promise.all([
       this.admin.supportTicket.findMany({
-        where: { tenantId },
+        where: {
+          tenantId,
+          ...(filters.status ? { status: { in: LIST_FILTER_STATUSES[filters.status] } } : {}),
+          ...(filters.mine
+            ? {
+                OR: [{ createdByUserId: userId }, { watchers: { some: { userId } } }],
+              }
+            : {}),
+          ...(search
+            ? {
+                AND: [
+                  {
+                    OR: [
+                      { subject: { contains: search, mode: 'insensitive' as const } },
+                      {
+                        messages: {
+                          some: {
+                            isInternal: false,
+                            body: { contains: search, mode: 'insensitive' as const },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        },
         include: TICKET_INCLUDE,
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         ...pageArgs(page),
@@ -268,9 +340,12 @@ export class SupportTicketsService {
     opts: { impersonating?: boolean } = {},
   ): Promise<SupportTicketDto> {
     const ticket = await this.findForTenant(tenantId, ticketId);
-    const messages = await this.loadMessages(ticketId, { includeInternal: false, forTenant: true });
+    const [messages, watchers] = await Promise.all([
+      this.loadMessages(ticketId, { includeInternal: false, forTenant: true }),
+      this.loadWatchers(ticketId),
+    ]);
     if (!opts.impersonating) await this.markTicketRead(tenantId, ticketId, userId);
-    return { ...this.tenantDto(ticket), messages };
+    return { ...this.tenantDto(ticket), messages, watchers };
   }
 
   private async markTicketRead(tenantId: string, ticketId: string, userId: string): Promise<void> {
@@ -312,6 +387,11 @@ export class SupportTicketsService {
   ): Promise<SupportTicketDto> {
     await this.assertCanOpenTicket(args.userId);
     const attachment = await this.attachmentFields(args.tenantId, args.input);
+    const watcherIds = await this.validWatcherIds(
+      args.tenantId,
+      args.input.watcherUserIds ?? [],
+      args.userId,
+    );
     const created = await this.admin.supportTicket.create({
       data: {
         tenantId: args.tenantId,
@@ -319,7 +399,18 @@ export class SupportTicketsService {
         subject: args.input.subject,
         priority: args.input.priority,
         category: args.input.category ? args.input.category : null,
+        pageUrl: args.input.pageUrl ?? null,
+        screenSize: args.input.screenSize ?? null,
+        userAgent: args.meta?.userAgent?.slice(0, 500) ?? null,
+        aiAnswer: args.input.aiAnswer?.trim() || null,
         status: 'open',
+        ...(watcherIds.length > 0
+          ? {
+              watchers: {
+                create: watcherIds.map((userId) => ({ userId, tenantId: args.tenantId })),
+              },
+            }
+          : {}),
         messages: {
           create: {
             authorUserId: args.userId,
@@ -369,7 +460,229 @@ export class SupportTicketsService {
     });
     // El resto del equipo lo ve en su lista sin recargar.
     await this.publish(args.tenantId, created.id);
+    // Correo de «lo hemos recibido» a quien lo abre y a quien pone en copia.
+    void this.sendCreatedMails(created as TicketWithRelations, watcherIds).catch((err) =>
+      this.logger.warn(`[support] confirmación: ${(err as Error).message}`),
+    );
     return this.tenantDto(created);
+  }
+
+  /** «Hemos recibido tu ticket» a quien lo abre; «te han puesto en copia» a los demás. */
+  private async sendCreatedMails(ticket: TicketWithRelations, watcherIds: string[]): Promise<void> {
+    const times = await this.agility.responseTimes();
+    const eta = supportResponseTimeText(times.byPriority[ticket.priority].hours);
+    if (ticket.createdByUserId) {
+      const author = await this.admin.user.findFirst({
+        where: { id: ticket.createdByUserId, isActive: true },
+        select: { email: true, fullName: true },
+      });
+      if (author) {
+        await this.sendTicketMail(ticket, author, {
+          subject: `Hemos recibido tu ticket: ${ticket.subject}`,
+          title: 'Hemos recibido tu ticket de soporte',
+          body: `${eta}. Te avisaremos por correo y en el panel en cuanto te respondamos.`,
+        });
+      }
+    }
+    if (watcherIds.length === 0) return;
+    const watchers = await this.admin.user.findMany({
+      where: { id: { in: watcherIds }, isActive: true },
+      select: { email: true, fullName: true },
+    });
+    const opener = ticket.createdBy?.fullName ?? 'Un compañero';
+    for (const w of watchers) {
+      await this.sendTicketMail(ticket, w, {
+        subject: `Te han puesto en copia: ${ticket.subject}`,
+        title: `${opener} ha abierto un ticket de soporte y te ha puesto en copia`,
+        body: `Recibirás por correo las respuestas del soporte. ${eta}.`,
+      });
+    }
+  }
+
+  // ------------------------- reabrir, prioridad, copia ----------------------
+
+  /** El negocio reabre un ticket cerrado (solo durante unos días tras el cierre). */
+  async reopenAsTenant(args: TenantContext & { ticketId: string }): Promise<SupportTicketDto> {
+    const ticket = await this.findForTenant(args.tenantId, args.ticketId);
+    if (ticket.status !== 'closed') {
+      throw new BadRequestException({
+        code: 'ticket_not_closed',
+        message: 'Solo se puede reabrir un ticket cerrado',
+      });
+    }
+    if (!this.reopenableUntil(ticket)) {
+      throw new BadRequestException({
+        code: 'ticket_reopen_expired',
+        message: `Han pasado más de ${SUPPORT_TICKET_REOPEN_DAYS} días desde que se cerró. Abre un ticket nuevo.`,
+      });
+    }
+    const done = await this.admin.supportTicket.updateMany({
+      where: { id: args.ticketId, status: 'closed' },
+      data: {
+        status: 'open',
+        closedAt: null,
+        closedReason: null,
+        resolvedAt: null,
+        waitingRemindedAt: null,
+      },
+    });
+    if (done.count === 0)
+      return this.tenantDto(await this.findForTenant(args.tenantId, args.ticketId));
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'support_ticket.reopened',
+      entityType: 'SupportTicket',
+      entityId: args.ticketId,
+      changes: { closedReason: ticket.closedReason },
+      ipAddress: args.meta?.ipAddress ?? null,
+      userAgent: args.meta?.userAgent ?? null,
+    });
+    await this.platform.notify({
+      type: 'support_ticket',
+      title: `${ticket.tenant.name} reabre un ticket cerrado`,
+      body: ticket.subject,
+      link: `/admin/support/${args.ticketId}`,
+    });
+    await this.publish(args.tenantId, args.ticketId);
+    return this.tenantDto(await this.findForTenant(args.tenantId, args.ticketId));
+  }
+
+  /** El negocio cambia la prioridad mientras el ticket no esté cerrado. */
+  async updateAsTenant(
+    args: TenantContext & { ticketId: string; input: UpdateSupportTicketInput },
+  ): Promise<SupportTicketDto> {
+    const ticket = await this.findForTenant(args.tenantId, args.ticketId);
+    if (ticket.status === 'closed') {
+      throw new BadRequestException({
+        code: 'ticket_closed',
+        message: 'No se puede cambiar un ticket cerrado',
+      });
+    }
+    const next = args.input.priority;
+    if (next === ticket.priority) return this.tenantDto(ticket);
+    await this.admin.supportTicket.update({
+      where: { id: args.ticketId },
+      data: { priority: next },
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'support_ticket.priority_changed',
+      entityType: 'SupportTicket',
+      entityId: args.ticketId,
+      changes: { from: ticket.priority, to: next },
+      ipAddress: args.meta?.ipAddress ?? null,
+      userAgent: args.meta?.userAgent ?? null,
+    });
+    // Subir a alta o urgente avisa al soporte; bajarla no hace falta.
+    if (PRIORITY_RANK[next] > PRIORITY_RANK[ticket.priority] && PRIORITY_RANK[next] >= 2) {
+      await this.platform.notify({
+        type: 'support_ticket',
+        title: `${ticket.tenant.name} sube un ticket a prioridad ${PRIORITY_LABEL[next]}`,
+        body: ticket.subject,
+        link: `/admin/support/${args.ticketId}`,
+      });
+    }
+    await this.publish(args.tenantId, args.ticketId);
+    return this.tenantDto(await this.findForTenant(args.tenantId, args.ticketId));
+  }
+
+  /** Compañeros activos del negocio que se pueden poner en copia. */
+  async listTeammates(tenantId: string, userId: string): Promise<SupportTeammateDto[]> {
+    const rows = await this.admin.user.findMany({
+      where: { tenantId, isActive: true, id: { not: userId } },
+      select: { id: true, fullName: true, email: true },
+      orderBy: { fullName: 'asc' },
+      take: 200,
+    });
+    return rows;
+  }
+
+  /** Sustituye la lista de compañeros en copia (los nuevos reciben un correo). */
+  async setWatchersAsTenant(
+    args: TenantContext & { ticketId: string; userIds: string[] },
+  ): Promise<SupportTicketWatcherDto[]> {
+    const ticket = await this.findForTenant(args.tenantId, args.ticketId);
+    const ids = await this.validWatcherIds(
+      args.tenantId,
+      args.userIds,
+      ticket.createdByUserId ?? args.userId,
+    );
+    const before = await this.admin.supportTicketWatcher.findMany({
+      where: { ticketId: args.ticketId },
+      select: { userId: true },
+    });
+    const had = new Set(before.map((w) => w.userId));
+    const added = ids.filter((id) => !had.has(id));
+    await this.admin.$transaction([
+      this.admin.supportTicketWatcher.deleteMany({
+        where: { ticketId: args.ticketId, userId: { notIn: ids } },
+      }),
+      this.admin.supportTicketWatcher.createMany({
+        data: added.map((userId) => ({ ticketId: args.ticketId, userId, tenantId: args.tenantId })),
+        skipDuplicates: true,
+      }),
+    ]);
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'support_ticket.watchers_changed',
+      entityType: 'SupportTicket',
+      entityId: args.ticketId,
+      changes: { userIds: ids },
+      ipAddress: args.meta?.ipAddress ?? null,
+      userAgent: args.meta?.userAgent ?? null,
+    });
+    if (added.length > 0) {
+      const people = await this.admin.user.findMany({
+        where: { id: { in: added }, isActive: true },
+        select: { email: true, fullName: true },
+      });
+      const who = await this.admin.user.findUnique({
+        where: { id: args.userId },
+        select: { fullName: true },
+      });
+      await this.replyAddress(ticket).catch(() => null);
+      for (const p of people) {
+        void this.sendTicketMail(ticket, p, {
+          subject: `Te han puesto en copia: ${ticket.subject}`,
+          title: `${who?.fullName ?? 'Un compañero'} te ha puesto en copia de un ticket de soporte`,
+          body: 'Recibirás por correo las respuestas del soporte.',
+        }).catch((err) => this.logger.warn(`[support] copia: ${(err as Error).message}`));
+      }
+    }
+    return this.loadWatchers(args.ticketId);
+  }
+
+  /** Solo usuarios activos del mismo negocio; sin repetir ni incluir a quien lo abre. */
+  private async validWatcherIds(
+    tenantId: string,
+    userIds: string[],
+    excludeUserId: string,
+  ): Promise<string[]> {
+    const wanted = [...new Set(userIds)].filter((id) => id !== excludeUserId);
+    if (wanted.length === 0) return [];
+    const rows = await this.admin.user.findMany({
+      where: { id: { in: wanted }, tenantId, isActive: true },
+      select: { id: true },
+    });
+    if (rows.length !== wanted.length) {
+      throw new BadRequestException({
+        code: 'invalid_watchers',
+        message: 'Solo puedes poner en copia a personas activas de tu equipo',
+      });
+    }
+    return wanted;
+  }
+
+  private async loadWatchers(ticketId: string): Promise<SupportTicketWatcherDto[]> {
+    const rows = await this.admin.supportTicketWatcher.findMany({
+      where: { ticketId },
+      include: { user: { select: { fullName: true, email: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((r) => ({ userId: r.userId, fullName: r.user.fullName, email: r.user.email }));
   }
 
   async addMessageAsTenant(
@@ -639,8 +952,11 @@ export class SupportTicketsService {
 
   async detailForAdmin(ticketId: string): Promise<SupportTicketDto> {
     const ticket = await this.findForAdmin(ticketId);
-    const messages = await this.loadMessages(ticketId, { includeInternal: true });
-    return { ...this.toDto(ticket), messages };
+    const [messages, watchers] = await Promise.all([
+      this.loadMessages(ticketId, { includeInternal: true }),
+      this.loadWatchers(ticketId),
+    ]);
+    return { ...this.toDto(ticket), messages, watchers };
   }
 
   async addMessageAsAdmin(
@@ -887,20 +1203,50 @@ export class SupportTicketsService {
     } catch (err) {
       this.logger.warn(`[support] aviso in-app: ${(err as Error).message}`);
     }
-    if (!ticket.createdByUserId) return;
-    const author = await this.admin.user.findFirst({
-      where: { id: ticket.createdByUserId, isActive: true },
-      select: { email: true, fullName: true },
+    // Correo a quien lo abrió y a los compañeros en copia (una vez por dirección).
+    const ids = [
+      ...(ticket.createdByUserId ? [ticket.createdByUserId] : []),
+      ...(
+        await this.admin.supportTicketWatcher.findMany({
+          where: { ticketId: ticket.id },
+          select: { userId: true },
+        })
+      ).map((w) => w.userId),
+    ];
+    if (ids.length === 0) return;
+    const people = await this.admin.user.findMany({
+      where: { id: { in: ids }, isActive: true },
+      select: { id: true, email: true, fullName: true },
     });
-    if (!author) return;
-    const url = `${this.webBaseUrl}${link}`;
+    // La dirección de respuesta se fija antes de enviar en paralelo.
+    await this.replyAddress(ticket).catch(() => null);
+    const seen = new Set<string>();
+    for (const person of people) {
+      const key = person.email.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      void this.sendTicketMail(ticket, person, {
+        subject: `${msg.title}: ${ticket.subject}`,
+        title: `${msg.title} (ticket «${ticket.subject}»)`,
+        body: msg.body,
+      }).catch((err) => this.logger.warn(`[support] correo: ${(err as Error).message}`));
+    }
+  }
+
+  /** Correo de un ticket con el enlace para verlo (y la dirección para responder, si hay). */
+  private async sendTicketMail(
+    ticket: TicketWithRelations,
+    to: { email: string; fullName: string },
+    msg: { subject: string; title: string; body: string },
+  ): Promise<void> {
+    const url = `${this.webBaseUrl}/support/${ticket.id}`;
     const replyTo = await this.replyAddress(ticket);
     const escape = (v: string) =>
       v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const text = [
-      `Hola ${author.fullName},`,
+      `Hola ${to.fullName},`,
       '',
-      `${msg.title} (ticket «${ticket.subject}»):`,
+      `${msg.title}:`,
       '',
       msg.body,
       '',
@@ -910,20 +1256,18 @@ export class SupportTicketsService {
     ].join('\n');
     const html =
       `<div style="font-family:system-ui,-apple-system,sans-serif;font-size:14px;color:#111;line-height:1.6">` +
-      `<p>Hola ${escape(author.fullName)},</p>` +
-      `<p>${escape(msg.title)} (ticket «${escape(ticket.subject)}»):</p>` +
+      `<p>Hola ${escape(to.fullName)},</p>` +
+      `<p>${escape(msg.title)}:</p>` +
       `<blockquote style="margin:0;padding:8px 12px;border-left:3px solid #2563eb;background:#f8fafc">${escape(msg.body).replace(/\n/g, '<br>')}</blockquote>` +
       `<p>${replyTo ? 'Puedes responder a este correo o ' : ''}<a href="${url}" style="color:#2563eb">${replyTo ? 'entrar al ticket' : 'Ver el ticket y responder'}</a></p></div>`;
-    void this.email
-      .sendRendered({
-        to: author.email,
-        kind: 'admin_message',
-        subject: `${msg.title}: ${ticket.subject}`,
-        html,
-        text,
-        ...(replyTo ? { replyTo: { email: replyTo } } : {}),
-      })
-      .catch((err) => this.logger.warn(`[support] correo: ${(err as Error).message}`));
+    await this.email.sendRendered({
+      to: to.email,
+      kind: 'admin_message',
+      subject: msg.subject,
+      html,
+      text,
+      ...(replyTo ? { replyTo: { email: replyTo } } : {}),
+    });
   }
 
   /** Dirección propia del ticket: lo que se conteste al correo vuelve a él. */
@@ -936,6 +1280,8 @@ export class SupportTicketsService {
         where: { id: ticket.id },
         data: { replyToken: token },
       });
+      // Los siguientes correos del mismo aviso usan la misma dirección.
+      ticket.replyToken = token;
     }
     return replyAddressOf('t', token, this.inboundDomain);
   }
@@ -1044,9 +1390,26 @@ export class SupportTicketsService {
       firstResponseAt: row.firstResponseAt ? row.firstResponseAt.toISOString() : null,
       rating: row.rating,
       ratingComment: row.ratingComment,
+      pageUrl: row.pageUrl ?? null,
+      userAgent: row.userAgent ?? null,
+      screenSize: row.screenSize ?? null,
+      aiAnswer: row.aiAnswer ?? null,
+      reopenableUntil: this.reopenableUntil(row)?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
+  }
+
+  /** Un ticket cerrado se puede reabrir durante unos días (null si no está cerrado o ya pasaron). */
+  private reopenableUntil(
+    row: Pick<TicketWithRelations, 'status' | 'closedAt' | 'updatedAt'>,
+    now = new Date(),
+  ): Date | null {
+    if (row.status !== 'closed') return null;
+    const until = new Date(
+      (row.closedAt ?? row.updatedAt).getTime() + SUPPORT_TICKET_REOPEN_DAYS * DAY_MS,
+    );
+    return until > now ? until : null;
   }
 
   /** Lo que ve el negocio: el soporte firma como «Ana · Soporte de TrasterOS». */

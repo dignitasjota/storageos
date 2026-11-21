@@ -15,6 +15,7 @@ import {
   type TenantFeature,
   EXTRA_UNITS_ADDON_SLUG,
   extraUnitsFor,
+  SELF_ADDON_TRIAL_DAYS,
   TenantFeatures,
 } from '@storageos/shared';
 import StripeSDK from 'stripe';
@@ -722,6 +723,7 @@ export class SaasAddonsService {
     tenantId: string,
     addonId: string,
     days: number,
+    opts: { source?: 'admin' | 'self'; userId?: string } = {},
   ): Promise<{ feature: string; expiresAt: string }> {
     const addon = await this.findAddon(addonId);
     if (!addon.isActive || addon.isSystem) {
@@ -783,7 +785,74 @@ export class SaasAddonsService {
         expiryNotifiedAt: null,
       },
     });
+    // Constancia de la prueba (se conserva al caducar): el autoservicio solo
+    // permite una por extra y negocio.
+    await this.admin.tenantAddonTrial.upsert({
+      where: { tenantId_addonId: { tenantId, addonId: addon.id } },
+      create: {
+        tenantId,
+        addonId: addon.id,
+        source: opts.source ?? 'admin',
+        startedByUserId: opts.userId ?? null,
+        expiresAt,
+      },
+      update: { startedAt: new Date(), expiresAt },
+    });
     return { feature: addon.feature, expiresAt: expiresAt.toISOString() };
+  }
+
+  /**
+   * Prueba gratis que activa el propio negocio (desde una novedad): una sola
+   * por extra y negocio (409 `addon_trial_used`), con los días de siempre.
+   * Avisa al super admin.
+   */
+  async selfStartTrial(
+    tenantId: string,
+    addonId: string,
+    userId: string,
+  ): Promise<{ feature: string; expiresAt: string }> {
+    // Una prueba por función: probar otro extra que da lo mismo tampoco vale.
+    const addon = await this.findAddon(addonId);
+    const [tried, running] = await Promise.all([
+      this.admin.tenantAddonTrial.findMany({ where: { tenantId }, select: { addonId: true } }),
+      this.admin.tenantFeatureOverride.findMany({
+        where: { tenantId, trialAddonId: { not: null } },
+        select: { trialAddonId: true },
+      }),
+    ]);
+    const triedIds = [...tried.map((t) => t.addonId), ...running.map((t) => t.trialAddonId!)];
+    const sameFeature =
+      triedIds.length > 0 &&
+      (triedIds.includes(addonId) ||
+        (addon.feature != null &&
+          (await this.admin.subscriptionAddon.count({
+            where: { id: { in: triedIds }, feature: addon.feature },
+          })) > 0));
+    if (sameFeature) {
+      throw new ConflictException({
+        code: 'addon_trial_used',
+        message: 'Ya has probado este extra. Para seguir usándolo, contrátalo.',
+      });
+    }
+    const result = await this.startTrial(tenantId, addonId, SELF_ADDON_TRIAL_DAYS, {
+      source: 'self',
+      userId,
+    });
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true },
+    });
+    await this.admin.superAdminNotification
+      .create({
+        data: {
+          type: 'saas_addon.self_trial_started',
+          title: 'Prueba gratis activada por un tenant',
+          body: `${tenant?.name ?? 'Un tenant'} ha activado ${SELF_ADDON_TRIAL_DAYS} días de prueba de «${addon.name}» desde Novedades.`,
+          link: `/admin/tenants/${tenantId}`,
+        },
+      })
+      .catch(() => undefined);
+    return result;
   }
 
   /** Funciones que incluye el plan del tenant y si su cuenta está exenta. */

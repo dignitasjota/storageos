@@ -25,6 +25,7 @@ import {
   type PlatformSepaMandateDto,
   type PlatformSepaMandateTermsDto,
   type RedsysRedirectDto,
+  type SelfAddonTrialResultDto,
   type SubscriptionPlanDto,
   type TenantRedsysPaymentOptionsDto,
   type TenantSelfAddonsDto,
@@ -215,6 +216,34 @@ export class BillingSaasController {
     @Body() body: SelfAssignAddonDto,
   ): Promise<TenantSelfAddonsDto> {
     return this.addons_.selfAssign(user.tenantId, body.addonId, body.quantity);
+  }
+
+  /**
+   * Prueba gratis de un extra activada por el propio negocio (desde una
+   * novedad de una función que su plan no incluye). Una por extra y negocio.
+   */
+  @Post('addons/:addonId/trial')
+  @HttpCode(HttpStatus.OK)
+  async startAddonTrial(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('addonId', new ParseUUIDPipe()) addonId: string,
+    @Req() req: Request,
+  ): Promise<SelfAddonTrialResultDto> {
+    const result = await this.addons_.selfStartTrial(user.tenantId, addonId, user.sub);
+    const meta = extractMeta(req);
+    await this.audit
+      .write({
+        tenantId: user.tenantId,
+        userId: user.sub,
+        action: 'saas_billing.addon_trial_started',
+        entityType: 'SubscriptionAddon',
+        entityId: addonId,
+        changes: { feature: result.feature, expiresAt: result.expiresAt },
+        ipAddress: meta.ipAddress ?? null,
+        userAgent: meta.userAgent ?? null,
+      })
+      .catch(() => undefined);
+    return result as SelfAddonTrialResultDto;
   }
 
   @Delete('addons/:assignmentId')
