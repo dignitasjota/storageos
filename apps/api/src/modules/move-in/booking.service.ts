@@ -520,6 +520,20 @@ export class BookingService {
             message: 'No quedan trasteros disponibles de ese tipo',
           });
         }
+        // El candado por tipo no frena a quien toma el trastero por su id (una
+        // cesión, una reserva o un contrato del panel): se toma también el del
+        // trastero, el mismo que usan ellos, y se vuelve a mirar su estado.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}::text), hashtext(${unit.id}::text))`;
+        const fresh = await tx.unit.findUniqueOrThrow({
+          where: { id: unit.id },
+          select: { status: true },
+        });
+        if (fresh.status !== (hold ? 'reserved' : 'available')) {
+          throw new ConflictException({
+            code: 'no_units_available',
+            message: 'No quedan trasteros disponibles de ese tipo',
+          });
+        }
         // Reserva la unidad (available → reserved): queda fuera de la
         // disponibilidad hasta que se firme (→ occupied) o expire el plazo de
         // pago (el BookingExpiryCron cancela y libera → available).

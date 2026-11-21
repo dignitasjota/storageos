@@ -112,3 +112,13 @@ export function useSetCessionAccess(unitId: string) {
     onSuccess: invalidate,
   });
 }
+
+/** Crea el acceso de una cesión que no lo tiene (con control de accesos). */
+export function useCreateCessionAccess(unitId: string) {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<UnitCessionDto>(`/units/${unitId}/cession/access`, { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+}

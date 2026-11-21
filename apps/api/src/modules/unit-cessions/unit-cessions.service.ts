@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -11,6 +12,9 @@ import {
   UNIT_CESSION_NOTICE_DAYS,
   addMonthsToDay,
   cessionDaysBetween,
+  cessionExtendedEnd,
+  cessionIsExpired,
+  cessionIsExpiring,
 } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
@@ -86,6 +90,8 @@ const LIVE_CONTRACT: Prisma.ContractWhereInput = {
  */
 @Injectable()
 export class UnitCessionsService {
+  private readonly logger = new Logger(UnitCessionsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly admin: PrismaAdminService,
@@ -165,10 +171,9 @@ export class UnitCessionsService {
       tenantId,
     );
     const items = rows.map((r) => this.toDto(r));
+    // El día de fin aún está en plazo: «vence pronto»; vencida, desde el siguiente.
     if (args.status === 'expiring') {
-      return items.filter(
-        (c) => c.daysLeft !== null && c.daysLeft > 0 && c.daysLeft <= UNIT_CESSION_NOTICE_DAYS,
-      );
+      return items.filter((c) => c.daysLeft !== null && cessionIsExpiring(c.daysLeft));
     }
     if (args.status === 'expired') return items.filter((c) => c.expired);
     return items;
@@ -191,6 +196,14 @@ export class UnitCessionsService {
     const unit = await this.loadUnit(tenantId, args.unitId, user.facilityScope ?? null);
     const today = day(todayInTimezone(unit.facility.timezone));
     const startsOn = input.startsOn ?? today;
+    // El trastero queda cedido desde ya: una cesión que empieza más tarde lo
+    // tendría cedido (y fuera de la venta) antes de tiempo.
+    if (startsOn > today) {
+      throw new BadRequestException({
+        code: 'invalid_starts_on',
+        message: 'La cesión empieza hoy o antes',
+      });
+    }
     const endsOn =
       input.months !== undefined ? addMonthsToDay(startsOn, input.months) : input.endsOn!;
     if (input.endsOn !== undefined && input.endsOn <= today) {
@@ -205,6 +218,16 @@ export class UnitCessionsService {
         message: 'La fecha de fin no puede ser anterior al inicio',
       });
     }
+    // Un inicio pasado con pocos meses podía dejarla vencida al crearla.
+    if (endsOn < today) {
+      throw new BadRequestException({
+        code: 'cession_already_expired',
+        message: 'Con esas fechas la cesión ya habría vencido: elige un plazo que llegue a hoy',
+      });
+    }
+    // Si ya está dentro del plazo de aviso, el «vence pronto» no aporta nada:
+    // quien la crea acaba de elegir la fecha. El de «ha vencido» sí llega.
+    const alreadyExpiring = cessionIsExpiring(cessionDaysBetween(today, endsOn));
 
     let holderName = input.holderName?.trim() || null;
     const linkedCustomerId = input.customerId;
@@ -227,9 +250,10 @@ export class UnitCessionsService {
     }
 
     const created = await this.prisma.withTenant(async (tx) => {
-      // Dos cesiones (o una cesión y una reserva) del mismo trastero a la vez:
-      // la segunda espera y ve el estado nuevo.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${args.unitId}))`;
+      // Dos cesiones (o una cesión y una reserva, un contrato o una reserva
+      // online) del mismo trastero a la vez: el mismo candado por trastero que
+      // usan ellos; la segunda espera y ve el estado nuevo.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}::text), hashtext(${args.unitId}::text))`;
       const fresh = await tx.unit.findUniqueOrThrow({
         where: { id: args.unitId },
         select: { status: true, code: true },
@@ -273,6 +297,7 @@ export class UnitCessionsService {
           notes: input.notes?.trim() || null,
           previousUnitStatus: fresh.status,
           createdByUserId: user.sub,
+          expiringNotifiedAt: alreadyExpiring ? new Date() : null,
         },
       });
       await tx.unit.update({
@@ -351,7 +376,11 @@ export class UnitCessionsService {
     const data: Prisma.UnitCessionUncheckedUpdateInput = {};
     const startsOn = day(live.startsOn);
     let newEndsOn: string | null = null;
-    if (input.months !== undefined) newEndsOn = addMonthsToDay(day(live.endsOn), input.months);
+    // Por meses: desde el fin, o desde hoy si ya había vencido (si no, ampliar
+    // una cesión vencida hace meses la dejaba vencida).
+    if (input.months !== undefined) {
+      newEndsOn = cessionExtendedEnd(today, day(live.endsOn), input.months);
+    }
     if (input.endsOn !== undefined) newEndsOn = input.endsOn;
     if (newEndsOn !== null) {
       if (newEndsOn < startsOn) {
@@ -360,12 +389,19 @@ export class UnitCessionsService {
           message: 'La fecha de fin no puede ser anterior al inicio',
         });
       }
-      data.endsOn = asDate(newEndsOn);
-      // La fecha nueva vuelve a avisar (7 días antes y al vencer).
-      if (newEndsOn > today) {
-        data.expiringNotifiedAt = null;
-        data.expiredNotifiedAt = null;
+      if (newEndsOn < today) {
+        throw new BadRequestException({
+          code: 'invalid_ends_on',
+          message: 'La nueva fecha de fin no puede ser anterior a hoy',
+        });
       }
+      data.endsOn = asDate(newEndsOn);
+      // La fecha nueva vuelve a avisar al vencer; el «vence pronto», solo si
+      // queda más de una semana (dentro de ella lo acaba de elegir el propietario).
+      data.expiredNotifiedAt = null;
+      data.expiringNotifiedAt = cessionIsExpiring(cessionDaysBetween(today, newEndsOn))
+        ? new Date()
+        : null;
     }
 
     let holderName: string | null | undefined;
@@ -510,13 +546,21 @@ export class UnitCessionsService {
         tenantId,
       );
       if (credential && credential.status !== 'revoked' && credential.status !== 'expired') {
-        await this.credentials.revoke({
-          tenantId,
-          userId: user.sub,
-          id: ended.accessCredentialId,
-          meta: args.meta,
-          fromCession: true,
-        });
+        // La cesión ya está terminada: si la retirada falla, el repaso de
+        // credenciales (`sweep`) revoca después el código de una cesión cerrada.
+        try {
+          await this.credentials.revoke({
+            tenantId,
+            userId: user.sub,
+            id: ended.accessCredentialId,
+            meta: args.meta,
+            fromCession: true,
+          });
+        } catch (err) {
+          this.logger.warn(
+            `No se pudo revocar el acceso ${ended.accessCredentialId} de la cesión ${ended.id}; lo revocará el repaso: ${(err as Error).message}`,
+          );
+        }
       }
     }
 
@@ -542,7 +586,12 @@ export class UnitCessionsService {
 
   // ------------------------------------------------------- acceso de la cesión
 
-  async accessCode(user: AuthenticatedUser, unitId: string): Promise<{ code: string }> {
+  async accessCode(
+    user: AuthenticatedUser,
+    unitId: string,
+    meta: RequestMeta,
+  ): Promise<{ code: string }> {
+    this.assertNotImpersonating(user);
     this.assertOwner(user, 'ver el código de una cesión');
     const credentialId = await this.liveCredentialId(user, unitId);
     const code = await this.credentials.revealSecret(user.tenantId, credentialId);
@@ -552,7 +601,7 @@ export class UnitCessionsService {
         message: 'Este acceso no tiene un código que se pueda mostrar: cámbialo',
       });
     }
-    await this.writeAudit('access.code_viewed', user, {}, unitId, { credentialId });
+    await this.writeAudit('access.code_viewed', user, meta, unitId, { credentialId });
     return { code };
   }
 
@@ -561,6 +610,7 @@ export class UnitCessionsService {
     unitId: string,
     meta: RequestMeta,
   ): Promise<{ code: string }> {
+    this.assertNotImpersonating(user);
     this.assertOwner(user, 'cambiar el código de una cesión');
     const credentialId = await this.liveCredentialId(user, unitId);
     const rotated = await this.credentials.rotate({
@@ -572,6 +622,71 @@ export class UnitCessionsService {
       fromCession: true,
     });
     return { code: rotated.revealedSecret ?? '' };
+  }
+
+  /**
+   * Acceso para una cesión que no lo tiene (se cedió sin control de accesos o
+   * el código se perdió). Solo el propietario y con control de accesos.
+   */
+  async createAccess(
+    user: AuthenticatedUser,
+    unitId: string,
+    meta: RequestMeta,
+  ): Promise<UnitCessionDto> {
+    const tenantId = user.tenantId;
+    this.assertNotImpersonating(user);
+    this.assertOwner(user, 'crear el acceso de una cesión');
+    if (!(await tenantFeatures(this.admin, tenantId)).includes('access_control')) {
+      throw new ForbiddenException({
+        code: 'feature_not_in_plan',
+        message: 'El control de accesos no está incluido en tu plan',
+        details: { requiredFeature: 'access_control' },
+      });
+    }
+    const unit = await this.loadUnit(tenantId, unitId, user.facilityScope ?? null);
+    const live = await this.liveOrThrow(tenantId, unitId);
+    if (live.accessCredentialId) {
+      const current = await this.prisma.withTenant(
+        (tx) =>
+          tx.accessCredential.findFirst({
+            where: { id: live.accessCredentialId! },
+            select: { status: true },
+          }),
+        tenantId,
+      );
+      if (current && ['active', 'suspended', 'pending'].includes(current.status)) {
+        throw this.alreadyHasAccess();
+      }
+    }
+    const credential = await this.credentials.createForCession({
+      tenantId,
+      userId: user.sub,
+      holderName: live.holderName ?? 'Cesión',
+      facilityId: unit.facilityId,
+      unitId,
+      cessionId: live.id,
+      meta,
+    });
+    // Dos «Crear acceso» a la vez: solo uno se queda; el otro código se retira.
+    const claimed = await this.prisma.withTenant(
+      (tx) =>
+        tx.unitCession.updateMany({
+          where: { id: live.id, endedAt: null, accessCredentialId: live.accessCredentialId },
+          data: { accessCredentialId: credential.id },
+        }),
+      tenantId,
+    );
+    if (claimed.count === 0) {
+      await this.credentials
+        .revoke({ tenantId, userId: user.sub, id: credential.id, meta, fromCession: true })
+        .catch(() => undefined);
+      throw this.alreadyHasAccess();
+    }
+    await this.writeAudit('unit.cession_access_created', user, meta, unitId, {
+      cessionId: live.id,
+      credentialId: credential.id,
+    });
+    return (await this.current(tenantId, unitId, user.facilityScope ?? null))!;
   }
 
   async suspendAccess(
@@ -649,7 +764,8 @@ export class UnitCessionsService {
       const daysLeft = cessionDaysBetween(today, endsOn);
       const who = c.holderName ?? 'una persona';
       const link = `/units/${c.unitId}`;
-      if (daysLeft <= 0) {
+      // El día de fin aún está en plazo («vence hoy»); vencida desde el siguiente.
+      if (cessionIsExpired(daysLeft)) {
         if (c.expiredNotifiedAt) continue;
         const claimed = await this.admin.unitCession.updateMany({
           where: { id: c.id, endedAt: null, expiredNotifiedAt: null },
@@ -666,7 +782,7 @@ export class UnitCessionsService {
           unitId: c.unitId,
         });
         expired += 1;
-      } else if (daysLeft <= UNIT_CESSION_NOTICE_DAYS) {
+      } else if (cessionIsExpiring(daysLeft)) {
         if (c.expiringNotifiedAt) continue;
         const claimed = await this.admin.unitCession.updateMany({
           where: { id: c.id, endedAt: null, expiringNotifiedAt: null },
@@ -675,7 +791,10 @@ export class UnitCessionsService {
         if (claimed.count === 0) continue;
         await this.notifications.create(c.tenantId, {
           type: 'unit.cession_expiring',
-          title: `La cesión del trastero ${c.unit.code} a ${who} vence el ${formatDateLong(c.endsOn, 'UTC')}`,
+          title:
+            daysLeft === 0
+              ? `La cesión del trastero ${c.unit.code} a ${who} vence hoy`
+              : `La cesión del trastero ${c.unit.code} a ${who} vence el ${formatDateLong(c.endsOn, 'UTC')}`,
           body: 'Amplíala o termínala desde la ficha del trastero.',
           link,
           facilityId: c.unit.facilityId,
@@ -696,6 +815,26 @@ export class UnitCessionsService {
         message: `Solo el propietario de la cuenta puede ${what}`,
       });
     }
+  }
+
+  /**
+   * El código de una cesión lo da el propietario en mano: el soporte de
+   * TrasterOS no lo ve ni lo cambia aunque entre con permisos de escritura.
+   */
+  private assertNotImpersonating(user: AuthenticatedUser): void {
+    if (user.impersonation) {
+      throw new ForbiddenException({
+        code: 'not_allowed_while_impersonating',
+        message: 'Durante una impersonación no se ve ni se cambia el código de una cesión',
+      });
+    }
+  }
+
+  private alreadyHasAccess(): ConflictException {
+    return new ConflictException({
+      code: 'cession_has_access',
+      message: 'Esta cesión ya tiene acceso',
+    });
   }
 
   private featureMissing(): ForbiddenException {
@@ -793,7 +932,7 @@ export class UnitCessionsService {
       endsOn,
       notes: row.notes,
       daysLeft,
-      expired: daysLeft !== null && daysLeft <= 0,
+      expired: daysLeft !== null && cessionIsExpired(daysLeft),
       previousUnitStatus: row.previousUnitStatus as UnitStatusValue,
       endedAt: row.endedAt?.toISOString() ?? null,
       endedUnitStatus: (row.endedUnitStatus as UnitStatusValue | null) ?? null,

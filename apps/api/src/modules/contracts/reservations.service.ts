@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { CreateContractSchema, rentTax } from '@storageos/shared';
+import { CreateContractSchema, UNIT_STATUS_TEXT, rentTax } from '@storageos/shared';
 
 import { assertFacilityAllowed, resolveFacilityFilter } from '../../common/facility-scope';
 import { toCents } from '../../common/money';
@@ -348,6 +348,9 @@ export class ReservationsService {
     }
 
     const created = await this.prisma.withTenant(async (tx) => {
+      // Mismo candado por trastero que la firma de contratos y la cesión: una
+      // reserva y una cesión a la vez no se cuelan las dos.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${args.input.unitId}::text))`;
       const unit = await tx.unit.findFirst({
         where: { id: args.input.unitId, facility: { deletedAt: null } },
       });
@@ -364,7 +367,7 @@ export class ReservationsService {
       ) {
         throw new ConflictException({
           code: 'unit_not_reservable',
-          message: `El trastero esta en estado ${unit.status}`,
+          message: `Este trastero está ${UNIT_STATUS_TEXT[unit.status]}: no se puede reservar`,
         });
       }
       // Las reservas entre sí las separa la restricción de solape.
@@ -495,6 +498,7 @@ export class ReservationsService {
     }
 
     const updated = await this.prisma.withTenant(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${existing.unitId}::text))`;
       // Desde que se creó pudo alquilarse o quedar fuera de servicio.
       const current = await tx.unit.findUniqueOrThrow({ where: { id: existing.unitId } });
       if (
@@ -505,7 +509,7 @@ export class ReservationsService {
       ) {
         throw new ConflictException({
           code: 'unit_not_reservable',
-          message: `El trastero está en estado ${current.status}: no se puede confirmar la reserva`,
+          message: `Este trastero está ${UNIT_STATUS_TEXT[current.status]}: no se puede confirmar la reserva`,
         });
       }
       if (

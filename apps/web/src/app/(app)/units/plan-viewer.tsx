@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { useFloors, useUnits } from '@/lib/facilities/hooks';
 import {
   useFloorHolds,
@@ -138,6 +138,12 @@ export function PlanViewer({ facilityId, floorId, focusUnitId }: Props) {
   const [typeFilter, setTypeFilter] = useState('all');
   const [sizeFilter, setSizeFilter] = useState('all');
   const [planImage, setPlanImage] = useState<HTMLImageElement | null>(null);
+  // «Cedido» solo a quien tiene la función o algún trastero cedido.
+  const cessionEnabled = useHasFeature('unit_cession');
+  const showCeded =
+    cessionEnabled ||
+    statusFilter === 'ceded' ||
+    (units.data?.items ?? []).some((u) => u.status === 'ceded');
 
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Konva.Stage>(null);
@@ -402,11 +408,13 @@ export function PlanViewer({ facilityId, floorId, focusUnitId }: Props) {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos los estados</SelectItem>
-            {Object.entries(STATUS_LABEL).map(([k, label]) => (
-              <SelectItem key={k} value={k}>
-                {label}
-              </SelectItem>
-            ))}
+            {Object.entries(STATUS_LABEL)
+              .filter(([k]) => k !== 'ceded' || showCeded)
+              .map(([k, label]) => (
+                <SelectItem key={k} value={k}>
+                  {label}
+                </SelectItem>
+              ))}
           </SelectContent>
         </Select>
         <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -448,9 +456,9 @@ export function PlanViewer({ facilityId, floorId, focusUnitId }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {(colorBy === 'status'
-            ? (
-                ['available', 'occupied', 'reserved', 'maintenance', 'blocked', 'ceded'] as const
-              ).map((s) => ({ label: STATUS_LABEL[s], color: STATUS_FILL[s] }))
+            ? (['available', 'occupied', 'reserved', 'maintenance', 'blocked', 'ceded'] as const)
+                .filter((s) => s !== 'ceded' || showCeded)
+                .map((s) => ({ label: STATUS_LABEL[s], color: STATUS_FILL[s] }))
             : [...VACANCY_BANDS, { label: 'No está libre', color: NOT_VACANT }]
           ).map((item) => (
             <span key={item.label} className="inline-flex items-center gap-1.5">

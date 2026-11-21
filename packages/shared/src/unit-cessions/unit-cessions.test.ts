@@ -5,8 +5,48 @@ import {
   addMonthsToDay,
   UpdateUnitCessionSchema,
   cessionDaysBetween,
+  cessionExtendedEnd,
+  cessionIsExpired,
+  cessionIsExpiring,
   cessionRemainingText,
+  isRealIsoDay,
 } from './index';
+
+describe('isRealIsoDay', () => {
+  it('solo admite días que existen', () => {
+    expect(isRealIsoDay('2028-02-29')).toBe(true);
+    expect(isRealIsoDay('2027-02-29')).toBe(false);
+    expect(isRealIsoDay('2027-02-31')).toBe(false);
+    expect(isRealIsoDay('2027-13-01')).toBe(false);
+    expect(isRealIsoDay('2027-00-10')).toBe(false);
+    expect(isRealIsoDay('27-01-01')).toBe(false);
+  });
+
+  it('los esquemas rechazan una fecha imposible', () => {
+    const r = CreateUnitCessionSchema.safeParse({ holderName: 'Ana', endsOn: '2027-02-31' });
+    expect(r.success).toBe(false);
+    expect(UpdateUnitCessionSchema.safeParse({ endsOn: '2027-13-01' }).success).toBe(false);
+  });
+});
+
+describe('vencida y vence pronto', () => {
+  it('el día de fin sigue en plazo', () => {
+    expect(cessionIsExpired(0)).toBe(false);
+    expect(cessionIsExpiring(0)).toBe(true);
+    expect(cessionIsExpired(-1)).toBe(true);
+    expect(cessionIsExpiring(-1)).toBe(false);
+    expect(cessionIsExpiring(7)).toBe(true);
+    expect(cessionIsExpiring(8)).toBe(false);
+  });
+});
+
+describe('cessionExtendedEnd', () => {
+  it('suma desde el fin si no ha vencido y desde hoy si ya venció', () => {
+    expect(cessionExtendedEnd('2026-11-21', '2026-12-10', 1)).toBe('2027-01-10');
+    expect(cessionExtendedEnd('2026-11-21', '2026-11-21', 1)).toBe('2026-12-21');
+    expect(cessionExtendedEnd('2026-11-21', '2026-10-01', 1)).toBe('2026-12-21');
+  });
+});
 
 describe('cessionRemainingText', () => {
   it('cuenta meses y días', () => {

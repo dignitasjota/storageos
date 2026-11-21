@@ -236,6 +236,16 @@ export const UnitStatusEnum = z.enum([
 ]);
 export type UnitStatusValue = z.infer<typeof UnitStatusEnum>;
 
+/** Nombre de cada estado para los mensajes («Este trastero está cedido»). */
+export const UNIT_STATUS_TEXT: Record<UnitStatusValue, string> = {
+  available: 'disponible',
+  occupied: 'ocupado',
+  reserved: 'reservado',
+  maintenance: 'en mantenimiento',
+  blocked: 'bloqueado',
+  ceded: 'cedido',
+};
+
 /**
  * Cambios de estado manuales permitidos desde cada estado. `occupied` solo lo
  * pone un contrato (o la reconciliación de inventario cuando hay contrato).

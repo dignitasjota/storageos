@@ -15,6 +15,7 @@ import {
   effectiveMoveOutDate,
   rentTax,
   resolvePlanFeatures,
+  UNIT_STATUS_TEXT,
 } from '@storageos/shared';
 
 import { assertCashDayOpen } from '../../common/cash-day';
@@ -868,6 +869,9 @@ export class ContractsService {
           message: 'Inquilino no encontrado',
         });
       }
+      // Mismo candado por trastero que la firma y la cesión: un borrador y una
+      // cesión del mismo trastero a la vez no se cuelan los dos.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text), hashtext(${input.unitId}::text))`;
       const unit = await tx.unit.findUnique({
         where: { id: input.unitId },
         include: { facility: { select: { deletedAt: true } } },
@@ -1513,7 +1517,7 @@ export class ContractsService {
         if (unit.status !== 'available' && unit.status !== 'reserved') {
           throw new ConflictException({
             code: 'unit_not_available',
-            message: `No se puede firmar: el trastero esta en estado ${unit.status}`,
+            message: `No se puede firmar: este trastero está ${UNIT_STATUS_TEXT[unit.status]}`,
           });
         }
         // Una reserva viva del trastero para OTRO inquilino lo bloquea; la del

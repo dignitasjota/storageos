@@ -2992,3 +2992,14 @@ Qué hace, con la función activada:
 - Se crea un **acceso PIN** solo para ese trastero, sin caducidad. El código se ve en la ficha para dárselo en mano y desde ahí se cambia, se deniega o se vuelve a permitir. No aparece en el área de clientes del inquilino enlazado.
 - **Avisos al equipo** 7 días antes y el día del fin, también en «Hoy» (pestaña Operación). Al vencer **no se libera** ni se corta el acceso: hay que terminar la cesión a mano, y si quedan días pide confirmación con el tiempo que falta.
 - Si se desactiva la función a un negocio con trasteros cedidos, sigue pudiendo terminar esas cesiones y gestionar su acceso, pero no cede nuevos trasteros ni amplía las cesiones.
+
+## 177. Trasteros cedidos: arreglos (2026-11-21)
+
+Sin migración ni variables nuevas.
+
+- «Cedidos» solo sale en la lista y el plano a quien tiene la función o algún trastero cedido.
+- El último día de una cesión cuenta como «vence hoy» y la vencida es desde el día siguiente (lista, ficha, «Hoy» y avisos con el mismo criterio). Ampliar una vencida cuenta los meses desde hoy.
+- Fechas validadas: no existe un 31 de febrero, el inicio es hoy o antes y no se crea una cesión ya vencida.
+- No se puede borrar un local con trasteros cedidos; una cesión sin acceso puede crearlo después; el repaso de credenciales retira el código de una cesión terminada.
+- Ceder, reservar y contratar el mismo trastero a la vez ya no se cuelan (mismo candado por trastero, también en la reserva online).
+- Durante una sesión de soporte no se ve ni se cambia el código de una cesión.

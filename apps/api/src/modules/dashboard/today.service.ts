@@ -143,10 +143,11 @@ export class TodayService {
       label: `${c.unit.code} · ${c.holderName ?? 'Cedido'}`,
       detail: c.unit.facility.name,
       date: c.endsOn.toISOString(),
-      overdue: c.endsOn <= startOfToday,
+      overdue: c.endsOn < startOfToday,
     });
-    const cessionsExpired = cessions.filter((c) => c.endsOn <= startOfToday);
-    const cessionsExpiring = cessions.filter((c) => c.endsOn > startOfToday);
+    // El día de fin aún está en plazo («vence hoy»): vencidas desde el siguiente.
+    const cessionsExpired = cessions.filter((c) => c.endsOn < startOfToday);
+    const cessionsExpiring = cessions.filter((c) => c.endsOn >= startOfToday);
     // Cuotas que cambian en los próximos 7 días (programadas o de una subida).
     const priceChangeItems: TodayItemDto[] = [];
     if (can('contracts:read')) {
