@@ -3017,3 +3017,28 @@ Migración `20270220100000_unit_cessions_improvements` (se aplica sola): fecha d
 - **Avisar N días antes** (0, 3, 7, 15 o 30) y **posponer el aviso** de una vencida 7 o 30 días.
 - **Acceso 24 h** y hasta 5 códigos por cesión, cada uno con su nombre.
 - **Descuadres**: la revisión de inventario avisa de un «Cedido» sin cesión y de una cesión cuyo trastero no está cedido.
+
+## 179. «Hoy» del super admin: arreglos (2026-11-21)
+
+Migración `20270221100000_admin_today_snooze_fingerprint` (se aplica sola): huella de lo apartado. Sin variables nuevas.
+
+- Lo apartado vuelve a salir si empeora (el cliente escribe, sube la deuda, hay más fallos…), con el motivo.
+- «Colas con fallos» cuenta solo las últimas 24 h; webhooks, solo si siguen fallando.
+- Si una sección no carga, el resto sigue y se avisa de cuál falló.
+- Los números cuadran: la cabecera son las acciones urgentes y cada pestaña dice cuántas lleva.
+- Leads asignados a un comercial ya no cuentan como urgentes del admin.
+- El aviso inmediato no se repite cada día por lo mismo.
+- Listas largas plegadas, contador del menú ligero (`GET /admin/today/count`, cacheado 30 s) y textos en plural correcto.
+
+## 180. «Hoy» del super admin: mejoras (2026-11-21)
+
+Migración `20270222100000_admin_today_improvements` (se aplica sola): `admin_reviewed_jobs` (trabajos de cola revisados) y `admin_today_visits` (última visita de cada admin), globales con REVOKE. Sin variables nuevas.
+
+- **€ en riesgo hoy** (deuda vencida, pruebas que terminan, extras por cobrar y clientes que dejaron de entrar) y lo que hay en juego en cada fila.
+- **Desde tu última visita**: nuevos, resueltos y empeorados.
+- **Cobros de la suscripción rechazados** (Stripe, Redsys, SEPA devueltos) y **clientes de pago que han dejado de entrar** (14 días).
+- **Tickets con plazo de respuesta**: urgentes solo si vencen en menos de 2 h o ya están fuera de plazo.
+- **Leads**: sin asignar (urgentes) y asignados sin atender más de 24 h, con «Asignarme» y «Responder».
+- **Colas**: los fallos de 24 h con reintentar y marcar revisado (solo superadmin).
+- **Acciones en lote** (apartar, asignarme, recordar el pago), **atajos de teclado** (`j`/`k`, `Intro`, `a`, `m`, `?`) y botón «Siguiente».
+- Orden por importancia en todas las listas.

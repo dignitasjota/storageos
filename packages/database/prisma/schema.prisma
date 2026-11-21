@@ -5151,6 +5151,8 @@ model SuperAdmin {
 
   securityBlocks SecurityBlock[] @relation("SecurityBlockAuthor")
   todaySnoozes   AdminTodaySnooze[] @relation("TodaySnoozeAuthor")
+  reviewedJobs   AdminReviewedJob[] @relation("ReviewedJobAuthor")
+  todayVisit     AdminTodayVisit?
   ticketsAssigned    SupportTicket[]          @relation("TicketAssignedAdmin")
   messagesAuthored   SupportTicketMessage[]   @relation("MessageAuthorAdmin")
   impersonationLogs  ImpersonationLog[]       @relation("ImpersonationAdmin")
@@ -7646,6 +7648,8 @@ model AdminTodaySnooze {
   /// Qué se apartó, para poder enseñarlo.
   label       String?
   until       DateTime @db.Timestamptz(6)
+  /// Cómo estaba el aviso al apartarlo; si empeora, vuelve a salir.
+  fingerprint Json?
   createdById String?  @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -7653,6 +7657,32 @@ model AdminTodaySnooze {
 
   @@unique([kind, ref])
   @@map("admin_today_snoozes")
+}
+
+/// Trabajo fallido de una cola marcado como revisado desde «Hoy» (deja de contar).
+model AdminReviewedJob {
+  queue        String
+  jobId        String    @map("job_id")
+  /// Cuándo falló: si vuelve a fallar después, vuelve a salir.
+  failedAt     DateTime  @map("failed_at") @db.Timestamptz(6)
+  reviewedById String?   @map("reviewed_by_id") @db.Uuid
+  reviewedAt   DateTime  @default(now()) @map("reviewed_at") @db.Timestamptz(6)
+
+  reviewedBy SuperAdmin? @relation("ReviewedJobAuthor", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@id([queue, jobId])
+  @@map("admin_reviewed_jobs")
+}
+
+/// Última visita de un super admin a «Hoy» y las claves de lo que había.
+model AdminTodayVisit {
+  superAdminId String   @id @map("super_admin_id") @db.Uuid
+  seenAt       DateTime @map("seen_at") @db.Timestamptz(6)
+  snapshot     Json     @default("[]")
+
+  superAdmin SuperAdmin @relation(fields: [superAdminId], references: [id], onDelete: Cascade)
+
+  @@map("admin_today_visits")
 }
 
 /// Bloqueo manual de una IP o un email en las entradas.

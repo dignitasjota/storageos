@@ -204,6 +204,7 @@ export class ChatAlertsService {
       [t.domainsReady.length, 'dominios propios por activar'],
       [t.rgpdOverdue.length, 'tenants con solicitudes RGPD fuera de plazo'],
       [t.pastDue.length, 'tenants con pago pendiente'],
+      [t.paymentFailures.length, 'cobros de la suscripción rechazados'],
       [t.addonCharges.length, 'cobros de extras por registrar'],
       [t.manualRenewalsDue.length, 'renovaciones manuales por vencer'],
       [t.followupsDue.length, 'seguimientos para hoy'],

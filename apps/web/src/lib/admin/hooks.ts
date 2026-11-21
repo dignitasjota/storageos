@@ -10,6 +10,8 @@ import type {
   CreatePlatformBlogPostInput,
   PlatformBlogPostDto,
   CreateTodaySnoozeInput,
+  TodayBatchInput,
+  TodayFailedJobsInput,
   AdminFailedJobsPageDto,
   CreateSecurityBlockInput,
   SecurityBlockDto,
@@ -119,7 +121,10 @@ import type {
   AssignAddonInput,
   SaasAddonDto,
   TenantBillingSummaryDto,
+  AdminTodayBatchResultDto,
+  AdminTodayCountDto,
   AdminTodayDto,
+  AdminTodayVisitDto,
   TenantLimitsDto,
   UpsertSaasAddonInput,
   AdminOnboardingDto,
@@ -2730,10 +2735,21 @@ export function useLegalFill() {
 }
 
 // --- «Hoy» del super admin ---
+/** La bandeja «Hoy» entera, siempre fresca (la pide quien la está mirando). */
 export function useAdminToday() {
   return useQuery({
     queryKey: ['admin', 'today'],
-    queryFn: () => adminApiFetch<AdminTodayDto>('/admin/today'),
+    queryFn: () => adminApiFetch<AdminTodayDto>('/admin/today?fresh=1'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Solo el número de urgentes, para el contador del menú (el servidor lo guarda 30 s). */
+export function useAdminTodayCount() {
+  return useQuery({
+    queryKey: ['admin', 'today', 'count'],
+    queryFn: () => adminApiFetch<AdminTodayCountDto>('/admin/today/count'),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
@@ -2768,6 +2784,46 @@ export function useChargeAddon() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'billing'] });
+    },
+  });
+}
+
+/** «Desde tu última visita»: se pide una vez al abrir «Hoy» (y guarda la foto de ahora). */
+export function useTodayVisit() {
+  return useMutation({
+    mutationFn: () => adminApiFetch<AdminTodayVisitDto>('/admin/today/visit', { method: 'POST' }),
+  });
+}
+
+/** Acción sobre varios avisos de «Hoy» a la vez. */
+export function useTodayBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TodayBatchInput) =>
+      adminApiFetch<AdminTodayBatchResultDto>('/admin/today/batch', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'support'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'leads'] });
+    },
+  });
+}
+
+/** Reintentar o marcar revisados trabajos fallidos de las colas desde «Hoy». */
+export function useTodayFailedJobs(action: 'retry' | 'review') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: TodayFailedJobsInput) =>
+      adminApiFetch<AdminTodayBatchResultDto>(`/admin/today/failed-jobs/${action}`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'queues'] });
     },
   });
 }

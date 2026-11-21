@@ -76,7 +76,7 @@ import {
   useAdminLogout,
   useAdminNotifUnreadCount,
   useAdminOpenTicketsCount,
-  useAdminToday,
+  useAdminTodayCount,
 } from '@/lib/admin/hooks';
 import { useSalesTeamPendingCount } from '@/lib/admin/sales-team-hooks';
 import { SUPERADMIN_ONLY_PATHS, useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
@@ -497,7 +497,7 @@ function AdminShell({ children }: { children: ReactNode }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   // Tickets de soporte esperando respuesta del admin (badge en «Soporte»).
   const openTickets = useAdminOpenTicketsCount().data?.count ?? 0;
-  const urgentToday = useAdminToday().data?.urgentCount ?? 0;
+  const urgentToday = useAdminTodayCount().data?.urgentCount ?? 0;
   const unreadNotifs = useAdminNotifUnreadCount().data?.count ?? 0;
 
   // Cierra el drawer al navegar a otra ruta.
