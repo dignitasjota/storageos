@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@storageos/database';
 import { platformLeadName } from '@storageos/shared';
 
 import { todayInTimezone, zonedDayStart } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
+import type { TodayFingerprint } from './today-fingerprint';
 import type {
   AdminAtRiskTenantDto,
   AdminTenantIssueCountDto,
@@ -13,7 +15,6 @@ import type {
   AdminTodayDomainDto,
   AdminTodayDoneDto,
   AdminTodayNpsDto,
-  AdminTodaySnoozeDto,
   AdminTodayWorkloadDto,
   CreateTodaySnoozeInput,
 } from '@storageos/shared';
@@ -23,6 +24,18 @@ const DAY = 86_400_000;
 const ACTIVATION_DAYS = 7;
 /** Hasta qué nota se considera una respuesta NPS baja. */
 const NPS_NEGATIVE_MAX = 6;
+/** Un tenant dado de baja o borrado ya no da trabajo a nadie. */
+const LIVE_TENANT = { deletedAt: null, status: { not: 'cancelled' as const } };
+
+/** Aviso apartado con la huella de cómo estaba. */
+export interface TodaySnoozeRecord {
+  id: string;
+  kind: string;
+  ref: string;
+  label: string | null;
+  until: string;
+  fingerprint: unknown;
+}
 
 /** Lo que «Hoy» añade a sus fuentes: avisos, activación, reparto y lo cerrado. */
 @Injectable()
@@ -31,7 +44,7 @@ export class AdminTodayExtrasService {
 
   // --------------------------------------------------------------- apartados
 
-  async snoozes(now = new Date()): Promise<AdminTodaySnoozeDto[]> {
+  async snoozeRecords(now = new Date()): Promise<TodaySnoozeRecord[]> {
     const rows = await this.admin.adminTodaySnooze.findMany({
       where: { until: { gt: now } },
       orderBy: { until: 'asc' },
@@ -42,14 +55,20 @@ export class AdminTodayExtrasService {
       ref: r.ref,
       label: r.label,
       until: r.until.toISOString(),
+      fingerprint: r.fingerprint,
     }));
   }
 
-  async snooze(input: CreateTodaySnoozeInput, superAdminId: string): Promise<void> {
+  async snooze(
+    input: CreateTodaySnoozeInput,
+    superAdminId: string,
+    fingerprint: TodayFingerprint | null = null,
+  ): Promise<void> {
     const data = {
       label: input.label ?? null,
       until: new Date(Date.now() + input.days * DAY),
       createdById: superAdminId,
+      fingerprint: fingerprint ?? Prisma.DbNull,
     };
     await this.admin.adminTodaySnooze.upsert({
       where: { kind_ref: { kind: input.kind, ref: input.ref } },
@@ -256,12 +275,16 @@ export class AdminTodayExtrasService {
     const [tickets, followups] = await Promise.all([
       this.admin.supportTicket.groupBy({
         by: ['assignedAdminId'],
-        where: { status: { in: ['open', 'in_progress'] }, assignedAdminId: { not: null } },
+        where: {
+          status: { in: ['open', 'in_progress'] },
+          assignedAdminId: { not: null },
+          tenant: LIVE_TENANT,
+        },
         _count: { _all: true },
       }),
       this.admin.tenantFollowup.groupBy({
         by: ['assignedToId'],
-        where: { status: 'pending', assignedToId: { not: null } },
+        where: { status: 'pending', assignedToId: { not: null }, tenant: LIVE_TENANT },
         _count: { _all: true },
       }),
     ]);
@@ -289,9 +312,13 @@ export class AdminTodayExtrasService {
   /** Lo cerrado hoy (día de España). */
   async done(now = new Date()): Promise<AdminTodayDoneDto> {
     const start = zonedDayStart(todayInTimezone('Europe/Madrid', now).toISOString().slice(0, 10));
-    const [ticketsAnswered, followupsDone, actions] = await Promise.all([
-      this.admin.supportTicketMessage.count({
+    const [answered, followupsDone, actions] = await Promise.all([
+      // Tickets distintos respondidos hoy (no mensajes: tres respuestas al mismo
+      // ticket son un ticket).
+      this.admin.supportTicketMessage.findMany({
         where: { authorAdminId: { not: null }, isInternal: false, createdAt: { gte: start } },
+        distinct: ['ticketId'],
+        select: { ticketId: true },
       }),
       this.admin.tenantFollowup.count({
         where: { status: 'done', completedAt: { gte: start } },
@@ -313,7 +340,7 @@ export class AdminTodayExtrasService {
       }),
     ]);
     return {
-      ticketsAnswered,
+      ticketsAnswered: answered.length,
       followupsDone,
       actions: actions.map((a) => ({
         id: a.id,

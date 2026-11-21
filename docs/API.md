@@ -2877,6 +2877,19 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 
 `GET /admin/today` añade `followupsUpcoming`, `contactMessages`, `domainsReady`, `incompleteInvoices`, `rgpdOverdue`, `npsNegative`, `activationStalled`, `workload`, `snoozes`, `done`, `usage` en las pruebas y la asignación en los tickets. `PUT /admin/platform-alerts` admite `instantAlertsEnabled`.
 
+### Revisión de «Hoy» (2026-11-21)
+
+| Método | Ruta                   | Acceso     | Notas                                                                             |
+| ------ | ---------------------- | ---------- | --------------------------------------------------------------------------------- |
+| GET    | `/admin/today?fresh=1` | AdminGuard | La bandeja sin la copia de 30 s (la pide la página)                               |
+| GET    | `/admin/today/count`   | AdminGuard | `{urgentCount}` para el contador del menú; de la bandeja guardada 30 s en memoria |
+
+- Apartar un aviso guarda cómo estaba (`admin_today_snoozes.fingerprint`): último mensaje del cliente en un ticket, deuda y cuotas de un impago, nº de dispositivos sin conexión, fallos de webhooks, facturas con problemas, cobro de un extra, certificado caducado o renovación vencida. Si empeora, vuelve a salir con `reappeared: true` y `reappearedReason` («El cliente ha vuelto a escribir», «La deuda ha subido»…), cuenta como urgente y deja de figurar en `snoozes`. Los demás tipos siguen ocultos hasta que vence.
+- Cada sección se carga por separado: si una falla, llega vacía y su clave sale en `failedSections` (`ADMIN_TODAY_SECTION_LABELS` en shared); el resto de la bandeja no cambia.
+- `failedJobs` cuenta solo los trabajos fallidos de las últimas 24 h. `failedWebhooks` solo trae los webhooks con fallos posteriores a su última entrega correcta. Los leads asignados a un comercial salen pero no son urgentes. `urgentCount` = `adminTodayUrgentCounts` (shared), la misma cuenta que usan las pestañas de la web. `done.ticketsAnswered` cuenta tickets distintos. Los tickets traen `lastTenantMessageAt`.
+- Cobrar un extra de un tenant dado de baja → 409 `addon_not_chargeable`; ya no salen en `addonCharges` ni cuentan en `workload` los tickets o seguimientos de tenants de baja. `DELETE /admin/today/snoozes/:id` queda en el registro (`admin.today.unsnoozed`).
+- El aviso inmediato (`today-watch`) solo avisa cuando hay novedad (estado distinto del ya avisado en 30 días) y, como mucho, una vez al día por ticket, impago o tenant.
+
 ### «Hoy» del panel del tenant (2026-11-05)
 
 `GET /dashboard/today` acepta `full=1` (listas enteras, modo mostrador). Cada apartado sale solo con su permiso de lectura; sin él llega vacío y no cuenta en `urgentCount`. `TodayItemDto.note` marca las facturas con cobro en curso o en plan de pagos. `GET /dashboard/today/summary` añade `kpis.moneyVisible`. `POST /invoices/bulk/remind` devuelve en `failed` los códigos `payment_in_progress` e `invoice_in_payment_plan`.

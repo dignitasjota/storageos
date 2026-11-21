@@ -3017,3 +3017,15 @@ Migración `20270220100000_unit_cessions_improvements` (se aplica sola): fecha d
 - **Avisar N días antes** (0, 3, 7, 15 o 30) y **posponer el aviso** de una vencida 7 o 30 días.
 - **Acceso 24 h** y hasta 5 códigos por cesión, cada uno con su nombre.
 - **Descuadres**: la revisión de inventario avisa de un «Cedido» sin cesión y de una cesión cuyo trastero no está cedido.
+
+## 179. «Hoy» del super admin: arreglos (2026-11-21)
+
+Migración `20270221100000_admin_today_snooze_fingerprint` (se aplica sola): huella de lo apartado. Sin variables nuevas.
+
+- Lo apartado vuelve a salir si empeora (el cliente escribe, sube la deuda, hay más fallos…), con el motivo.
+- «Colas con fallos» cuenta solo las últimas 24 h; webhooks, solo si siguen fallando.
+- Si una sección no carga, el resto sigue y se avisa de cuál falló.
+- Los números cuadran: la cabecera son las acciones urgentes y cada pestaña dice cuántas lleva.
+- Leads asignados a un comercial ya no cuentan como urgentes del admin.
+- El aviso inmediato no se repite cada día por lo mismo.
+- Listas largas plegadas, contador del menú ligero (`GET /admin/today/count`, cacheado 30 s) y textos en plural correcto.

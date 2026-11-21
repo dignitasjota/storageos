@@ -7646,6 +7646,8 @@ model AdminTodaySnooze {
   /// Qué se apartó, para poder enseñarlo.
   label       String?
   until       DateTime @db.Timestamptz(6)
+  /// Cómo estaba el aviso al apartarlo; si empeora, vuelve a salir.
+  fingerprint Json?
   createdById String?  @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
