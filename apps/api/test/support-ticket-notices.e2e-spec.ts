@@ -51,7 +51,10 @@ describe('Soporte: avisos de los tickets en los dos sentidos (e2e)', () => {
     expect(list.some((n) => n.type === 'support.reply' && n.link === `/support/${ticketId}`)).toBe(
       true,
     );
-    const mail = await waitForEmail(owner.email, { subjectIncludes: 'No me cuadra la caja' });
+    // Al abrirlo también llega «Hemos recibido tu ticket» con el mismo asunto.
+    const mail = await waitForEmail(owner.email, {
+      subjectIncludes: 'te ha respondido: No me cuadra la caja',
+    });
     expect(mail.Text).toContain('Revisa el cierre de ayer.');
 
     // Una nota interna no avisa.
