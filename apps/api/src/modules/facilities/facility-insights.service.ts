@@ -181,8 +181,9 @@ export class FacilityInsightsService {
         moveIns: data.perFacility.get(f.id)?.moves.moveIns ?? 0,
         moveOuts: data.perFacility.get(f.id)?.moves.moveOuts ?? 0,
         longestVacantDays: vacantDays.length > 0 ? Math.max(...vacantDays) : null,
-        outOfService: units.filter((u) => u.status === 'maintenance' || u.status === 'blocked')
-          .length,
+        outOfService: units.filter(
+          (u) => u.status === 'maintenance' || u.status === 'blocked' || u.status === 'ceded',
+        ).length,
       };
     });
   }

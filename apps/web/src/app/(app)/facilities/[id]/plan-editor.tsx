@@ -61,6 +61,7 @@ const STATUS_FILL: Record<string, string> = {
   reserved: '#d97706',
   maintenance: '#64748b',
   blocked: '#475569',
+  ceded: '#7c3aed',
 };
 
 const GRID = 20;
@@ -89,6 +90,7 @@ const STATUS_OPACITY: Record<string, number> = {
   reserved: 0.75,
   maintenance: 0.6,
   blocked: 0.6,
+  ceded: 0.6,
 };
 
 /** Color de borde por estado, para distinguirlo de un vistazo. */
@@ -98,6 +100,7 @@ const STATUS_COLOR: Record<string, string> = {
   reserved: '#d97706', // ámbar
   maintenance: '#64748b', // gris
   blocked: '#64748b',
+  ceded: '#7c3aed', // violeta
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -106,6 +109,7 @@ const STATUS_LABEL: Record<string, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 function snap(value: number): number {
@@ -543,15 +547,17 @@ export function PlanEditor({ facilityId, floorId, onDirtyChange }: Props) {
 
       {/* Leyenda de estados (color del borde de cada trastero). */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {(['available', 'occupied', 'reserved', 'maintenance', 'blocked'] as const).map((s) => (
-          <span key={s} className="inline-flex items-center gap-1.5">
-            <span
-              className="inline-block h-3 w-3 rounded-sm border-2"
-              style={{ borderColor: STATUS_COLOR[s] }}
-            />
-            {STATUS_LABEL[s]}
-          </span>
-        ))}
+        {(['available', 'occupied', 'reserved', 'maintenance', 'blocked', 'ceded'] as const).map(
+          (s) => (
+            <span key={s} className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block h-3 w-3 rounded-sm border-2"
+                style={{ borderColor: STATUS_COLOR[s] }}
+              />
+              {STATUS_LABEL[s]}
+            </span>
+          ),
+        )}
       </div>
 
       <div

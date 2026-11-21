@@ -139,6 +139,8 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'contracts' },
   { table: 'payment_methods' },
   { table: 'push_subscriptions', where: 'customer_id IS NOT NULL' },
+  // Trasteros cedidos: su trastero queda libre (abajo) y su acceso se borra.
+  { table: 'unit_cessions' },
   // Todas las credenciales son de inquilinos (ya quitadas de los terminales).
   { table: 'access_credentials' },
   { table: 'customers' },
@@ -271,10 +273,10 @@ export class AdminTenantResetService {
             tenantId,
           );
         }
-        // Los trasteros alquilados o reservados quedan libres; los que están
-        // en mantenimiento o bloqueados conservan su estado.
+        // Los trasteros alquilados, reservados o cedidos quedan libres; los que
+        // están en mantenimiento o bloqueados conservan su estado.
         const freed = await tx.unit.updateMany({
-          where: { tenantId, status: { in: ['occupied', 'reserved'] } },
+          where: { tenantId, status: { in: ['occupied', 'reserved', 'ceded'] } },
           data: { status: 'available' },
         });
         // La numeración vuelve a empezar en 1.

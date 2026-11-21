@@ -34,6 +34,7 @@ export const UNIT_STATUS_LABELS: Record<UnitStatusValue, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 /**

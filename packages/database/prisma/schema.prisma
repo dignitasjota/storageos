@@ -63,6 +63,8 @@ enum UnitStatus {
   reserved
   maintenance
   blocked
+  /// Prestado sin contrato ni cobro (trasteros cedidos).
+  ceded
 
   @@map("unit_status")
 }
@@ -783,6 +785,7 @@ model Tenant {
   unitPriceHistory           UnitPriceHistory[]
   unitTenancies              UnitTenancy[]
   unitSavedViews             UnitSavedView[]
+  unitCessions               UnitCession[]
   invoiceSavedViews          InvoiceSavedView[]
   facilitySlugRedirects      FacilitySlugRedirect[]
   webSlugRedirects           WebSlugRedirect[]
@@ -978,6 +981,8 @@ model User {
   createdBankMatchRules BankMatchRule[] @relation("BankMatchRuleCreatedBy")
   fiscalClosuresClosed   FiscalPeriodClosure[] @relation("FiscalClosureAuthor")
   fiscalClosuresReopened FiscalPeriodClosure[] @relation("FiscalClosureReopener")
+  unitCessionsCreated    UnitCession[]         @relation("UnitCessionCreatedBy")
+  unitCessionsEnded      UnitCession[]         @relation("UnitCessionEndedBy")
 }
 
 /// Permisos por local: a qué facilities está restringido un usuario. Sin filas
@@ -1497,6 +1502,7 @@ model Unit {
 
   priceHistory      UnitPriceHistory[]
   tenancies         UnitTenancy[]
+  cessions          UnitCession[]
   @@unique([facilityId, code])
   @@index([tenantId])
   @@index([facilityId, status])
@@ -1615,6 +1621,44 @@ model UnitStatusHistory {
   @@map("unit_status_history")
 }
 
+/// Trastero cedido: el operador lo presta sin contrato, cobro ni factura. Solo
+/// una cesión viva (`endedAt` nulo) por trastero; las terminadas se conservan.
+model UnitCession {
+  id                 String     @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId           String     @map("tenant_id") @db.Uuid
+  unitId             String     @map("unit_id") @db.Uuid
+  holderName         String?    @map("holder_name")
+  holderPhone        String?    @map("holder_phone")
+  customerId         String?    @map("customer_id") @db.Uuid
+  startsOn           DateTime   @map("starts_on") @db.Date
+  endsOn             DateTime   @map("ends_on") @db.Date
+  notes              String?
+  accessCredentialId String?    @map("access_credential_id") @db.Uuid
+  /// Estado del trastero antes de cederlo.
+  previousUnitStatus UnitStatus @map("previous_unit_status")
+  createdByUserId    String?    @map("created_by_user_id") @db.Uuid
+  endedAt            DateTime?  @map("ended_at") @db.Timestamptz(6)
+  endedByUserId      String?    @map("ended_by_user_id") @db.Uuid
+  /// Estado en que quedó el trastero al terminar la cesión.
+  endedUnitStatus    UnitStatus? @map("ended_unit_status")
+  expiringNotifiedAt DateTime?  @map("expiring_notified_at") @db.Timestamptz(6)
+  expiredNotifiedAt  DateTime?  @map("expired_notified_at") @db.Timestamptz(6)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  unit             Unit              @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  customer         Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  accessCredential AccessCredential? @relation(fields: [accessCredentialId], references: [id], onDelete: SetNull)
+  createdBy        User?             @relation("UnitCessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  endedBy          User?             @relation("UnitCessionEndedBy", fields: [endedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([unitId, createdAt(sort: Desc)])
+  @@index([tenantId, customerId])
+  @@map("unit_cessions")
+}
+
 /// Inquilino del tenant. Individuo o empresa que alquila trasteros.
 /// Soft delete (`deleted_at`) porque borrar implicaria perder historial
 /// de contratos y facturas (Fase 4). El email puede ser NULL: hay
@@ -1717,6 +1761,7 @@ model Customer {
   conversation      CustomerConversation?
   delinquencyPickupRequests DelinquencyPickupRequest[]
   bankMatchRules            BankMatchRule[]
+  unitCessions              UnitCession[]
   @@index([tenantId])
   @@index([tenantId, deletedAt])
   @@index([tenantId, documentNumber])
@@ -4848,6 +4893,7 @@ model AccessCredential {
   syncEntries AccessCredentialSync[]
 
   delinquencyPickups DelinquencyPickupRequest[]
+  unitCessions       UnitCession[]
   @@index([tenantId])
   @@index([tenantId, status])
   @@index([tenantId, customerId])

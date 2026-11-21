@@ -110,6 +110,7 @@ import { SuspensionHoldsModule } from './modules/suspension-holds/suspension-hol
 import { TenantDigestModule } from './modules/tenant-digest/tenant-digest.module';
 import { TenantRolesModule } from './modules/tenant-roles/tenant-roles.module';
 import { TwoFactorModule } from './modules/two-factor/two-factor.module';
+import { UnitCessionsModule } from './modules/unit-cessions/unit-cessions.module';
 import { UnitChangesModule } from './modules/unit-changes/unit-changes.module';
 import { UnitInboxModule } from './modules/unit-inbox/unit-inbox.module';
 import { UnitRequestsModule } from './modules/unit-requests/unit-requests.module';
@@ -283,6 +284,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     PortfolioModule,
     InsuranceModule,
     MaintenanceModule,
+    UnitCessionsModule,
     SepaModule,
     BankReconciliationModule,
     AiModule,

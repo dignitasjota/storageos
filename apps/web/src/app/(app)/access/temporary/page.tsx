@@ -3,11 +3,13 @@
 import { type AccessCredentialDto, type AccessHolderKindValue } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
 import { Plus } from 'lucide-react';
+import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { DataTable } from '@/components/data-table';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -50,6 +52,11 @@ const STATUS: Record<string, string> = {
   pending: 'Pendiente',
 };
 
+/** Acceso de un trastero cedido (lo gestiona el propietario desde el trastero). */
+function isCession(c: AccessCredentialDto): boolean {
+  return c.metadata?.source === 'unit_cession';
+}
+
 /** Accesos con fecha de fin para quien no es inquilino: limpieza, mantenimiento, equipo. */
 export default function TemporaryAccessPage() {
   const canManage = useHasPermission('access:manage');
@@ -67,7 +74,17 @@ export default function TemporaryAccessPage() {
     {
       accessorKey: 'holderKind',
       header: 'Tipo',
-      cell: ({ row }) => KINDS[row.original.holderKind as AccessHolderKindValue] ?? '—',
+      cell: ({ row }) =>
+        isCession(row.original) ? (
+          <Badge
+            variant="outline"
+            className="border-violet-300 bg-violet-100 text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200"
+          >
+            Cesión
+          </Badge>
+        ) : (
+          (KINDS[row.original.holderKind as AccessHolderKindValue] ?? '—')
+        ),
     },
     {
       accessorKey: 'validFrom',
@@ -96,7 +113,14 @@ export default function TemporaryAccessPage() {
       id: 'actions',
       header: '',
       cell: ({ row }) =>
-        canManage && row.original.status === 'active' ? (
+        isCession(row.original) ? (
+          // El acceso de una cesión se gestiona desde la ficha del trastero.
+          row.original.allowedUnitIds[0] ? (
+            <Button size="sm" variant="outline" asChild>
+              <Link href={`/units/${row.original.allowedUnitIds[0]}`}>Ver trastero</Link>
+            </Button>
+          ) : null
+        ) : canManage && row.original.status === 'active' ? (
           <Button
             size="sm"
             variant="outline"

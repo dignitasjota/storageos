@@ -631,7 +631,9 @@ export class AnalyticsExtrasService {
         const key = `${kind === 'facility' ? 'f' : 't'}:${id}`;
         const g = groups.get(key) ?? { kind, id, name, total: 0, out: 0, occupied: 0 };
         g.total += 1;
-        if (u.status === 'maintenance' || u.status === 'blocked') g.out += 1;
+        if (u.status === 'maintenance' || u.status === 'blocked' || u.status === 'ceded') {
+          g.out += 1;
+        }
         if (u.status === 'occupied') g.occupied += 1;
         groups.set(key, g);
       }

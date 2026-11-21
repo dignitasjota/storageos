@@ -47,6 +47,7 @@ const STATUS_FILL: Record<string, string> = {
   reserved: '#d97706',
   maintenance: '#64748b',
   blocked: '#475569',
+  ceded: '#7c3aed',
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -55,6 +56,7 @@ const STATUS_LABEL: Record<string, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 interface PlanUnit {
@@ -65,6 +67,8 @@ interface PlanUnit {
   price: number;
   typeName: string;
   typeId: string;
+  /** Cedido: a quién y si la cesión ya venció. */
+  cession: { holderName: string; endsOn: string; expired: boolean } | null;
 }
 
 /** Tramos de tamaño del filtro del plano. */
@@ -105,6 +109,7 @@ function planUnit(u: {
   basePriceMonthly: number;
   unitTypeName: string;
   unitTypeId: string;
+  cession?: { holderName: string; endsOn: string; expired: boolean } | null;
 }): PlanUnit {
   return {
     id: u.id,
@@ -114,6 +119,7 @@ function planUnit(u: {
     price: u.basePriceMonthly,
     typeName: u.unitTypeName,
     typeId: u.unitTypeId,
+    cession: u.cession ?? null,
   };
 }
 
@@ -442,9 +448,9 @@ export function PlanViewer({ facilityId, floorId, focusUnitId }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {(colorBy === 'status'
-            ? (['available', 'occupied', 'reserved', 'maintenance', 'blocked'] as const).map(
-                (s) => ({ label: STATUS_LABEL[s], color: STATUS_FILL[s] }),
-              )
+            ? (
+                ['available', 'occupied', 'reserved', 'maintenance', 'blocked', 'ceded'] as const
+              ).map((s) => ({ label: STATUS_LABEL[s], color: STATUS_FILL[s] }))
             : [...VACANCY_BANDS, { label: 'No está libre', color: NOT_VACANT }]
           ).map((item) => (
             <span key={item.label} className="inline-flex items-center gap-1.5">
@@ -605,6 +611,18 @@ export function PlanViewer({ facilityId, floorId, focusUnitId }: Props) {
               {details.get(hover.unit.id)?.daysVacant != null &&
                 ` · ${details.get(hover.unit.id)?.daysVacant} días libre`}
             </p>
+            {hover.unit.cession && (
+              <p
+                className={
+                  hover.unit.cession.expired
+                    ? 'font-medium text-rose-700 dark:text-rose-400'
+                    : 'text-muted-foreground'
+                }
+              >
+                {hover.unit.cession.expired ? 'Cesión vencida · ' : 'Cedido a '}
+                {hover.unit.cession.holderName}
+              </p>
+            )}
             {hover.unit.upper && (
               <p className="text-muted-foreground">
                 Arriba: {hover.unit.upper.code} · {STATUS_LABEL[hover.unit.upper.status]}
@@ -662,6 +680,17 @@ function SelectedUnitPanel({
         <p className="text-muted-foreground">
           {unit.typeName} · {formatNumber(unit.areaM2, 1)} m² · {formatEur(unit.price)}/mes
         </p>
+        {unit.cession && (
+          <p className="text-xs">
+            Cedido a <span className="font-medium">{unit.cession.holderName}</span> · hasta el{' '}
+            {formatDate(unit.cession.endsOn)}
+            {unit.cession.expired && (
+              <span className="ml-2 font-medium text-rose-700 dark:text-rose-400">
+                Cesión vencida
+              </span>
+            )}
+          </p>
+        )}
         {hold && (
           <p className="text-xs text-muted-foreground">
             <Link href={hold.link} className="font-medium text-foreground hover:underline">

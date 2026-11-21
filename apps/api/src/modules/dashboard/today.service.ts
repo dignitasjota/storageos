@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { leadSourceLabel } from '@storageos/shared';
+import { leadSourceLabel, UNIT_CESSION_NOTICE_DAYS } from '@storageos/shared';
 
 import { customerScopeWhere } from '../../common/customer-scope';
 import {
@@ -115,6 +115,38 @@ export class TodayService {
     const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
     const marketingRenewalsLimit = addDays(startOfToday, MARKETING_RENEWAL_SOON_DAYS);
     const today = { gte: startOfToday, lt: startOfTomorrow };
+    // Trasteros cedidos que vencen en 7 días o ya vencidos (hasta terminarlos).
+    // No cuentan como urgentes ni en las cifras: son un préstamo sin cobro.
+    const cessions = can('units:read')
+      ? await this.prisma.withTenant(
+          (tx) =>
+            tx.unitCession.findMany({
+              where: {
+                endedAt: null,
+                endsOn: { lt: addDays(startOfToday, UNIT_CESSION_NOTICE_DAYS + 1) },
+                unit: { facility: { deletedAt: null }, ...(fac ? { facilityId: fac } : {}) },
+              },
+              select: {
+                id: true,
+                unitId: true,
+                holderName: true,
+                endsOn: true,
+                unit: { select: { code: true, facility: { select: { name: true } } } },
+              },
+              orderBy: { endsOn: 'asc' },
+            }),
+          tenantId,
+        )
+      : [];
+    const cessionItem = (c: (typeof cessions)[number]): TodayItemDto => ({
+      id: c.unitId,
+      label: `${c.unit.code} · ${c.holderName ?? 'Cedido'}`,
+      detail: c.unit.facility.name,
+      date: c.endsOn.toISOString(),
+      overdue: c.endsOn <= startOfToday,
+    });
+    const cessionsExpired = cessions.filter((c) => c.endsOn <= startOfToday);
+    const cessionsExpiring = cessions.filter((c) => c.endsOn > startOfToday);
     // Cuotas que cambian en los próximos 7 días (programadas o de una subida).
     const priceChangeItems: TodayItemDto[] = [];
     if (can('contracts:read')) {
@@ -1329,6 +1361,14 @@ export class TodayService {
             },
             none,
           ),
+          cessionsExpiring: {
+            count: cessionsExpiring.length,
+            items: cessionsExpiring.slice(0, TAKE_LIST).map(cessionItem),
+          },
+          cessionsExpired: {
+            count: cessionsExpired.length,
+            items: cessionsExpired.slice(0, TAKE_LIST).map(cessionItem),
+          },
           expensesToPay: section(
             'expenses:read',
             {

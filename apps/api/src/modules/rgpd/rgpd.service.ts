@@ -470,6 +470,15 @@ export class RgpdService {
       await tx.customerDocument.deleteMany({ where: { customerId } });
       await tx.customerDocumentRequest.deleteMany({ where: { customerId } });
       await tx.customerContact.deleteMany({ where: { customerId } });
+      // Trasteros que se le cedieron: sin su nombre ni su teléfono.
+      await tx.unitCession.updateMany({
+        where: { customerId },
+        data: { holderName: '*** ANONIMIZADO ***', holderPhone: null, notes: null },
+      });
+      await tx.accessCredential.updateMany({
+        where: { unitCessions: { some: { customerId } } },
+        data: { holderName: '*** ANONIMIZADO ***' },
+      });
       // Borrar metodos de pago.
       await tx.paymentMethod.deleteMany({ where: { customerId } });
 

@@ -6,6 +6,7 @@ import {
   UNIT_FEATURE_LABELS,
   type UnitFeature,
   type UnitOverviewRowDto,
+  UnitStatusEnum,
   type UnitStatusValue,
 } from '@storageos/shared';
 import { type ColumnDef } from '@tanstack/react-table';
@@ -91,6 +92,7 @@ const STATUS_KPIS: { status: UnitStatusValue; label: string; color: string }[] =
   { status: 'reserved', label: 'Reservados', color: '#eab308' },
   { status: 'maintenance', label: 'Mantenimiento', color: '#f97316' },
   { status: 'blocked', label: 'Bloqueados', color: '#dc2626' },
+  { status: 'ceded', label: 'Cedidos', color: '#7c3aed' },
 ];
 
 const STATUS_LABELS: Record<UnitStatusValue, string> = {
@@ -99,6 +101,7 @@ const STATUS_LABELS: Record<UnitStatusValue, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 type ColumnKey =
@@ -186,6 +189,9 @@ export default function UnitsPage() {
     if (floor) setFloorId(floor);
     const unit = params.get('unit');
     if (unit) setFocusUnitId(unit);
+    // Desde «Hoy»: la lista filtrada por un estado (p. ej. los cedidos).
+    const status = UnitStatusEnum.safeParse(params.get('status'));
+    if (status.success) setFilters((f) => ({ ...f, status: status.data }));
   }, []);
 
   const facilities = useFacilities();
@@ -408,6 +414,7 @@ export default function UnitsPage() {
         cell: ({ row }) => (
           <div className="flex flex-wrap items-center gap-1">
             <StatusBadge status={row.original.status} />
+            {row.original.cession?.expired && <Badge variant="destructive">Cesión vencida</Badge>}
             {row.original.offer && <Badge variant="secondary">Oferta</Badge>}
           </div>
         ),
@@ -418,9 +425,9 @@ export default function UnitsPage() {
         meta: { mobileHidden: !canWrite && !canDelete },
         cell: ({ row }) => {
           const u = row.original;
-          // Un trastero ocupado lo llevan sus contratos.
-          const canChange = canWrite && u.status !== 'occupied';
-          const canRemove = canDelete && u.status !== 'occupied';
+          // Un trastero ocupado lo llevan sus contratos; uno cedido, su cesión.
+          const canChange = canWrite && u.status !== 'occupied' && u.status !== 'ceded';
+          const canRemove = canDelete && u.status !== 'occupied' && u.status !== 'ceded';
           if (!canChange && !canRemove && !canWrite) return null;
           return (
             <DropdownMenu>

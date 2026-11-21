@@ -232,6 +232,7 @@ export const UnitStatusEnum = z.enum([
   'reserved',
   'maintenance',
   'blocked',
+  'ceded',
 ]);
 export type UnitStatusValue = z.infer<typeof UnitStatusEnum>;
 
@@ -249,7 +250,19 @@ export const UNIT_STATUS_TRANSITIONS: Record<UnitStatusValue, UnitStatusValue[]>
   maintenance: ['available', 'blocked'],
   blocked: ['available', 'maintenance'],
   occupied: ['available', 'maintenance', 'blocked'],
+  // Un trastero cedido solo sale de ese estado al terminar la cesión, y a
+  // «Cedido» solo se llega cediéndolo (nunca con el cambio de estado).
+  ceded: [],
 };
+
+/** Estados desde los que se puede ceder un trastero. */
+export const UNIT_CESSION_FROM_STATUSES = ['available', 'maintenance', 'blocked'] as const;
+
+/**
+ * Estados que no cuentan como alquilables en las cifras (igual que un trastero
+ * en mantenimiento): fuera de servicio, bloqueado o cedido.
+ */
+export const UNIT_OUT_OF_SERVICE_STATUSES = ['maintenance', 'blocked', 'ceded'] as const;
 
 export const CreateUnitSchema = z.object({
   facilityId: z.string().uuid(),

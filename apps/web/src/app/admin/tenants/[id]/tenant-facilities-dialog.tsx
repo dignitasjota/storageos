@@ -19,6 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -27,6 +28,7 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
   reserved: 'outline',
   maintenance: 'outline',
   blocked: 'destructive',
+  ceded: 'outline',
 };
 
 function fmtMoney(n: number): string {

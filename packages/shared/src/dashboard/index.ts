@@ -120,6 +120,10 @@ export interface TodayDto {
   businessRemindersDue: { count: number; items: TodayItemDto[] };
   /** Gastos pendientes de pagar que vencen esta semana o ya vencieron (`id` = el gasto). */
   expensesToPay: { count: number; items: TodayItemDto[] };
+  /** Trasteros cedidos cuya cesión vence en los próximos 7 días (`id` = el trastero). */
+  cessionsExpiring?: { count: number; items: TodayItemDto[] };
+  /** Trasteros cedidos con la cesión vencida y sin terminar (`id` = el trastero). */
+  cessionsExpired?: { count: number; items: TodayItemDto[] };
 }
 
 /** Un paso de la puesta en marcha del operador. */

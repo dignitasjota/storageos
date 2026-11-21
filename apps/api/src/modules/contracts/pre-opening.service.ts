@@ -407,7 +407,7 @@ export class PreOpeningService {
       let unitId = unit.id;
       let unitCode = unit.code;
       let previousStatus = unit.status;
-      if (unit.status === 'maintenance' || unit.status === 'blocked') {
+      if (unit.status === 'maintenance' || unit.status === 'blocked' || unit.status === 'ceded') {
         // El trastero reservado no está en condiciones: otro libre del mismo
         // local, tipo y precio (lo que se le prometió al inquilino).
         const replacement = await tx.unit.findFirst({

@@ -205,6 +205,14 @@ export default function CredentialsPage() {
             {row.original.label && !isNightPass && (
               <span className="text-muted-foreground">· {row.original.label}</span>
             )}
+            {row.original.metadata?.source === 'unit_cession' && (
+              <Badge
+                variant="outline"
+                className="border-violet-300 bg-violet-100 text-[10px] text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200"
+              >
+                Cesión
+              </Badge>
+            )}
             {isNightPass ? (
               <Badge variant="secondary" className="text-[10px]">
                 🌙 Pase nocturno · {row.original.usesCount}/1

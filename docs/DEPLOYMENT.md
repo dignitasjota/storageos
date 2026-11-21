@@ -2978,3 +2978,17 @@ Qué cambia para los usuarios:
 - **Novedades**: filtros por tipo, buscador y «Solo lo de mi plan»; «¿Te ha sido útil?»; «Probar gratis 14 días» en las de una función que no tienen (una prueba por función); resumen mensual por correo; el admin puede dirigir una novedad a unos planes o roles.
 - **Cómo funciona**: botón «?» en la cabecera que lleva a la guía de la pantalla, búsqueda que se guarda en la dirección y resalta lo encontrado, y «Preguntar al asistente» cuando no hay guía.
 - **Soporte**: guías relacionadas al escribir, temas fijos, la pantalla desde la que escribes, «Preguntar antes al asistente», filtros y búsqueda, reabrir durante 7 días, cambiar la prioridad, confirmación por correo, compañeros en copia, plazo de respuesta orientativo y aviso de incidencias.
+
+## 176. Trasteros cedidos (2026-11-21)
+
+Migraciones (se aplican solas): `20270218100000_unit_status_ceded` (estado `ceded` del trastero, va sola porque Postgres no deja usar un valor nuevo de un tipo en la misma transacción) y `20270218110000_unit_cessions` (tabla `unit_cessions` con RLS). Sin variables nuevas. Tarea nueva `unit-cessions.notices` (cada hora, en el worker).
+
+**Está desactivado para todos los negocios.** Se activa uno a uno desde el panel admin → ficha del tenant → tarjeta de funciones → «Trasteros cedidos». No está en ningún plan ni se vende como extra.
+
+Qué hace, con la función activada:
+
+- El **propietario** (solo él) cede un trastero libre, en mantenimiento o bloqueado a una persona (nombre y teléfono) o a un inquilino, durante N meses o hasta un día. No hay contrato, cobro ni factura, y no se envía nada a nadie.
+- El trastero queda **«Cedido»**: no sale en la web ni en la reserva online, no se puede reservar ni contratar y, en las cifras, cuenta como uno en mantenimiento.
+- Se crea un **acceso PIN** solo para ese trastero, sin caducidad. El código se ve en la ficha para dárselo en mano y desde ahí se cambia, se deniega o se vuelve a permitir. No aparece en el área de clientes del inquilino enlazado.
+- **Avisos al equipo** 7 días antes y el día del fin, también en «Hoy» (pestaña Operación). Al vencer **no se libera** ni se corta el acceso: hay que terminar la cesión a mano, y si quedan días pide confirmación con el tiempo que falta.
+- Si se desactiva la función a un negocio con trasteros cedidos, sigue pudiendo terminar esas cesiones y gestionar su acceso, pero no cede nuevos trasteros ni amplía las cesiones.

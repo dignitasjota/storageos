@@ -6,7 +6,14 @@ import { PrismaService } from '../database/prisma.service';
 
 import type { OccupancyDashboardDto, UnitStatusValue } from '@storageos/shared';
 
-const STATUSES: UnitStatusValue[] = ['available', 'occupied', 'reserved', 'maintenance', 'blocked'];
+const STATUSES: UnitStatusValue[] = [
+  'available',
+  'occupied',
+  'reserved',
+  'maintenance',
+  'blocked',
+  'ceded',
+];
 
 @Injectable()
 export class DashboardService {

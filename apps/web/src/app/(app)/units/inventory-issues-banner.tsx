@@ -14,6 +14,7 @@ const STATUS_LABELS: Record<string, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 /**

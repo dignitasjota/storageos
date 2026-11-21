@@ -26,6 +26,7 @@ export const TenantFeatures = [
   'local_seo', // páginas de zona, revisión de SEO, posiciones e informe — SOLO add-on
   'branded_panel', // panel del equipo con el logo y nombre del tenant (también la app instalada)
   'business_reminders', // /reminders: vencimientos del negocio con avisos (planes de pago)
+  'unit_cession', // trasteros cedidos sin contrato ni cobro — SOLO por override del super admin
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -161,4 +162,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   local_seo: 'SEO local',
   branded_panel: 'Panel con tu marca',
   business_reminders: 'Vencimientos y avisos',
+  unit_cession: 'Trasteros cedidos',
 };

@@ -155,7 +155,8 @@ export class UnitsOverviewService {
           ? { code: offer.code, freeMonths: offer.freeMonths, validUntil: offer.validUntil }
           : null,
         outOfService:
-          (u.status === 'maintenance' || u.status === 'blocked') && stoppedDays !== null
+          (u.status === 'maintenance' || u.status === 'blocked' || u.status === 'ceded') &&
+          stoppedDays !== null
             ? {
                 days: stoppedDays,
                 lostIncome: lostUnitIncome(dto.basePriceMonthly, stoppedDays),
