@@ -1,6 +1,6 @@
 'use client';
 
-import { OFFERED_WEBHOOK_EVENTS, WEBHOOK_EVENT_LABELS } from '@storageos/shared';
+import { WEBHOOK_EVENT_LABELS } from '@storageos/shared';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -16,6 +16,11 @@ import type {
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
+import {
+  EditWebhookDialog,
+  SendWebhookTestDialog,
+  WebhookEventsPicker,
+} from '@/components/integrations/webhook-dialogs';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,6 +37,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ApiError } from '@/lib/auth/api';
+import { env } from '@/lib/env';
 import { formatDateTime } from '@/lib/format';
 import {
   useApiKeys,
@@ -58,8 +64,6 @@ const SCOPE_LABELS: Record<ApiKeyScope, string> = {
   'customers:read': 'Leer inquilinos',
   'webhooks:trigger': 'Lanzar webhooks',
 };
-
-const EVENT_TYPES: WebhookEventType[] = [...OFFERED_WEBHOOK_EVENTS];
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.body.message : fallback;
@@ -119,49 +123,114 @@ function ApiKeysSection() {
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <div>
-          <CardTitle>Claves de API</CardTitle>
-          <CardDescription>
-            Para que otro programa se conecte a tu cuenta. La clave completa solo se ve una vez, al
-            crearla.
-          </CardDescription>
-        </div>
-        <Button onClick={() => setCreating(true)}>Nueva clave</Button>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Alert>
-          <AlertTitle>La API está empezando</AlertTitle>
-          <AlertDescription>
-            Por ahora solo permite comprobar que la clave funciona (
-            <code className="text-xs">GET /v1/integrations/whoami</code>). Las consultas de
-            facturas, contratos e inquilinos llegarán pronto. Para recibir avisos cuando pasa algo,
-            usa los webhooks.
-          </AlertDescription>
-        </Alert>
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Cargando…</p>
-        ) : isError ? (
-          <SectionError onRetry={() => void refetch()} />
-        ) : data && data.length > 0 ? (
-          <div className="space-y-2">
-            {data.map((k) => (
-              <ApiKeyRow key={k.id} item={k} onRevoke={() => void onRevoke(k)} />
-            ))}
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>Claves de API</CardTitle>
+            <CardDescription>
+              Para que otro programa se conecte a tu cuenta. La clave completa solo se ve una vez,
+              al crearla.
+            </CardDescription>
           </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">No tienes claves de API todavía.</p>
-        )}
+          <Button onClick={() => setCreating(true)}>Nueva clave</Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Cargando…</p>
+          ) : isError ? (
+            <SectionError onRetry={() => void refetch()} />
+          ) : data && data.length > 0 ? (
+            <div className="space-y-2">
+              {data.map((k) => (
+                <ApiKeyRow key={k.id} item={k} onRevoke={() => void onRevoke(k)} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No tienes claves de API todavía.</p>
+          )}
+        </CardContent>
+
+        <CreateApiKeyDialog
+          open={creating}
+          onOpenChange={setCreating}
+          onCreated={(k) => setRevealed(k)}
+        />
+
+        <RevealedApiKeyDialog item={revealed} onClose={() => setRevealed(null)} />
+      </Card>
+      <ApiDocsCard />
+    </div>
+  );
+}
+
+const API_ENDPOINTS: Array<{ path: string; scope: ApiKeyScope; text: string }> = [
+  { path: '/v1/integrations/customers', scope: 'customers:read', text: 'Inquilinos' },
+  { path: '/v1/integrations/customers/{id}', scope: 'customers:read', text: 'Un inquilino' },
+  { path: '/v1/integrations/contracts', scope: 'contracts:read', text: 'Contratos' },
+  { path: '/v1/integrations/contracts/{id}', scope: 'contracts:read', text: 'Un contrato' },
+  { path: '/v1/integrations/invoices', scope: 'invoices:read', text: 'Facturas emitidas' },
+  { path: '/v1/integrations/invoices/{id}', scope: 'invoices:read', text: 'Una factura' },
+  { path: '/v1/integrations/whoami', scope: 'invoices:read', text: 'Comprobar la clave' },
+];
+
+/** Cómo usar la API de lectura: direcciones, permisos, páginas y un ejemplo. */
+function ApiDocsCard() {
+  const base = env.apiUrl.replace(/\/$/, '');
+  const curl = `curl -H "Authorization: Bearer sk_live_…" \\
+  "${base}/v1/integrations/invoices?status=paid&limit=50"`;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cómo usar la API</CardTitle>
+        <CardDescription>
+          Solo lectura. Cada clave ve los datos de tu negocio y solo lo que le hayas permitido.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div className="space-y-2">
+          {API_ENDPOINTS.map((e) => (
+            <div
+              key={e.path}
+              className="flex flex-col gap-1 rounded-md border p-2 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <code className="break-all text-xs">GET {e.path}</code>
+              <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {e.text}
+                <Badge variant="outline" className="text-[10px]">
+                  {SCOPE_LABELS[e.scope]}
+                </Badge>
+              </span>
+            </div>
+          ))}
+        </div>
+        <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+          <li>
+            Las listas van por páginas: la respuesta trae <code className="text-xs">data</code> y{' '}
+            <code className="text-xs">nextCursor</code>; pásalo como{' '}
+            <code className="text-xs">?cursor=</code> para la siguiente (
+            <code className="text-xs">limit</code> hasta 100).
+          </li>
+          <li>
+            Filtros: <code className="text-xs">updatedSince</code> (fecha ISO) en todas,{' '}
+            <code className="text-xs">status</code> y <code className="text-xs">customerId</code> en
+            contratos y facturas, <code className="text-xs">contractId</code> en facturas y{' '}
+            <code className="text-xs">email</code> en inquilinos.
+          </li>
+          <li>
+            Importes en euros sin redondeos raros, fechas{' '}
+            <code className="text-xs">AAAA-MM-DD</code>. Las facturas en borrador no salen.
+          </li>
+          <li>
+            Hasta 120 peticiones por minuto por clave. Si te pasas, la respuesta es 429 y la
+            cabecera <code className="text-xs">Retry-After</code> dice cuántos segundos esperar.
+          </li>
+        </ul>
+        <div className="space-y-1">
+          <Label>Ejemplo</Label>
+          <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">{curl}</pre>
+        </div>
       </CardContent>
-
-      <CreateApiKeyDialog
-        open={creating}
-        onOpenChange={setCreating}
-        onCreated={(k) => setRevealed(k)}
-      />
-
-      <RevealedApiKeyDialog item={revealed} onClose={() => setRevealed(null)} />
     </Card>
   );
 }
@@ -331,6 +400,8 @@ function WebhooksSection() {
   const ask = useConfirm();
   const [creating, setCreating] = useState(false);
   const [revealed, setRevealed] = useState<WebhookWithSecretDto | null>(null);
+  const [editing, setEditing] = useState<WebhookDto | null>(null);
+  const [testing, setTesting] = useState<WebhookDto | null>(null);
 
   async function onRevoke(w: WebhookDto) {
     const ok = await ask({
@@ -391,6 +462,8 @@ function WebhooksSection() {
                 item={w}
                 onRevoke={() => void onRevoke(w)}
                 onRotate={() => void onRotate(w)}
+                onEdit={() => setEditing(w)}
+                onTest={() => setTesting(w)}
               />
             ))}
           </div>
@@ -406,6 +479,8 @@ function WebhooksSection() {
       />
 
       <RevealedWebhookDialog item={revealed} onClose={() => setRevealed(null)} />
+      <EditWebhookDialog webhook={editing} onClose={() => setEditing(null)} />
+      <SendWebhookTestDialog webhook={testing} onClose={() => setTesting(null)} />
     </Card>
   );
 }
@@ -414,13 +489,17 @@ function WebhookRow({
   item,
   onRevoke,
   onRotate,
+  onEdit,
+  onTest,
 }: {
   item: WebhookDto;
   onRevoke: () => void;
   onRotate: () => void;
+  onEdit: () => void;
+  onTest: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+    <div className="flex flex-col gap-3 rounded-md border p-3 text-sm lg:flex-row lg:items-center lg:justify-between">
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex items-center gap-2">
           <span className="font-medium">{item.name}</span>
@@ -435,12 +514,18 @@ function WebhookRow({
           ))}
         </div>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className="flex flex-wrap gap-2 lg:shrink-0 lg:justify-end">
         <Button variant="outline" size="sm" asChild>
-          <Link href={`/settings/webhooks/${item.id}`}>Ver</Link>
+          <Link href={`/settings/webhooks/${item.id}`}>Ver envíos</Link>
         </Button>
         {item.isActive ? (
           <>
+            <Button variant="outline" size="sm" onClick={onTest}>
+              Enviar prueba
+            </Button>
+            <Button variant="outline" size="sm" onClick={onEdit}>
+              Editar
+            </Button>
             <Button variant="outline" size="sm" onClick={onRotate}>
               Renovar secreto
             </Button>
@@ -484,7 +569,7 @@ function CreateWebhookDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Nuevo webhook</DialogTitle>
         </DialogHeader>
@@ -504,26 +589,7 @@ function CreateWebhookDialog({
           </div>
           <div className="space-y-2">
             <Label>Eventos suscritos</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {EVENT_TYPES.map((e) => {
-                const checked = events.includes(e);
-                return (
-                  <label key={e} className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={(v) => {
-                        const isOn = v === true;
-                        setEvents((cur) => (isOn ? [...cur, e] : cur.filter((x) => x !== e)));
-                      }}
-                    />
-                    <span>
-                      {WEBHOOK_EVENT_LABELS[e]}{' '}
-                      <code className="text-xs text-muted-foreground">{e}</code>
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
+            <WebhookEventsPicker value={events} onChange={setEvents} />
           </div>
         </div>
         <DialogFooter>

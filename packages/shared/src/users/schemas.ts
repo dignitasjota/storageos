@@ -35,6 +35,10 @@ export const InviteUserSchema = z.object({
   email: z.string().trim().toLowerCase().email('Email no valido'),
   role: assignableRole,
   fullName: fullNameSchema.optional(),
+  /** Rol a medida que tendrá al aceptar (solo lo elige el propietario). */
+  tenantRoleId: z.string().uuid().nullable().optional(),
+  /** Locales a los que quedará restringido ([] = todos; solo el propietario). */
+  facilityIds: z.array(z.string().uuid()).max(500).optional(),
 });
 export type InviteUserInput = z.infer<typeof InviteUserSchema>;
 

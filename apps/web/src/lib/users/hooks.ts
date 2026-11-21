@@ -10,6 +10,7 @@ import type {
   UpdateProfileInput,
   UpdateUserInput,
   UserDetailDto,
+  UserLimitsDto,
 } from '@storageos/shared';
 
 export const usersQueryKey = ['users'] as const;
@@ -143,5 +144,26 @@ export function useCancelEmailChange() {
   return useMutation({
     mutationFn: () => apiFetch<void>('/me/email-change', { method: 'DELETE' }),
     onSuccess: () => qc.setQueryData(emailChangeKey, { pendingEmail: null, expiresAt: null }),
+  });
+}
+
+export const userLimitsKey = ['users', 'limits'] as const;
+
+/** Plazas de usuario del plan: activos + invitaciones pendientes frente al tope. */
+export function useUserLimits(enabled = true) {
+  return useQuery({
+    queryKey: userLimitsKey,
+    queryFn: () => apiFetch<UserLimitsDto>('/users/limits'),
+    enabled,
+    staleTime: 30_000,
+  });
+}
+
+/** El propietario quita la verificación en dos pasos a otra persona del equipo. */
+export function useResetUserTwoFactor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/users/${id}/disable-2fa`, { method: 'POST' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: usersQueryKey }),
   });
 }

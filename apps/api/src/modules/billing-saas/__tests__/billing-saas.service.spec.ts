@@ -554,3 +554,98 @@ describe('BillingSaasService.swapStripePlan', () => {
     );
   });
 });
+
+describe('BillingSaasService.changePlanSelfService (solo la periodicidad)', () => {
+  function build(sub: Record<string, unknown>) {
+    const plan = {
+      id: 'plan-pro',
+      slug: 'pro',
+      isActive: true,
+      isPublic: true,
+      includedUnits: null,
+      maxUnits: null,
+      maxFacilities: null,
+      maxUsers: null,
+      stripePriceId: 'price_pro_m',
+      stripePriceIdYearly: 'price_pro_y',
+    };
+    const admin = {
+      tenantSubscription: { findUnique: jest.fn().mockResolvedValue(sub), update: jest.fn() },
+      subscriptionPlan: { findUnique: jest.fn().mockResolvedValue(plan) },
+    };
+    const audit = { write: jest.fn().mockResolvedValue(undefined) };
+    const service = new BillingSaasService(
+      {} as unknown as PrismaService,
+      admin as unknown as PrismaAdminService,
+      audit as unknown as AuditService,
+      {} as unknown as PlatformInvoicesService,
+      {} as unknown as PlatformCouponsService,
+      {} as unknown as PlatformSepaMandateService,
+      { getClient: () => ({}), isConfigured: () => true } as unknown as StripeGateway,
+      { reconcileAfterPlanChange: jest.fn() } as never,
+    );
+    jest.spyOn(service as never, 'assertNotExempt' as never).mockResolvedValue(undefined as never);
+    const swap = jest.spyOn(service, 'swapStripePlan').mockResolvedValue(undefined);
+    jest
+      .spyOn(service, 'getCurrentSubscription')
+      .mockResolvedValue({ billingCycle: 'monthly' } as never);
+    return { service, swap, audit, admin };
+  }
+  const monthly = {
+    id: 'sub-1',
+    planId: 'plan-pro',
+    stripeSubscriptionId: 'sub_stripe',
+    currentPeriodStart: new Date('2026-11-01T00:00:00Z'),
+    currentPeriodEnd: new Date('2026-12-01T00:00:00Z'),
+  };
+  const meta = { ipAddress: null, userAgent: null } as never;
+
+  it('pasa de mensual a anual en el mismo plan sin tocar el plan en la base de datos', async () => {
+    const { service, swap, audit, admin } = build(monthly);
+    const res = await service.changePlanSelfService({
+      tenantId: TENANT,
+      userId: 'user-1',
+      planId: 'plan-pro',
+      billingCycle: 'yearly',
+      meta,
+    });
+    expect(swap).toHaveBeenCalledWith(
+      expect.objectContaining({ billingCycle: 'yearly', currentPlanId: 'plan-pro' }),
+    );
+    expect(admin.tenantSubscription.update).not.toHaveBeenCalled();
+    expect(audit.write).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'saas_billing.billing_cycle_changed',
+        changes: expect.objectContaining({ from: 'monthly', to: 'yearly' }),
+      }),
+    );
+    expect(res.billingCycle).toBe('yearly');
+  });
+
+  it('mismo plan y misma periodicidad: «ya estás en ese plan»', async () => {
+    const { service, swap } = build(monthly);
+    await expect(
+      service.changePlanSelfService({
+        tenantId: TENANT,
+        userId: 'user-1',
+        planId: 'plan-pro',
+        billingCycle: 'monthly',
+        meta,
+      }),
+    ).rejects.toMatchObject({ response: { code: 'already_on_plan' } });
+    expect(swap).not.toHaveBeenCalled();
+  });
+
+  it('sin Stripe: lo gestiona soporte', async () => {
+    const { service } = build({ ...monthly, stripeSubscriptionId: null });
+    await expect(
+      service.changePlanSelfService({
+        tenantId: TENANT,
+        userId: 'user-1',
+        planId: 'plan-pro',
+        billingCycle: 'yearly',
+        meta,
+      }),
+    ).rejects.toMatchObject({ response: { code: 'manual_plan_change' } });
+  });
+});

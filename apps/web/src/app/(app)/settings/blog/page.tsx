@@ -1,6 +1,6 @@
 'use client';
 
-import { Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
+import { CalendarClock, CalendarX, Eye, EyeOff, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -16,11 +16,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ApiError } from '@/lib/auth/api';
+import { useMe } from '@/lib/auth/hooks';
 import { useBlogPosts, useDeleteBlogPost, useUpdateBlogPost } from '@/lib/blog/hooks';
+import { formatZonedDateTime } from '@/lib/promo-landings/dates';
 
 export default function BlogSettingsPage() {
   const ask = useConfirm();
   const posts = useBlogPosts();
+  const me = useMe();
+  const timeZone = me.data?.tenant.timezone ?? 'Europe/Madrid';
   const update = useUpdateBlogPost();
   const remove = useDeleteBlogPost();
 
@@ -46,6 +50,23 @@ export default function BlogSettingsPage() {
     try {
       await update.mutateAsync({ id: post.id, input: { isPublished: !post.isPublished } });
       toast.success(post.isPublished ? 'Entrada despublicada.' : 'Entrada publicada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'Error');
+    }
+  }
+
+  async function cancelSchedule(post: BlogPostDto) {
+    if (
+      !(await ask({
+        title: '¿Cancelar la publicación programada?',
+        description: `«${post.title}» se quedará en borrador.`,
+        confirmLabel: 'Cancelar la programación',
+      }))
+    )
+      return;
+    try {
+      await update.mutateAsync({ id: post.id, input: { publishAt: null } });
+      toast.success('Programación cancelada. La entrada sigue en borrador.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -101,7 +122,9 @@ export default function BlogSettingsPage() {
                   post={post}
                   onEdit={() => openEdit(post)}
                   onTogglePublish={() => togglePublish(post)}
+                  onCancelSchedule={() => void cancelSchedule(post)}
                   onDelete={() => onDelete(post)}
+                  timeZone={timeZone}
                   busy={update.isPending || remove.isPending}
                 />
               ))}
@@ -124,15 +147,20 @@ function BlogRow({
   post,
   onEdit,
   onTogglePublish,
+  onCancelSchedule,
   onDelete,
+  timeZone,
   busy,
 }: {
   post: BlogPostDto;
   onEdit: () => void;
   onTogglePublish: () => void;
+  onCancelSchedule: () => void;
   onDelete: () => void;
+  timeZone: string;
   busy: boolean;
 }) {
+  const scheduled = !post.isPublished && !!post.publishAt;
   return (
     <li className="flex items-start gap-3 py-3">
       <div className="min-w-0 flex-1 cursor-pointer" onClick={onEdit}>
@@ -140,6 +168,11 @@ function BlogRow({
           <span className="font-medium hover:underline">{post.title}</span>
           {post.isPublished ? (
             <Badge>Publicada</Badge>
+          ) : scheduled ? (
+            <Badge variant="outline" className="gap-1 whitespace-normal">
+              <CalendarClock className="size-3" />
+              Programada para el {formatZonedDateTime(post.publishAt, timeZone)}
+            </Badge>
           ) : (
             <Badge variant="secondary">Borrador</Badge>
           )}
@@ -150,13 +183,25 @@ function BlogRow({
         )}
       </div>
       <div className="flex items-center gap-1">
+        {scheduled && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onCancelSchedule}
+            disabled={busy}
+            aria-label="Cancelar la publicación programada"
+            title="Cancelar la publicación programada"
+          >
+            <CalendarX className="size-4" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
           onClick={onTogglePublish}
           disabled={busy}
-          aria-label={post.isPublished ? 'Despublicar' : 'Publicar'}
-          title={post.isPublished ? 'Despublicar' : 'Publicar'}
+          aria-label={post.isPublished ? 'Despublicar' : scheduled ? 'Publicar ahora' : 'Publicar'}
+          title={post.isPublished ? 'Despublicar' : scheduled ? 'Publicar ahora' : 'Publicar'}
         >
           {post.isPublished ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
         </Button>

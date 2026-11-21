@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/lib/auth/api';
+import { savedMethodsWarning, useSavedMethodsSummary } from '@/lib/payments/saved-methods';
 import {
   useDisconnectStripe,
   useRefreshStripeConnect,
@@ -46,6 +47,7 @@ export function StripeConnectCard() {
   const refresh = useRefreshStripeConnect();
   const disconnect = useDisconnectStripe();
   const setProvider = useSetCardProvider();
+  const saved = useSavedMethodsSummary();
   const params = useSearchParams();
   const refreshedOnReturn = useRef(false);
 
@@ -94,16 +96,35 @@ export function StripeConnectCard() {
   }
 
   async function doDisconnect() {
+    const warning = savedMethodsWarning(
+      saved.data?.stripe.currentAccount,
+      {
+        saved: ['tarjeta guardada', 'tarjetas guardadas'],
+        charge: 'cobrarse solas con su tarjeta',
+        reversible: false,
+      },
+      saved.data?.autoChargeOnIssue ?? false,
+    );
     if (
       !(await ask({
-        title: '¿Seguro?',
-        description:
-          'Se desconecta la cuenta de Stripe de la app (sigue existiendo en Stripe). Los inquilinos dejarán de poder pagar con tarjeta por Stripe. ¿Continuar?',
+        title: 'Desconectar tu cuenta de Stripe',
+        description: (
+          <span className="block space-y-2">
+            <span className="block">
+              La cuenta sigue existiendo en Stripe, pero los inquilinos dejarán de poder pagar con
+              tarjeta por Stripe.
+            </span>
+            {warning && <span className="block">{warning}</span>}
+          </span>
+        ),
+        confirmLabel: 'Desconectar',
+        destructive: true,
       }))
     )
       return;
     try {
       await disconnect.mutateAsync();
+      void saved.refetch();
       toast.success('Cuenta de Stripe desconectada.');
     } catch (err) {
       toast.error(errorMessage(err));

@@ -3,7 +3,12 @@
 import { Loader2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
-import type { RedsysSettingsDto, UpdateRedsysSettingsInput } from '@storageos/shared';
+import type {
+  RedsysSettingsDto,
+  RedsysTestResultDto,
+  TestRedsysSettingsInput,
+  UpdateRedsysSettingsInput,
+} from '@storageos/shared';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -27,6 +32,7 @@ export function RedsysSettingsForm({
   onSave,
   readOnly = false,
   cardOnFileHint,
+  onTest,
 }: {
   data: RedsysSettingsDto;
   saving: boolean;
@@ -34,6 +40,8 @@ export function RedsysSettingsForm({
   readOnly?: boolean;
   /** Texto de la casilla de pago por referencia; sin él no se muestra. */
   cardOnFileHint?: ReactNode;
+  /** «Probar TPV» con lo escrito (sin guardarlo); sin él no sale el botón. */
+  onTest?: (input: TestRedsysSettingsInput) => Promise<RedsysTestResultDto | null>;
 }) {
   const [merchantCode, setMerchantCode] = useState(data.merchantCode);
   const [terminal, setTerminal] = useState(data.terminal);
@@ -42,6 +50,26 @@ export function RedsysSettingsForm({
   const [enabled, setEnabled] = useState(data.enabled);
   const [bizumEnabled, setBizumEnabled] = useState(data.bizumEnabled);
   const [cardOnFileEnabled, setCardOnFileEnabled] = useState(data.cardOnFileEnabled);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<RedsysTestResultDto | null>(null);
+
+  async function test() {
+    if (!onTest) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      setTestResult(
+        await onTest({
+          merchantCode: merchantCode.trim(),
+          terminal: terminal.trim(),
+          environment,
+          ...(secretKey.trim() ? { secretKey: secretKey.trim() } : {}),
+        }),
+      );
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function save() {
     const ok = await onSave({
@@ -146,11 +174,44 @@ export function RedsysSettingsForm({
         </div>
       ) : null}
 
+      {testResult && (
+        <p
+          role="status"
+          className={`rounded-md border px-3 py-2 text-sm ${
+            testResult.ok
+              ? 'border-green-300 bg-green-50 text-green-900 dark:border-green-900/50 dark:bg-green-950 dark:text-green-300'
+              : 'border-red-300 bg-red-50 text-red-900 dark:border-red-900/50 dark:bg-red-950 dark:text-red-300'
+          }`}
+        >
+          {testResult.message}
+        </p>
+      )}
+
       {readOnly ? null : (
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-          Guardar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void save()} disabled={saving}>
+            {saving && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+            Guardar
+          </Button>
+          {onTest && (
+            <Button
+              variant="outline"
+              onClick={() => void test()}
+              disabled={
+                testing || !merchantCode.trim() || (!secretKey.trim() && !data.hasSecretKey)
+              }
+            >
+              {testing && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Probar TPV
+            </Button>
+          )}
+        </div>
+      )}
+      {!readOnly && onTest && (
+        <p className="text-xs text-muted-foreground">
+          «Probar TPV» comprueba el código de comercio, el terminal y la clave con Redsys sin cobrar
+          nada (usa lo que has escrito, aunque no lo hayas guardado).
+        </p>
       )}
     </div>
   );

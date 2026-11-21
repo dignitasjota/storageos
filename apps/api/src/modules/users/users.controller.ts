@@ -21,6 +21,7 @@ import {
   RequestEmailChangeSchema,
   UpdateProfileSchema,
   UpdateUserSchema,
+  type UserLimitsDto,
   type UserSessionDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -82,6 +83,13 @@ export class UsersController {
     return this.users.list(user.tenantId);
   }
 
+  /** Plazas de usuario del plan (activos + invitaciones pendientes). */
+  @RequirePermission('users:read')
+  @Get('users/limits')
+  async limits(@CurrentUser() user: AuthenticatedUser): Promise<UserLimitsDto> {
+    return this.users.limitsSummary(user.tenantId);
+  }
+
   @RequirePermission('users:read')
   @Get('users/:id')
   async detail(
@@ -122,6 +130,24 @@ export class UsersController {
     await this.users.deactivate({
       tenantId: user.tenantId,
       actorUserId: user.sub,
+      targetUserId: id,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** El propietario quita el 2FA a un empleado que ha perdido el móvil. */
+  @RequirePermission('users:manage')
+  @Post('users/:id/disable-2fa')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resetTwoFactor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.users.resetTwoFactor({
+      tenantId: user.tenantId,
+      actorUserId: user.sub,
+      actorRole: user.role,
       targetUserId: id,
       meta: extractMeta(req),
     });

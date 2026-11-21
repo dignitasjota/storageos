@@ -208,6 +208,18 @@ export const UpdateRedsysSettingsSchema = z.object({
 });
 export type UpdateRedsysSettingsInput = z.infer<typeof UpdateRedsysSettingsSchema>;
 
+/**
+ * «Probar TPV»: comprueba los datos del comercio sin cobrar nada. Lo que no
+ * venga se toma de lo guardado (así se puede probar antes de guardar).
+ */
+export const TestRedsysSettingsSchema = z.object({
+  merchantCode: z.string().trim().max(20).optional(),
+  terminal: z.string().trim().max(3).optional(),
+  secretKey: z.string().trim().max(200).optional(),
+  environment: RedsysEnvironmentEnum.optional(),
+});
+export type TestRedsysSettingsInput = z.infer<typeof TestRedsysSettingsSchema>;
+
 /** Método de pago a forzar en el redirect de Redsys (tarjeta o Bizum). */
 export const RedsysPayMethodEnum = z.enum(['card', 'bizum']);
 export type RedsysPayMethod = z.infer<typeof RedsysPayMethodEnum>;
@@ -705,19 +717,37 @@ export type ValidatePromotionInput = z.infer<typeof ValidatePromotionSchema>;
 // RGPD
 // ============================================================================
 
+/** Días como mucho que puede llevar recibida una solicitud al darla de alta. */
+export const DATA_SUBJECT_REQUEST_MAX_BACKDATE_DAYS = 30;
+
 export const CreateDataSubjectRequestSchema = z.object({
   customerId: z.string().uuid().optional(),
   email: z.string().trim().toLowerCase().email(),
   requestType: DataSubjectRequestTypeEnum,
   notes: optionalText(2000),
+  /**
+   * Día en que llegó (AAAA-MM-DD, en la hora del negocio). No futura y, como
+   * mucho, de hace 30 días. El plazo de un mes cuenta desde ella.
+   */
+  receivedAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha no válida')
+    .optional(),
 });
 export type CreateDataSubjectRequestInput = z.infer<typeof CreateDataSubjectRequestSchema>;
 
 /** PATCH /rgpd/requests/:id — avanzar o cerrar una solicitud. */
-export const UpdateDataSubjectRequestSchema = z.object({
-  status: z.enum(['open', 'in_progress', 'fulfilled', 'denied']),
-  notes: optionalText(2000),
-});
+export const UpdateDataSubjectRequestSchema = z
+  .object({
+    status: z.enum(['open', 'in_progress', 'fulfilled', 'denied']),
+    notes: optionalText(2000),
+    /** Obligatorio al denegarla: se le comunica al interesado. */
+    rejectionReason: z.string().trim().max(1000).optional(),
+  })
+  .refine((v) => v.status !== 'denied' || (v.rejectionReason?.trim().length ?? 0) >= 3, {
+    message: 'Explica por qué se deniega la solicitud.',
+    path: ['rejectionReason'],
+  });
 export type UpdateDataSubjectRequestInput = z.infer<typeof UpdateDataSubjectRequestSchema>;
 
 // ============================================================================

@@ -31,6 +31,7 @@ import { AutomationsModule } from './modules/automations/automations.module';
 import { BankReconciliationModule } from './modules/bank-reconciliation/bank-reconciliation.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { BillingSaasModule } from './modules/billing-saas/billing-saas.module';
+import { BlogScheduleModule } from './modules/blog/blog-schedule.module';
 import { BlogModule } from './modules/blog/blog.module';
 import { BusinessRemindersModule } from './modules/business-reminders/business-reminders.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
@@ -224,6 +225,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     FaqModule,
     EmailDomainsModule,
     BlogModule,
+    BlogScheduleModule,
     AreaPagesModule,
     SearchConsoleModule,
     PromoLandingsModule,

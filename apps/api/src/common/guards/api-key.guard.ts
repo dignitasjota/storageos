@@ -2,11 +2,14 @@ import {
   type CanActivate,
   type ExecutionContext,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { ApiKeyRateLimitService } from '../../modules/integrations/api-key-rate-limit.service';
 import {
   API_KEY_WILDCARD_SCOPE,
   type ApiKeyScope,
@@ -15,7 +18,7 @@ import { ApiKeysService } from '../../modules/integrations/api-keys.service';
 import { REQUIRE_SCOPE_KEY } from '../decorators/require-scope.decorator';
 
 import type { AuthenticatedUser } from '../decorators/current-user.decorator';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 
 /**
  * Guard de autenticacion via API key (token Bearer alternativo al JWT del
@@ -44,6 +47,7 @@ export class ApiKeyGuard implements CanActivate {
   constructor(
     private readonly apiKeys: ApiKeysService,
     private readonly reflector: Reflector,
+    private readonly rateLimit: ApiKeyRateLimitService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -61,6 +65,24 @@ export class ApiKeyGuard implements CanActivate {
         code: 'api_key_invalid',
         message: 'API key invalida o revocada',
       });
+    }
+
+    // Límite por clave (no por IP): cabeceras estándar y 429 al pasarse.
+    const rl = await this.rateLimit.hit(result.apiKeyId);
+    const res = context.switchToHttp().getResponse<Response>();
+    res.setHeader('X-RateLimit-Limit', String(rl.limit));
+    res.setHeader('X-RateLimit-Remaining', String(rl.remaining));
+    res.setHeader('X-RateLimit-Reset', String(rl.resetSeconds));
+    if (!rl.allowed) {
+      res.setHeader('Retry-After', String(rl.resetSeconds));
+      throw new HttpException(
+        {
+          code: 'rate_limited',
+          message: `Demasiadas peticiones con esta clave: el límite es de ${rl.limit} por minuto. Vuelve a intentarlo en ${rl.resetSeconds} s.`,
+          details: { limit: rl.limit, retryAfterSeconds: rl.resetSeconds },
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const requiredScope = this.reflector.getAllAndOverride<ApiKeyScope | undefined>(

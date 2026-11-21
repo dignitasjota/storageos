@@ -1,16 +1,18 @@
 'use client';
 
+import { faqInLanguage, type FaqEntryDto, type PortalSessionDto } from '@storageos/shared';
 import { ChevronDown, HelpCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState } from 'react';
 
-import type { FaqEntryDto, PortalSessionDto } from '@storageos/shared';
+import { usePortalLocale } from '../i18n/provider';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { portalApiFetch } from '@/lib/portal/portal-fetch';
 
 export function FaqCard({ session }: { session: PortalSessionDto }) {
   const t = useTranslations('portal.consume.helpCenter');
+  const { locale } = usePortalLocale();
   const [entries, setEntries] = useState<FaqEntryDto[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
@@ -44,6 +46,8 @@ export function FaqCard({ session }: { session: PortalSessionDto }) {
         <ul className="divide-y rounded-md border">
           {entries.map((f) => {
             const expanded = open === f.id;
+            // En inglés, la versión inglesa si el negocio la escribió.
+            const text = faqInLanguage(f, locale);
             return (
               <li key={f.id}>
                 <button
@@ -52,7 +56,7 @@ export function FaqCard({ session }: { session: PortalSessionDto }) {
                   className="flex w-full items-center justify-between gap-2 px-3 py-3 text-left text-sm font-medium"
                   aria-expanded={expanded}
                 >
-                  {f.question}
+                  {text.question}
                   <ChevronDown
                     className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
                       expanded ? 'rotate-180' : ''
@@ -61,7 +65,7 @@ export function FaqCard({ session }: { session: PortalSessionDto }) {
                 </button>
                 {expanded && (
                   <p className="whitespace-pre-wrap px-3 pb-3 text-sm text-muted-foreground">
-                    {f.answer}
+                    {text.answer}
                   </p>
                 )}
               </li>

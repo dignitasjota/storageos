@@ -6,6 +6,8 @@ import type {
   RedsysPayMethod,
   RedsysRedirectDto,
   RedsysSettingsDto,
+  RedsysTestResultDto,
+  TestRedsysSettingsInput,
   UpdateRedsysSettingsInput,
 } from '@storageos/shared';
 
@@ -29,6 +31,14 @@ export function useUpdateRedsysSettings() {
       // «Ahora mismo se cobra con» depende de si Redsys está activo.
       void qc.invalidateQueries({ queryKey: ['stripe-connect'] });
     },
+  });
+}
+
+/** «Probar TPV»: comprueba los datos con Redsys sin cobrar nada (ni guardarlos). */
+export function useTestRedsysSettings() {
+  return useMutation({
+    mutationFn: (input: TestRedsysSettingsInput) =>
+      apiFetch<RedsysTestResultDto>('/settings/redsys/test', { method: 'POST', json: input }),
   });
 }
 

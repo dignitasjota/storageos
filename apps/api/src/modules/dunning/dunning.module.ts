@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { BillingModule } from '../billing/billing.module';
 import { CollectionsModule } from '../collections/collections.module';
 import { QUEUE_DUNNING } from '../queues/queues.module';
+import { WhatsappBusinessModule } from '../whatsapp-business/whatsapp-business.module';
 
 import { DunningRestartService } from './dunning-restart.service';
 import { DunningSettingsService } from './dunning-settings.service';
@@ -28,6 +29,8 @@ import { DunningService } from './dunning.service';
     // BillingModule: para emitir la factura de recargo por mora (late_fee).
     BillingModule,
     CollectionsModule,
+    // Los recordatorios también por WhatsApp (número del negocio).
+    WhatsappBusinessModule,
     BullModule.registerQueue({ name: QUEUE_DUNNING }),
   ],
   controllers: [DunningController],

@@ -4,8 +4,10 @@ import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AuthModule } from '../auth/auth.module';
 
+import { ApiKeyRateLimitService } from './api-key-rate-limit.service';
 import { ApiKeysService } from './api-keys.service';
 import { IntegrationsApiController } from './integrations-api.controller';
+import { IntegrationsReadService } from './integrations-read.service';
 import { IntegrationsController } from './integrations.controller';
 import { WebhooksCleanupService } from './webhooks-cleanup.service';
 import { WebhooksDispatcherService } from './webhooks-dispatcher.service';
@@ -29,7 +31,9 @@ import { WebhooksService } from './webhooks.service';
   controllers: [IntegrationsController, IntegrationsApiController],
   providers: [
     ApiKeysService,
+    ApiKeyRateLimitService,
     ApiKeyGuard,
+    IntegrationsReadService,
     WebhooksService,
     WebhooksDispatcherService,
     ...(WORKERS_ENABLED_IN_API ? [WebhooksProcessor, WebhooksCleanupService] : []),

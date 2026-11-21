@@ -9,13 +9,16 @@ import {
   type StaffEmailKind,
   type EmailDomainDto,
 } from '@storageos/shared';
-import { CheckCircle2, Clock, Copy, Loader2, Trash2, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Copy, Eye, Loader2, Trash2, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { MonthlyDigestCard } from '../billing/monthly-digest-card';
 import { SettingsHeader } from '../settings-header';
+
+import { CustomerEmailPreviewDialog } from './customer-email-preview-dialog';
+import { ReplyToCard } from './reply-to-card';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -55,8 +58,8 @@ export default function EmailSettingsPage() {
           <CardTitle>Correo a tus inquilinos</CardTitle>
           <CardDescription>
             Recordatorios, enlaces de acceso al portal, campañas… Sin dominio propio salen desde la
-            dirección de TrasterOS con el nombre de tu negocio, y las respuestas llegan a tu email
-            de facturación.
+            dirección de TrasterOS con el nombre de tu negocio, y las respuestas llegan a la
+            dirección que elijas abajo.
           </CardDescription>
         </CardHeader>
         {!hasFeature && (
@@ -71,6 +74,8 @@ export default function EmailSettingsPage() {
           </CardContent>
         )}
       </Card>
+
+      <ReplyToCard />
 
       {isLoading ? (
         <div className="flex justify-center py-6">
@@ -102,6 +107,7 @@ function CustomerEmailsCard() {
   const { data } = settings;
   const update = useUpdateCustomerEmailSettings();
   const canManage = useHasPermission('settings:manage');
+  const [previewKind, setPreviewKind] = useState<CustomerEmailKind | null>(null);
 
   async function toggle(kind: CustomerEmailKind, on: boolean) {
     try {
@@ -118,7 +124,8 @@ function CustomerEmailsCard() {
         <CardTitle>Correos automáticos a tus inquilinos</CardTitle>
         <CardDescription>
           Se envían solos, con tu nombre y tu remitente, y quedan en Comunicaciones. Si tienes una
-          automatización para el mismo evento, se envía la tuya en lugar de este.
+          automatización para el mismo evento, se envía la tuya en lugar de este. Con «Ver»
+          compruebas cómo le llega cada uno.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -135,16 +142,28 @@ function CustomerEmailsCard() {
                 disabled={!canManage || update.isPending}
                 onCheckedChange={(v) => void toggle(kind, v === true)}
               />
-              <Label htmlFor={`ce-${kind}`} className="font-normal leading-snug">
+              <Label htmlFor={`ce-${kind}`} className="flex-1 font-normal leading-snug">
                 <span className="font-medium">{CUSTOMER_EMAIL_LABELS[kind].label}</span>
                 <span className="block text-sm text-muted-foreground">
                   {CUSTOMER_EMAIL_LABELS[kind].description}
                 </span>
               </Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="shrink-0"
+                aria-label={`Ver el correo «${CUSTOMER_EMAIL_LABELS[kind].label}»`}
+                onClick={() => setPreviewKind(kind)}
+              >
+                <Eye className="h-4 w-4 sm:mr-1.5" />
+                <span className="hidden sm:inline">Ver</span>
+              </Button>
             </div>
           ))
         )}
       </CardContent>
+      <CustomerEmailPreviewDialog kind={previewKind} onClose={() => setPreviewKind(null)} />
     </Card>
   );
 }
@@ -251,7 +270,7 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
             <Input
               id="ed-reply"
               type="email"
-              placeholder="Tu email de facturación"
+              placeholder="La de «Las respuestas de tus inquilinos llegan a»"
               value={form.replyTo}
               disabled={!canEdit}
               onChange={(e) => setForm({ ...form, replyTo: e.target.value })}
@@ -262,7 +281,8 @@ function DomainForm({ current, canEdit }: { current: EmailDomainDto | null; canE
           <p className="text-sm text-muted-foreground">
             El remitente, el nombre visible y la dirección de respuesta se usarán cuando el dominio
             esté verificado. Mientras tanto, tus correos salen desde TrasterOS con el nombre de tu
-            negocio y las respuestas llegan a tu email de facturación.
+            negocio y las respuestas llegan a la dirección de «Las respuestas de tus inquilinos
+            llegan a».
           </p>
         )}
         {domainLocked && canEdit && (

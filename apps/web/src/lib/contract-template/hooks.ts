@@ -25,6 +25,6 @@ export function useUpdateContractTemplate() {
         method: 'PATCH',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: templateKey }),
+    onSuccess: (data) => qc.setQueryData(templateKey, data),
   });
 }

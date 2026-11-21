@@ -12,9 +12,11 @@ import {
   type InboxItemDto,
   type InboxPageDto,
   type MessageSettingsDto,
+  calendarDateIn,
   hasOpenDay,
-  type OpeningHours,
+  normalizeTeamHours,
   type Permission,
+  type TeamHours,
   type UpdateConversationInput,
   type UpdateMessageSettingsInput,
   type UpsertCannedResponseInput,
@@ -521,7 +523,7 @@ export class CustomerConversationsService {
     return {
       autoReplyEnabled: tenant?.messageAutoReplyEnabled ?? false,
       autoReply: tenant?.messageAutoReply || DEFAULT_AUTO_REPLY,
-      hours: (tenant?.messageHours as OpeningHours | null) ?? null,
+      hours: (tenant?.messageHours as TeamHours | null) ?? null,
     };
   }
 
@@ -539,12 +541,21 @@ export class CustomerConversationsService {
         });
       }
     }
+    let hours: TeamHours | undefined;
+    if (input.hours) {
+      // Los días cerrados que ya han pasado no se guardan (en la zona del negocio).
+      const tenant = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      hours = normalizeTeamHours(input.hours, calendarDateIn(tenant?.timezone ?? 'Europe/Madrid'));
+    }
     await this.admin.tenant.update({
       where: { id: tenantId },
       data: {
         messageAutoReplyEnabled: input.autoReplyEnabled,
         messageAutoReply: input.autoReply?.trim() || null,
-        ...(input.hours ? { messageHours: input.hours } : {}),
+        ...(hours ? { messageHours: hours as Prisma.InputJsonValue } : {}),
       },
     });
     return this.settings(tenantId);

@@ -13,6 +13,7 @@ import type { InvoicesService } from '../../billing/invoices.service';
 import type { CollectionsService } from '../../collections/collections.service';
 import type { CommunicationsService } from '../../communications/communications.service';
 import type { PrismaAdminService } from '../../database/prisma-admin.service';
+import type { WhatsappCampaignSender } from '../../whatsapp-business/whatsapp-campaign.sender';
 import type { ConfigService } from '@nestjs/config';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Queue } from 'bullmq';
@@ -59,6 +60,10 @@ function buildService(
     { get: () => 'http://localhost:3000' } as unknown as ConfigService<Env, true>,
     (deps.access ?? { suspendForDunning: jest.fn() }) as unknown as AccessIntegrationsService,
     (deps.collections ?? { openFromDunning: jest.fn() }) as unknown as CollectionsService,
+    {
+      ready: jest.fn().mockResolvedValue(false),
+      sendNotice: jest.fn(),
+    } as unknown as WhatsappCampaignSender,
   );
 }
 

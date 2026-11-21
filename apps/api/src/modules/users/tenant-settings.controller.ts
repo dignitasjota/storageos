@@ -45,7 +45,11 @@ import { CustomDomainCheckService } from './custom-domain-check.service';
 import { TenantSettingsService } from './tenant-settings.service';
 
 import type { RequestMeta } from '../auth/auth.service';
-import type { ConfigHealthItemDto, CustomDomainCheckDto } from '@storageos/shared';
+import type {
+  ConfigHealthItemDto,
+  CustomDomainCheckDto,
+  CustomDomainTargetDto,
+} from '@storageos/shared';
 import type { Request } from 'express';
 
 class UpdateTenantProfileDto extends createZodDto(UpdateTenantProfileSchema) {}
@@ -96,6 +100,16 @@ export class TenantSettingsController {
   @HttpCode(HttpStatus.OK)
   checkDomain(@CurrentUser() user: AuthenticatedUser): Promise<CustomDomainCheckDto> {
     return this.domainCheck.check(user.tenantId);
+  }
+
+  /**
+   * A dónde tiene que apuntar un dominio propio (dominio e IP de la
+   * plataforma), para enseñar el registro DNS exacto desde el principio.
+   */
+  @RequirePermission('settings:read')
+  @Get('domain/target')
+  domainTarget(): Promise<CustomDomainTargetDto> {
+    return this.domainCheck.target();
   }
 
   /** Lo que conviene revisar de la configuración (para el inicio de Configuración). */

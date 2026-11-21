@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { OpeningHoursSchema, type OpeningHours } from '../facilities/schemas';
+import { calendarDateIn, TeamHoursSchema, type TeamHours } from '../messages/team-hours';
 
 // ─── Intenciones, horario del asistente y seguimiento ───────────────────────
 
@@ -48,13 +48,19 @@ export type WhatsappAssistantHoursMode = (typeof WHATSAPP_ASSISTANT_HOURS_MODES)
 
 const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 
-/** ¿Está `at` dentro del horario `hours` en la zona `timeZone`? Sin horario = no. */
+/**
+ * ¿Está `at` dentro del horario `hours` en la zona `timeZone`? Sin horario = no.
+ * Un día cerrado (`closedDates`, festivos) cuenta como fuera de horario todo el día.
+ */
 export function isWithinHours(
-  hours: OpeningHours | null | undefined,
+  hours: TeamHours | null | undefined,
   timeZone: string,
   at: Date = new Date(),
 ): boolean {
   if (!hours) return false;
+  if (hours.closedDates?.length && hours.closedDates.includes(calendarDateIn(timeZone, at))) {
+    return false;
+  }
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone,
     weekday: 'short',
@@ -82,7 +88,7 @@ export function isWithinHours(
 }
 
 /** ¿Tiene el horario al menos un día marcado? (sin ninguno, nunca está «dentro»). */
-export function hasOpenDay(hours: OpeningHours | null | undefined): boolean {
+export function hasOpenDay(hours: TeamHours | null | undefined): boolean {
   return !!hours && WEEKDAY_KEYS.some((k) => !!hours[k]);
 }
 
@@ -100,7 +106,7 @@ export const AiApiKeySchema = z
 /** ¿Responde la IA ahora según el modo y el horario del equipo? */
 export function assistantRespondsNow(
   mode: string,
-  teamHours: OpeningHours | null | undefined,
+  teamHours: TeamHours | null | undefined,
   timeZone: string,
   at: Date = new Date(),
 ): boolean {
@@ -462,7 +468,7 @@ export const UpdateWhatsappAssistantSchema = z
     /** Cuándo responde la IA: siempre, solo fuera del horario del equipo o solo dentro. */
     assistantHoursMode: z.enum(WHATSAPP_ASSISTANT_HOURS_MODES).optional(),
     /** Horario del equipo, en la zona del negocio. */
-    teamHours: OpeningHoursSchema.optional(),
+    teamHours: TeamHoursSchema.optional(),
     /** Intenciones que avisan al equipo. */
     alertIntents: z.array(z.enum(WHATSAPP_INTENTS)).max(WHATSAPP_INTENTS.length).optional(),
     /** Recordatorio al contacto que preguntó y no siguió. */
@@ -494,7 +500,7 @@ export interface WhatsappAssistantDto {
   reminderTemplateLanguage: string;
   privacyUrl: string | null;
   assistantHoursMode: WhatsappAssistantHoursMode;
-  teamHours: OpeningHours;
+  teamHours: TeamHours;
   alertIntents: WhatsappIntent[];
   followupEnabled: boolean;
   followupTemplateName: string | null;

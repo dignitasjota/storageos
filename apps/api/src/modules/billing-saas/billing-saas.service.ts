@@ -628,18 +628,37 @@ export class BillingSaasService {
     ) {
       throw new BadRequestException({ code: 'plan_not_available', message: 'Plan no disponible' });
     }
-    if (plan.id === sub.planId) {
+    // Periodicidad que paga hoy (solo se sabe con Stripe: el periodo lo fija Stripe).
+    const currentCycle: BillingCycle | null = sub.stripeSubscriptionId
+      ? billingCycleFromPeriod(sub.currentPeriodStart, sub.currentPeriodEnd)
+      : null;
+    // Mismo plan: solo se admite para pasar de mensual a anual o al revés.
+    const cycleOnly = plan.id === sub.planId;
+    if (cycleOnly && (!args.billingCycle || args.billingCycle === currentCycle)) {
       throw new BadRequestException({ code: 'already_on_plan', message: 'Ya estás en ese plan' });
     }
     if (!sub.stripeSubscriptionId) {
       throw new BadRequestException({
         code: 'manual_plan_change',
-        message: 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
+        message: cycleOnly
+          ? 'Tu cuota no se cobra con Stripe. Para pasar a pago anual o mensual, escríbenos desde Soporte.'
+          : 'Tu suscripción es de pago manual. Contacta con soporte para cambiar de plan.',
       });
     }
     // Sin periodicidad elegida conserva la que paga hoy (un anual sigue anual).
-    const cycle: BillingCycle =
-      args.billingCycle ?? billingCycleFromPeriod(sub.currentPeriodStart, sub.currentPeriodEnd);
+    const cycle: BillingCycle = args.billingCycle ?? currentCycle ?? 'monthly';
+    if (cycleOnly) {
+      return this.changeBillingCycle({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        subscriptionId: sub.id,
+        stripeSubscriptionId: sub.stripeSubscriptionId,
+        plan,
+        from: currentCycle ?? 'monthly',
+        to: cycle,
+        meta: args.meta,
+      });
+    }
     await this.assertFitsPlan(args.tenantId, plan, cycle === 'yearly');
     const coupon = args.couponCode
       ? await this.stripeCouponFor(args.couponCode, args.tenantId, plan, cycle === 'yearly')
@@ -701,6 +720,53 @@ export class BillingSaasService {
 
     const result = await this.getCurrentSubscription(args.tenantId);
     return couponApplied === undefined ? result : { ...result, couponApplied };
+  }
+
+  /**
+   * Pasa la suscripción de Stripe de mensual a anual (o al revés) sin cambiar
+   * de plan: intercambia el precio de la línea del plan con prorrateo. Al pasar
+   * a anual, Stripe cobra el año descontando lo que queda del mes pagado.
+   */
+  private async changeBillingCycle(args: {
+    tenantId: string;
+    userId: string;
+    subscriptionId: string;
+    stripeSubscriptionId: string;
+    plan: {
+      id: string;
+      slug: string;
+      stripePriceId: string | null;
+      stripePriceIdYearly: string | null;
+      includedUnits: number | null;
+      maxUnits: number | null;
+      maxFacilities: number | null;
+      maxUsers: number | null;
+    };
+    from: BillingCycle;
+    to: BillingCycle;
+    meta: RequestMeta;
+  }): Promise<TenantSubscriptionDto> {
+    await this.assertFitsPlan(args.tenantId, args.plan, args.to === 'yearly', true);
+    await this.swapStripePlan({
+      tenantId: args.tenantId,
+      stripeSubscriptionId: args.stripeSubscriptionId,
+      currentPlanId: args.plan.id,
+      plan: args.plan,
+      billingCycle: args.to,
+    });
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: args.userId,
+      action: 'saas_billing.billing_cycle_changed',
+      entityType: 'TenantSubscription',
+      entityId: args.subscriptionId,
+      changes: { from: args.from, to: args.to, planSlug: args.plan.slug, self: true },
+      ipAddress: args.meta.ipAddress ?? null,
+      userAgent: args.meta.userAgent ?? null,
+    });
+    const result = await this.getCurrentSubscription(args.tenantId);
+    // El periodo nuevo llega con el aviso de Stripe; mientras, se enseña la elegida.
+    return { ...result, billingCycle: args.to };
   }
 
   /** ¿Tiene el tenant una propuesta abierta (sin caducar) con ese plan? */

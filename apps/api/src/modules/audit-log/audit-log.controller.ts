@@ -25,6 +25,7 @@ export class AuditLogController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
+    @Query('sessions') sessions?: string,
   ): Promise<AuditLogListDto> {
     const uuid = /^[0-9a-f-]{36}$/i;
     const day = /^\d{4}-\d{2}-\d{2}$/;
@@ -43,6 +44,7 @@ export class AuditLogController {
         ...(action ? { action: action.slice(0, 80) } : {}),
         ...(from ? { from } : {}),
         ...(to ? { to } : {}),
+        ...(sessions === '1' || sessions === 'true' ? { includeSessions: true } : {}),
       },
       size,
     );

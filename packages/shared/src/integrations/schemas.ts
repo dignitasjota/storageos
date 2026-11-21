@@ -16,6 +16,10 @@ export const WebhookEventTypes = [
   'invoice.paid',
   'invoice.overdue',
   'contract.signed',
+  'contract.move_out_requested',
+  'contract.ended',
+  'booking.created',
+  'payment.failed',
   'lead.created',
 ] as const;
 export type WebhookEventType = (typeof WebhookEventTypes)[number];
@@ -30,10 +34,43 @@ export const WEBHOOK_EVENT_LABELS: Record<WebhookEventType, string> = {
   'invoice.paid': 'Factura cobrada',
   'invoice.overdue': 'Factura vencida',
   'contract.signed': 'Contrato firmado',
+  'contract.move_out_requested': 'Baja pedida por el inquilino',
+  'contract.ended': 'Contrato terminado',
+  'booking.created': 'Reserva online',
+  'payment.failed': 'Cobro rechazado',
   'lead.created': 'Contacto nuevo',
 };
 
+/** Qué lleva cada aviso, en una frase (ayuda al elegir los eventos). */
+export const WEBHOOK_EVENT_HINTS: Record<WebhookEventType, string> = {
+  'invoice.issued': 'Cada factura que se emite, con su número e importe.',
+  'invoice.created': 'Igual que «Factura emitida» (nombre antiguo).',
+  'invoice.paid': 'Cuando una factura queda cobrada del todo.',
+  'invoice.overdue': 'Cuando una factura pasa su vencimiento sin cobrarse.',
+  'contract.signed': 'Cuando se firma un contrato.',
+  'contract.move_out_requested': 'Cuando un inquilino pide la baja desde su área de clientes.',
+  'contract.ended': 'Cuando un contrato termina o se cancela estando en vigor.',
+  'booking.created': 'Cada reserva hecha desde tu web o el área de clientes.',
+  'payment.failed': 'Cuando el banco o la pasarela rechazan un cobro automático.',
+  'lead.created': 'Cada contacto nuevo (web, widget, WhatsApp…).',
+};
+
 export const WebhookEventTypeEnum = z.enum(WebhookEventTypes);
+
+/**
+ * Evento de prueba: `ping` (solo comprueba que llega) o cualquiera de los
+ * ofrecidos, con datos de ejemplo. El cuerpo lleva `test: true`.
+ */
+export const WebhookTestEventEnum = z.enum(['ping', ...OFFERED_WEBHOOK_EVENTS] as [
+  'ping',
+  ...WebhookEventType[],
+]);
+export type WebhookTestEvent = z.infer<typeof WebhookTestEventEnum>;
+
+export const TestWebhookSchema = z.object({
+  event: WebhookTestEventEnum.optional(),
+});
+export type TestWebhookInput = z.infer<typeof TestWebhookSchema>;
 
 // ============================================================================
 // API key scopes (enforced en `ApiKeyGuard` desde el sub-bloque 15A.3).

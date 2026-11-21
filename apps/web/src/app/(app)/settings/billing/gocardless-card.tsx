@@ -4,6 +4,7 @@ import { CheckCircle2, Copy, Loader2, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,11 +24,14 @@ import {
   useTestGoCardless,
   useUpdateGoCardlessSettings,
 } from '@/lib/payments/gocardless';
+import { savedMethodsWarning, useSavedMethodsSummary } from '@/lib/payments/saved-methods';
 
 export function GoCardlessCard() {
   const settings = useGoCardlessSettings();
   const update = useUpdateGoCardlessSettings();
   const test = useTestGoCardless();
+  const confirm = useConfirm();
+  const saved = useSavedMethodsSummary();
 
   const [environment, setEnvironment] = useState<'sandbox' | 'live'>('sandbox');
   const [accessToken, setAccessToken] = useState('');
@@ -43,6 +47,28 @@ export function GoCardlessCard() {
   }
 
   async function save() {
+    // Apagar GoCardless deja sin cobrar los mandatos de los inquilinos.
+    const warning =
+      data?.enabled && !enabled
+        ? savedMethodsWarning(
+            saved.data?.gocardless,
+            {
+              saved: ['mandato de domiciliación', 'mandatos de domiciliación'],
+              charge: 'cobrarse solas por domiciliación',
+              reversible: true,
+            },
+            saved.data?.autoChargeOnIssue ?? false,
+          )
+        : null;
+    if (warning) {
+      const ok = await confirm({
+        title: 'Desactivar GoCardless',
+        description: warning,
+        confirmLabel: 'Desactivar',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     try {
       await update.mutateAsync({
         environment,
@@ -52,6 +78,7 @@ export function GoCardlessCard() {
       });
       setAccessToken('');
       setWebhookSecret('');
+      void saved.refetch();
       toast.success('GoCardless guardado.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error al guardar');

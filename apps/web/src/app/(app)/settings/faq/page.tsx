@@ -1,13 +1,22 @@
 'use client';
 
-import { ArrowDown, ArrowUp, Eye, EyeOff, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { faqTranslationComplete, type FaqEntryDto } from '@storageos/shared';
+import {
+  ArrowDown,
+  ArrowUp,
+  Eye,
+  EyeOff,
+  Languages,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { SettingsHeader } from '../settings-header';
-
-import type { FaqEntryDto } from '@storageos/shared';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
@@ -40,19 +49,31 @@ export default function FaqSettingsPage() {
 
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
+  const [questionEn, setQuestionEn] = useState('');
+  const [answerEn, setAnswerEn] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
   const list = entries.data ?? [];
 
+  const newEnOk = faqTranslationComplete({ questionEn, answerEn });
+
   async function add() {
-    if (!question.trim() || !answer.trim()) return;
+    if (!question.trim() || !answer.trim() || !newEnOk) return;
     try {
       // Al final de la lista: la última posición + 10 (no el número de
       // preguntas, que tras borrar alguna podía repetir posición).
       const last = list.reduce((max, f) => Math.max(max, f.position), -10);
-      await create.mutateAsync({ question, answer, position: last + 10 });
+      await create.mutateAsync({
+        question,
+        answer,
+        questionEn: questionEn.trim() || null,
+        answerEn: answerEn.trim() || null,
+        position: last + 10,
+      });
       setQuestion('');
       setAnswer('');
+      setQuestionEn('');
+      setAnswerEn('');
       toast.success('Pregunta añadida.');
     } catch (err) {
       toast.error(errorMessage(err));
@@ -141,7 +162,17 @@ export default function FaqSettingsPage() {
               maxLength={5000}
             />
           </div>
-          <Button onClick={add} disabled={create.isPending || !question.trim() || !answer.trim()}>
+          <EnglishFields
+            idPrefix="faq-new"
+            question={questionEn}
+            answer={answerEn}
+            onQuestion={setQuestionEn}
+            onAnswer={setAnswerEn}
+          />
+          <Button
+            onClick={add}
+            disabled={create.isPending || !question.trim() || !answer.trim() || !newEnOk}
+          >
             {create.isPending ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />
             ) : (
@@ -246,6 +277,11 @@ function FaqRow({
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{entry.question}</span>
           {!entry.isPublished && <Badge variant="secondary">Oculta</Badge>}
+          {entry.questionEn && entry.answerEn && (
+            <Badge variant="outline" title="Tiene versión en inglés">
+              EN
+            </Badge>
+          )}
         </div>
         <p className="whitespace-pre-wrap text-sm text-muted-foreground">{entry.answer}</p>
       </div>
@@ -313,12 +349,22 @@ function FaqEditRow({
 }: {
   entry: FaqEntryDto;
   onCancel: () => void;
-  onSave: (input: { question: string; answer: string }) => Promise<void>;
+  onSave: (input: {
+    question: string;
+    answer: string;
+    questionEn: string | null;
+    answerEn: string | null;
+  }) => Promise<void>;
   busy: boolean;
 }) {
   const [question, setQuestion] = useState(entry.question);
   const [answer, setAnswer] = useState(entry.answer);
-  const valid = question.trim().length > 0 && answer.trim().length > 0;
+  const [questionEn, setQuestionEn] = useState(entry.questionEn ?? '');
+  const [answerEn, setAnswerEn] = useState(entry.answerEn ?? '');
+  const valid =
+    question.trim().length > 0 &&
+    answer.trim().length > 0 &&
+    faqTranslationComplete({ questionEn, answerEn });
   return (
     <li className="space-y-2 py-3">
       <div className="space-y-1">
@@ -340,10 +386,25 @@ function FaqEditRow({
           maxLength={5000}
         />
       </div>
+      <EnglishFields
+        idPrefix={`faq-${entry.id}`}
+        question={questionEn}
+        answer={answerEn}
+        onQuestion={setQuestionEn}
+        onAnswer={setAnswerEn}
+        defaultOpen={!!entry.questionEn}
+      />
       <div className="flex gap-2">
         <Button
           size="sm"
-          onClick={() => void onSave({ question: question.trim(), answer: answer.trim() })}
+          onClick={() =>
+            void onSave({
+              question: question.trim(),
+              answer: answer.trim(),
+              questionEn: questionEn.trim() || null,
+              answerEn: answerEn.trim() || null,
+            })
+          }
           disabled={busy || !valid}
         >
           {busy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
@@ -354,5 +415,80 @@ function FaqEditRow({
         </Button>
       </div>
     </li>
+  );
+}
+
+/**
+ * Versión en inglés de la pregunta (opcional): la usan la web en inglés y el
+ * área de clientes en inglés. Sin ella, se enseña la española.
+ */
+function EnglishFields({
+  idPrefix,
+  question,
+  answer,
+  onQuestion,
+  onAnswer,
+  defaultOpen = false,
+}: {
+  idPrefix: string;
+  question: string;
+  answer: string;
+  onQuestion: (v: string) => void;
+  onAnswer: (v: string) => void;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const incomplete = !faqTranslationComplete({ questionEn: question, answerEn: answer });
+  if (!open) {
+    return (
+      <Button
+        type="button"
+        variant="link"
+        size="sm"
+        className="h-auto px-0"
+        onClick={() => setOpen(true)}
+      >
+        <Languages className="mr-1 h-4 w-4" />
+        Añadir versión en inglés (opcional)
+      </Button>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-md border border-dashed p-3">
+      <p className="flex items-center gap-1 text-sm font-medium">
+        <Languages className="h-4 w-4" /> En inglés (opcional)
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Sale en tu web en inglés y en el área de clientes de quien la tenga en inglés. Si la dejas
+        vacía, se enseña la pregunta en español.
+      </p>
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-qen`}>Pregunta en inglés</Label>
+        <Input
+          id={`${idPrefix}-qen`}
+          value={question}
+          onChange={(e) => onQuestion(e.target.value)}
+          placeholder="How do I access my unit?"
+          maxLength={300}
+          lang="en"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor={`${idPrefix}-aen`}>Respuesta en inglés</Label>
+        <Textarea
+          id={`${idPrefix}-aen`}
+          value={answer}
+          onChange={(e) => onAnswer(e.target.value)}
+          rows={3}
+          maxLength={5000}
+          lang="en"
+        />
+      </div>
+      {incomplete && (
+        <p className="text-xs text-destructive">
+          Escribe la pregunta y la respuesta en inglés, o deja las dos vacías.
+        </p>
+      )}
+    </div>
   );
 }

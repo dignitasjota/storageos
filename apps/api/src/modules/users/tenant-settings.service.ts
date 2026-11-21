@@ -12,6 +12,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 import {
+  customDomainHosts,
   effectiveFeaturesFromList,
   isDisallowedIp,
   isIpLiteralHostname,
@@ -638,11 +639,12 @@ export class TenantSettingsService {
     domain: string,
     meta: RequestMeta,
   ): Promise<void> {
+    // Con y sin `www.` son el mismo sitio: otra cuenta no puede tener la otra forma.
     const taken = await this.admin.tenant.findFirst({
-      where: { customDomain: domain, id: { not: tenantId } },
-      select: { id: true, customDomainVerifiedAt: true },
+      where: { customDomain: { in: customDomainHosts(domain) }, id: { not: tenantId } },
+      select: { id: true, customDomain: true, customDomainVerifiedAt: true },
     });
-    if (!taken) return;
+    if (!taken?.customDomain) return;
     if (taken.customDomainVerifiedAt) {
       throw new ConflictException({
         code: 'domain_taken',
@@ -654,7 +656,7 @@ export class TenantSettingsService {
       where: {
         tenantId: taken.id,
         action: 'tenant.branding.settings_changed',
-        changes: { path: ['customDomain'], equals: domain },
+        changes: { path: ['customDomain'], equals: taken.customDomain },
       },
       orderBy: { occurredAt: 'desc' },
       select: { occurredAt: true },
@@ -679,7 +681,7 @@ export class TenantSettingsService {
       action: 'tenant.custom_domain_released',
       entityType: 'Tenant',
       entityId: taken.id,
-      changes: { customDomain: domain, claimedByTenantId: tenantId },
+      changes: { customDomain: taken.customDomain, claimedByTenantId: tenantId },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });

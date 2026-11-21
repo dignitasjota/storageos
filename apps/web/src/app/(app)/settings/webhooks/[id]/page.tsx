@@ -7,6 +7,10 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import {
+  EditWebhookDialog,
+  SendWebhookTestDialog,
+} from '@/components/integrations/webhook-dialogs';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,18 +49,26 @@ import {
 
 type StatusFilter = 'all' | 'pending' | 'success' | 'failed';
 
-const eventLabel = (e: string): string => (WEBHOOK_EVENT_LABELS as Record<string, string>)[e] ?? e;
+const eventLabel = (e: string): string =>
+  e === 'ping' ? 'Prueba (ping)' : ((WEBHOOK_EVENT_LABELS as Record<string, string>)[e] ?? e);
 
 export default function WebhookDetailPage() {
   const params = useParams<{ id: string }>();
   const webhookId = params.id;
-  const { data: webhooks, isLoading: loadingWebhooks } = useWebhooks();
+  const {
+    data: webhooks,
+    isLoading: loadingWebhooks,
+    isError: webhooksError,
+    refetch: refetchWebhooks,
+  } = useWebhooks();
   const webhook = useMemo(() => webhooks?.find((w) => w.id === webhookId), [webhooks, webhookId]);
 
   const [status, setStatus] = useState<StatusFilter>('all');
   const [fromDate, setFromDate] = useState<string | undefined>();
   const [toDate, setToDate] = useState<string | undefined>();
   const [selected, setSelected] = useState<WebhookDeliveryDto | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   // Los días van tal cual (`YYYY-MM-DD`): el servidor los toma en la zona del
   // negocio y «Hasta» incluye el día entero.
@@ -90,6 +102,9 @@ export default function WebhookDetailPage() {
   if (loadingWebhooks) {
     return <p className="text-sm text-muted-foreground">Cargando…</p>;
   }
+  if (webhooksError) {
+    return <SectionError onRetry={() => void refetchWebhooks()} />;
+  }
   if (!webhook) {
     return (
       <div className="space-y-2">
@@ -116,9 +131,21 @@ export default function WebhookDetailPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Configuración</CardTitle>
-          <CardDescription>Datos del webhook tal como se dieron de alta.</CardDescription>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle>Configuración</CardTitle>
+            <CardDescription>A dónde se envían los avisos y cuáles.</CardDescription>
+          </div>
+          {webhook.isActive ? (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => setTesting(true)}>
+                Enviar prueba
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                Editar
+              </Button>
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <div>
@@ -217,6 +244,11 @@ export default function WebhookDetailPage() {
                       </TableCell>
                       <TableCell className="text-xs" title={d.eventType}>
                         {eventLabel(d.eventType)}
+                        {d.payload.test === true ? (
+                          <Badge variant="secondary" className="ml-2 text-[10px]">
+                            Prueba
+                          </Badge>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-xs">{d.statusCode ?? '—'}</TableCell>
                       <TableCell>
@@ -247,6 +279,13 @@ export default function WebhookDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <EditWebhookDialog webhook={editing ? webhook : null} onClose={() => setEditing(false)} />
+      <SendWebhookTestDialog
+        webhook={testing ? webhook : null}
+        onClose={() => setTesting(false)}
+        showDeliveriesLink={false}
+      />
 
       <DeliveryDetailDialog
         delivery={selected}

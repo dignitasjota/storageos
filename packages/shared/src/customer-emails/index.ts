@@ -219,3 +219,62 @@ export function resolveStaffEmailSettings(raw: unknown): StaffEmailSettingsDto {
     STAFF_EMAIL_KINDS.map((k) => [k, stored[k] !== false]),
   ) as StaffEmailSettingsDto;
 }
+
+// --- Vista previa y prueba de los correos al inquilino -----------------------
+
+export const CUSTOMER_EMAIL_PREVIEW_LOCALES = ['es', 'en'] as const;
+export type CustomerEmailPreviewLocale = (typeof CUSTOMER_EMAIL_PREVIEW_LOCALES)[number];
+
+export const CustomerEmailPreviewQuerySchema = z.object({
+  locale: z.enum(CUSTOMER_EMAIL_PREVIEW_LOCALES).default('es'),
+});
+
+/** El correo tal como lo recibe el inquilino, con datos de ejemplo. */
+export interface CustomerEmailPreviewDto {
+  kind: CustomerEmailKind;
+  locale: CustomerEmailPreviewLocale;
+  subject: string;
+  html: string;
+}
+
+export const SendCustomerEmailTestSchema = z.object({
+  locale: z.enum(CUSTOMER_EMAIL_PREVIEW_LOCALES).default('es'),
+});
+export type SendCustomerEmailTestInput = z.infer<typeof SendCustomerEmailTestSchema>;
+
+export interface CustomerEmailTestResultDto {
+  /** Email de quien lo ha pedido. */
+  sentTo: string;
+  subject: string;
+}
+
+/** Pruebas por persona y hora (para no usar el envío de prueba como envío masivo). */
+export const CUSTOMER_EMAIL_TESTS_PER_HOUR = 5;
+
+// --- A dónde llegan las respuestas de los inquilinos ------------------------
+
+export const UpdateEmailReplyToSchema = z.object({
+  /** Email al que llegan las respuestas; `''` = el de por defecto. */
+  emailReplyTo: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(254, 'Máximo 254 caracteres')
+    .email('Email no válido')
+    .or(z.literal('')),
+});
+export type UpdateEmailReplyToInput = z.infer<typeof UpdateEmailReplyToSchema>;
+
+export interface EmailReplyToDto {
+  /** La dirección elegida (null = la de por defecto). */
+  emailReplyTo: string | null;
+  /** Si no eliges ninguna: el email de facturación del negocio o el del propietario. */
+  fallback: string | null;
+  /**
+   * Respuesta configurada en el dominio de correo propio (verificado y en el
+   * plan): manda sobre esta mientras lo tengas.
+   */
+  customDomainReplyTo: string | null;
+  /** Donde llegan de verdad ahora mismo. */
+  effective: string | null;
+}

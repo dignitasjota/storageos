@@ -37,7 +37,22 @@ export interface InvitationDto {
   revokedAt: string | null;
   /** `manual`, `expired` (se volvió a invitar) o `replaced_by_resend`. */
   revokedReason: string | null;
+  /** Rol a medida que tendrá al aceptar (null = solo el rol base). */
+  tenantRoleId: string | null;
+  tenantRoleName: string | null;
+  /** Locales a los que quedará restringido ([] = todos). */
+  facilityIds: string[];
   createdAt: string;
+}
+
+/** GET /users/limits — plazas de usuario del plan (activos + invitaciones pendientes). */
+export interface UserLimitsDto {
+  /** Lo que cuenta para el límite: usuarios activos + invitaciones pendientes. */
+  used: number;
+  activeUsers: number;
+  pendingInvitations: number;
+  /** Tope del plan con sus extras; null = ilimitado. */
+  limit: number | null;
 }
 
 /** GET /invitations/token/:token — informacion publica para mostrar la pantalla de aceptacion. */

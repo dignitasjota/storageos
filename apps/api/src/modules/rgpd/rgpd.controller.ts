@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  type AnonymizePreviewDto,
   CreateDataSubjectRequestSchema,
   type DataSubjectRequestDto,
   UpdateDataSubjectRequestSchema,
@@ -97,6 +98,17 @@ export class RgpdController {
       userId: user.sub,
       meta: extractMeta(req),
     });
+  }
+
+  /** Qué se borra y qué se conserva al anonimizarlo, y qué lo impide. */
+  @RequirePermission('rgpd:manage')
+  @UseGuards(CustomerScopeGuard)
+  @Get('customers/:id/anonymize-preview')
+  async anonymizePreview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<AnonymizePreviewDto> {
+    return this.rgpd.anonymizePreview(user.tenantId, id);
   }
 
   @RequirePermission('rgpd:manage')

@@ -34,6 +34,8 @@ export function useCreateInvitation() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: invitationsQueryKey });
+      // Cambian las plazas del plan ocupadas.
+      void qc.invalidateQueries({ queryKey: ['users', 'limits'] });
     },
   });
 }
@@ -47,6 +49,8 @@ export function useRevokeInvitation() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: invitationsQueryKey });
+      // Cambian las plazas del plan ocupadas.
+      void qc.invalidateQueries({ queryKey: ['users', 'limits'] });
     },
   });
 }
@@ -60,6 +64,8 @@ export function useResendInvitation() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: invitationsQueryKey });
+      // Cambian las plazas del plan ocupadas.
+      void qc.invalidateQueries({ queryKey: ['users', 'limits'] });
     },
   });
 }

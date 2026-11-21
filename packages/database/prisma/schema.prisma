@@ -549,6 +549,10 @@ model Tenant {
   /// Días de los dos recordatorios del escalado.
   dunningFirstReminderDays     Int                   @default(1) @map("dunning_first_reminder_days")
   dunningSecondReminderDays    Int                   @default(7) @map("dunning_second_reminder_days")
+  /// Los recordatorios del escalado salen también por WhatsApp (si el negocio lo tiene conectado).
+  dunningWhatsappReminders     Boolean               @default(false) @map("dunning_whatsapp_reminders")
+  /// Adonde llegan las respuestas a los correos del negocio (sin dominio propio también).
+  emailReplyTo                 String?               @map("email_reply_to")
   collectionsNoticeDays        Int                   @default(15) @map("collections_notice_days")
   collectionsClauseRef         String?               @map("collections_clause_ref")
   winbackEnabled               Boolean               @default(false) @map("winback_enabled")
@@ -781,6 +785,7 @@ model Tenant {
   unitSavedViews             UnitSavedView[]
   invoiceSavedViews          InvoiceSavedView[]
   facilitySlugRedirects      FacilitySlugRedirect[]
+  webSlugRedirects           WebSlugRedirect[]
   owners                         Owner[]
   ownerStatements                OwnerStatement[]
   whatsappSettings               TenantWhatsappSettings?
@@ -1006,7 +1011,8 @@ model TenantRole {
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  users  User[] @relation("UserTenantRole")
+  users       User[]       @relation("UserTenantRole")
+  invitations Invitation[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -1257,10 +1263,14 @@ model Invitation {
   acceptedAt      DateTime? @map("accepted_at") @db.Timestamptz(6)
   revokedAt       DateTime? @map("revoked_at") @db.Timestamptz(6)
   revokedReason   String?   @map("revoked_reason")
+  /// Rol a medida y locales que tendrá al aceptar (vacío = todos los locales).
+  tenantRoleId    String?   @map("tenant_role_id") @db.Uuid
+  facilityIds     String[]  @default([]) @map("facility_ids") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Restrict)
-  invitedBy User?  @relation("InvitationInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  invitedBy  User?       @relation("InvitationInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  tenantRole TenantRole? @relation(fields: [tenantRoleId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([tenantId, email])
@@ -1493,6 +1503,24 @@ model Unit {
 
 /// Vistas de la lista de Trasteros, compartidas por el equipo.
 /// Direcciones antiguas de un local: la web redirige a la actual.
+/// Direcciones antiguas de entradas del blog y landings de promoción: al
+/// cambiar la dirección, la vieja redirige a la nueva.
+model WebSlugRedirect {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  /// `blog` o `promo`.
+  kind      String
+  oldSlug   String   @map("old_slug")
+  targetId  String   @map("target_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind, oldSlug])
+  @@index([targetId])
+  @@map("web_slug_redirects")
+}
+
 model FacilitySlugRedirect {
   id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
@@ -3819,6 +3847,10 @@ model DataSubjectRequest {
   submittedAt     DateTime                 @default(now()) @map("submitted_at") @db.Timestamptz(6)
   dueAt           DateTime                 @map("due_at") @db.Timestamptz(6)
   fulfilledAt     DateTime?                @map("fulfilled_at") @db.Timestamptz(6)
+  /// Día en que llegó la solicitud (puede ser anterior a darla de alta); cuenta para el plazo.
+  receivedAt      DateTime?                @map("received_at") @db.Timestamptz(6)
+  /// Motivo al denegarla (se le comunica al inquilino).
+  rejectionReason String?                  @map("rejection_reason")
   notes           String?
   handledByUserId String?                  @map("handled_by_user_id") @db.Uuid
   exportFileUrl   String?                  @map("export_file_url")
@@ -5982,6 +6014,9 @@ model FaqEntry {
   tenantId    String   @map("tenant_id") @db.Uuid
   question    String
   answer      String
+  /// Versión en inglés (la web en inglés la usa si existe).
+  questionEn  String?  @map("question_en")
+  answerEn    String?  @map("answer_en")
   /// Orden de aparición (asc).
   position    Int      @default(0)
   isPublished Boolean  @default(true) @map("is_published")
@@ -6017,6 +6052,8 @@ model BlogPost {
   relatedPostIds  String[]  @default([]) @map("related_post_ids") @db.Uuid
   isPublished     Boolean   @default(false) @map("is_published")
   publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
+  /// Publicación programada: un proceso la publica a esa hora.
+  publishAt       DateTime? @map("publish_at") @db.Timestamptz(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -12,6 +12,7 @@ import { UsageModule } from '../../api/src/modules/admin/usage.module';
 import { AuthModule } from '../../api/src/modules/auth/auth.module';
 import { AutomationsModule } from '../../api/src/modules/automations/automations.module';
 import { BillingModule } from '../../api/src/modules/billing/billing.module';
+import { BlogScheduleModule } from '../../api/src/modules/blog/blog-schedule.module';
 import { CommunicationsModule } from '../../api/src/modules/communications/communications.module';
 import { ContractsModule } from '../../api/src/modules/contracts/contracts.module';
 import { CustomerEmailsModule } from '../../api/src/modules/customer-emails/customer-emails.module';
@@ -173,6 +174,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     // RetentionModule: cron diario que retira los descuentos de las ofertas de
     // retención cuando vencen sus meses.
     RetentionModule,
+    // BlogScheduleModule: cron cada 5 min que publica las entradas del blog programadas.
+    BlogScheduleModule,
   ],
 })
 export class WorkerModule {}

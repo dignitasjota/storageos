@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useMe } from '@/lib/auth/hooks';
+import { confirmLeaveIfDirty } from '@/lib/unsaved-changes';
 import { cn } from '@/lib/utils';
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
@@ -44,7 +45,12 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
       <div className="mb-4 md:hidden">
         <Select
           value={isHome ? '/settings' : (active ?? '')}
-          onValueChange={(href) => router.push(href)}
+          onValueChange={(href) => {
+            // Como los enlaces: si la página tiene cambios sin guardar, se pregunta.
+            void confirmLeaveIfDirty().then((ok) => {
+              if (ok) router.push(href);
+            });
+          }}
         >
           <SelectTrigger className="text-base">
             <SelectValue placeholder="Configuración" />

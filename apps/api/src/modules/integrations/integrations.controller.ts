@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -12,14 +13,17 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   type ApiKeyDto,
   type ApiKeyWithPlaintextDto,
   CreateApiKeySchema,
   CreateWebhookSchema,
+  TestWebhookSchema,
   UpdateWebhookSchema,
   type WebhookDeliveryDto,
   type WebhookDto,
+  type WebhookTestResultDto,
   type WebhookWithSecretDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
@@ -168,6 +172,34 @@ export class IntegrationsController {
       tenantId: user.tenantId,
       userId: user.sub,
       id,
+      meta: extractMeta(req),
+    });
+  }
+
+  /** Envío de prueba con datos de ejemplo (`ping` si no se elige evento). */
+  @Post('webhooks/:id/test')
+  @RequirePermission('integrations:manage')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  testWebhook(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ): Promise<WebhookTestResultDto> {
+    // Cuerpo opcional: sin él (o vacío) se manda un `ping`.
+    const parsed = TestWebhookSchema.safeParse(body ?? {});
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'invalid_event',
+        message: 'Evento de prueba no reconocido.',
+      });
+    }
+    return this.webhooks.sendTest({
+      tenantId: user.tenantId,
+      userId: user.sub,
+      id,
+      event: parsed.data.event ?? 'ping',
       meta: extractMeta(req),
     });
   }

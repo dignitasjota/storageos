@@ -1,6 +1,7 @@
 'use client';
 
 import { MoreHorizontal } from 'lucide-react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -10,6 +11,7 @@ import { InviteUserDialog } from './invite-user-dialog';
 
 import type { InvitationDto, UserDetailDto, UserRole } from '@storageos/shared';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,12 +40,15 @@ import {
 } from '@/components/ui/table';
 import { ApiError } from '@/lib/auth/api';
 import { useHasPermission, useMe } from '@/lib/auth/hooks';
+import { useFacilities } from '@/lib/facilities/hooks';
 import { useInvitations, useResendInvitation, useRevokeInvitation } from '@/lib/invitations/hooks';
 import { useTenantSecuritySettings } from '@/lib/tenant-settings/hooks';
 import {
   useDeactivateUser,
+  useResetUserTwoFactor,
   useTransferOwnership,
   useUpdateUser,
+  useUserLimits,
   useUsers,
 } from '@/lib/users/hooks';
 
@@ -73,6 +78,8 @@ export default function UsersSettingsPage() {
   const transfer = useTransferOwnership();
   const resend = useResendInvitation();
   const revoke = useRevokeInvitation();
+  const resetTwoFactor = useResetUserTwoFactor();
+  const ask = useConfirm();
 
   const [editing, setEditing] = useState<UserDetailDto | null>(null);
   const [deactivating, setDeactivating] = useState<UserDetailDto | null>(null);
@@ -125,6 +132,25 @@ export default function UsersSettingsPage() {
     }
   }
 
+  async function handleResetTwoFactor(user: UserDetailDto) {
+    const ok = await ask({
+      title: `¿Quitar la verificación en dos pasos a ${user.fullName}?`,
+      description: requires2fa
+        ? 'Úsalo si ha perdido el móvil. Se cierran sus sesiones y sus códigos de recuperación dejan de valer. Como tu empresa la exige, al volver a entrar tendrá que activarla otra vez. Le avisamos por correo.'
+        : 'Úsalo si ha perdido el móvil. Se cierran sus sesiones y sus códigos de recuperación dejan de valer. Podrá volver a activarla en su perfil. Le avisamos por correo.',
+      confirmLabel: 'Quitar',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await resetTwoFactor.mutateAsync(user.id);
+      toast.success('Verificación en dos pasos quitada.');
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.body.message : tCommon('errors.generic');
+      toast.error(msg);
+    }
+  }
+
   async function handleResend(invitation: InvitationDto) {
     try {
       await resend.mutateAsync(invitation.id);
@@ -150,6 +176,11 @@ export default function UsersSettingsPage() {
   // RBAC v2 (PR4): la gestión de usuarios e invitaciones es owner-only
   // (`users:manage`). El backend lo impone; aquí ocultamos las acciones.
   const canManage = useHasPermission('users:manage');
+  const limits = useUserLimits(canManage);
+  const facilities = useFacilities();
+  const facilityName = new Map((facilities.data ?? []).map((f) => [f.id, f.name]));
+  const atLimit =
+    !!limits.data && limits.data.limit !== null && limits.data.used >= limits.data.limit;
 
   const canReadSettings = useHasPermission('settings:read');
   const security = useTenantSecuritySettings(canReadSettings);
@@ -197,7 +228,8 @@ export default function UsersSettingsPage() {
     const targetIsOwner = u.role === 'owner';
     const canEdit = canManage && !targetIsOwner;
     const canTransfer = isOwner && !targetIsOwner && u.isActive;
-    if (!canEdit && !canTransfer) return null;
+    const canResetTwoFactor = isOwner && !isSelf && u.twoFactorEnabled;
+    if (!canEdit && !canTransfer && !canResetTwoFactor) return null;
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -217,6 +249,11 @@ export default function UsersSettingsPage() {
           {canEdit && !u.isActive && (
             <DropdownMenuItem onClick={() => handleReactivate(u)}>
               {t('actions.reactivate')}
+            </DropdownMenuItem>
+          )}
+          {canResetTwoFactor && (
+            <DropdownMenuItem onClick={() => void handleResetTwoFactor(u)}>
+              Quitar la verificación en dos pasos
             </DropdownMenuItem>
           )}
           {canTransfer && (
@@ -247,9 +284,23 @@ export default function UsersSettingsPage() {
     return null;
   }
 
+  /** Rol a medida y locales que tendrá al aceptar. */
+  function renderInvitationAccess(inv: InvitationDto) {
+    const names = inv.facilityIds.map((id) => facilityName.get(id)).filter(Boolean);
+    if (!inv.tenantRoleName && names.length === 0) return null;
+    return (
+      <span className="text-xs text-muted-foreground">
+        {inv.tenantRoleName ? `Rol: ${inv.tenantRoleName}` : ''}
+        {inv.tenantRoleName && names.length > 0 ? ' · ' : ''}
+        {names.length > 0 ? `Solo ${names.join(', ')}` : ''}
+      </span>
+    );
+  }
+
   function renderInvitationActions(inv: InvitationDto) {
-    // Las invitaciones de gestor solo las reenvía el propietario.
-    const canResend = isOwner || inv.role !== 'manager';
+    // Las invitaciones de gestor, o con rol a medida o locales, solo las reenvía el propietario.
+    const canResend =
+      isOwner || (inv.role !== 'manager' && !inv.tenantRoleId && inv.facilityIds.length === 0);
     const canRevoke = inv.status !== 'revoked';
     if (!canResend && !canRevoke) return null;
     return (
@@ -282,8 +333,37 @@ export default function UsersSettingsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
           <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
         </div>
-        {canManage && <InviteUserDialog />}
+        {canManage && (
+          <div className="flex flex-col items-end gap-1 text-right">
+            <InviteUserDialog disabled={atLimit} />
+            {limits.data && limits.data.limit !== null && (
+              <p
+                className={
+                  atLimit
+                    ? 'text-xs font-medium text-amber-700 dark:text-amber-300'
+                    : 'text-xs text-muted-foreground'
+                }
+              >
+                {limits.data.used} de {limits.data.limit} usuarios de tu plan
+                {limits.data.pendingInvitations > 0
+                  ? ` (${limits.data.pendingInvitations} ${limits.data.pendingInvitations === 1 ? 'invitación pendiente' : 'invitaciones pendientes'})`
+                  : ''}
+              </p>
+            )}
+          </div>
+        )}
       </div>
+
+      {canManage && atLimit && (
+        <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          Has llegado al máximo de usuarios de tu plan, contando las invitaciones pendientes. Para
+          invitar a alguien más, revoca una invitación, desactiva a un usuario o amplía el plan en{' '}
+          <Link href="/settings/saas-billing" className="font-medium underline">
+            Plan y facturas
+          </Link>
+          .
+        </p>
+      )}
 
       {requires2fa && missing2fa.length > 0 && (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
@@ -403,6 +483,7 @@ export default function UsersSettingsPage() {
                       </span>
                       {renderInvitationStatus(inv)}
                     </div>
+                    {renderInvitationAccess(inv)}
                   </div>
                 ))}
               </div>
@@ -439,7 +520,10 @@ export default function UsersSettingsPage() {
                       <TableRow key={inv.id}>
                         <TableCell className="font-medium">{inv.email}</TableCell>
                         <TableCell>
-                          <Badge variant={roleVariant(inv.role)}>{t(`role.${inv.role}`)}</Badge>
+                          <div className="flex flex-col items-start gap-1">
+                            <Badge variant={roleVariant(inv.role)}>{t(`role.${inv.role}`)}</Badge>
+                            {renderInvitationAccess(inv)}
+                          </div>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {inv.invitedByName ?? '—'}

@@ -327,6 +327,41 @@ export interface DataSubjectRequestDto {
   fulfilledAt: string | null;
   exportFileUrl: string | null;
   notes: string | null;
+  /** Día en que llegó la solicitud (null = el día en que se dio de alta). */
+  receivedAt: string | null;
+  /** Motivo de la denegación (se le comunicó al interesado). */
+  rejectionReason: string | null;
+}
+
+/** Una cosa que se borra o se conserva al anonimizar a un inquilino. */
+export interface AnonymizePreviewItemDto {
+  /** Qué es, en palabras (p. ej. «Documentos subidos»). */
+  label: string;
+  /** Cuántos hay (null = no se cuenta, p. ej. los datos de la ficha). */
+  count: number | null;
+  /** Aclaración (p. ej. por qué se conserva). */
+  note?: string;
+}
+
+/** GET /rgpd/customers/:id/anonymize-preview — qué pasará al anonimizarlo. */
+export interface AnonymizePreviewDto {
+  customerName: string;
+  /** Lo que se borra o se vacía. Solo lo que tiene algo. */
+  deleted: AnonymizePreviewItemDto[];
+  /** Lo que se conserva (obligación legal o prueba). */
+  kept: AnonymizePreviewItemDto[];
+  blockers: {
+    /** Contratos en vigor o con la baja pedida: impiden anonimizar. */
+    liveContracts: number;
+    /** Reservas en curso: impiden anonimizar. */
+    reservations: number;
+    /** Lo que debe (emitido sin cobrar): pide confirmación. */
+    debt: number;
+    /** Borradores de contrato que se cancelarán antes. */
+    draftContracts: number;
+  };
+  /** Sin contratos vivos ni reservas en curso. */
+  canAnonymize: boolean;
 }
 
 export interface BillingMetricsDto {
@@ -430,6 +465,48 @@ export interface RedsysSettingsDto {
   hasSecretKey: boolean;
   /** Pago por referencia activado (tarjeta guardada + cobro automático). */
   cardOnFileEnabled: boolean;
+}
+
+/**
+ * Resultado de «Probar TPV» de Redsys. `ok` = el comercio, el terminal y la
+ * clave son correctos; `unknown` = Redsys respondió algo que no permite
+ * asegurarlo (`message` lo explica).
+ */
+export interface RedsysTestResultDto {
+  ok: boolean;
+  status: 'ok' | 'bad_key' | 'bad_merchant' | 'unreachable' | 'unknown';
+  /** Código que devolvió Redsys (p. ej. `SIS0042`), si lo hay. */
+  code: string | null;
+  message: string;
+}
+
+/**
+ * Formas de pago guardadas de los inquilinos, por pasarela: lo que deja de
+ * funcionar si se apaga. `autoChargedContracts` = contratos vivos cuyo
+ * inquilino la tiene como forma de pago por defecto (sus cuotas se cobran
+ * solas con ella).
+ */
+export interface SavedPaymentMethodsGroupDto {
+  customers: number;
+  methods: number;
+  autoChargedContracts: number;
+}
+
+export interface SavedPaymentMethodsSummaryDto {
+  /** Tarjetas guardadas en Stripe, por cuenta (null = la de la plataforma). */
+  stripe: SavedPaymentMethodsGroupDto & {
+    byAccount: { stripeAccountId: string | null; customers: number; methods: number }[];
+    /** Tarjetas en la cuenta de Stripe conectada ahora mismo. */
+    currentAccount: SavedPaymentMethodsGroupDto | null;
+  };
+  /** Tarjetas guardadas en Redsys (pago por referencia). */
+  redsys: SavedPaymentMethodsGroupDto;
+  /** Mandatos de domiciliación de GoCardless. */
+  gocardless: SavedPaymentMethodsGroupDto;
+  /** Mandatos SEPA activos y firmados para las remesas del banco. */
+  sepa: SavedPaymentMethodsGroupDto;
+  /** El negocio cobra solo al emitir cada factura. */
+  autoChargeOnIssue: boolean;
 }
 
 /** Config de GoCardless por tenant (nunca devuelve el token ni el secret). */

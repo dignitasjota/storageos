@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -6,12 +7,16 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  couponSummary,
   parsePromoLandingContent,
+  parsePromoLandingDraft,
   promoCampaign,
   promoDatesIssue,
   promoLandingIsLive,
   promoShortPathReserved,
   type CreatePromoLandingInput,
+  type DraftPromoLandingInput,
+  type PromoLandingDraftDto,
   type PromoLandingDto,
   type PromoLandingPreviewDto,
   type PromoLandingStatsDto,
@@ -24,9 +29,13 @@ import {
   buildPromoPreviewToken,
   promoPreviewKey,
 } from '../../common/marketing/promo-preview-token';
+import { forgetOldSlug, forgetRedirectsTo, rememberOldSlug } from '../../common/web-slug-redirects';
+import { AiService } from '../ai/ai.service';
 import { AuditService } from '../auth/audit.service';
+import { PROMO_LANDING_DRAFT_SYSTEM, businessFacts } from '../blog/web-draft-context';
 import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
+import { LandingService } from '../landing/landing.service';
 
 import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
@@ -70,7 +79,82 @@ export class PromoLandingsService {
     private readonly files: FilesService,
     private readonly config: ConfigService<Env, true>,
     private readonly audit: AuditService,
+    private readonly landing: LandingService,
+    private readonly ai: AiService,
   ) {}
+
+  /**
+   * Borrador con IA de los textos de una landing a partir de la oferta: titular,
+   * subtítulo, ventajas, condiciones y SEO, con los datos reales del negocio
+   * (los locales y tamaños de la promoción, y su cupón). Gasta una consulta del
+   * asistente; si la respuesta no se puede leer, se devuelve. No guarda nada.
+   */
+  async draft(
+    tenantId: string,
+    userId: string,
+    input: DraftPromoLandingInput,
+  ): Promise<PromoLandingDraftDto> {
+    const [tenant, coupon] = await this.prisma.withTenant(
+      (tx) =>
+        Promise.all([
+          tx.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } }),
+          input.couponId
+            ? tx.coupon.findFirst({
+                where: { tenantId, id: input.couponId },
+                select: {
+                  code: true,
+                  discountType: true,
+                  discountValue: true,
+                  minMonths: true,
+                  validUntil: true,
+                },
+              })
+            : Promise.resolve(null),
+        ]),
+      tenantId,
+    );
+    if (!tenant) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'No encontrado' });
+    }
+    const site = await this.landing.getBySlug(tenant.slug);
+    const couponLine = coupon
+      ? `Cupón que se aplica al reservar: ${coupon.code} (${couponSummary({
+          discountType: coupon.discountType,
+          discountValue: Number(coupon.discountValue),
+          minMonths: coupon.minMonths,
+        })}${coupon.validUntil ? `, válido hasta el ${coupon.validUntil.toISOString().slice(0, 10)}` : ''}).`
+      : '';
+    const failed = (spent: boolean) =>
+      new BadGatewayException({
+        code: 'ai_draft_failed',
+        message: spent
+          ? 'No se ha podido redactar el texto. Inténtalo de nuevo.'
+          : 'No se ha podido redactar el texto. Inténtalo de nuevo: no ha gastado consulta.',
+      });
+    const text = await this.ai.completeText({
+      tenantId,
+      userId,
+      feature: 'promo_landing_draft',
+      system: PROMO_LANDING_DRAFT_SYSTEM,
+      user: [
+        businessFacts(site, {
+          facilityIds: input.facilityIds ?? [],
+          unitTypeIds: input.unitTypeIds ?? [],
+        }),
+        '',
+        `Oferta: ${input.offer}`,
+        couponLine,
+        'Redacta los textos de la landing.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      accept: (reply) => parsePromoLandingDraft(reply) !== null,
+      rejected: () => failed(false),
+    });
+    const draft = parsePromoLandingDraft(text);
+    if (!draft) throw failed(true);
+    return draft;
+  }
 
   /**
    * Enlace de vista previa (borradores incluidos) en la dirección de la
@@ -144,6 +228,8 @@ export class PromoLandingsService {
           include: INCLUDE,
         });
         if (created.shortPath) await this.forgetFacilityRedirect(tx, created.slug);
+        // Si era la dirección antigua de otra landing, ahora es de esta.
+        await forgetOldSlug(tx, { tenantId, kind: 'promo', slug: created.slug });
         return created;
       }, tenantId);
       await this.audit.write({
@@ -208,6 +294,14 @@ export class PromoLandingsService {
       const row = await this.prisma.withTenant(async (tx) => {
         const updated = await tx.promoLanding.update({ where: { id }, data, include: INCLUDE });
         if (updated.shortPath) await this.forgetFacilityRedirect(tx, updated.slug);
+        // La dirección antigua (enlaces y QR repartidos) sigue llevando a la landing.
+        await rememberOldSlug(tx, {
+          tenantId,
+          kind: 'promo',
+          oldSlug: current.slug,
+          newSlug: updated.slug,
+          targetId: id,
+        });
         return updated;
       }, tenantId);
       // Rastro de lo que cambia lo que ve el público: activar, apagar y la dirección.
@@ -253,6 +347,7 @@ export class PromoLandingsService {
           slug = copySlug(src.slug, n);
         }
         const { id: _id, createdAt: _c, updatedAt: _u, coupon: _coupon, content, ...rest } = src;
+        await forgetOldSlug(tx, { tenantId, kind: 'promo', slug });
         return tx.promoLanding.create({
           data: {
             ...rest,
@@ -434,7 +529,11 @@ export class PromoLandingsService {
 
   async remove(tenantId: string, id: string, userId: string | null = null): Promise<void> {
     const landing = await this.findOrThrow(tenantId, id);
-    await this.prisma.withTenant((tx) => tx.promoLanding.delete({ where: { id } }), tenantId);
+    await this.prisma.withTenant(async (tx) => {
+      await tx.promoLanding.delete({ where: { id } });
+      // Sus direcciones antiguas ya no llevan a ningún sitio.
+      await forgetRedirectsTo(tx, { tenantId, kind: 'promo', targetId: id });
+    }, tenantId);
     await this.forgetImage(tenantId, landing.heroImageKey);
     await this.audit.write({
       tenantId,

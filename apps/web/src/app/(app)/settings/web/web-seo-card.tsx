@@ -1,23 +1,37 @@
 'use client';
 
 import { type WebSeo } from '@storageos/shared';
-import { Loader2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { ApiError } from '@/lib/auth/api';
-import { useUpdateWebSettings } from '@/lib/web-settings/hooks';
 
 /** Google corta hacia estas longitudes en el resultado de búsqueda. */
 const TITLE_SOFT = 60;
 const DESCRIPTION_SOFT = 160;
 
 type SeoKey = keyof WebSeo;
+
+/** Los seis textos para Google, siempre presentes ('' = generado). */
+export type SeoForm = Record<SeoKey, string>;
+
+export function emptySeoForm(): SeoForm {
+  return {
+    homeTitle: '',
+    homeDescription: '',
+    pricesTitle: '',
+    pricesDescription: '',
+    contactTitle: '',
+    contactDescription: '',
+  };
+}
+
+export function seoFormFrom(seo: WebSeo): SeoForm {
+  const out = emptySeoForm();
+  for (const k of Object.keys(out) as SeoKey[]) out[k] = seo[k] ?? '';
+  return out;
+}
 
 interface PageDef {
   label: string;
@@ -33,23 +47,17 @@ interface PageDef {
  * independientes del claim que se ve en la portada. Vacío = generados solos.
  */
 export function WebSeoCard({
-  seo,
+  values,
+  onChange,
   tenantName,
   domain,
 }: {
-  seo: WebSeo;
+  values: SeoForm;
+  onChange: (key: SeoKey, value: string) => void;
   tenantName: string;
   /** Dominio propio verificado (las páginas de precios y contacto solo existen ahí). */
   domain: string | null;
 }) {
-  const update = useUpdateWebSettings();
-  const [values, setValues] = useState<WebSeo>(seo);
-  // Solo se repone si lo guardado cambia de verdad: subir una foto o guardar
-  // otra tarjeta vuelve a pedir la configuración y no debe borrar lo escrito.
-  const seoKey = JSON.stringify(seo);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => setValues(seo), [seoKey]);
-
   const pages: PageDef[] = [
     {
       label: 'Portada',
@@ -77,28 +85,7 @@ export function WebSeoCard({
     },
   ];
 
-  function set(key: SeoKey, value: string) {
-    setValues((v) => ({ ...v, [key]: value }));
-  }
-
-  async function save() {
-    // Se mandan todos los campos: '' vuelve al texto generado.
-    const payload: Record<SeoKey, string> = {
-      homeTitle: '',
-      homeDescription: '',
-      pricesTitle: '',
-      pricesDescription: '',
-      contactTitle: '',
-      contactDescription: '',
-    };
-    for (const k of Object.keys(payload) as SeoKey[]) payload[k] = (values[k] ?? '').trim();
-    try {
-      await update.mutateAsync({ seo: payload });
-      toast.success('Textos para Google guardados.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
+  const set = onChange;
 
   return (
     <Card>
@@ -112,8 +99,8 @@ export function WebSeoCard({
       </CardHeader>
       <CardContent className="space-y-6">
         {pages.map((p) => {
-          const title = values[p.titleKey] ?? '';
-          const description = values[p.descriptionKey] ?? '';
+          const title = values[p.titleKey];
+          const description = values[p.descriptionKey];
           return (
             <div key={p.path} className="space-y-3 border-b pb-6 last:border-b-0 last:pb-0">
               <p className="text-sm font-medium">
@@ -167,10 +154,6 @@ export function WebSeoCard({
             </div>
           );
         })}
-        <Button onClick={save} disabled={update.isPending}>
-          {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-          Guardar textos para Google
-        </Button>
       </CardContent>
     </Card>
   );

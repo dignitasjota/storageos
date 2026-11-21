@@ -30,6 +30,7 @@ import type {
   InvitationDto,
   InvitationStatus,
   InviteUserInput,
+  Permission,
   PublicInvitationDto,
   SubscriptionDto,
   TenantDto,
@@ -58,7 +59,7 @@ export class InvitationsService {
   async list(tenantId: string): Promise<InvitationDto[]> {
     const rows = await this.admin.invitation.findMany({
       where: { tenantId },
-      include: { invitedBy: true },
+      include: { invitedBy: true, tenantRole: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
     });
     return rows.map((r) => this.toDto(r));
@@ -80,6 +81,50 @@ export class InvitationsService {
     }
   }
 
+  /**
+   * Rol a medida y locales que tendrá al aceptar. Solo los elige el
+   * propietario (como al editar a un usuario); ambos del mismo negocio y los
+   * locales sin borrar.
+   */
+  private async resolveAccess(
+    tenantId: string,
+    inviterRole: UserRole,
+    input: Pick<InviteUserInput, 'tenantRoleId' | 'facilityIds'>,
+  ): Promise<{ tenantRoleId: string | null; facilityIds: string[] }> {
+    const tenantRoleId = input.tenantRoleId ?? null;
+    const facilityIds = [...new Set(input.facilityIds ?? [])];
+    if ((tenantRoleId || facilityIds.length > 0) && inviterRole !== 'owner') {
+      throw new ForbiddenException({
+        message: 'Solo el propietario puede elegir el rol a medida o los locales al invitar.',
+        code: 'insufficient_role',
+      });
+    }
+    if (tenantRoleId) {
+      const role = await this.admin.tenantRole.findFirst({
+        where: { id: tenantRoleId, tenantId },
+        select: { id: true },
+      });
+      if (!role) {
+        throw new BadRequestException({
+          message: 'Ese rol a medida no existe.',
+          code: 'role_not_found',
+        });
+      }
+    }
+    if (facilityIds.length > 0) {
+      const valid = await this.admin.facility.count({
+        where: { id: { in: facilityIds }, tenantId, deletedAt: null },
+      });
+      if (valid !== facilityIds.length) {
+        throw new BadRequestException({
+          message: 'Algún local no existe o se ha borrado.',
+          code: 'facility_not_found',
+        });
+      }
+    }
+    return { tenantRoleId, facilityIds };
+  }
+
   async create(args: {
     tenantId: string;
     inviterUserId: string;
@@ -90,6 +135,7 @@ export class InvitationsService {
   }): Promise<InvitationDto> {
     const email = args.input.email;
     this.assertCanInviteRole(args.inviterRole, args.input.role);
+    const access = await this.resolveAccess(args.tenantId, args.inviterRole, args.input);
 
     // Si el email ya es user del tenant: 409.
     const existingUser = await this.admin.user.findUnique({
@@ -156,8 +202,10 @@ export class InvitationsService {
           invitedByUserId: args.inviterUserId,
           tokenHash,
           expiresAt,
+          tenantRoleId: access.tenantRoleId,
+          facilityIds: access.facilityIds,
         },
-        include: { invitedBy: true },
+        include: { invitedBy: true, tenantRole: { select: { name: true } } },
       });
     });
 
@@ -175,7 +223,12 @@ export class InvitationsService {
       action: 'invitation.sent',
       entityType: 'Invitation',
       entityId: record.id,
-      changes: { email, role: args.input.role },
+      changes: {
+        email,
+        role: args.input.role,
+        ...(access.tenantRoleId ? { tenantRoleId: access.tenantRoleId } : {}),
+        ...(access.facilityIds.length > 0 ? { facilityIds: access.facilityIds } : {}),
+      },
       ipAddress: args.meta.ipAddress ?? null,
       userAgent: args.meta.userAgent ?? null,
     });
@@ -231,6 +284,33 @@ export class InvitationsService {
     }
 
     this.assertCanInviteRole(args.inviterRole, original.role);
+    // El rol a medida y los locales solo los gestiona el propietario.
+    if (
+      (original.tenantRoleId || original.facilityIds.length > 0) &&
+      args.inviterRole !== 'owner'
+    ) {
+      throw new ForbiddenException({
+        message: 'Esta invitación lleva un rol a medida o locales: solo la reenvía el propietario.',
+        code: 'insufficient_role',
+      });
+    }
+    const liveFacilities =
+      original.facilityIds.length > 0
+        ? (
+            await this.admin.facility.findMany({
+              where: { id: { in: original.facilityIds }, tenantId: args.tenantId, deletedAt: null },
+              select: { id: true },
+            })
+          ).map((f) => f.id)
+        : [];
+    // Sin locales vivos vería todos: mejor invitar de nuevo eligiendo otros.
+    if (original.facilityIds.length > 0 && liveFacilities.length === 0) {
+      throw new BadRequestException({
+        message:
+          'Los locales de esta invitación se han borrado. Invítale de nuevo eligiendo otros.',
+        code: 'invitation_facilities_gone',
+      });
+    }
 
     const tenant = await this.admin.tenant.findUniqueOrThrow({ where: { id: args.tenantId } });
     const { secret, tokenHash } = await this.invitationTokens.hashSecret();
@@ -285,8 +365,11 @@ export class InvitationsService {
           invitedByUserId: args.userId,
           tokenHash,
           expiresAt,
+          // Conserva lo elegido al invitar (sin los locales ya borrados).
+          tenantRoleId: original.tenantRoleId,
+          facilityIds: liveFacilities,
         },
-        include: { invitedBy: true },
+        include: { invitedBy: true, tenantRole: { select: { name: true } } },
       });
     });
 
@@ -350,6 +433,30 @@ export class InvitationsService {
       throw new NotFoundException('Token invalido o caducado');
     }
 
+    // Rol a medida (si sigue existiendo) y locales (los que sigan sin borrar).
+    const customRole = record.tenantRoleId
+      ? await this.admin.tenantRole.findFirst({
+          where: { id: record.tenantRoleId, tenantId: record.tenantId },
+          select: { id: true, permissions: true },
+        })
+      : null;
+    const facilityIds =
+      record.facilityIds.length > 0
+        ? (
+            await this.admin.facility.findMany({
+              where: { id: { in: record.facilityIds }, tenantId: record.tenantId, deletedAt: null },
+              select: { id: true },
+            })
+          ).map((f) => f.id)
+        : [];
+    // Si todos sus locales se han borrado vería todos: que le inviten de nuevo.
+    if (record.facilityIds.length > 0 && facilityIds.length === 0) {
+      throw new ConflictException({
+        message: 'Los locales de esta invitación ya no existen. Pide que te inviten de nuevo.',
+        code: 'invitation_facilities_gone',
+      });
+    }
+
     // Marca aceptada atomicamente. Si dos requests llegan a la vez, solo
     // uno gana.
     const accepted = await this.invitationTokens.markAccepted(record.id);
@@ -370,15 +477,28 @@ export class InvitationsService {
     }
 
     const passwordHash = await argonHash(input.password);
-    const user = await this.admin.user.create({
-      data: {
-        tenantId: record.tenantId,
-        email: record.email,
-        passwordHash,
-        fullName: input.fullName.trim(),
-        role: record.role,
-        emailVerifiedAt: new Date(),
-      },
+    const user = await this.admin.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          tenantId: record.tenantId,
+          email: record.email,
+          passwordHash,
+          fullName: input.fullName.trim(),
+          role: record.role,
+          emailVerifiedAt: new Date(),
+          tenantRoleId: customRole?.id ?? null,
+        },
+      });
+      if (facilityIds.length > 0) {
+        await tx.userFacility.createMany({
+          data: facilityIds.map((facilityId) => ({
+            tenantId: record.tenantId,
+            userId: created.id,
+            facilityId,
+          })),
+        });
+      }
+      return created;
     });
 
     await this.audit.write({
@@ -397,7 +517,12 @@ export class InvitationsService {
       action: 'user.created',
       entityType: 'User',
       entityId: user.id,
-      changes: { role: record.role, viaInvitationId: record.id },
+      changes: {
+        role: record.role,
+        viaInvitationId: record.id,
+        ...(customRole ? { tenantRoleId: customRole.id } : {}),
+        ...(facilityIds.length > 0 ? { facilityIds } : {}),
+      },
     });
 
     // Emitir sesion (auto-login).
@@ -420,11 +545,13 @@ export class InvitationsService {
     const { token: accessToken, expiresIn } = await this.tokens.signAccess({
       sub: user.id,
       tenantId: record.tenantId,
-      // Usuario recién aceptado: nunca tiene rol custom ni locales asignados todavía.
+      // El rol a medida y los locales elegidos al invitar ya rigen desde el primer acceso.
       role: user.role,
-      permissions: permissionsForRole(user.role),
-      facilityScope: null,
-      tenantRoleId: null,
+      permissions: customRole
+        ? (customRole.permissions as Permission[])
+        : permissionsForRole(user.role),
+      facilityScope: facilityIds.length > 0 ? facilityIds : null,
+      tenantRoleId: customRole?.id ?? null,
     });
 
     const userDto: UserDto = {
@@ -501,7 +628,12 @@ export class InvitationsService {
     }
   }
 
-  private toDto(record: Invitation & { invitedBy?: { fullName: string } | null }): InvitationDto {
+  private toDto(
+    record: Invitation & {
+      invitedBy?: { fullName: string } | null;
+      tenantRole?: { name: string } | null;
+    },
+  ): InvitationDto {
     const status: InvitationStatus = record.acceptedAt
       ? 'accepted'
       : record.revokedAt
@@ -519,6 +651,9 @@ export class InvitationsService {
       acceptedAt: record.acceptedAt ? record.acceptedAt.toISOString() : null,
       revokedAt: record.revokedAt ? record.revokedAt.toISOString() : null,
       revokedReason: record.revokedReason ?? null,
+      tenantRoleId: record.tenantRoleId,
+      tenantRoleName: record.tenantRole?.name ?? null,
+      facilityIds: record.facilityIds,
       createdAt: record.createdAt.toISOString(),
     };
   }

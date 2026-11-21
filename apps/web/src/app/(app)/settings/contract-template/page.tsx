@@ -7,6 +7,7 @@ import {
   moveOutRuleText,
   renderContractClauses,
   type ContractTemplateDto,
+  type UpdateContractTemplateInput,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -20,25 +21,114 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { UnsavedChangesBar } from '@/components/unsaved-changes-bar';
 import { ApiError } from '@/lib/auth/api';
 import { useHasFeature } from '@/lib/auth/hooks';
 import { useContractTemplate, useUpdateContractTemplate } from '@/lib/contract-template/hooks';
+import { runSaveSteps, useUnsavedChangesGuard } from '@/lib/unsaved-changes';
 
 /** Valores de ejemplo para la vista previa (los reales salen del contrato al firmar). */
 const PREVIEW_VARS = Object.fromEntries(
   CONTRACT_TEMPLATE_VARIABLES.map((v) => [v.key, v.example]),
 ) as Record<string, string>;
 
+/** Todo lo que se edita en la página (se guarda de una vez con la barra de abajo). */
+interface TemplateForm {
+  moveOutEndOfMonth: boolean;
+  autoEndContracts: boolean;
+  /** Como se escribe (se valida al guardar). */
+  depositReturnDays: string;
+  returnedPaymentFee: string;
+  depositRegistryStorage: boolean;
+  clauses: string;
+  housingClauses: string;
+}
+
+function formFrom(d: ContractTemplateDto): TemplateForm {
+  return {
+    moveOutEndOfMonth: d.moveOutEndOfMonth,
+    autoEndContracts: d.autoEndContracts,
+    depositReturnDays: String(d.depositReturnDays),
+    returnedPaymentFee: d.returnedPaymentFee ? String(d.returnedPaymentFee) : '',
+    depositRegistryStorage: d.depositRegistryStorage,
+    clauses: d.clauses ?? DEFAULT_STORAGE_CLAUSES,
+    housingClauses: d.housingClauses ?? DEFAULT_HOUSING_CLAUSES,
+  };
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+function parseFee(v: string): number {
+  return v.trim() === '' ? 0 : Number(v.replace(',', '.'));
+}
+
+/** Si se guarda igual que la base, se guarda como «por defecto» (''). */
+function clausesToSave(value: string, defaultText: string): string {
+  return value.trim() === defaultText.trim() ? '' : value;
+}
+
+/** Las partes de la página, cada una con lo que guarda (para decir cuál falla). */
+const PARTS: {
+  label: string;
+  fields: (keyof TemplateForm)[];
+  build: (f: TemplateForm) => UpdateContractTemplateInput;
+}[] = [
+  {
+    label: 'Bajas',
+    fields: ['moveOutEndOfMonth', 'autoEndContracts'],
+    build: (f) => ({
+      moveOutEndOfMonth: f.moveOutEndOfMonth,
+      autoEndContracts: f.autoEndContracts,
+    }),
+  },
+  {
+    label: 'Fianza y gastos por impago',
+    fields: ['depositReturnDays', 'returnedPaymentFee', 'depositRegistryStorage'],
+    build: (f) => ({
+      depositReturnDays: Number(f.depositReturnDays),
+      returnedPaymentFee: parseFee(f.returnedPaymentFee) || null,
+      depositRegistryStorage: f.depositRegistryStorage,
+    }),
+  },
+  {
+    label: 'Cláusulas de trasteros',
+    fields: ['clauses'],
+    build: (f) => ({ clauses: clausesToSave(f.clauses, DEFAULT_STORAGE_CLAUSES) }),
+  },
+  {
+    label: 'Cláusulas de viviendas',
+    fields: ['housingClauses'],
+    build: (f) => ({
+      housingClauses: clausesToSave(f.housingClauses, DEFAULT_HOUSING_CLAUSES),
+    }),
+  },
+];
+
 export default function ContractTemplatePage() {
   const { data, isLoading, isError, refetch } = useContractTemplate();
+  const update = useUpdateContractTemplate();
   const hasHousing = useHasFeature('housing');
+
+  // Se rellena una sola vez; «Descartar» vuelve a lo guardado.
+  const [form, setForm] = useState<TemplateForm | null>(null);
+  const [saving, setSaving] = useState(false);
+  const saved = data ? formFrom(data) : null;
+  const dirty = form !== null && saved !== null && !same(form, saved);
+  useUnsavedChangesGuard(dirty);
+
+  useEffect(() => {
+    if (data && form === null) setForm(formFrom(data));
+  }, [data, form]);
+
+  const moveOutEndOfMonth = form?.moveOutEndOfMonth ?? false;
+  const depositReturnDays = form?.depositReturnDays ?? '';
   const previewVars = useMemo(
     () => ({
       ...PREVIEW_VARS,
-      moveOutRule: moveOutRuleText(data?.moveOutEndOfMonth ?? false),
-      depositReturnDays: String(data?.depositReturnDays ?? ''),
+      moveOutRule: moveOutRuleText(moveOutEndOfMonth),
+      depositReturnDays,
     }),
-    [data?.moveOutEndOfMonth, data?.depositReturnDays],
+    [moveOutEndOfMonth, depositReturnDays],
   );
   // Una vivienda sigue la LAU: su baja nunca es «a final de mes», como al firmar.
   const housingPreviewVars = useMemo(
@@ -47,7 +137,7 @@ export default function ContractTemplatePage() {
   );
 
   if (isError) return <SectionError onRetry={() => void refetch()} />;
-  if (isLoading || !data) {
+  if (isLoading || !data || !form || !saved) {
     return (
       <div className="flex justify-center py-12">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -55,13 +145,56 @@ export default function ContractTemplatePage() {
     );
   }
 
+  function set<K extends keyof TemplateForm>(key: K, value: TemplateForm[K]) {
+    setForm((f) => (f ? { ...f, [key]: value } : f));
+  }
+
+  const days = Number(form.depositReturnDays);
+  const fee = parseFee(form.returnedPaymentFee);
+  const daysValid = Number.isInteger(days) && days >= 1 && days <= 60;
+  const feeValid = Number.isFinite(fee) && fee >= 0 && fee <= 100;
+
+  async function save(current: TemplateForm, base: TemplateForm) {
+    const changed = PARTS.filter((p) => p.fields.some((k) => current[k] !== base[k]));
+    if (changed.length === 0) return;
+    setSaving(true);
+    const result: { latest: ContractTemplateDto | null } = { latest: null };
+    const failed = await runSaveSteps(
+      changed.map((p) => ({
+        label: p.label,
+        run: async () => {
+          result.latest = await update.mutateAsync(p.build(current));
+        },
+      })),
+      (err) => (err instanceof ApiError ? err.body.message : 'No se pudo guardar.'),
+    );
+    setSaving(false);
+    if (result.latest) {
+      // Lo guardado pasa a ser la base; lo que falló sigue escrito.
+      const fresh = formFrom(result.latest);
+      setForm((f) => {
+        if (!f) return f;
+        const next: TemplateForm = { ...f };
+        for (const p of changed) {
+          if (failed.some((x) => x.label === p.label)) continue;
+          for (const k of p.fields) (next as unknown as Record<string, unknown>)[k] = fresh[k];
+        }
+        return next;
+      });
+    }
+    if (failed.length > 0) {
+      toast.error(failed.map((f) => `${f.label}: ${f.message}`).join(' · '));
+      return;
+    }
+    toast.success('Guardado. Se aplicará a los contratos que se firmen a partir de ahora.');
+  }
+
   const storageEditor = (
     <ClausesEditor
-      field="clauses"
-      initial={data.clauses ?? DEFAULT_STORAGE_CLAUSES}
+      value={form.clauses}
+      onChange={(v) => set('clauses', v)}
       defaultText={DEFAULT_STORAGE_CLAUSES}
       emptyText="Sin texto: se usarán las condiciones generales de trastero."
-      placeholder=""
       previewVars={previewVars}
     />
   );
@@ -79,8 +212,21 @@ export default function ContractTemplatePage() {
         </p>
       </div>
 
-      <MoveOutCard data={data} />
-      <DepositAndFeesCard data={data} />
+      <MoveOutCard
+        moveOutEndOfMonth={form.moveOutEndOfMonth}
+        autoEndContracts={form.autoEndContracts}
+        onChange={(key, value) => set(key, value)}
+      />
+      <DepositAndFeesCard
+        days={form.depositReturnDays}
+        fee={form.returnedPaymentFee}
+        registryStorage={form.depositRegistryStorage}
+        daysValid={daysValid}
+        feeValid={feeValid}
+        onDays={(v) => set('depositReturnDays', v)}
+        onFee={(v) => set('returnedPaymentFee', v)}
+        onRegistryStorage={(v) => set('depositRegistryStorage', v)}
+      />
 
       {hasHousing || data.housingClauses ? (
         <Tabs defaultValue="storage">
@@ -103,11 +249,10 @@ export default function ContractTemplatePage() {
               (prórrogas, gastos, actualización de la renta).
             </p>
             <ClausesEditor
-              field="housingClauses"
-              initial={data.housingClauses ?? DEFAULT_HOUSING_CLAUSES}
+              value={form.housingClauses}
+              onChange={(v) => set('housingClauses', v)}
               defaultText={DEFAULT_HOUSING_CLAUSES}
               emptyText="Sin texto: se usará la base LAU."
-              placeholder=""
               previewVars={housingPreviewVars}
             />
           </TabsContent>
@@ -115,24 +260,35 @@ export default function ContractTemplatePage() {
       ) : (
         storageEditor
       )}
+
+      <UnsavedChangesBar
+        dirty={dirty}
+        saving={saving}
+        onSave={() => void save(form, saved)}
+        onDiscard={() => setForm(saved)}
+        canSave={daysValid && feeValid}
+        hint={
+          !daysValid
+            ? 'Los días para devolver la fianza van de 1 a 60.'
+            : !feeValid
+              ? 'Los gastos por recibo devuelto van de 0 a 100 €.'
+              : undefined
+        }
+      />
     </div>
   );
 }
 
 /** Cuándo surte efecto la baja y si los contratos se cierran solos. */
-function MoveOutCard({ data }: { data: ContractTemplateDto }) {
-  const update = useUpdateContractTemplate();
-  async function save(
-    input: { moveOutEndOfMonth?: boolean; autoEndContracts?: boolean },
-    ok: string,
-  ) {
-    try {
-      await update.mutateAsync(input);
-      toast.success(ok);
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
+function MoveOutCard({
+  moveOutEndOfMonth,
+  autoEndContracts,
+  onChange,
+}: {
+  moveOutEndOfMonth: boolean;
+  autoEndContracts: boolean;
+  onChange: (key: 'moveOutEndOfMonth' | 'autoEndContracts', value: boolean) => void;
+}) {
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -148,29 +304,15 @@ function MoveOutCard({ data }: { data: ContractTemplateDto }) {
       <CardContent className="space-y-3">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
-            checked={data.moveOutEndOfMonth}
-            disabled={update.isPending}
-            onCheckedChange={(v) =>
-              void save(
-                { moveOutEndOfMonth: v === true },
-                v === true
-                  ? 'Las bajas terminarán a final de mes.'
-                  : 'El inquilino elegirá el día de la baja.',
-              )
-            }
+            checked={moveOutEndOfMonth}
+            onCheckedChange={(v) => onChange('moveOutEndOfMonth', v === true)}
           />
           La baja surte efecto a final de mes
         </label>
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
-            checked={data.autoEndContracts}
-            disabled={update.isPending}
-            onCheckedChange={(v) =>
-              void save(
-                { autoEndContracts: v === true },
-                v === true ? 'Las bajas se cerrarán solas.' : 'Cerrarás las bajas a mano.',
-              )
-            }
+            checked={autoEndContracts}
+            onCheckedChange={(v) => onChange('autoEndContracts', v === true)}
           />
           Finalizar automáticamente los contratos al llegar su fecha de baja
         </label>
@@ -185,44 +327,25 @@ function MoveOutCard({ data }: { data: ContractTemplateDto }) {
 }
 
 /** Plazo para devolver la fianza y gastos por recibo devuelto, que figuran en el contrato. */
-function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
-  const update = useUpdateContractTemplate();
-  const [days, setDays] = useState(String(data.depositReturnDays));
-  const [fee, setFee] = useState(data.returnedPaymentFee ? String(data.returnedPaymentFee) : '');
-  const [registryStorage, setRegistryStorage] = useState(data.depositRegistryStorage);
-  useEffect(() => setRegistryStorage(data.depositRegistryStorage), [data.depositRegistryStorage]);
-  useEffect(() => setDays(String(data.depositReturnDays)), [data.depositReturnDays]);
-  useEffect(
-    () => setFee(data.returnedPaymentFee ? String(data.returnedPaymentFee) : ''),
-    [data.returnedPaymentFee],
-  );
-  const daysValue = Number(days);
-  const feeValue = fee.trim() === '' ? 0 : Number(fee.replace(',', '.'));
-  const valid =
-    Number.isInteger(daysValue) &&
-    daysValue >= 1 &&
-    daysValue <= 60 &&
-    Number.isFinite(feeValue) &&
-    feeValue >= 0 &&
-    feeValue <= 100;
-  const changed =
-    daysValue !== data.depositReturnDays ||
-    feeValue !== (data.returnedPaymentFee ?? 0) ||
-    registryStorage !== data.depositRegistryStorage;
-
-  async function save() {
-    try {
-      await update.mutateAsync({
-        depositReturnDays: daysValue,
-        returnedPaymentFee: feeValue || null,
-        depositRegistryStorage: registryStorage,
-      });
-      toast.success('Guardado. Se aplicará a los contratos que se firmen a partir de ahora.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
-
+function DepositAndFeesCard({
+  days,
+  fee,
+  registryStorage,
+  daysValid,
+  feeValid,
+  onDays,
+  onFee,
+  onRegistryStorage,
+}: {
+  days: string;
+  fee: string;
+  registryStorage: boolean;
+  daysValid: boolean;
+  feeValid: boolean;
+  onDays: (v: string) => void;
+  onFee: (v: string) => void;
+  onRegistryStorage: (v: boolean) => void;
+}) {
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -246,7 +369,8 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
               min={1}
               max={60}
               value={days}
-              onChange={(e) => setDays(e.target.value)}
+              onChange={(e) => onDays(e.target.value)}
+              aria-invalid={!daysValid}
             />
             <p className="text-xs text-muted-foreground">
               Desde que el inquilino entrega el trastero vacío (entre 1 y 60).
@@ -259,7 +383,8 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
               inputMode="decimal"
               placeholder="Ninguno"
               value={fee}
-              onChange={(e) => setFee(e.target.value)}
+              onChange={(e) => onFee(e.target.value)}
+              aria-invalid={!feeValid}
             />
             <p className="text-xs text-muted-foreground">
               Sin IVA. No pueden superar lo que te cuesta gestionarlo. No se cobran solos: los
@@ -270,7 +395,7 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
         <label className="flex items-start gap-2 text-sm">
           <Checkbox
             checked={registryStorage}
-            onCheckedChange={(v) => setRegistryStorage(v === true)}
+            onCheckedChange={(v) => onRegistryStorage(v === true)}
           />
           <span>
             Depositar también las fianzas de los trasteros en el organismo de tu comunidad autónoma
@@ -281,56 +406,26 @@ function DepositAndFeesCard({ data }: { data: ContractTemplateDto }) {
             </span>
           </span>
         </label>
-        <div className="flex justify-end">
-          <Button onClick={() => void save()} disabled={!valid || !changed || update.isPending}>
-            {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
-            Guardar
-          </Button>
-        </div>
       </CardContent>
     </Card>
   );
 }
 
 function ClausesEditor({
-  field,
-  initial,
+  value,
+  onChange,
   defaultText,
   emptyText,
-  placeholder,
   previewVars,
 }: {
-  field: 'clauses' | 'housingClauses';
-  initial: string;
+  value: string;
+  onChange: (value: string) => void;
   /** Texto por defecto: si se guarda igual, se guarda como «por defecto». */
-  defaultText?: string;
+  defaultText: string;
   emptyText: string;
-  placeholder: string;
   previewVars: Record<string, string>;
 }) {
-  const update = useUpdateContractTemplate();
-  const [value, setValue] = useState(initial);
-  useEffect(() => setValue(initial), [initial]);
   const preview = useMemo(() => renderContractClauses(value, previewVars), [value, previewVars]);
-  const dirty = value !== initial;
-
-  // Aviso al cerrar o recargar la pestaña con cambios sin guardar.
-  useEffect(() => {
-    if (!dirty) return;
-    const handler = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [dirty]);
-
-  async function save() {
-    const toSave = defaultText !== undefined && value.trim() === defaultText.trim() ? '' : value;
-    try {
-      await update.mutateAsync({ [field]: toSave });
-      toast.success(toSave.trim() ? 'Plantilla guardada.' : 'Vuelves a la plantilla por defecto.');
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -349,7 +444,7 @@ function ClausesEditor({
               type="button"
               className="rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs hover:bg-muted"
               title={`${v.label} · ej. ${v.example}`}
-              onClick={() => setValue((c) => `${c}{{${v.key}}}`)}
+              onClick={() => onChange(`${value}{{${v.key}}}`)}
             >
               {`{{${v.key}}}`}
             </button>
@@ -365,9 +460,9 @@ function ClausesEditor({
           <CardContent>
             <textarea
               className="min-h-[320px] w-full resize-y rounded-md border bg-background p-3 font-mono text-base sm:text-sm"
-              placeholder={placeholder}
               value={value}
-              onChange={(e) => setValue(e.target.value)}
+              onChange={(e) => onChange(e.target.value)}
+              aria-label="Cláusulas del contrato"
             />
           </CardContent>
         </Card>
@@ -389,22 +484,13 @@ function ClausesEditor({
         </Card>
       </div>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {dirty && (
-          <p className="mr-auto text-sm text-amber-700 dark:text-amber-300">
-            Tienes cambios sin guardar.
-          </p>
-        )}
-        {defaultText !== undefined && value.trim() !== defaultText.trim() && (
-          <Button variant="outline" onClick={() => setValue(defaultText)}>
+      {value.trim() !== defaultText.trim() && (
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={() => onChange(defaultText)}>
             Restaurar la base
           </Button>
-        )}
-        <Button onClick={() => void save()} disabled={update.isPending || !dirty}>
-          {update.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
-          Guardar
-        </Button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
