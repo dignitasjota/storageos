@@ -934,6 +934,13 @@ export class ContractsService {
       // En draft permitimos crear el contrato aunque el unit no este available
       // (p.ej. esta reserved para este mismo customer). Sera al firmar
       // cuando bloqueemos si esta occupied/maintenance/blocked.
+      // Un trastero cedido está prestado: no se contrata hasta terminar la cesión.
+      if (unit.status === 'ceded') {
+        throw new ConflictException({
+          code: 'unit_ceded',
+          message: 'Este trastero está cedido: termina antes la cesión para poder alquilarlo',
+        });
+      }
 
       // Código promocional: si es válido (percentage/fixed), calcula el
       // descuento recurrente y registra el uso. Tiene prioridad sobre un

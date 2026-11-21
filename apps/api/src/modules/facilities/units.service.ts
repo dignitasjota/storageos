@@ -26,6 +26,7 @@ import type { Prisma, Unit, UnitStatus } from '@storageos/database';
 import type {
   ChangeUnitStatusInput,
   CreateUnitInput,
+  UnitCessionSummaryDto,
   UnitDto,
   UnitStatusHistoryDto,
   UnitStatusValue,
@@ -57,11 +58,38 @@ export interface ListUnitsFilters {
   facilityScope?: string[] | null;
 }
 
+/** La cesión viva del trastero (si está cedido), para pintar la lista y el plano. */
+export const LIVE_CESSION_INCLUDE = {
+  cessions: {
+    where: { endedAt: null },
+    take: 1,
+    select: {
+      holderName: true,
+      endsOn: true,
+      customer: {
+        select: { customerType: true, firstName: true, lastName: true, companyName: true },
+      },
+    },
+  },
+} as const;
+
 export const UNIT_INCLUDE = {
-  facility: { select: { name: true } },
+  facility: { select: { name: true, timezone: true } },
   floor: { select: { name: true } },
   unitType: { select: { name: true, color: true, propertyKind: true } },
+  ...LIVE_CESSION_INCLUDE,
 } as const;
+
+type LiveCessionRow = {
+  holderName: string | null;
+  endsOn: Date;
+  customer: {
+    customerType: string;
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+  } | null;
+};
 
 const LIVE_CONTRACT: Prisma.ContractWhereInput = {
   status: { in: ['active', 'ending'] },
@@ -444,6 +472,12 @@ export class UnitsService {
         message: 'No se puede borrar un trastero ocupado',
       });
     }
+    if (existing.status === 'ceded') {
+      throw new ConflictException({
+        code: 'unit_ceded',
+        message: 'Este trastero está cedido: termina antes la cesión',
+      });
+    }
     // Su pareja se quedaría apilada con nadie y dejaría de verse en el plano.
     if (existing.stackGroupId) {
       throw new ConflictException({
@@ -678,6 +712,20 @@ export class UnitsService {
     const existing = await this.findOrThrow(args.tenantId, args.unitId, args.facilityScope);
     const from = existing.status as UnitStatusValue;
     const to = args.input.status;
+    // Un trastero cedido solo sale de ese estado terminando la cesión (revoca su
+    // acceso y la deja cerrada), y a «Cedido» solo se llega cediéndolo.
+    if (from === 'ceded') {
+      throw new ConflictException({
+        code: 'unit_ceded',
+        message: 'Este trastero está cedido: usa «Terminar la cesión» para cambiar su estado',
+      });
+    }
+    if (to === 'ceded') {
+      throw new BadRequestException({
+        code: 'ceded_via_cession_only',
+        message: 'Para ceder un trastero usa «Ceder el trastero» en su ficha',
+      });
+    }
     if (to === 'maintenance' && args.input.until !== undefined) {
       await this.assertFutureDay(args.tenantId, existing.facilityId, args.input.until);
     }
@@ -877,9 +925,10 @@ export class UnitsService {
         tx.unit.findUnique({
           where: { id: unitId },
           include: {
-            facility: { select: { name: true, deletedAt: true } },
+            facility: { select: { name: true, deletedAt: true, timezone: true } },
             floor: { select: { name: true } },
             unitType: { select: { name: true, color: true, propertyKind: true } },
+            ...LIVE_CESSION_INCLUDE,
           },
         }),
       tenantId,
@@ -916,11 +965,13 @@ export class UnitsService {
 
   toDto(
     row: Unit & {
-      facility: { name: string };
+      facility: { name: string; timezone?: string };
       floor: { name: string };
       unitType: { name: string; color: string; propertyKind: string };
+      cessions?: LiveCessionRow[];
     },
   ): UnitDto {
+    const liveCession = row.status === 'ceded' ? row.cessions?.[0] : undefined;
     return {
       id: row.id,
       facilityId: row.facilityId,
@@ -956,8 +1007,26 @@ export class UnitsService {
         : null,
       outOfServiceReason: row.outOfServiceReason,
       outOfServiceSince: row.outOfServiceSince?.toISOString() ?? null,
+      cession: liveCession ? this.cessionSummary(liveCession, row.facility.timezone) : null,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+    };
+  }
+
+  private cessionSummary(c: LiveCessionRow, timezone?: string): UnitCessionSummaryDto {
+    const endsOn = c.endsOn.toISOString().slice(0, 10);
+    const today = todayInTimezone(timezone ?? 'Europe/Madrid')
+      .toISOString()
+      .slice(0, 10);
+    const name = c.customer
+      ? c.customer.customerType === 'business'
+        ? (c.customer.companyName ?? '')
+        : [c.customer.firstName, c.customer.lastName].filter(Boolean).join(' ')
+      : '';
+    return {
+      holderName: c.holderName ?? name ?? '',
+      endsOn,
+      expired: endsOn <= today,
     };
   }
 

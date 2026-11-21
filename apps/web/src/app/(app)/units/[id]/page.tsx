@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
+import { CedeUnitButton, UnitCessionSection } from './unit-cession-card';
 import { UnitDetailsCard } from './unit-details-card';
 import { UnitInsightsCard } from './unit-insights-card';
 import { UnitPriceCard } from './unit-price-card';
@@ -81,6 +82,7 @@ const STATUS_LABELS: Record<string, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 export default function UnitDetailPage() {
@@ -132,6 +134,7 @@ export default function UnitDetailPage() {
     (c) => c.status === 'active' || c.status === 'ending',
   );
   const isRented = u.status === 'occupied' || !!activeContract;
+  const isCeded = u.status === 'ceded';
   const stoppedDays = u.outOfServiceSince
     ? Math.floor((Date.now() - new Date(u.outOfServiceSince).getTime()) / 86_400_000)
     : null;
@@ -152,11 +155,12 @@ export default function UnitDetailPage() {
             <AskAssistantButton type="unit" id={u.id} label={u.code} />
           </div>
           <div className="flex flex-wrap gap-2">
-            {canWrite && !isRented && (
+            {canWrite && !isRented && !isCeded && (
               <Button variant="outline" size="sm" onClick={() => setStatusOpen(true)}>
                 Cambiar estado
               </Button>
             )}
+            <CedeUnitButton unit={u} rented={isRented} />
             {canWrite && (
               <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                 <Pencil className="mr-1 h-4 w-4" /> Editar trastero
@@ -179,7 +183,7 @@ export default function UnitDetailPage() {
                 <MapIcon className="mr-1 h-4 w-4" /> Ver en el plano
               </Link>
             </Button>
-            {canDelete && !isRented && (
+            {canDelete && !isRented && !isCeded && (
               <Button
                 variant="outline"
                 size="sm"
@@ -225,7 +229,8 @@ export default function UnitDetailPage() {
               </span>
             )}
           </div>
-          {stoppedDays !== null && (
+          {/* Un cedido lo explica su tarjeta «Cesión»: aquí no se cuenta como parado. */}
+          {stoppedDays !== null && u.status !== 'ceded' && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
               {u.outOfServiceReason && <p className="font-medium">{u.outOfServiceReason}</p>}
               <p>
@@ -257,11 +262,17 @@ export default function UnitDetailPage() {
             <p className="text-sm text-muted-foreground">
               Disponible para alquilar — sin contrato activo.
             </p>
+          ) : isCeded ? (
+            <p className="text-sm text-muted-foreground">
+              Cedido sin contrato ni cobro: no se alquila hasta terminar la cesión.
+            </p>
           ) : (
             <p className="text-sm text-muted-foreground">Sin inquilino asignado actualmente.</p>
           )}
         </CardContent>
       </Card>
+
+      <UnitCessionSection unit={u} />
 
       {/* Reserva manual para un cliente (solo si no está ocupado). */}
       {!activeContract && <UnitReservationCard unitId={u.id} unitStatus={u.status} />}

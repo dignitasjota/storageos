@@ -1244,6 +1244,7 @@ export class AiBusinessTools {
           'reserved',
           'maintenance',
           'blocked',
+          'ceded',
         ] as const);
         const rows = await tx.unit.findMany({
           where: {

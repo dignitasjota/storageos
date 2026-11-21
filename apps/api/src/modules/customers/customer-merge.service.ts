@@ -54,6 +54,7 @@ export const CUSTOMER_REFERENCES: readonly (readonly [string, string])[] = [
   ['retention_offers', 'customer_id'],
   ['reviews', 'customer_id'],
   ['sepa_mandates', 'customer_id'],
+  ['unit_cessions', 'customer_id'],
   ['unit_change_requests', 'customer_id'],
   ['unit_requests', 'customer_id'],
   ['waitlist_entries', 'customer_id'],

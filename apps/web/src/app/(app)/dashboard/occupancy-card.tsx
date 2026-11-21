@@ -14,6 +14,7 @@ const STATUS_LABELS: Record<UnitStatusValue, string> = {
   reserved: 'Reservado',
   maintenance: 'Mantenimiento',
   blocked: 'Bloqueado',
+  ceded: 'Cedido',
 };
 
 const STATUS_COLORS: Record<UnitStatusValue, string> = {
@@ -22,6 +23,7 @@ const STATUS_COLORS: Record<UnitStatusValue, string> = {
   reserved: '#eab308', // yellow-500
   maintenance: '#f97316', // orange-500
   blocked: '#dc2626', // red-600
+  ceded: '#7c3aed', // violet-600
 };
 
 interface OccupancyView {

@@ -133,6 +133,9 @@ const NIGHT_PASS_LIST_LIMIT = 500;
 /** Accesos que el inquilino se da a sí mismo o a otros, además del suyo. */
 const EXTRA_SOURCES = ['portal_self_service', 'portal_visitor', 'visitor', 'night_pass'];
 
+/** Origen (`metadata.source`) del acceso de un trastero cedido. */
+export const UNIT_CESSION_SOURCE = 'unit_cession';
+
 /** Accesos temporales que se listan (los últimos). */
 const MAX_TEMPORARY_LIST = 200;
 
@@ -619,8 +622,11 @@ export class AccessCredentialsService {
     input: UpdateCredentialInput;
     meta: RequestMeta;
     facilityScope?: string[] | null;
+    /** Uso interno: lo pide la cesión del trastero (su acceso). */
+    fromCession?: boolean;
   }): Promise<AccessCredentialDto> {
     const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    this.assertNotCession(existing, args.fromCession);
     const data: Prisma.AccessCredentialUncheckedUpdateInput = {};
     const input = args.input;
     if (input.label !== undefined) data.label = input.label?.trim() || null;
@@ -675,8 +681,11 @@ export class AccessCredentialsService {
     input: RotateCredentialInput;
     meta: RequestMeta;
     facilityScope?: string[] | null;
+    /** Uso interno: lo pide la cesión del trastero (su acceso). */
+    fromCession?: boolean;
   }): Promise<AccessCredentialWithSecretDto> {
     const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    this.assertNotCession(existing, args.fromCession);
     if (existing.status === ('revoked' as AccessCredentialStatus)) {
       throw new ConflictException({
         code: 'credential_revoked',
@@ -740,6 +749,8 @@ export class AccessCredentialsService {
     facilityScope?: string[] | null;
     /** Path automático: si no hay nada que suspender no es un error. */
     allowNone?: boolean;
+    /** Uso interno: lo pide la cesión del trastero (su acceso). */
+    fromCession?: boolean;
   }): Promise<AccessCredentialDto[]> {
     if (!args.id && !args.customerId) {
       throw new ConflictException({
@@ -748,7 +759,8 @@ export class AccessCredentialsService {
       });
     }
     if (args.id) {
-      await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+      const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+      this.assertNotCession(existing, args.fromCession);
     }
     const where: Prisma.AccessCredentialWhereInput = {
       status: 'active' as AccessCredentialStatus,
@@ -809,6 +821,8 @@ export class AccessCredentialsService {
     meta: RequestMeta;
     /** Igual que en `suspend`: solo aplica cuando se reactiva por `id` (path HTTP). */
     facilityScope?: string[] | null;
+    /** Uso interno: lo pide la cesión del trastero (su acceso). */
+    fromCession?: boolean;
   }): Promise<AccessCredentialDto[]> {
     if (!args.id && !args.customerId) {
       throw new ConflictException({
@@ -817,7 +831,8 @@ export class AccessCredentialsService {
       });
     }
     if (args.id) {
-      await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+      const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+      this.assertNotCession(existing, args.fromCession);
     }
     const reasonPrefix = args.onlyIfReasonStartsWith;
     const filtered = reasonPrefix !== undefined;
@@ -899,8 +914,11 @@ export class AccessCredentialsService {
     id: string;
     meta: RequestMeta;
     facilityScope?: string[] | null;
+    /** Uso interno: lo pide la cesión del trastero (su acceso). */
+    fromCession?: boolean;
   }): Promise<AccessCredentialDto> {
     const existing = await this.findOrThrow(args.tenantId, args.id, args.facilityScope);
+    this.assertNotCession(existing, args.fromCession);
     if (existing.status === ('revoked' as AccessCredentialStatus)) {
       throw new ConflictException({
         code: 'credential_already_revoked',
@@ -1140,6 +1158,90 @@ export class AccessCredentialsService {
   }
 
   /** Accesos temporales de proveedores y equipo. */
+  /**
+   * El acceso de una cesión se gestiona desde la ficha del trastero (solo el
+   * propietario): desde Accesos no se cambia, para que la cesión y su código
+   * no se separen.
+   */
+  private assertNotCession(row: AccessCredential, fromCession?: boolean): void {
+    if (fromCession) return;
+    const meta = (row.metadata ?? {}) as Record<string, unknown>;
+    if (meta.source === UNIT_CESSION_SOURCE) {
+      throw new ConflictException({
+        code: 'credential_managed_by_cession',
+        message: 'Este acceso es de un trastero cedido: gestiónalo desde la ficha del trastero',
+      });
+    }
+  }
+
+  /**
+   * Acceso de una cesión: un PIN solo para el local y el trastero cedidos, sin
+   * caducidad (sigue aunque venza la cesión, hasta que se termine) y sin
+   * inquilino (no sale en su área de clientes ni en sus correos). El código no
+   * se envía a nadie: se ve en la ficha del trastero.
+   */
+  async createForCession(args: {
+    tenantId: string;
+    userId: string;
+    holderName: string;
+    facilityId: string;
+    unitId: string;
+    cessionId: string;
+    meta: RequestMeta;
+  }): Promise<AccessCredentialWithSecretDto> {
+    const pin = await this.resolveUniquePin(args.tenantId, undefined);
+    const secretHash = await argonHash(pin);
+    const created = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.create({
+          data: {
+            tenantId: args.tenantId,
+            customerId: null,
+            holderName: args.holderName,
+            holderKind: 'other',
+            method: 'pin' as AccessMethod,
+            status: 'active' as AccessCredentialStatus,
+            label: 'Cesión',
+            secretHash,
+            secretPreview: pin.slice(-4),
+            secretEncrypted: this.crypto.encryptString(pin, args.tenantId),
+            allowedFacilityIds: [args.facilityId],
+            allowedUnitIds: [args.unitId],
+            expiresAt: null,
+            activatedAt: new Date(),
+            metadata: { source: UNIT_CESSION_SOURCE, cessionId: args.cessionId },
+          },
+          include: CUSTOMER_SELECT,
+        }),
+      args.tenantId,
+    );
+    await this.writeAudit('access.credential_created', args, created.id);
+    await this.sync.syncCredential(args.tenantId, created.id);
+    return { ...this.toDto(created), revealedSecret: pin };
+  }
+
+  /** Código de una credencial PIN/QR descifrado (para el acceso de una cesión). */
+  async revealSecret(tenantId: string, id: string): Promise<string | null> {
+    const row = await this.prisma.withTenant(
+      (tx) =>
+        tx.accessCredential.findFirst({
+          where: { id },
+          select: { secretEncrypted: true },
+        }),
+      tenantId,
+    );
+    if (!row?.secretEncrypted) return null;
+    return this.crypto.decryptString(row.secretEncrypted, tenantId);
+  }
+
+  /** Cambia el nombre del titular del acceso (al editar la cesión). */
+  async renameHolder(tenantId: string, id: string, holderName: string): Promise<void> {
+    await this.prisma.withTenant(
+      (tx) => tx.accessCredential.update({ where: { id }, data: { holderName } }),
+      tenantId,
+    );
+  }
+
   async listTemporary(
     tenantId: string,
     facilityScope: string[] | null,

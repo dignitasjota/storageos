@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   Wallet,
   Wrench,
+  Handshake,
   TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -360,6 +361,8 @@ export default function TodayPage() {
           (data.lowStock?.count ?? 0) +
           (data.preOpeningSoon?.count ?? 0) +
           (data.unitsOutOfService?.count ?? 0) +
+          (data.cessionsExpiring?.count ?? 0) +
+          (data.cessionsExpired?.count ?? 0) +
           (data.facilityDocumentsExpiring?.count ?? 0) +
           (data.customerDocumentsExpiring?.count ?? 0) +
           (data.businessRemindersDue?.count ?? 0) +
@@ -964,6 +967,28 @@ export default function TodayPage() {
                     count={data.unitsOutOfService.count}
                     items={data.unitsOutOfService.items}
                     href="/units"
+                    itemHref={(it) => `/units/${it.id}`}
+                    empty=""
+                  />
+                )}
+                {(data.cessionsExpired?.count ?? 0) > 0 && data.cessionsExpired && (
+                  <SectionCard
+                    title="Cesiones vencidas"
+                    icon={Handshake}
+                    count={data.cessionsExpired.count}
+                    items={data.cessionsExpired.items}
+                    href="/units?status=ceded"
+                    itemHref={(it) => `/units/${it.id}`}
+                    empty=""
+                  />
+                )}
+                {(data.cessionsExpiring?.count ?? 0) > 0 && data.cessionsExpiring && (
+                  <SectionCard
+                    title="Cesiones que vencen"
+                    icon={Handshake}
+                    count={data.cessionsExpiring.count}
+                    items={data.cessionsExpiring.items}
+                    href="/units?status=ceded"
                     itemHref={(it) => `/units/${it.id}`}
                     empty=""
                   />

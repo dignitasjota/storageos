@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { CustomerAccessTab } from './access-tab';
 import { CustomerAccountCard } from './account-card';
 import { AuthorizedPersonsTab } from './authorized-persons-tab';
+import { CededUnitsCard } from './ceded-units-card';
 import { CustomerChatTab } from './chat-tab';
 import { CustomerCommunicationsTab } from './communications-tab';
 import { CustomerContactsTab } from './contacts-tab';
@@ -291,6 +292,7 @@ export default function CustomerDetailPage() {
 
       {/* Si su correo no le llega, se ve nada más abrir la ficha. */}
       <EmailStatusCard customerId={c.id} />
+      <CededUnitsCard customerId={c.id} />
 
       <Tabs value={tab} onValueChange={setTab}>
         {/* Móvil: desplegable (9 pestañas no caben cómodas en una tira). */}

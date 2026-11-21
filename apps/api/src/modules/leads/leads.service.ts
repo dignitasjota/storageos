@@ -934,7 +934,7 @@ export class LeadsService {
           });
         }
         assertFacilityAllowed(args.facilityScope, unit.facilityId);
-        if (['occupied', 'maintenance', 'blocked'].includes(unit.status)) {
+        if (['occupied', 'maintenance', 'blocked', 'ceded'].includes(unit.status)) {
           throw new ConflictException({
             code: 'unit_not_reservable',
             message: 'Ese trastero no se puede reservar ahora',

@@ -594,7 +594,7 @@ export class AnalyticsTrendsService {
     return {
       facilities: facilities.map((f) => {
         const rentable = f.units.filter(
-          (u) => u.status !== 'maintenance' && u.status !== 'blocked',
+          (u) => u.status !== 'maintenance' && u.status !== 'blocked' && u.status !== 'ceded',
         );
         const reservations = f.units.flatMap((u) => u.contracts);
         const types = new Map<

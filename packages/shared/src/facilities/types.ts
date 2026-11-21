@@ -1,3 +1,4 @@
+import type { UnitCessionSummaryDto } from '../unit-cessions';
 import type {
   FacilityDocumentKind,
   OpeningException,
@@ -118,6 +119,8 @@ export interface UnitDto {
   /** En mantenimiento o bloqueado: por qué y desde cuándo. */
   outOfServiceReason: string | null;
   outOfServiceSince: string | null;
+  /** Cedido: a quién y hasta cuándo (la cesión viva). */
+  cession?: UnitCessionSummaryDto | null;
   createdAt: string;
   updatedAt: string;
 }

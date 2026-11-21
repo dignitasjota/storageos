@@ -933,6 +933,7 @@ export class AdminTenantsService {
       reminderRows,
       inviteRows,
       addonRows,
+      cessionRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
         where: { deletedAt: null, status: { in: ['active', 'trial'] } },
@@ -1016,6 +1017,7 @@ export class AdminTenantsService {
           addon: { select: { grantsUnits: true, grantsFacilities: true, grantsUsers: true } },
         },
       }),
+      this.admin.unitCession.groupBy({ by: ['tenantId'], _count: { _all: true } }),
     ]);
 
     const countMap = (
@@ -1041,6 +1043,7 @@ export class AdminTenantsService {
     const whatsappEnabled = new Set(whatsappRows.map((r) => r.tenantId));
     const areaPages = countMap(areaPageRows);
     const reminders = countMap(reminderRows);
+    const cessions = countMap(cessionRows);
     const invites = countMap(inviteRows);
     // Extras activos: lo que suman al mes y la capacidad que añaden.
     const addonsByTenant = new Map<
@@ -1088,6 +1091,7 @@ export class AdminTenantsService {
       if (whatsappEnabled.has(id)) s.add('whatsapp_business');
       if ((areaPages.get(id) ?? 0) > 0) s.add('local_seo');
       if ((reminders.get(id) ?? 0) > 0) s.add('business_reminders');
+      if ((cessions.get(id) ?? 0) > 0) s.add('unit_cession');
       return s;
     };
 
@@ -2478,6 +2482,11 @@ export class AdminTenantsService {
       await tx.customerDocumentRequest.deleteMany({ where: { tenantId } });
       await tx.customerContact.deleteMany({ where: { tenantId } });
       await tx.customerAuthorizedPerson.deleteMany({ where: { tenantId } });
+      // Trasteros cedidos: sin el nombre ni el teléfono de a quién se cedieron.
+      await tx.unitCession.updateMany({
+        where: { tenantId },
+        data: { holderName: '*** ANONIMIZADO ***', holderPhone: null, notes: null },
+      });
       // Firmas y condiciones aceptadas: se conservan como prueba, sin IP,
       // navegador ni email de quien firmó.
       await tx.contractSignature.updateMany({

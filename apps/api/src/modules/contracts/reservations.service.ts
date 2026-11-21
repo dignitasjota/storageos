@@ -359,7 +359,8 @@ export class ReservationsService {
       if (
         unit.status === 'occupied' ||
         unit.status === 'maintenance' ||
-        unit.status === 'blocked'
+        unit.status === 'blocked' ||
+        unit.status === 'ceded'
       ) {
         throw new ConflictException({
           code: 'unit_not_reservable',
@@ -499,7 +500,8 @@ export class ReservationsService {
       if (
         current.status === 'occupied' ||
         current.status === 'maintenance' ||
-        current.status === 'blocked'
+        current.status === 'blocked' ||
+        current.status === 'ceded'
       ) {
         throw new ConflictException({
           code: 'unit_not_reservable',
