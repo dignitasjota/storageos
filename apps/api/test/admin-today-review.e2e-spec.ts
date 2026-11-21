@@ -156,7 +156,7 @@ describe('Revisión de «Hoy» del panel admin (e2e)', () => {
     expect((await today()).failedSections).toEqual([]);
   });
 
-  it('un lead asignado a un comercial sale, pero no es urgente', async () => {
+  it('un lead asignado a un comercial no es urgente', async () => {
     const before = (await today()).urgentCount;
     const lead = await db.platformLead.create({
       data: {
@@ -167,7 +167,8 @@ describe('Revisión de «Hoy» del panel admin (e2e)', () => {
       },
     });
     const body = await today();
-    expect(body.newLeads.some((l: { id: string }) => l.id === lead.id)).toBe(true);
+    // Recién asignado: lo lleva alguien y aún no sale como «sin atender».
+    expect(body.newLeads.some((l: { id: string }) => l.id === lead.id)).toBe(false);
     expect(body.urgentCount).toBe(before);
 
     await db.platformLead.update({ where: { id: lead.id }, data: { assignedToId: null } });
