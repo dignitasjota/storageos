@@ -705,6 +705,8 @@ export const TodaySnoozeKindEnum = z.enum([
   'nps',
   'activation',
   'lead_followup',
+  'payment_failure',
+  'inactive',
 ]);
 export type TodaySnoozeKind = z.infer<typeof TodaySnoozeKindEnum>;
 
@@ -715,6 +717,44 @@ export const CreateTodaySnoozeSchema = z.object({
   days: z.number().int().min(1).max(90),
 });
 export type CreateTodaySnoozeInput = z.infer<typeof CreateTodaySnoozeSchema>;
+
+/** Un aviso de «Hoy» elegido con su casilla para una acción en lote. */
+export const TodayBatchItemSchema = z.object({
+  kind: TodaySnoozeKindEnum,
+  ref: z.string().trim().min(1).max(200),
+  label: z.string().trim().max(200).optional(),
+});
+export type TodayBatchItem = z.infer<typeof TodayBatchItemSchema>;
+
+/**
+ * Acción en lote de «Hoy»: apartar 7 o 30 días (todo), asignarme (tickets y
+ * leads) o recordar el pago (impagos y cobros fallidos; solo el rol superadmin).
+ */
+export const TodayBatchSchema = z
+  .object({
+    action: z.enum(['snooze', 'assign', 'remind']),
+    days: z.number().int().min(1).max(90).optional(),
+    items: z.array(TodayBatchItemSchema).min(1).max(100),
+  })
+  .refine((v) => v.action !== 'snooze' || v.days !== undefined, {
+    message: 'Indica cuántos días se aparta',
+    path: ['days'],
+  });
+export type TodayBatchInput = z.infer<typeof TodayBatchSchema>;
+
+/** Trabajos fallidos de las colas sobre los que actuar desde «Hoy». */
+export const TodayFailedJobsSchema = z.object({
+  jobs: z
+    .array(
+      z.object({
+        queue: z.string().trim().min(1).max(60),
+        id: z.string().trim().min(1).max(200),
+      }),
+    )
+    .min(1)
+    .max(100),
+});
+export type TodayFailedJobsInput = z.infer<typeof TodayFailedJobsSchema>;
 
 /** Bloquear una IP o un email en las entradas. Sin horas, hasta quitarlo a mano. */
 export const CreateSecurityBlockSchema = z

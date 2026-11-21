@@ -4,21 +4,19 @@ import {
   adminTodaySectionLabel,
   adminTodayUrgentCounts,
   FEATURE_LABELS,
-  PLATFORM_LEAD_SOURCE_LABELS,
   pluralEs,
   superAdminAuditLabel,
-  type TodaySnoozeKind,
 } from '@storageos/shared';
 import {
-  BellOff,
-  Check,
-  Globe,
-  Hourglass,
   AlertTriangle,
   CalendarClock,
+  Check,
   Clock,
   CreditCard,
   FileWarning,
+  Globe,
+  Hourglass,
+  Keyboard,
   KeyRound,
   LifeBuoy,
   Loader2,
@@ -26,26 +24,50 @@ import {
   Mail,
   Rocket,
   ShieldAlert,
+  SkipForward,
   ThumbsDown,
+  UserX,
   WifiOff,
+  XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
-import { Children, type ReactNode, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { AddManualPaymentDialog } from '../tenants/[id]/saas-payments-card';
 
 import { ApprovalsSection } from './approvals-section';
+import { reportBatch, TodayBatchBar } from './today-batch-bar';
+import { focusNextUrgent, ShortcutsHelp, useTodayShortcuts } from './today-keyboard';
+import {
+  ReappearedBadge,
+  Row,
+  RowShell,
+  SimpleCard,
+  SnoozeMenu,
+  TenantRow,
+  TodaySelectionProvider,
+  useTodaySelectionState,
+} from './today-rows';
+import {
+  FailedJobsCard,
+  InactiveRow,
+  LeadRow,
+  PaymentFailureRow,
+  ResponseTargets,
+  TicketRow,
+} from './today-sections';
+import { TodayVisitCard } from './today-visit';
 
 import type {
   AdminActivityItemDto,
   AdminAddonChargeDueDto,
   AdminAtRiskTenantDto,
   AdminBusinessGoalsDto,
-  AdminOpenTicketDto,
   AdminTodayDoneDto,
   AdminTodayDto,
   AdminTodayKpisDto,
+  AdminTodayMoneyAtRiskDto,
   AdminTodaySnoozeDto,
   SaasPaymentProviderValue,
   TenantFollowupDto,
@@ -57,12 +79,6 @@ import { GoalBar } from '@/components/admin/goal-bar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -70,17 +86,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 import { useAdminAuthStore } from '@/lib/admin/auth-store';
 import {
-  useAddAdminTicketMessage,
   useAddonSuspension,
   useAdminToday,
-  useAssignTicket,
   useChargeAddon,
   useExtendTrialsBatch,
   useRemindReceivable,
   useRemoveTodaySnooze,
+  useTodayBatch,
   useTodaySnooze,
   useUpdateFollowup,
 } from '@/lib/admin/hooks';
@@ -102,7 +116,7 @@ const PROVIDERS: { value: SaasPaymentProviderValue; label: string }[] = [
 
 const MINE_KEY = 'storageos.admin.today.mine';
 
-/** Con «Lo mío» solo queda lo que se puede asignar: tickets y seguimientos. */
+/** Con «Lo mío» solo queda lo que se puede asignar: tickets, leads y seguimientos. */
 function onlyMine(data: AdminTodayDto, me: string | undefined): AdminTodayDto {
   const followup = (f: TenantFollowupDto) => f.assignedToId === me;
   return {
@@ -117,6 +131,7 @@ function onlyMine(data: AdminTodayDto, me: string | undefined): AdminTodayDto {
     staleSuspendedAddons: [],
     failedWebhooks: [],
     failedJobs: 0,
+    failedJobsList: [],
     aeatIssues: [],
     certificatesExpiring: [],
     holdedReview: [],
@@ -124,8 +139,12 @@ function onlyMine(data: AdminTodayDto, me: string | undefined): AdminTodayDto {
     overdueCrons: [],
     pendingApprovals: [],
     expiringOverrides: [],
-    newLeads: data.newLeads.filter((l) => l.assignedToId === me),
+    // Los sin asignar son de todos; en «Lo mío», los que tengo yo sin atender.
+    newLeads: [],
+    assignedLeads: data.assignedLeads.filter((l) => l.assignedToId === me),
     leadFollowupsDue: data.leadFollowupsDue.filter((f) => f.assignedToId === me),
+    paymentFailures: [],
+    inactivePaying: [],
     domainsReady: [],
     incompleteInvoices: [],
     rgpdOverdue: [],
@@ -137,10 +156,17 @@ function onlyMine(data: AdminTodayDto, me: string | undefined): AdminTodayDto {
 const trialDaysLeft = (t: AdminAtRiskTenantDto) =>
   t.since ? Math.ceil((new Date(t.since).getTime() - Date.now()) / 86_400_000) : 99;
 
+type TodayTab = 'business' | 'week' | 'ops' | 'activity';
+
 export default function AdminTodayPage() {
   const today = useAdminToday();
   const me = useAdminAuthStore((s) => s.superAdmin?.id);
   const [mine, setMine] = useState(false);
+  const [tab, setTab] = useState<TodayTab>('business');
+  const [help, setHelp] = useState(false);
+  const selection = useTodaySelectionState();
+  const snooze = useTodaySnooze();
+  const batch = useTodayBatch();
 
   useEffect(() => {
     try {
@@ -149,6 +175,26 @@ export default function AdminTodayPage() {
       /* sin almacenamiento: empieza en «Todo» */
     }
   }, []);
+
+  useTodayShortcuts({
+    onHelp: () => setHelp(true),
+    onSnooze: (target) =>
+      snooze.mutate(
+        { ...target, days: 7 },
+        {
+          onSuccess: () => toast.success(`Apartado 7 días: ${target.label}.`),
+          onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
+        },
+      ),
+    onAssign: (target) =>
+      batch.mutate(
+        { action: 'assign', items: [{ kind: target.kind, ref: target.ref }] },
+        {
+          onSuccess: (result) => reportBatch('Asignado a ti', result),
+          onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
+        },
+      ),
+  });
 
   function toggleMine(value: boolean) {
     setMine(value);
@@ -183,8 +229,8 @@ export default function AdminTodayPage() {
     renewalsWeek.length + trialsWeek.length + overridesWeek.length + data.followupsUpcoming.length;
 
   // Urgentes por pestaña: la misma cuenta que el servidor, así que cuadran con la
-  // cabecera (con «Lo mío», sobre lo que queda).
-  const urgent = adminTodayUrgentCounts(data);
+  // cabecera (con «Lo mío», sobre lo que queda y con mis leads sin atender).
+  const urgent = adminTodayUrgentCounts(data, { mine });
   const opsCount =
     data.aeatIssues.length +
     data.certificatesExpiring.length +
@@ -197,6 +243,7 @@ export default function AdminTodayPage() {
     data.pendingApprovals.length +
     data.addonCharges.length +
     data.pastDue.length +
+    data.paymentFailures.length +
     renewalsNow.length +
     trialsNow.length +
     data.followupsDue.length +
@@ -204,14 +251,34 @@ export default function AdminTodayPage() {
     overridesNow.length +
     data.staleSuspendedAddons.length +
     data.newLeads.length +
+    data.assignedLeads.length +
     data.leadFollowupsDue.length +
     data.domainsReady.length +
     data.incompleteInvoices.length +
     data.rgpdOverdue.length +
     data.npsNegative.length +
-    data.activationStalled.length;
+    data.activationStalled.length +
+    data.inactivePaying.length;
 
-  const ovr = (o: (typeof data.expiringOverrides)[number]) => (
+  /** «Siguiente»: el siguiente aviso urgente; si en esta pestaña no hay, salta a la otra. */
+  function nextUrgent() {
+    if (focusNextUrgent()) return;
+    const other: TodayTab | null =
+      tab !== 'business' && urgent.business > 0
+        ? 'business'
+        : tab !== 'ops' && urgent.ops > 0
+          ? 'ops'
+          : null;
+    if (!other) {
+      toast.info('No queda nada urgente.');
+      return;
+    }
+    setTab(other);
+    // Tras pintar la otra pestaña.
+    window.setTimeout(() => focusNextUrgent(), 50);
+  }
+
+  const ovr = (o: (typeof data.expiringOverrides)[number], isUrgent: boolean) => (
     <TenantRow
       key={`${o.tenantId}-${o.feature}`}
       id={o.tenantId}
@@ -219,562 +286,619 @@ export default function AdminTodayPage() {
       detail={`${o.source === 'trial' ? 'Prueba gratis' : 'Cortesía'} · ${
         o.daysLeft <= 0 ? 'vence hoy' : o.daysLeft === 1 ? 'vence mañana' : `quedan ${o.daysLeft} d`
       }`}
+      urgent={isUrgent}
       snooze={{ kind: 'override', ref: `${o.tenantId}-${o.feature}`, label: o.tenantName }}
     />
   );
-  const renewal = (r: (typeof data.manualRenewalsDue)[number]) => (
+  const renewal = (r: (typeof data.manualRenewalsDue)[number], isUrgent: boolean) => (
     <TenantRow
       key={r.tenantId}
       id={r.tenantId}
       name={r.tenantName}
-      detail={
+      detail={[
         r.daysLeft < 0
           ? `Vencida hace ${Math.abs(r.daysLeft)} d`
           : r.daysLeft === 0
             ? 'Vence hoy'
-            : `Vence en ${r.daysLeft} d`
-      }
+            : `Vence en ${r.daysLeft} d`,
+        r.monthly ? `${eur(r.monthly)}/mes` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')}
+      urgent={isUrgent}
       snooze={{ kind: 'renewal', ref: r.tenantId, label: r.tenantName }}
       notice={r.reappearedReason}
     />
   );
 
   return (
-    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Hoy</h1>
-          <p className="text-sm text-muted-foreground">
-            {new Date(data.date).toLocaleDateString('es-ES', { dateStyle: 'full' })}
-            {urgent.total > 0
-              ? ` · ${pluralEs(urgent.total, 'acción urgente', 'acciones urgentes')}`
-              : ''}
-          </p>
-          {today.data.workload.length > 0 && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {today.data.workload
-                .map((w) => `${w.name}: ${w.tickets} tickets, ${w.followups} seguimientos`)
-                .join(' · ')}
+    <TodaySelectionProvider value={selection}>
+      <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Hoy</h1>
+            <p className="text-sm text-muted-foreground">
+              {new Date(data.date).toLocaleDateString('es-ES', { dateStyle: 'full' })}
+              {urgent.total > 0
+                ? ` · ${pluralEs(urgent.total, 'acción urgente', 'acciones urgentes')}`
+                : ''}
             </p>
-          )}
+            {today.data.workload.length > 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {today.data.workload
+                  .map((w) => `${w.name}: ${w.tickets} tickets, ${w.followups} seguimientos`)
+                  .join(' · ')}
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={nextUrgent}
+              disabled={urgent.total === 0}
+              title="Ir al siguiente aviso urgente"
+            >
+              <SkipForward className="size-4" />
+              Siguiente
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-8"
+              aria-label="Atajos de teclado"
+              aria-keyshortcuts="?"
+              title="Atajos de teclado (?)"
+              onClick={() => setHelp(true)}
+            >
+              <Keyboard className="size-4" />
+            </Button>
+            <div className="flex gap-1" role="group" aria-label="Qué ver">
+              <Button
+                size="sm"
+                variant={mine ? 'outline' : 'default'}
+                aria-pressed={!mine}
+                onClick={() => toggleMine(false)}
+              >
+                Todo
+              </Button>
+              <Button
+                size="sm"
+                variant={mine ? 'default' : 'outline'}
+                aria-pressed={mine}
+                onClick={() => toggleMine(true)}
+              >
+                Lo mío
+              </Button>
+            </div>
+          </div>
         </div>
-        <div className="flex gap-1" role="group" aria-label="Qué ver">
-          <Button
-            size="sm"
-            variant={mine ? 'outline' : 'default'}
-            onClick={() => toggleMine(false)}
+
+        {today.data.failedSections.length > 0 && (
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
           >
-            Todo
-          </Button>
-          <Button size="sm" variant={mine ? 'default' : 'outline'} onClick={() => toggleMine(true)}>
-            Lo mío
-          </Button>
-        </div>
-      </div>
-
-      {today.data.failedSections.length > 0 && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-        >
-          <span>
-            No se pudo cargar: {today.data.failedSections.map(adminTodaySectionLabel).join(', ')}.
-            El resto de la bandeja está al día.
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={today.isFetching}
-            onClick={() => void today.refetch()}
-          >
-            Reintentar
-          </Button>
-        </div>
-      )}
-
-      <TodayKpis kpis={today.data.kpis} />
-      {today.data.businessGoals && <TodayGoals goals={today.data.businessGoals} />}
-
-      <Tabs defaultValue="business">
-        <TabsList>
-          <TabsTrigger value="business">
-            <TabLabel label="Negocio" total={businessCount} urgent={urgent.business} />
-          </TabsTrigger>
-          <TabsTrigger value="week">
-            Esta semana{weekCount > 0 ? ` (${weekCount})` : ''}
-          </TabsTrigger>
-          <TabsTrigger value="ops">
-            <TabLabel label="Operación" total={opsCount} urgent={urgent.ops} />
-          </TabsTrigger>
-          <TabsTrigger value="activity">Actividad</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="business" className="mt-4 space-y-6">
-          <ApprovalsSection items={data.pendingApprovals} />
-
-          {data.addonCharges.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <CreditCard className="size-4 text-amber-500" />
-                  Cobros de add-ons pendientes ({data.addonCharges.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Extras que se cobran a mano. Registrar el cobro no toca el periodo del plan y
-                  programa el siguiente un mes después de la fecha que tocaba.
-                </p>
-                <ExpandableList>
-                  {data.addonCharges.map((c) => (
-                    <AddonChargeRow key={c.tenantAddonId} charge={c} />
-                  ))}
-                </ExpandableList>
-              </CardContent>
-            </Card>
-          )}
-
-          {data.pastDue.length > 0 && (
-            <SimpleCard
-              title={`Pagos pendientes (${data.pastDue.length})${
-                data.pastDue.some((t) => t.owedAmount)
-                  ? ` · ${eur(data.pastDue.reduce((sum, t) => sum + (t.owedAmount ?? 0), 0))}`
-                  : ''
-              }`}
-              icon={<AlertTriangle className="size-4 text-red-500" />}
+            <span>
+              No se pudo cargar: {today.data.failedSections.map(adminTodaySectionLabel).join(', ')}.
+              El resto de la bandeja está al día.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={today.isFetching}
+              onClick={() => void today.refetch()}
             >
-              {data.pastDue.map((t) => (
-                <PastDueRow key={t.id} tenant={t} />
-              ))}
-            </SimpleCard>
-          )}
+              Reintentar
+            </Button>
+          </div>
+        )}
 
-          {renewalsNow.length > 0 && (
-            <SimpleCard
-              title={`Renovaciones manuales (${renewalsNow.length})`}
-              icon={<CalendarClock className="size-4 text-amber-500" />}
-            >
-              {renewalsNow.map(renewal)}
-            </SimpleCard>
-          )}
+        <TodayVisitCard />
+        <TodayKpis kpis={today.data.kpis} moneyAtRisk={today.data.moneyAtRisk} />
+        {today.data.businessGoals && <TodayGoals goals={today.data.businessGoals} />}
 
-          {trialsNow.length > 0 && (
-            <SimpleCard
-              title={`Pruebas que terminan ya (${trialsNow.length})`}
-              icon={<CalendarClock className="size-4 text-amber-500" />}
-            >
-              {trialsNow.map((t) => (
-                <TrialRow key={t.id} tenant={t} />
-              ))}
-            </SimpleCard>
-          )}
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TodayTab)}>
+          <TabsList>
+            <TabsTrigger value="business">
+              <TabLabel label="Negocio" total={businessCount} urgent={urgent.business} />
+            </TabsTrigger>
+            <TabsTrigger value="week">
+              Esta semana{weekCount > 0 ? ` (${weekCount})` : ''}
+            </TabsTrigger>
+            <TabsTrigger value="ops">
+              <TabLabel label="Operación" total={opsCount} urgent={urgent.ops} />
+            </TabsTrigger>
+            <TabsTrigger value="activity">Actividad</TabsTrigger>
+          </TabsList>
 
-          {data.followupsDue.length > 0 && (
-            <SimpleCard
-              title={`Seguimientos vencidos (${data.followupsDue.length})`}
-              icon={<CalendarClock className="size-4 text-amber-500" />}
-            >
-              {data.followupsDue.map((f) => (
-                <FollowupRow key={f.id} followup={f} />
-              ))}
-            </SimpleCard>
-          )}
+          <TabsContent value="business" className="mt-4 space-y-6">
+            <ApprovalsSection items={data.pendingApprovals} />
 
-          {data.openTickets.length > 0 && (
-            <SimpleCard
-              title={`Tickets sin responder (${data.openTickets.length})`}
-              icon={<LifeBuoy className="size-4 text-red-500" />}
-            >
-              {data.openTickets.map((t) => (
-                <TicketRow key={t.id} ticket={t} />
-              ))}
-            </SimpleCard>
-          )}
+            {data.paymentFailures.length > 0 && (
+              <SimpleCard
+                title={`Cobros de la suscripción rechazados (${data.paymentFailures.length})`}
+                icon={<XCircle className="size-4 text-red-500" />}
+                action={{ href: '/admin/receivables', label: 'Cobros pendientes →' }}
+                description="Cargos de Stripe, tarjeta de Redsys y adeudos SEPA rechazados en las últimas 48 horas."
+              >
+                {data.paymentFailures.map((f) => (
+                  <PaymentFailureRow key={f.tenantId} failure={f} />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.newLeads.length > 0 && (
-            <SimpleCard
-              title={`Leads nuevos sin atender (${data.newLeads.length})`}
-              icon={<Mail className="size-4 text-amber-500" />}
-              action={{ href: '/admin/leads', label: 'Ver leads →' }}
-            >
-              {data.newLeads.map((c) => (
-                <Row
-                  key={c.id}
-                  title={
-                    <Link
-                      href={`/admin/leads?lead=${c.id}`}
-                      className="font-medium hover:underline"
-                    >
-                      {c.name}
-                    </Link>
-                  }
-                  detail={`${PLATFORM_LEAD_SOURCE_LABELS[c.source] ?? c.source} · ${
-                    c.waitingHours < 24
-                      ? `hace ${c.waitingHours} h`
-                      : `hace ${Math.floor(c.waitingHours / 24)} d`
-                  }${c.assignedToName ? ` · ${c.assignedToName}` : ''}`}
-                  snooze={{ kind: 'contact', ref: c.id, label: c.name }}
-                />
-              ))}
-            </SimpleCard>
-          )}
+            {data.addonCharges.length > 0 && (
+              <SimpleCard
+                title={`Cobros de add-ons pendientes (${data.addonCharges.length})`}
+                icon={<CreditCard className="size-4 text-amber-500" />}
+                description="Extras que se cobran a mano. Registrar el cobro no toca el periodo del plan y programa el siguiente un mes después de la fecha que tocaba."
+              >
+                {data.addonCharges.map((c) => (
+                  <AddonChargeRow key={c.tenantAddonId} charge={c} />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.leadFollowupsDue.length > 0 && (
-            <SimpleCard
-              title={`Seguimientos de leads (${data.leadFollowupsDue.length})`}
-              icon={<CalendarClock className="size-4 text-amber-500" />}
-              action={{ href: '/admin/followups', label: 'Ver seguimientos →' }}
-            >
-              {data.leadFollowupsDue.map((f) => (
-                <Row
-                  key={f.id}
-                  title={
-                    <Link href={`/admin/leads?lead=${f.leadId}`} className="hover:underline">
-                      <span className="font-medium">{f.leadName}</span> · {f.title}
-                    </Link>
-                  }
-                  detail={`${f.dueDate}${f.assignedToName ? ` · ${f.assignedToName}` : ''}`}
-                  snooze={{ kind: 'lead_followup', ref: f.id, label: `${f.leadName}: ${f.title}` }}
-                />
-              ))}
-            </SimpleCard>
-          )}
+            {data.pastDue.length > 0 && (
+              <SimpleCard
+                title={`Pagos pendientes (${data.pastDue.length})${
+                  data.pastDue.some((t) => t.owedAmount)
+                    ? ` · ${eur(data.pastDue.reduce((sum, t) => sum + (t.owedAmount ?? 0), 0))}`
+                    : ''
+                }`}
+                icon={<AlertTriangle className="size-4 text-red-500" />}
+              >
+                {data.pastDue.map((t) => (
+                  <PastDueRow key={t.id} tenant={t} />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.domainsReady.length > 0 && (
-            <SimpleCard
-              title={`Dominios propios por activar (${data.domainsReady.length})`}
-              icon={<Globe className="size-4 text-amber-500" />}
-              action={{ href: '/admin/custom-domains', label: 'Activar →' }}
-            >
-              {data.domainsReady.map((d) => (
-                <TenantRow
-                  key={d.tenantId}
-                  id={d.tenantId}
-                  name={d.tenantName}
-                  detail={d.domain}
-                  snooze={{ kind: 'domain', ref: d.tenantId, label: d.tenantName }}
-                />
-              ))}
-            </SimpleCard>
-          )}
+            {renewalsNow.length > 0 && (
+              <SimpleCard
+                title={`Renovaciones manuales (${renewalsNow.length})`}
+                icon={<CalendarClock className="size-4 text-amber-500" />}
+              >
+                {renewalsNow.map((r) => renewal(r, true))}
+              </SimpleCard>
+            )}
 
-          {data.rgpdOverdue.length > 0 && (
-            <SimpleCard
-              title={`Solicitudes RGPD fuera de plazo (${data.rgpdOverdue.length})`}
-              icon={<ShieldAlert className="size-4 text-red-500" />}
-            >
-              {data.rgpdOverdue.map((t) => (
-                <TenantRow
-                  key={t.tenantId}
-                  id={t.tenantId}
-                  name={t.tenantName}
-                  detail={`${t.count} sin atender`}
-                  snooze={{ kind: 'rgpd', ref: t.tenantId, label: t.tenantName }}
-                  notice={t.reappearedReason}
-                />
-              ))}
-            </SimpleCard>
-          )}
+            {trialsNow.length > 0 && (
+              <SimpleCard
+                title={`Pruebas que terminan ya (${trialsNow.length})`}
+                icon={<CalendarClock className="size-4 text-amber-500" />}
+              >
+                {trialsNow.map((t) => (
+                  <TrialRow key={t.id} tenant={t} urgent />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.incompleteInvoices.length > 0 && (
-            <SimpleCard
-              title={`Facturas de suscripción sin NIF o domicilio (${data.incompleteInvoices.length})`}
-              icon={<FileWarning className="size-4 text-amber-500" />}
-            >
-              {data.incompleteInvoices.map((t) => (
-                <TenantRow
-                  key={t.tenantId}
-                  id={t.tenantId}
-                  name={t.tenantName}
-                  detail={`${t.count} por rectificar`}
-                  snooze={{ kind: 'invoice_data', ref: t.tenantId, label: t.tenantName }}
-                  notice={t.reappearedReason}
-                />
-              ))}
-            </SimpleCard>
-          )}
+            {data.followupsDue.length > 0 && (
+              <SimpleCard
+                title={`Seguimientos vencidos (${data.followupsDue.length})`}
+                icon={<CalendarClock className="size-4 text-amber-500" />}
+              >
+                {data.followupsDue.map((f) => (
+                  <FollowupRow key={f.id} followup={f} urgent />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.npsNegative.length > 0 && (
-            <SimpleCard
-              title={`Respuestas NPS bajas (${data.npsNegative.length})`}
-              icon={<ThumbsDown className="size-4 text-amber-500" />}
-            >
-              {data.npsNegative.map((n) => (
-                <TenantRow
-                  key={n.id}
-                  id={n.tenantId}
-                  name={n.tenantName}
-                  detail={`Nota ${n.score}${n.comment ? ` · ${n.comment.slice(0, 80)}` : ''}`}
-                  snooze={{ kind: 'nps', ref: n.id, label: n.tenantName }}
-                />
-              ))}
-            </SimpleCard>
-          )}
+            {data.openTickets.length > 0 && (
+              <SimpleCard
+                title={`Tickets sin responder (${data.openTickets.length})`}
+                icon={<LifeBuoy className="size-4 text-red-500" />}
+                description={<ResponseTargets targets={today.data.responseTargets} />}
+              >
+                {data.openTickets.map((t) => (
+                  <TicketRow key={t.id} ticket={t} />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.activationStalled.length > 0 && (
-            <SimpleCard
-              title={`Pruebas sin arrancar (${data.activationStalled.length})`}
-              icon={<Rocket className="size-4 text-amber-500" />}
-            >
-              {data.activationStalled.map((a) => (
-                <TenantRow
-                  key={a.tenantId}
-                  id={a.tenantId}
-                  name={a.tenantName}
-                  detail={`${a.daysSinceSignup} d · ${MISSING[a.missing]}`}
-                  snooze={{ kind: 'activation', ref: a.tenantId, label: a.tenantName }}
-                  actions={
-                    a.ownerEmail && (
-                      <Button asChild size="sm" variant="outline">
-                        <a href={`mailto:${a.ownerEmail}`}>Escribir</a>
-                      </Button>
-                    )
-                  }
-                />
-              ))}
-            </SimpleCard>
-          )}
+            {data.newLeads.length > 0 && (
+              <SimpleCard
+                title={`Leads sin asignar (${data.newLeads.length})`}
+                icon={<Mail className="size-4 text-amber-500" />}
+                action={{ href: '/admin/leads', label: 'Ver leads →' }}
+              >
+                {data.newLeads.map((c) => (
+                  <LeadRow key={c.id} lead={c} urgent />
+                ))}
+              </SimpleCard>
+            )}
 
-          {overridesNow.length > 0 && (
-            <SimpleCard
-              title={`Pruebas gratis y cortesías que vencen (${overridesNow.length})`}
-              icon={<Hourglass className="size-4 text-amber-500" />}
-            >
-              {overridesNow.map(ovr)}
-            </SimpleCard>
-          )}
+            {data.assignedLeads.length > 0 && (
+              <SimpleCard
+                title={`Leads asignados sin atender (${data.assignedLeads.length})`}
+                icon={<Mail className="size-4 text-muted-foreground" />}
+                action={{ href: '/admin/leads', label: 'Ver leads →' }}
+                description="Tienen a alguien que los lleva, pero nadie les ha respondido en más de 24 horas."
+              >
+                {data.assignedLeads.map((c) => (
+                  <LeadRow key={c.id} lead={c} urgent={mine} />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.staleSuspendedAddons.length > 0 && (
-            <SimpleCard
-              title={`Add-ons suspendidos hace tiempo (${data.staleSuspendedAddons.length})`}
-              icon={<Lock className="size-4 text-muted-foreground" />}
-            >
-              {data.staleSuspendedAddons.map((s) => (
-                <TenantRow
-                  key={s.tenantAddonId}
-                  id={s.tenantId}
-                  name={`${s.tenantName} · ${s.addonName}`}
-                  detail={`Suspendido hace ${s.daysSuspended} d`}
-                  snooze={{ kind: 'stale_addon', ref: s.tenantAddonId, label: s.tenantName }}
-                />
-              ))}
-            </SimpleCard>
-          )}
-          {businessCount === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              {mine ? 'No tienes nada asignado para hoy.' : 'Nada de negocio pendiente. 🎉'}
-            </p>
-          )}
-          {!mine && <SnoozedList items={today.data.snoozes} />}
-        </TabsContent>
-
-        <TabsContent value="week" className="mt-4 space-y-6">
-          {renewalsWeek.length > 0 && (
-            <SimpleCard
-              title={`Renovaciones manuales (${renewalsWeek.length})`}
-              icon={<CalendarClock className="size-4 text-amber-500" />}
-            >
-              {renewalsWeek.map(renewal)}
-            </SimpleCard>
-          )}
-          {trialsWeek.length > 0 && (
-            <SimpleCard
-              title={`Pruebas que terminan (${trialsWeek.length})`}
-              icon={<CalendarClock className="size-4 text-amber-500" />}
-            >
-              {trialsWeek.map((t) => (
-                <TrialRow key={t.id} tenant={t} />
-              ))}
-            </SimpleCard>
-          )}
-          {data.followupsUpcoming.length > 0 && (
-            <SimpleCard
-              title={`Seguimientos (${data.followupsUpcoming.length})`}
-              icon={<CalendarClock className="size-4 text-muted-foreground" />}
-            >
-              {data.followupsUpcoming.map((f) => (
-                <FollowupRow key={f.id} followup={f} />
-              ))}
-            </SimpleCard>
-          )}
-          {overridesWeek.length > 0 && (
-            <SimpleCard
-              title={`Pruebas gratis y cortesías (${overridesWeek.length})`}
-              icon={<Hourglass className="size-4 text-amber-500" />}
-            >
-              {overridesWeek.map(ovr)}
-            </SimpleCard>
-          )}
-          {weekCount === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              Nada previsto para esta semana.
-            </p>
-          )}
-        </TabsContent>
-
-        <TabsContent value="ops" className="mt-4 space-y-6">
-          {data.aeatIssues.length > 0 && (
-            <SimpleCard
-              title={`Facturas con problemas en Veri*Factu (${data.aeatIssues.length})`}
-              icon={<FileWarning className="size-4 text-red-500" />}
-              action={{ href: '/admin/billing-health', label: 'Ver detalle →' }}
-            >
-              {data.aeatIssues.map((t) => (
-                <TenantRow
-                  key={t.tenantId}
-                  id={t.tenantId}
-                  name={t.tenantName}
-                  detail={pluralEs(
-                    t.count,
-                    'factura rechazada, con error o sin respuesta',
-                    'facturas rechazadas, con error o sin respuesta',
-                  )}
-                  snooze={{ kind: 'aeat', ref: t.tenantId, label: t.tenantName }}
-                  notice={t.reappearedReason}
-                />
-              ))}
-            </SimpleCard>
-          )}
-
-          {data.certificatesExpiring.length > 0 && (
-            <SimpleCard
-              title={`Certificados de la AEAT que caducan (${data.certificatesExpiring.length})`}
-              icon={<KeyRound className="size-4 text-amber-500" />}
-            >
-              {data.certificatesExpiring.map((c) => (
-                <TenantRow
-                  key={c.id}
-                  id={c.tenantId}
-                  name={c.ownerName ? `${c.tenantName} · propietario ${c.ownerName}` : c.tenantName}
-                  detail={
-                    c.daysLeft <= 0
-                      ? `Caducado el ${fmtDate(c.validTo)}`
-                      : `Caduca en ${c.daysLeft} d (${fmtDate(c.validTo)})`
-                  }
-                  snooze={{ kind: 'certificate', ref: c.id, label: c.tenantName }}
-                  notice={c.reappearedReason}
-                />
-              ))}
-            </SimpleCard>
-          )}
-
-          {data.holdedReview.length > 0 && (
-            <SimpleCard
-              title={`Holded: envíos para revisar (${data.holdedReview.length})`}
-              icon={<FileWarning className="size-4 text-amber-500" />}
-              action={{ href: '/admin/billing-health', label: 'Ver detalle →' }}
-            >
-              {data.holdedReview.map((t) => (
-                <TenantRow
-                  key={t.tenantId}
-                  id={t.tenantId}
-                  name={t.tenantName}
-                  detail={`${t.count} para revisar`}
-                  snooze={{ kind: 'holded', ref: t.tenantId, label: t.tenantName }}
-                  notice={t.reappearedReason}
-                />
-              ))}
-            </SimpleCard>
-          )}
-
-          {data.devicesOffline.length > 0 && (
-            <SimpleCard
-              title={`Dispositivos de acceso sin conexión (${data.devicesOffline.length})`}
-              icon={<WifiOff className="size-4 text-red-500" />}
-            >
-              {data.devicesOffline.map((t) => (
-                <TenantRow
-                  key={t.tenantId}
-                  id={t.tenantId}
-                  name={t.tenantName}
-                  detail={`${t.count} sin señal desde hace más de 1 h`}
-                  snooze={{ kind: 'device', ref: t.tenantId, label: t.tenantName }}
-                  notice={t.reappearedReason}
-                />
-              ))}
-            </SimpleCard>
-          )}
-
-          {data.overdueCrons.length > 0 && (
-            <SimpleCard
-              title={`Tareas programadas sin ejecutarse (${data.overdueCrons.length})`}
-              icon={<Clock className="size-4 text-red-500" />}
-              action={{ href: '/admin/queues', label: 'Ver tareas →' }}
-            >
-              {data.overdueCrons.map((c) => (
-                <Row
-                  key={c.name}
-                  title={<span className="font-mono text-xs">{c.name}</span>}
-                  detail={`${c.process} · tocaba ${c.nextRunAt ? fmtDateTime(c.nextRunAt) : '—'}`}
-                  snooze={{ kind: 'cron', ref: c.name, label: c.name }}
-                />
-              ))}
-            </SimpleCard>
-          )}
-
-          {data.failedWebhooks.length > 0 && (
-            <SimpleCard
-              title={`Webhooks que siguen fallando (${data.failedWebhooks.length})`}
-              icon={<AlertTriangle className="size-4 text-amber-500" />}
-            >
-              {data.failedWebhooks.map((w) => (
-                <Row
-                  key={w.tenantId}
-                  title={
-                    <>
+            {data.leadFollowupsDue.length > 0 && (
+              <SimpleCard
+                title={`Seguimientos de leads (${data.leadFollowupsDue.length})`}
+                icon={<CalendarClock className="size-4 text-amber-500" />}
+                action={{ href: '/admin/followups', label: 'Ver seguimientos →' }}
+              >
+                {data.leadFollowupsDue.map((f) => (
+                  <Row
+                    key={f.id}
+                    urgent
+                    title={
                       <Link
-                        href={`/admin/tenants/${w.tenantId}`}
-                        className="font-medium hover:underline"
+                        href={`/admin/leads?lead=${f.leadId}`}
+                        data-row-link=""
+                        className="hover:underline"
                       >
-                        {w.tenantName}
+                        <span className="font-medium">{f.leadName}</span> · {f.title}
                       </Link>
-                      {w.lastError && (
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {w.lastError}
-                        </span>
-                      )}
-                    </>
-                  }
-                  detail={`${pluralEs(w.failedCount, 'fallo', 'fallos')} · ${fmtDate(w.lastFailedAt)}`}
-                  snooze={{ kind: 'webhook', ref: w.tenantId, label: w.tenantName }}
-                  notice={w.reappearedReason}
-                />
-              ))}
-            </SimpleCard>
-          )}
+                    }
+                    detail={`${f.dueDate}${f.assignedToName ? ` · ${f.assignedToName}` : ''}`}
+                    snooze={{
+                      kind: 'lead_followup',
+                      ref: f.id,
+                      label: `${f.leadName}: ${f.title}`,
+                    }}
+                  />
+                ))}
+              </SimpleCard>
+            )}
 
-          {data.failedJobs > 0 && (
-            <SimpleCard
-              title="Colas con fallos"
-              icon={<AlertTriangle className="size-4 text-red-500" />}
-            >
-              <div className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
-                <span>
-                  {pluralEs(data.failedJobs, 'trabajo fallido', 'trabajos fallidos')} en las últimas
-                  24 h.
-                </span>
-                <Link
-                  href="/admin/queues"
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Ver Sistema y colas →
-                </Link>
-              </div>
-            </SimpleCard>
-          )}
-          {opsCount === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              {mine ? 'Aquí no hay nada asignable.' : 'Todo funciona. 👌'}
-            </p>
-          )}
-        </TabsContent>
+            {data.domainsReady.length > 0 && (
+              <SimpleCard
+                title={`Dominios propios por activar (${data.domainsReady.length})`}
+                icon={<Globe className="size-4 text-amber-500" />}
+                action={{ href: '/admin/custom-domains', label: 'Activar →' }}
+              >
+                {data.domainsReady.map((d) => (
+                  <TenantRow
+                    key={d.tenantId}
+                    id={d.tenantId}
+                    name={d.tenantName}
+                    detail={d.domain}
+                    urgent
+                    snooze={{ kind: 'domain', ref: d.tenantId, label: d.tenantName }}
+                  />
+                ))}
+              </SimpleCard>
+            )}
 
-        <TabsContent value="activity" className="mt-4 space-y-6">
-          <DoneToday done={today.data.done} />
-          <ActivityFeed items={today.data.activity} />
-        </TabsContent>
-      </Tabs>
-    </div>
+            {data.rgpdOverdue.length > 0 && (
+              <SimpleCard
+                title={`Solicitudes RGPD fuera de plazo (${data.rgpdOverdue.length})`}
+                icon={<ShieldAlert className="size-4 text-red-500" />}
+              >
+                {data.rgpdOverdue.map((t) => (
+                  <TenantRow
+                    key={t.tenantId}
+                    id={t.tenantId}
+                    name={t.tenantName}
+                    detail={`${t.count} sin atender`}
+                    urgent
+                    snooze={{ kind: 'rgpd', ref: t.tenantId, label: t.tenantName }}
+                    notice={t.reappearedReason}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.inactivePaying.length > 0 && (
+              <SimpleCard
+                title={`Clientes que han dejado de entrar (${data.inactivePaying.length})`}
+                icon={<UserX className="size-4 text-amber-500" />}
+                description="Pagan y nadie de su equipo entra desde hace 14 días o más: riesgo de baja."
+              >
+                {data.inactivePaying.map((t) => (
+                  <InactiveRow key={t.tenantId} tenant={t} />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.incompleteInvoices.length > 0 && (
+              <SimpleCard
+                title={`Facturas de suscripción sin NIF o domicilio (${data.incompleteInvoices.length})`}
+                icon={<FileWarning className="size-4 text-amber-500" />}
+              >
+                {data.incompleteInvoices.map((t) => (
+                  <TenantRow
+                    key={t.tenantId}
+                    id={t.tenantId}
+                    name={t.tenantName}
+                    detail={`${t.count} por rectificar`}
+                    snooze={{ kind: 'invoice_data', ref: t.tenantId, label: t.tenantName }}
+                    notice={t.reappearedReason}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.npsNegative.length > 0 && (
+              <SimpleCard
+                title={`Respuestas NPS bajas (${data.npsNegative.length})`}
+                icon={<ThumbsDown className="size-4 text-amber-500" />}
+              >
+                {data.npsNegative.map((n) => (
+                  <TenantRow
+                    key={n.id}
+                    id={n.tenantId}
+                    name={n.tenantName}
+                    detail={`Nota ${n.score}${n.comment ? ` · ${n.comment.slice(0, 80)}` : ''}`}
+                    snooze={{ kind: 'nps', ref: n.id, label: n.tenantName }}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.activationStalled.length > 0 && (
+              <SimpleCard
+                title={`Pruebas sin arrancar (${data.activationStalled.length})`}
+                icon={<Rocket className="size-4 text-amber-500" />}
+              >
+                {data.activationStalled.map((a) => (
+                  <TenantRow
+                    key={a.tenantId}
+                    id={a.tenantId}
+                    name={a.tenantName}
+                    detail={`${a.daysSinceSignup} d · ${MISSING[a.missing]}`}
+                    snooze={{ kind: 'activation', ref: a.tenantId, label: a.tenantName }}
+                    actions={
+                      a.ownerEmail && (
+                        <Button asChild size="sm" variant="outline">
+                          <a href={`mailto:${a.ownerEmail}`}>Escribir</a>
+                        </Button>
+                      )
+                    }
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {overridesNow.length > 0 && (
+              <SimpleCard
+                title={`Pruebas gratis y cortesías que vencen (${overridesNow.length})`}
+                icon={<Hourglass className="size-4 text-amber-500" />}
+              >
+                {overridesNow.map((o) => ovr(o, true))}
+              </SimpleCard>
+            )}
+
+            {data.staleSuspendedAddons.length > 0 && (
+              <SimpleCard
+                title={`Add-ons suspendidos hace tiempo (${data.staleSuspendedAddons.length})`}
+                icon={<Lock className="size-4 text-muted-foreground" />}
+              >
+                {data.staleSuspendedAddons.map((s) => (
+                  <TenantRow
+                    key={s.tenantAddonId}
+                    id={s.tenantId}
+                    name={`${s.tenantName} · ${s.addonName}`}
+                    detail={`Suspendido hace ${s.daysSuspended} d`}
+                    snooze={{ kind: 'stale_addon', ref: s.tenantAddonId, label: s.tenantName }}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+            {businessCount === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {mine ? 'No tienes nada asignado para hoy.' : 'Nada de negocio pendiente. 🎉'}
+              </p>
+            )}
+            {!mine && <SnoozedList items={today.data.snoozes} />}
+          </TabsContent>
+
+          <TabsContent value="week" className="mt-4 space-y-6">
+            {renewalsWeek.length > 0 && (
+              <SimpleCard
+                title={`Renovaciones manuales (${renewalsWeek.length})`}
+                icon={<CalendarClock className="size-4 text-amber-500" />}
+              >
+                {renewalsWeek.map((r) => renewal(r, false))}
+              </SimpleCard>
+            )}
+            {trialsWeek.length > 0 && (
+              <SimpleCard
+                title={`Pruebas que terminan (${trialsWeek.length})`}
+                icon={<CalendarClock className="size-4 text-amber-500" />}
+              >
+                {trialsWeek.map((t) => (
+                  <TrialRow key={t.id} tenant={t} />
+                ))}
+              </SimpleCard>
+            )}
+            {data.followupsUpcoming.length > 0 && (
+              <SimpleCard
+                title={`Seguimientos (${data.followupsUpcoming.length})`}
+                icon={<CalendarClock className="size-4 text-muted-foreground" />}
+              >
+                {data.followupsUpcoming.map((f) => (
+                  <FollowupRow key={f.id} followup={f} />
+                ))}
+              </SimpleCard>
+            )}
+            {overridesWeek.length > 0 && (
+              <SimpleCard
+                title={`Pruebas gratis y cortesías (${overridesWeek.length})`}
+                icon={<Hourglass className="size-4 text-amber-500" />}
+              >
+                {overridesWeek.map((o) => ovr(o, false))}
+              </SimpleCard>
+            )}
+            {weekCount === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                Nada previsto para esta semana.
+              </p>
+            )}
+          </TabsContent>
+
+          <TabsContent value="ops" className="mt-4 space-y-6">
+            {data.aeatIssues.length > 0 && (
+              <SimpleCard
+                title={`Facturas con problemas en Veri*Factu (${data.aeatIssues.length})`}
+                icon={<FileWarning className="size-4 text-red-500" />}
+                action={{ href: '/admin/billing-health', label: 'Ver detalle →' }}
+              >
+                {data.aeatIssues.map((t) => (
+                  <TenantRow
+                    key={t.tenantId}
+                    id={t.tenantId}
+                    name={t.tenantName}
+                    detail={pluralEs(
+                      t.count,
+                      'factura rechazada, con error o sin respuesta',
+                      'facturas rechazadas, con error o sin respuesta',
+                    )}
+                    urgent
+                    snooze={{ kind: 'aeat', ref: t.tenantId, label: t.tenantName }}
+                    notice={t.reappearedReason}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.certificatesExpiring.length > 0 && (
+              <SimpleCard
+                title={`Certificados de la AEAT que caducan (${data.certificatesExpiring.length})`}
+                icon={<KeyRound className="size-4 text-amber-500" />}
+              >
+                {data.certificatesExpiring.map((c) => (
+                  <TenantRow
+                    key={c.id}
+                    id={c.tenantId}
+                    name={
+                      c.ownerName ? `${c.tenantName} · propietario ${c.ownerName}` : c.tenantName
+                    }
+                    detail={
+                      c.daysLeft <= 0
+                        ? `Caducado el ${fmtDate(c.validTo)}`
+                        : `Caduca en ${c.daysLeft} d (${fmtDate(c.validTo)})`
+                    }
+                    urgent={c.daysLeft <= 15}
+                    snooze={{ kind: 'certificate', ref: c.id, label: c.tenantName }}
+                    notice={c.reappearedReason}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.holdedReview.length > 0 && (
+              <SimpleCard
+                title={`Holded: envíos para revisar (${data.holdedReview.length})`}
+                icon={<FileWarning className="size-4 text-amber-500" />}
+                action={{ href: '/admin/billing-health', label: 'Ver detalle →' }}
+              >
+                {data.holdedReview.map((t) => (
+                  <TenantRow
+                    key={t.tenantId}
+                    id={t.tenantId}
+                    name={t.tenantName}
+                    detail={`${t.count} para revisar`}
+                    urgent
+                    snooze={{ kind: 'holded', ref: t.tenantId, label: t.tenantName }}
+                    notice={t.reappearedReason}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.devicesOffline.length > 0 && (
+              <SimpleCard
+                title={`Dispositivos de acceso sin conexión (${data.devicesOffline.length})`}
+                icon={<WifiOff className="size-4 text-red-500" />}
+              >
+                {data.devicesOffline.map((t) => (
+                  <TenantRow
+                    key={t.tenantId}
+                    id={t.tenantId}
+                    name={t.tenantName}
+                    detail={`${t.count} sin señal desde hace más de 1 h`}
+                    urgent
+                    snooze={{ kind: 'device', ref: t.tenantId, label: t.tenantName }}
+                    notice={t.reappearedReason}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.overdueCrons.length > 0 && (
+              <SimpleCard
+                title={`Tareas programadas sin ejecutarse (${data.overdueCrons.length})`}
+                icon={<Clock className="size-4 text-red-500" />}
+                action={{ href: '/admin/queues', label: 'Ver tareas →' }}
+              >
+                {data.overdueCrons.map((c) => (
+                  <Row
+                    key={c.name}
+                    urgent
+                    title={<span className="font-mono text-xs">{c.name}</span>}
+                    detail={`${c.process} · tocaba ${c.nextRunAt ? fmtDateTime(c.nextRunAt) : '—'}`}
+                    snooze={{ kind: 'cron', ref: c.name, label: c.name }}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.failedWebhooks.length > 0 && (
+              <SimpleCard
+                title={`Webhooks que siguen fallando (${data.failedWebhooks.length})`}
+                icon={<AlertTriangle className="size-4 text-amber-500" />}
+              >
+                {data.failedWebhooks.map((w) => (
+                  <Row
+                    key={w.tenantId}
+                    urgent
+                    title={
+                      <>
+                        <Link
+                          href={`/admin/tenants/${w.tenantId}`}
+                          data-row-link=""
+                          className="font-medium hover:underline"
+                        >
+                          {w.tenantName}
+                        </Link>
+                        {w.lastError && (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {w.lastError}
+                          </span>
+                        )}
+                      </>
+                    }
+                    detail={`${pluralEs(w.failedCount, 'fallo', 'fallos')} · ${fmtDate(w.lastFailedAt)}`}
+                    snooze={{ kind: 'webhook', ref: w.tenantId, label: w.tenantName }}
+                    notice={w.reappearedReason}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.failedJobs > 0 && (
+              <FailedJobsCard total={data.failedJobs} jobs={data.failedJobsList} />
+            )}
+            {opsCount === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {mine ? 'Aquí no hay nada asignable.' : 'Todo funciona. 👌'}
+              </p>
+            )}
+          </TabsContent>
+
+          <TabsContent value="activity" className="mt-4 space-y-6">
+            <DoneToday done={today.data.done} />
+            <ActivityFeed items={today.data.activity} />
+          </TabsContent>
+        </Tabs>
+
+        <TodayBatchBar selected={[...selection.selected.values()]} onClear={selection.clear} />
+        <ShortcutsHelp open={help} onClose={() => setHelp(false)} />
+      </div>
+    </TodaySelectionProvider>
   );
 }
 
@@ -783,50 +907,6 @@ const MISSING: Record<'facility' | 'units' | 'contract', string> = {
   units: 'sin trasteros',
   contract: 'sin contratos',
 };
-
-/** Aparta un aviso unos días: vuelve solo si sigue pasando. */
-function SnoozeMenu({
-  kind,
-  refId,
-  label,
-}: {
-  kind: TodaySnoozeKind;
-  refId: string;
-  label: string;
-}) {
-  const snooze = useTodaySnooze();
-  function apart(days: number) {
-    snooze.mutate(
-      { kind, ref: refId, label, days },
-      {
-        onSuccess: () => toast.success(`Apartado ${days} días.`),
-        onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
-      },
-    );
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0"
-          aria-label={`Apartar ${label}`}
-          title="Apartar unos días"
-        >
-          <BellOff className="size-3.5 text-muted-foreground" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {[7, 30].map((d) => (
-          <DropdownMenuItem key={d} onSelect={() => apart(d)}>
-            Apartar {d} días
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 function SnoozedList({ items }: { items: AdminTodaySnoozeDto[] }) {
   const remove = useRemoveTodaySnooze();
@@ -873,6 +953,7 @@ function PastDueRow({ tenant }: { tenant: AdminAtRiskTenantDto }) {
         id={tenant.id}
         name={tenant.name}
         detail={parts.join(' · ')}
+        urgent
         snooze={{ kind: 'past_due', ref: tenant.id, label: tenant.name }}
         notice={tenant.reappearedReason}
         actions={
@@ -911,7 +992,7 @@ function PastDueRow({ tenant }: { tenant: AdminAtRiskTenantDto }) {
   );
 }
 
-function TrialRow({ tenant }: { tenant: AdminAtRiskTenantDto }) {
+function TrialRow({ tenant, urgent = false }: { tenant: AdminAtRiskTenantDto; urgent?: boolean }) {
   const extend = useExtendTrialsBatch();
   const canAct = useIsSuperadmin();
   const u = tenant.usage;
@@ -924,9 +1005,14 @@ function TrialRow({ tenant }: { tenant: AdminAtRiskTenantDto }) {
     <TenantRow
       id={tenant.id}
       name={tenant.name}
-      detail={[tenant.since ? `Termina ${fmtDate(tenant.since)}` : 'Prueba', usage]
+      detail={[
+        tenant.since ? `Termina ${fmtDate(tenant.since)}` : 'Prueba',
+        tenant.monthly ? `${eur(tenant.monthly)}/mes` : null,
+        usage,
+      ]
         .filter(Boolean)
         .join(' · ')}
+      urgent={urgent}
       snooze={{ kind: 'trial', ref: tenant.id, label: tenant.name }}
       actions={
         canAct && (
@@ -953,13 +1039,20 @@ function TrialRow({ tenant }: { tenant: AdminAtRiskTenantDto }) {
   );
 }
 
-function FollowupRow({ followup: f }: { followup: TenantFollowupDto }) {
+function FollowupRow({
+  followup: f,
+  urgent = false,
+}: {
+  followup: TenantFollowupDto;
+  urgent?: boolean;
+}) {
   const update = useUpdateFollowup();
   return (
     <TenantRow
       id={f.tenantId}
       name={f.tenantName ?? '—'}
       detail={`${f.title} · ${fmtDate(f.dueDate)}`}
+      urgent={urgent}
       actions={
         <>
           <FollowupControls f={f} />
@@ -982,88 +1075,6 @@ function FollowupRow({ followup: f }: { followup: TenantFollowupDto }) {
         </>
       }
     />
-  );
-}
-
-function TicketRow({ ticket: t }: { ticket: AdminOpenTicketDto }) {
-  const me = useAdminAuthStore((s) => s.superAdmin?.id);
-  const assign = useAssignTicket();
-  const reply = useAddAdminTicketMessage();
-  const [open, setOpen] = useState(false);
-  const [body, setBody] = useState('');
-
-  function send() {
-    reply.mutate(
-      { id: t.id, input: { body: body.trim(), isInternal: false } },
-      {
-        onSuccess: () => {
-          toast.success('Respuesta enviada.');
-          setBody('');
-          setOpen(false);
-        },
-        onError: (err) => toast.error(err instanceof ApiError ? err.body.message : 'Error'),
-      },
-    );
-  }
-
-  return (
-    <div className="space-y-2 rounded-md border p-2 text-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <Link href={`/admin/support/${t.id}`} className="font-medium hover:underline">
-            {t.subject}
-          </Link>
-          <span className="text-muted-foreground"> · </span>
-          <Link
-            href={`/admin/tenants/${t.tenantId}`}
-            className="text-muted-foreground hover:underline"
-          >
-            {t.tenantName}
-          </Link>
-          {(t.priority === 'urgent' || t.priority === 'high') && (
-            <span className="ml-1 text-xs font-medium text-red-500">
-              {t.priority === 'urgent' ? 'urgente' : 'alta'}
-            </span>
-          )}
-          {t.assignedAdminName && (
-            <span className="ml-1 text-xs text-muted-foreground">· {t.assignedAdminName}</span>
-          )}
-          <ReappearedBadge reason={t.reappearedReason} />
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <span className="text-xs text-muted-foreground">
-            {t.waitingDays === 0 ? 'hoy' : `${t.waitingDays} d`}
-          </span>
-          {me && t.assignedAdminId !== me && (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={assign.isPending}
-              onClick={() => assign.mutate({ id: t.id, input: { superAdminId: me } })}
-            >
-              Asignarme
-            </Button>
-          )}
-          <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>
-            Responder
-          </Button>
-          <SnoozeMenu kind="ticket" refId={t.id} label={t.subject} />
-        </div>
-      </div>
-      {open && (
-        <div className="space-y-2">
-          <Textarea
-            aria-label="Respuesta"
-            rows={3}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
-          <Button size="sm" disabled={reply.isPending || !body.trim()} onClick={send}>
-            Enviar
-          </Button>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -1119,111 +1130,62 @@ function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
-      <div className="min-w-0">
-        <Link href={`/admin/tenants/${charge.tenantId}`} className="font-medium hover:underline">
-          {charge.tenantName}
-        </Link>
-        <span className="text-muted-foreground"> · {charge.addonName}</span>
-        {charge.overdueDays > 0 && (
-          <span className="ml-1 text-xs text-red-500">(+{charge.overdueDays} d)</span>
-        )}
-        <ReappearedBadge reason={charge.reappearedReason} />
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="font-semibold tabular-nums">{eur(charge.amount, charge.currency)}</span>
-        <SnoozeMenu kind="addon_charge" refId={charge.tenantAddonId} label={charge.tenantName} />
-        {canCharge && (
-          <>
-            <Select
-              value={provider}
-              onValueChange={(v) => setProvider(v as SaasPaymentProviderValue)}
-            >
-              <SelectTrigger className="h-8 w-32 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PROVIDERS.map((p) => (
-                  <SelectItem key={p.value} value={p.value}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button size="sm" onClick={onCharge} disabled={chargeAddon.isPending}>
-              Registrar cobro
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-amber-600 hover:text-amber-700"
-              onClick={onSuspend}
-              disabled={suspend.isPending}
-            >
-              Suspender
-            </Button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SimpleCard({
-  title,
-  icon,
-  action,
-  children,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  action?: { href: string; label: string };
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-        <CardTitle className="flex items-center gap-2 text-base">
-          {icon}
-          {title}
-        </CardTitle>
-        {action && (
+    <RowShell
+      urgent
+      snooze={{ kind: 'addon_charge', ref: charge.tenantAddonId, label: charge.tenantName }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
           <Link
-            href={action.href}
-            className="shrink-0 text-xs font-medium text-primary hover:underline"
+            href={`/admin/tenants/${charge.tenantId}`}
+            data-row-link=""
+            className="font-medium hover:underline"
           >
-            {action.label}
+            {charge.tenantName}
           </Link>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <ExpandableList>{children}</ExpandableList>
-      </CardContent>
-    </Card>
-  );
-}
-
-/** Cuántas filas se ven de cada lista antes de «Ver todo». */
-const LIST_PREVIEW = 5;
-
-/** Las listas largas enseñan las 5 primeras y se despliegan con un botón. */
-function ExpandableList({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const items = Children.toArray(children);
-  if (items.length <= LIST_PREVIEW) return <>{items}</>;
-  return (
-    <>
-      {open ? items : items.slice(0, LIST_PREVIEW)}
-      <Button
-        size="sm"
-        variant="ghost"
-        className="w-full text-xs text-muted-foreground"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        {open ? 'Ver menos' : `Ver todo (${items.length})`}
-      </Button>
-    </>
+          <span className="text-muted-foreground"> · {charge.addonName}</span>
+          {charge.overdueDays > 0 && (
+            <span className="ml-1 text-xs text-red-500">(+{charge.overdueDays} d)</span>
+          )}
+          <ReappearedBadge reason={charge.reappearedReason} />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold tabular-nums">{eur(charge.amount, charge.currency)}</span>
+          <SnoozeMenu kind="addon_charge" refId={charge.tenantAddonId} label={charge.tenantName} />
+          {canCharge && (
+            <>
+              <Select
+                value={provider}
+                onValueChange={(v) => setProvider(v as SaasPaymentProviderValue)}
+              >
+                <SelectTrigger className="h-8 w-32 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROVIDERS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button size="sm" onClick={onCharge} disabled={chargeAddon.isPending}>
+                Registrar cobro
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-amber-600 hover:text-amber-700"
+                onClick={onSuspend}
+                disabled={suspend.isPending}
+              >
+                Suspender
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </RowShell>
   );
 }
 
@@ -1246,81 +1208,6 @@ function TabLabel({ label, total, urgent }: { label: string; total: number; urge
         </span>
       )}
     </span>
-  );
-}
-
-/** Estaba apartado y ha empeorado: por qué vuelve a salir. */
-function ReappearedBadge({ reason }: { reason?: string | null | undefined }) {
-  if (!reason) return null;
-  return (
-    <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-      {reason}
-    </span>
-  );
-}
-
-interface SnoozeTarget {
-  kind: TodaySnoozeKind;
-  ref: string;
-  label: string;
-}
-
-function Row({
-  title,
-  detail,
-  snooze,
-  actions,
-  notice,
-}: {
-  title: ReactNode;
-  detail: string;
-  snooze?: SnoozeTarget;
-  actions?: ReactNode;
-  /** Motivo por el que un aviso apartado ha vuelto a salir. */
-  notice?: string | null | undefined;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
-      <div className="min-w-0">
-        {title}
-        <ReappearedBadge reason={notice} />
-      </div>
-      <div className="flex min-w-0 items-center gap-2">
-        <span className="min-w-0 text-xs text-muted-foreground">{detail}</span>
-        {actions}
-        {snooze && <SnoozeMenu kind={snooze.kind} refId={snooze.ref} label={snooze.label} />}
-      </div>
-    </div>
-  );
-}
-
-function TenantRow({
-  id,
-  name,
-  detail,
-  snooze,
-  actions,
-  notice,
-}: {
-  id: string;
-  name: string;
-  detail: string;
-  snooze?: SnoozeTarget;
-  actions?: ReactNode;
-  notice?: string | null | undefined;
-}) {
-  return (
-    <Row
-      title={
-        <Link href={`/admin/tenants/${id}`} className="font-medium hover:underline">
-          {name}
-        </Link>
-      }
-      detail={detail}
-      {...(snooze ? { snooze } : {})}
-      {...(actions ? { actions } : {})}
-      notice={notice}
-    />
   );
 }
 
@@ -1367,14 +1254,41 @@ function delta(current: number, previous: number | null): string | null {
   return `${pct > 0 ? '+' : ''}${pct} %`;
 }
 
-function TodayKpis({ kpis }: { kpis: AdminTodayKpisDto }) {
+/** «Deuda 120 € · Pruebas 79 €…»: de dónde sale el dinero en juego. */
+function moneyBreakdown(m: AdminTodayMoneyAtRiskDto): string {
+  return [
+    m.pastDue > 0 ? `Deuda vencida ${eur(m.pastDue)}` : null,
+    m.trialsEnding > 0 ? `Pruebas que terminan ${eur(m.trialsEnding)}` : null,
+    m.addonCharges > 0 ? `Extras por cobrar ${eur(m.addonCharges)}` : null,
+    m.inactive > 0 ? `Clientes que no entran ${eur(m.inactive)}/mes` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function TodayKpis({
+  kpis,
+  moneyAtRisk,
+}: {
+  kpis: AdminTodayKpisDto;
+  moneyAtRisk: AdminTodayMoneyAtRiskDto;
+}) {
+  const breakdown = moneyBreakdown(moneyAtRisk);
   const items: {
     label: string;
     value: string;
     href: string;
     warn?: boolean;
+    hint?: string;
     change?: { value: string | null; against: string };
   }[] = [
+    {
+      label: '€ en riesgo hoy',
+      value: eur(moneyAtRisk.total),
+      href: '/admin/receivables',
+      warn: moneyAtRisk.total > 0,
+      hint: breakdown || 'Nada en juego hoy',
+    },
     {
       label: 'MRR (activos)',
       value: eur(kpis.mrr),
@@ -1411,15 +1325,19 @@ function TodayKpis({ kpis }: { kpis: AdminTodayKpisDto }) {
     },
   ];
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
       {items.map((i) => (
         <Link
           key={i.label}
           href={i.href}
+          title={i.hint}
           className="rounded-lg border bg-card p-3 transition-colors hover:bg-accent/40"
         >
           <p className="text-xs text-muted-foreground">{i.label}</p>
           <p className={`text-lg font-semibold ${i.warn ? 'text-destructive' : ''}`}>{i.value}</p>
+          {i.hint && i.hint !== 'Nada en juego hoy' && (
+            <p className="text-xs text-muted-foreground">{i.hint}</p>
+          )}
           {i.change?.value && (
             <p className="text-xs text-muted-foreground" title={`Frente a ${i.change.against}`}>
               {i.change.value} · {i.change.against}

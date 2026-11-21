@@ -2890,6 +2890,20 @@ Con la 2FA obligatoria y el plazo vencido, las rutas admin responden 403 `admin_
 - Cobrar un extra de un tenant dado de baja → 409 `addon_not_chargeable`; ya no salen en `addonCharges` ni cuentan en `workload` los tickets o seguimientos de tenants de baja. `DELETE /admin/today/snoozes/:id` queda en el registro (`admin.today.unsnoozed`).
 - El aviso inmediato (`today-watch`) solo avisa cuando hay novedad (estado distinto del ya avisado en 30 días) y, como mucho, una vez al día por ticket, impago o tenant.
 
+### «Hoy»: prioridades, acciones en lote y última visita (2026-11-21)
+
+| Método | Ruta                              | Acceso                | Notas                                                                                                                                                                             |
+| ------ | --------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/admin/today/visit`              | AdminGuard            | `AdminTodayVisitDto`: lo nuevo, lo resuelto y lo que ha empeorado desde la última visita (`show` solo si fue hace 1 h o más) y guarda la foto de ahora. La página lo pide una vez |
+| POST   | `/admin/today/batch`              | AdminGuard            | `{action: snooze\|assign\|remind, days?, items: [{kind, ref, label?}]}` (1-100). `remind` solo superadmin (403 `insufficient_super_admin_role`). → `{done, failed[]}`             |
+| POST   | `/admin/today/failed-jobs/retry`  | AdminGuard superadmin | `{jobs: [{queue, id}]}` (1-100). Reintenta trabajos fallidos de las colas → `{done, failed[]}`                                                                                    |
+| POST   | `/admin/today/failed-jobs/review` | AdminGuard superadmin | Igual: los marca revisados (`admin_reviewed_jobs`); dejan de contar hasta que vuelvan a fallar                                                                                    |
+
+- `GET /admin/today` añade `assignedLeads` (asignados sin respuesta en más de 24 h; `newLeads` pasa a ser solo los sin asignar), `paymentFailures` (cobros de la suscripción rechazados en 48 h: Stripe, tarjeta de Redsys y adeudos SEPA devueltos; uno por tenant, fuera si paga después; urgentes), `inactivePaying` (clientes de pago sin acceso de su equipo en 14 días, con su cuota; no urgentes), `failedJobsList` (los 20 fallidos más recientes de 24 h sin revisar; `failedJobs` es el total), `moneyAtRisk {total, pastDue, trialsEnding, addonCharges, inactive}` y `responseTargets` (plazo de respuesta por prioridad, el de `GET /support/response-times`).
+- Los tickets traen `responseTargetHours`, `dueAt` y `dueInHours` (negativo = fuera de plazo) y salen por lo que vence antes; solo son urgentes los que vencen en menos de 2 h o ya vencieron (`TICKET_URGENT_HOURS`). Las pruebas, renovaciones y tickets traen `monthly` (lo que paga el tenant).
+- Orden: extras por días de retraso e importe, renovaciones y certificados por lo que vence antes, pruebas por días y uso, impagos y cobros rechazados por importe, leads del más antiguo al más nuevo, pruebas sin arrancar de la más reciente a la más antigua, NPS por la nota más baja y el resto por número de incidencias.
+- Tipos nuevos de `TodaySnoozeKindEnum`: `payment_failure` (huella: último rechazo) e `inactive` (huella: último acceso). `adminTodayUrgentCounts(d, {mine})` cuenta los leads asignados sin atender solo en «Lo mío».
+
 ### «Hoy» del panel del tenant (2026-11-05)
 
 `GET /dashboard/today` acepta `full=1` (listas enteras, modo mostrador). Cada apartado sale solo con su permiso de lectura; sin él llega vacío y no cuenta en `urgentCount`. `TodayItemDto.note` marca las facturas con cobro en curso o en plan de pagos. `GET /dashboard/today/summary` añade `kpis.moneyVisible`. `POST /invoices/bulk/remind` devuelve en `failed` los códigos `payment_in_progress` e `invoice_in_payment_plan`.
