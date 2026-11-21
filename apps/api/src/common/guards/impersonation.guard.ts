@@ -18,6 +18,12 @@ import type { Request } from 'express';
  */
 const ACCOUNT_PATHS = /^\/(?:v\d+\/)?(?:me(?:\/|$)|auth\/2fa\/|auth\/logout-all)/;
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+/**
+ * Escrituras que durante una impersonación no hacen nada (el controlador no
+ * toca los datos de la persona suplantada): se admiten también en solo lectura
+ * para que el panel no reciba un error al abrirlas.
+ */
+const NOOP_WHILE_IMPERSONATING = /^\/(?:v\d+\/)?product-updates\/seen\/?$/;
 
 @Injectable()
 export class ImpersonationGuard implements CanActivate {
@@ -34,7 +40,11 @@ export class ImpersonationGuard implements CanActivate {
         message: 'Durante una impersonación no se cambian los datos de acceso de la cuenta',
       });
     }
-    if (impersonation.readOnly && !SAFE_METHODS.has(req.method)) {
+    if (
+      impersonation.readOnly &&
+      !SAFE_METHODS.has(req.method) &&
+      !NOOP_WHILE_IMPERSONATING.test(path)
+    ) {
       throw new ForbiddenException({
         code: 'impersonation_read_only',
         message: 'Sesión de soporte en solo lectura: no se pueden hacer cambios',

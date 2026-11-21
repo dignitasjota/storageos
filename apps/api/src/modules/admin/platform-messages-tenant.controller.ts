@@ -44,6 +44,12 @@ export class PlatformMessagesTenantController {
     return this.comms.listForTenant(user.tenantId, user.sub, cursor);
   }
 
+  /** Nº de mensajes sin leer por esta persona — se suma al aviso del menú «Soporte». */
+  @Get('unread-count')
+  async unreadCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
+    return { count: await this.comms.unreadCountForTenant(user.tenantId, user.sub) };
+  }
+
   /** URL firmada (10 min) para descargar un adjunto. */
   @Get(':id/attachments/:index')
   async attachment(
@@ -54,10 +60,14 @@ export class PlatformMessagesTenantController {
     return { url: await this.comms.platformMessageFileUrl(user.tenantId, id, index) };
   }
 
-  /** Deja leídos todos los mensajes para quien los abre. */
+  /**
+   * Deja leídos todos los mensajes para quien los abre. Si es el soporte de
+   * TrasterOS entrando en su nombre, no: seguirían sin leer para la persona.
+   */
   @Post('read')
   @HttpCode(HttpStatus.NO_CONTENT)
   async read(@CurrentUser() user: AuthenticatedUser): Promise<void> {
+    if (user.impersonation) return;
     await this.comms.markReadForTenant(user.tenantId, user.sub);
   }
 }

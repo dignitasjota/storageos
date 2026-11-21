@@ -16,6 +16,7 @@ import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { SalesRepCard } from '@/components/billing/sales-rep-card';
+import { SectionError } from '@/components/dashboard/section-state';
 import { AttachmentPicker, uploadMessageAttachments } from '@/components/messages/attachments';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -52,7 +53,7 @@ import {
   useCreateSupportTicket,
   useMarkPlatformMessagesRead,
   usePlatformMessages,
-  useSupportTickets,
+  useSupportTicketsPage,
 } from '@/lib/support/hooks';
 
 const STATUS_LABELS: Record<
@@ -74,7 +75,8 @@ const PRIORITY_LABELS: Record<SupportTicketPriorityValue, string> = {
 };
 
 export default function SupportPage() {
-  const tickets = useSupportTickets();
+  const tickets = useSupportTicketsPage();
+  const ticketItems = tickets.data?.pages.flatMap((p) => p.items) ?? [];
   // Lo que TrasterOS envía a la cuenta lo leen el propietario y el gestor.
   const canReadPlatform = useHasPermission('platform_messages:manage');
   const platform = usePlatformMessages(canReadPlatform);
@@ -82,6 +84,17 @@ export default function SupportPage() {
   const unread = platform.data?.pages[0]?.unread ?? 0;
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState('tickets');
+  // Los que llegaron sin leer siguen marcados como nuevos durante la visita,
+  // aunque al abrir la pestaña queden leídos.
+  const [newIds, setNewIds] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const fresh = (platform.data?.pages ?? [])
+      .flatMap((p) => p.items)
+      .filter((m) => !m.readAt)
+      .map((m) => m.id);
+    if (fresh.length === 0) return;
+    setNewIds((prev) => (fresh.every((id) => prev.has(id)) ? prev : new Set([...prev, ...fresh])));
+  }, [platform.data]);
   // Abrir la pestaña marca como leídos los mensajes (una vez por visita).
   const markedRef = useRef(false);
   useEffect(() => {
@@ -130,7 +143,7 @@ export default function SupportPage() {
         </TabsList>
         {canReadPlatform && (
           <TabsContent value="trasteros" className="mt-4">
-            <PlatformMessages />
+            <PlatformMessages newIds={newIds} />
           </TabsContent>
         )}
         <TabsContent value="tickets" className="mt-4">
@@ -138,14 +151,18 @@ export default function SupportPage() {
             <div className="flex h-[40vh] items-center justify-center">
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
             </div>
-          ) : (tickets.data ?? []).length === 0 ? (
+          ) : tickets.isError ? (
+            <div className="rounded-md border bg-card">
+              <SectionError onRetry={() => void tickets.refetch()} />
+            </div>
+          ) : ticketItems.length === 0 ? (
             <div className="rounded-md border bg-card px-4 py-12 text-center text-sm text-muted-foreground">
               Aún no has abierto ningún ticket.
             </div>
           ) : (
             <div className="overflow-hidden rounded-md border bg-card">
               <ul className="divide-y">
-                {(tickets.data ?? []).map((t) => {
+                {ticketItems.map((t) => {
                   const s = STATUS_LABELS[t.status];
                   return (
                     <li key={t.id}>
@@ -154,19 +171,26 @@ export default function SupportPage() {
                         className="flex items-start justify-between gap-3 px-4 py-3 hover:bg-accent/40"
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            {(t.unreadCount ?? 0) > 0 && (
-                              <span
-                                className="size-2 shrink-0 rounded-full bg-primary"
-                                aria-label="Respuesta sin leer"
-                              />
-                            )}
-                            <span className="truncate font-medium">{t.subject}</span>
-                            <Badge variant={s.variant}>{s.label}</Badge>
-                            <Badge variant="outline">{PRIORITY_LABELS[t.priority]}</Badge>
+                          {/* En el móvil las etiquetas van debajo para no cortar el asunto. */}
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {(t.unreadCount ?? 0) > 0 && (
+                                <span
+                                  className="size-2 shrink-0 rounded-full bg-primary"
+                                  aria-label="Respuesta sin leer"
+                                />
+                              )}
+                              <span className="truncate font-medium">{t.subject}</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge variant={s.variant}>{s.label}</Badge>
+                              <Badge variant="outline">{PRIORITY_LABELS[t.priority]}</Badge>
+                              {t.category && <Badge variant="outline">{t.category}</Badge>}
+                            </div>
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            Abierto el {new Date(t.createdAt).toLocaleString('es-ES')}
+                            {t.createdByName ? `Lo abrió ${t.createdByName} el ` : 'Abierto el '}
+                            {new Date(t.createdAt).toLocaleString('es-ES')}
                           </div>
                         </div>
                       </Link>
@@ -174,6 +198,18 @@ export default function SupportPage() {
                   );
                 })}
               </ul>
+              {tickets.hasNextPage && (
+                <div className="flex justify-center border-t p-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void tickets.fetchNextPage()}
+                    disabled={tickets.isFetchingNextPage}
+                  >
+                    {tickets.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
@@ -191,13 +227,20 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 /** Lo que TrasterOS te ha enviado por correo, también aquí (por si se pierde el correo). */
-function PlatformMessages() {
+function PlatformMessages({ newIds }: { newIds: ReadonlySet<string> }) {
   const platform = usePlatformMessages();
   const [open, setOpen] = useState<string | null>(null);
   if (platform.isLoading) {
     return (
       <div className="flex h-[30vh] items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (platform.isError) {
+    return (
+      <div className="rounded-md border bg-card">
+        <SectionError onRetry={() => void platform.refetch()} />
       </div>
     );
   }
@@ -221,7 +264,7 @@ function PlatformMessages() {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  {!m.readAt && (
+                  {(!m.readAt || newIds.has(m.id)) && (
                     <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Nuevo" />
                   )}
                   <span className="truncate font-medium">{m.subject}</span>
@@ -246,16 +289,11 @@ function PlatformMessages() {
                         key={`${m.id}-${i}`}
                         size="sm"
                         variant="outline"
-                        onClick={async () => {
-                          try {
-                            const r = await apiFetch<{ url: string }>(
-                              `/support/platform-messages/${m.id}/attachments/${i}`,
-                            );
-                            window.open(r.url, '_blank', 'noopener');
-                          } catch {
-                            toast.error('No se pudo descargar el adjunto.');
-                          }
-                        }}
+                        onClick={() =>
+                          void downloadPlatformAttachment(
+                            `/support/platform-messages/${m.id}/attachments/${i}`,
+                          )
+                        }
                       >
                         <Paperclip className="mr-1.5 size-3.5" />
                         {f.name}
@@ -293,28 +331,63 @@ function PlatformMessages() {
   );
 }
 
+/**
+ * Abre el adjunto en otra pestaña. La pestaña se abre en el mismo clic y luego
+ * se le pone la dirección: si se abre después de esperar al servidor, Safari
+ * (sobre todo en el iPhone) la bloquea.
+ */
+async function downloadPlatformAttachment(path: string): Promise<void> {
+  const win = window.open('', '_blank');
+  try {
+    const r = await apiFetch<{ url: string }>(path);
+    if (win) {
+      win.opener = null;
+      win.location.href = r.url;
+    } else {
+      window.location.href = r.url;
+    }
+  } catch {
+    win?.close();
+    toast.error('No se ha podido descargar el adjunto. Vuelve a intentarlo.');
+  }
+}
+
+const EMPTY_TICKET: CreateSupportTicketInput = {
+  subject: '',
+  body: '',
+  priority: 'normal',
+  category: '',
+};
+
 function CreateTicketDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const create = useCreateSupportTicket();
   const [files, setFiles] = useState<File[]>([]);
   const form = useForm<CreateSupportTicketInput>({
     resolver: zodResolver(CreateSupportTicketSchema),
-    defaultValues: { subject: '', body: '', priority: 'normal', category: '' },
+    defaultValues: EMPTY_TICKET,
   });
+
+  /** Cancelar (o crearlo) deja el formulario vacío para la próxima vez. */
+  function close() {
+    form.reset(EMPTY_TICKET);
+    setFiles([]);
+    onClose();
+  }
 
   async function onSubmit(values: CreateSupportTicketInput) {
     try {
       const attachments = await uploadMessageAttachments(files, presignTicketAttachment);
       await create.mutateAsync({ ...values, attachments });
       toast.success('Ticket creado. Te avisaremos cuando respondamos.');
-      form.reset({ subject: '', body: '', priority: 'normal', category: '' });
-      setFiles([]);
-      onClose();
+      close();
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
-      else toast.error('Error de red.');
+      else
+        toast.error('No se ha podido crear el ticket. Revisa tu conexión y vuelve a intentarlo.');
     }
   }
 
+  // Un clic fuera o Escape lo cierran sin borrar lo escrito; «Cancelar» lo descarta.
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-lg">
@@ -402,7 +475,7 @@ function CreateTicketDialog({ open, onClose }: { open: boolean; onClose: () => v
               {files.length === 0 && <span>Puedes adjuntar una captura de pantalla o un PDF.</span>}
             </div>
             <DialogFooter>
-              <Button type="button" variant="ghost" onClick={onClose}>
+              <Button type="button" variant="ghost" onClick={close}>
                 Cancelar
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>

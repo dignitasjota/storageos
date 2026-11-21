@@ -648,7 +648,11 @@ export interface SupportTicketDto {
   /** Valoración del tenant (1-5). */
   rating?: number | null;
   ratingComment?: string | null;
+  /** Por qué se cerró: lo cerró el tenant, el soporte o se cerró por falta de respuesta. */
+  closedReason?: SupportTicketClosedReason | null;
 }
+
+export type SupportTicketClosedReason = 'tenant' | 'admin' | 'inactivity';
 
 export interface SupportTicketMessageDto {
   id: string;

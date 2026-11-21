@@ -404,6 +404,12 @@ describe('Mejoras de la mensajería (e2e)', () => {
     const id = await newTicket();
     const early = await api().post(`/support/tickets/${id}/rating`).set(auth).send({ score: 5 });
     expect(early.status).toBe(400);
+    // Se valora la atención: hace falta que el soporte haya respondido.
+    await api()
+      .post(`/admin/support/tickets/${id}/messages`)
+      .set(adminAuth)
+      .send({ body: 'Mirado, ya está.', isInternal: false })
+      .expect(201);
     await api().post(`/support/tickets/${id}/close`).set(auth).expect(200);
     const rated = await api()
       .post(`/support/tickets/${id}/rating`)

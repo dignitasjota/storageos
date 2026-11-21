@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
+import { pageArgs, toPage, type PageRequest } from '../../common/pagination';
 import { tenantFeatures } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
@@ -9,6 +10,7 @@ import { FilesService } from '../files/files.service';
 
 import type {
   AdminProductUpdateDto,
+  PageDto,
   ProductUpdateCategory,
   ProductUpdateDto,
   TenantFeature,
@@ -30,8 +32,32 @@ type Row = {
   createdBy?: { fullName: string } | null;
 };
 
-/** Cuántas novedades se muestran en el panel del tenant. */
+/** Cuántas novedades devuelve la lista sin paginar del panel del tenant. */
 const TENANT_LIMIT = 50;
+
+/**
+ * La ventana de la novedad destacada solo sale para novedades recientes: una
+ * destacada de hace meses que el usuario no abrió no se le enseña al entrar.
+ */
+const HIGHLIGHT_MAX_AGE_DAYS = 30;
+
+type TenantRow = {
+  id: string;
+  title: string;
+  body: string;
+  category: string;
+  feature: string | null;
+  link: string | null;
+  publishedAt: Date | null;
+  imageKey: string | null;
+  highlighted: boolean;
+};
+
+/** Página de novedades con la fecha hasta la que el usuario ya las había leído. */
+export type ProductUpdatesPageDto = PageDto<ProductUpdateDto> & {
+  /** Lo publicado después es «sin leer» (ISO); se calcula antes de marcar como vistas. */
+  readUntil: string;
+};
 
 /**
  * «Novedades» de la plataforma: el super admin las escribe (Markdown) y las
@@ -154,36 +180,61 @@ export class ProductUpdatesService {
   // --- Tenant ---
 
   async listForUser(tenantId: string, userId: string): Promise<ProductUpdateDto[]> {
-    const [rows, seenAt, features] = await Promise.all([
+    const [rows, readUntil, features] = await Promise.all([
       this.admin.productUpdate.findMany({
-        where: { publishedAt: { not: null, lte: new Date() } },
-        orderBy: { publishedAt: 'desc' },
+        where: this.publishedWhere(),
+        orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
         take: TENANT_LIMIT,
       }),
-      this.seenAt(tenantId, userId),
+      this.readUntil(tenantId, userId),
       tenantFeatures(this.admin, tenantId),
     ]);
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      body: r.body,
-      category: r.category as ProductUpdateCategory,
-      feature: (r.feature as TenantFeature | null) ?? null,
-      featureIncluded: r.feature ? features.includes(r.feature as TenantFeature) : null,
-      link: r.link,
-      publishedAt: r.publishedAt!.toISOString(),
-      highlighted: r.highlighted,
-      imageUrl: this.imageUrl(r.imageKey),
-      unread: !seenAt || r.publishedAt! > seenAt,
-    }));
+    return rows.map((r) => this.toTenantDto(r, readUntil, features));
+  }
+
+  /** Novedades publicadas por páginas (cursor = id de la última vista). */
+  async pageForUser(
+    tenantId: string,
+    userId: string,
+    page: PageRequest,
+  ): Promise<ProductUpdatesPageDto> {
+    const [rows, readUntil, features] = await Promise.all([
+      this.admin.productUpdate.findMany({
+        where: this.publishedWhere(),
+        orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+        ...pageArgs(page),
+      }),
+      this.readUntil(tenantId, userId),
+      tenantFeatures(this.admin, tenantId),
+    ]);
+    const result = toPage(
+      rows.map((r) => this.toTenantDto(r, readUntil, features)),
+      page,
+    );
+    return { ...result, readUntil: readUntil.toISOString() };
+  }
+
+  /**
+   * La novedad destacada que se enseña al entrar al panel: la más reciente,
+   * sin leer y publicada en los últimos días (null si no hay ninguna).
+   */
+  async highlightedForUser(tenantId: string, userId: string): Promise<ProductUpdateDto | null> {
+    const readUntil = await this.readUntil(tenantId, userId);
+    const recentFrom = new Date(Date.now() - HIGHLIGHT_MAX_AGE_DAYS * 86_400_000);
+    const since = readUntil > recentFrom ? readUntil : recentFrom;
+    const row = await this.admin.productUpdate.findFirst({
+      where: { highlighted: true, publishedAt: { gt: since, lte: new Date() } },
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+    });
+    if (!row) return null;
+    const features = await tenantFeatures(this.admin, tenantId);
+    return this.toTenantDto(row, readUntil, features);
   }
 
   async unreadCount(tenantId: string, userId: string): Promise<{ count: number }> {
-    const seenAt = await this.seenAt(tenantId, userId);
+    const readUntil = await this.readUntil(tenantId, userId);
     const count = await this.admin.productUpdate.count({
-      where: {
-        publishedAt: seenAt ? { gt: seenAt, lte: new Date() } : { not: null, lte: new Date() },
-      },
+      where: { publishedAt: { gt: readUntil, lte: new Date() } },
     });
     return { count };
   }
@@ -199,16 +250,42 @@ export class ProductUpdatesService {
     );
   }
 
-  private async seenAt(tenantId: string, userId: string): Promise<Date | null> {
+  /**
+   * Hasta cuándo el usuario ya tiene leídas las novedades: la última vez que
+   * abrió «Novedades» o, si nunca lo ha hecho, su alta (como Soporte y los
+   * mensajes de TrasterOS): a quien llega nuevo no se le enseña todo el
+   * historial como sin leer.
+   */
+  private async readUntil(tenantId: string, userId: string): Promise<Date> {
     const user = await this.prisma.withTenant(
       (tx) =>
         tx.user.findFirst({
           where: { id: userId, tenantId },
-          select: { productUpdatesSeenAt: true },
+          select: { productUpdatesSeenAt: true, createdAt: true },
         }),
       tenantId,
     );
-    return user?.productUpdatesSeenAt ?? null;
+    return user?.productUpdatesSeenAt ?? user?.createdAt ?? new Date(0);
+  }
+
+  private publishedWhere() {
+    return { publishedAt: { not: null, lte: new Date() } };
+  }
+
+  private toTenantDto(r: TenantRow, readUntil: Date, features: TenantFeature[]): ProductUpdateDto {
+    return {
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      category: r.category as ProductUpdateCategory,
+      feature: (r.feature as TenantFeature | null) ?? null,
+      featureIncluded: r.feature ? features.includes(r.feature as TenantFeature) : null,
+      link: r.link,
+      publishedAt: r.publishedAt!.toISOString(),
+      highlighted: r.highlighted,
+      imageUrl: this.imageUrl(r.imageKey),
+      unread: r.publishedAt! > readUntil,
+    };
   }
 
   private fields(input: UpsertProductUpdateInput) {

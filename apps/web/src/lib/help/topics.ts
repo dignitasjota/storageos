@@ -1,3 +1,5 @@
+import type { TenantFeature } from '@storageos/shared';
+
 export type HelpTopic = {
   /** Ancla de la guía (`/help#id`). */
   id: string;
@@ -9,6 +11,8 @@ export type HelpTopic = {
   links: { label: string; href: string }[];
   /** Palabras que también deben encontrar la guía. */
   keywords?: string;
+  /** Función del plan que necesita lo que explica la guía (si no la tiene, se avisa). */
+  feature?: TenantFeature;
 };
 
 /** Guías cortas: qué pasa solo y qué haces tú. */
@@ -76,6 +80,47 @@ export const HELP_TOPICS: HelpTopic[] = [
     keywords: 'equipo averia ronda checklist',
   },
   {
+    id: 'vencimientos',
+    group: 'Día a día',
+    title: 'Vencimientos y avisos',
+    summary: 'Que no se te pase un seguro, una revisión o un impuesto.',
+    steps: [
+      'Apunta cada vencimiento de tu negocio con su fecha y cada cuánto se repite; hay plantillas con los plazos fiscales habituales para empezar.',
+      'Te avisamos con antelación en el panel y por correo, a las personas del equipo que elijas y, si quieres, a correos de fuera.',
+      'Al marcarlo como hecho puedes apuntar el gasto y el justificante, y pasa solo a su siguiente fecha.',
+    ],
+    links: [{ label: 'Vencimientos', href: '/reminders' }],
+    keywords: 'recordatorio aviso plazo impuesto seguro revision itv calendario fiscal',
+    feature: 'business_reminders',
+  },
+  {
+    id: 'lista-espera',
+    group: 'Día a día',
+    title: 'Lista de espera',
+    summary: 'Clientes que esperan un tamaño que ahora no tienes libre.',
+    steps: [
+      'Si no te queda el tamaño que buscan, apuntas al cliente; también se apunta él desde tu web con «Avísame».',
+      'Cuando queda libre un trastero de ese tamaño, se avisa al primero de la cola y se le guarda unas horas; si no responde, pasa al siguiente.',
+      'Cuando acepta, creas el contrato desde la propia lista.',
+    ],
+    links: [{ label: 'Lista de espera', href: '/waitlist' }],
+    keywords: 'cola espera avisame agotado sin stock reservar',
+  },
+  {
+    id: 'camaras',
+    group: 'Día a día',
+    title: 'Cámaras y alarma',
+    summary: 'Los avisos de tus cámaras y de la alarma, en el panel.',
+    steps: [
+      'Añade cada cámara o central de alarma: te damos una dirección y un código para configurarlo en el equipo.',
+      'Sus avisos llegan a «Últimos eventos», con foto si el equipo la manda, y las alarmas te avisan en el panel.',
+      'Desde un evento creas una incidencia; si conectas el equipo, puedes pedir una captura o armar y desarmar la alarma.',
+    ],
+    links: [{ label: 'Cámaras', href: '/cameras' }],
+    keywords: 'camara alarma videovigilancia dahua nvr evento captura',
+    feature: 'cameras',
+  },
+  {
     id: 'cobrar',
     group: 'Cobros y facturas',
     title: 'Cobrar cada mes',
@@ -109,6 +154,19 @@ export const HELP_TOPICS: HelpTopic[] = [
     keywords: 'moroso deuda dunning recargo plan de pagos',
   },
   {
+    id: 'caja',
+    group: 'Cobros y facturas',
+    title: 'Cierre de caja',
+    summary: 'Cuadrar lo cobrado en el local cada día.',
+    steps: [
+      'En Cierre de caja ves lo cobrado en el día por forma de pago y el efectivo que debería haber.',
+      'Apunta también el fondo de cambio y lo que llevas al banco, cuenta el efectivo y cierra: queda la diferencia y un PDF para firmar.',
+      'Si falta algo por apuntar, reabre la caja, regístralo y vuelve a cerrarla.',
+    ],
+    links: [{ label: 'Cierre de caja', href: '/cash' }],
+    keywords: 'caja efectivo arqueo cierre dia descuadre',
+  },
+  {
     id: 'domiciliacion',
     group: 'Cobros y facturas',
     title: 'Domiciliación y banco',
@@ -139,6 +197,23 @@ export const HELP_TOPICS: HelpTopic[] = [
       { label: 'Veri*Factu', href: '/settings/billing/verifactu' },
     ],
     keywords: 'aeat iva 303 347 certificado asesoria holded',
+  },
+  {
+    id: 'verifactu',
+    group: 'Cobros y facturas',
+    title: 'Veri*Factu paso a paso',
+    summary: 'Enviar tus facturas a la AEAT.',
+    steps: [
+      'Rellena la razón social, el NIF y el domicilio fiscal de tu empresa.',
+      'En Veri*Factu sube tu certificado digital (archivo .p12 o .pfx) con su contraseña.',
+      'El propietario lo activa: desde entonces cada factura lleva el QR de la AEAT y se envía sola. Una vez activado, sigue así hasta el 31 de diciembre.',
+      'En la misma página ves los envíos y las facturas que la AEAT haya rechazado.',
+    ],
+    links: [
+      { label: 'Datos de tu empresa', href: '/settings/company' },
+      { label: 'Veri*Factu', href: '/settings/billing/verifactu' },
+    ],
+    keywords: 'verifactu aeat certificado digital fnmt qr hacienda envio factura',
   },
   {
     id: 'web',
@@ -190,6 +265,39 @@ export const HELP_TOPICS: HelpTopic[] = [
     keywords: 'portal inquilino app',
   },
   {
+    id: 'mensajes',
+    group: 'Clientes y ventas',
+    title: 'Mensajes con los inquilinos',
+    summary: 'Todas las conversaciones en una bandeja.',
+    steps: [
+      'En Mensajes tienes lo que escriben tus inquilinos desde su área de clientes, el chat de tu web y, si lo tienes, WhatsApp.',
+      'Cada conversación tiene responsable y estado; puedes dejar notas internas que el inquilino no ve y usar respuestas guardadas.',
+      'Fuera de tu horario de atención puede salir sola una respuesta automática.',
+    ],
+    links: [
+      { label: 'Mensajes', href: '/messages' },
+      { label: 'Horario y respuestas', href: '/settings/messages' },
+    ],
+    keywords: 'chat conversacion bandeja responder nota interna respuesta guardada',
+  },
+  {
+    id: 'whatsapp',
+    group: 'Clientes y ventas',
+    title: 'WhatsApp Business',
+    summary: 'Atiende el WhatsApp de tu negocio desde el panel.',
+    steps: [
+      'Conecta el número de tu negocio en Configuración → WhatsApp y actívalo; en tu web aparece el botón de WhatsApp.',
+      'Los mensajes llegan a la bandeja de WhatsApp. Si el cliente lleva más de 24 horas sin escribir, solo puedes enviarle una plantilla aprobada por Meta.',
+      'Si activas el asistente automático, responde con los datos de tu web, puede preparar reservas y pasa la conversación a una persona cuando hace falta.',
+    ],
+    links: [
+      { label: 'Bandeja de WhatsApp', href: '/whatsapp' },
+      { label: 'Configurar WhatsApp', href: '/settings/whatsapp' },
+    ],
+    keywords: 'whatsapp meta mensaje chat plantilla asistente automatico',
+    feature: 'whatsapp_business',
+  },
+  {
     id: 'seguros',
     group: 'Clientes y ventas',
     title: 'Seguros y productos',
@@ -237,6 +345,69 @@ export const HELP_TOPICS: HelpTopic[] = [
       { label: 'Contratos', href: '/contracts/import' },
     ],
     keywords: 'migrar csv excel importacion',
+  },
+  {
+    id: 'gastos',
+    group: 'Tu negocio',
+    title: 'Gastos y rentabilidad',
+    summary: 'Cuánto te cuesta cada local y cuánto ganas.',
+    steps: [
+      'Apunta cada gasto con su local, su categoría y el justificante; los que se repiten, como gastos recurrentes.',
+      'La cuenta de resultados enseña lo facturado menos los gastos de cada local.',
+      'Marca qué está pagado y fija un presupuesto por categoría. También puedes traerlos desde un Excel.',
+    ],
+    links: [
+      { label: 'Gastos', href: '/expenses' },
+      { label: 'Importar gastos', href: '/expenses/import' },
+    ],
+    keywords: 'gasto coste factura proveedor presupuesto resultado beneficio rentabilidad',
+  },
+  {
+    id: 'informes',
+    group: 'Tu negocio',
+    title: 'Informes',
+    summary: 'Tus datos en PDF o Excel, cuando los pidas o por correo.',
+    steps: [
+      'Elige un informe y su periodo y descárgalo en PDF o en Excel; cada uno se guarda 7 días.',
+      'Si lo quieres cada semana o cada mes, programa su envío por correo (hasta 5 direcciones).',
+    ],
+    links: [{ label: 'Informes', href: '/reports' }],
+    keywords: 'informe pdf excel exportar descargar correo programado',
+  },
+  {
+    id: 'asistente',
+    group: 'Tu negocio',
+    title: 'Asistente IA',
+    summary: 'Pregunta por tu negocio como se lo preguntarías a alguien.',
+    steps: [
+      'Pregúntale en lenguaje normal: ocupación, facturas vencidas, contratos que vencen, tareas abiertas…',
+      'Solo ve lo que tú puedes ver: tus permisos y tus locales.',
+      'Si le pides que haga algo, te lo propone y no se hace hasta que lo confirmas.',
+      'Las consultas tienen un límite cada mes; en la propia página del asistente ves cuántas llevas.',
+    ],
+    links: [
+      { label: 'Asistente IA', href: '/assistant' },
+      { label: 'Ajustes del asistente', href: '/settings/ai' },
+    ],
+    keywords: 'ia inteligencia artificial chat preguntar asistente',
+    feature: 'ai_assistant',
+  },
+  {
+    id: 'propietarios',
+    group: 'Tu negocio',
+    title: 'Propietarios',
+    summary: 'Si gestionas locales de otros dueños.',
+    steps: [
+      'Da de alta a cada propietario con su NIF, su cuenta y tus honorarios (un porcentaje de lo cobrado o una cuota fija).',
+      'Asígnalo en cada local: sus contratos facturan a su nombre, con su propia serie.',
+      'Cada mes sacas su liquidación (lo cobrado menos tus honorarios y los gastos de sus locales) y se la envías por correo.',
+    ],
+    links: [
+      { label: 'Propietarios', href: '/owners' },
+      { label: 'Locales', href: '/facilities' },
+    ],
+    keywords: 'propietario dueño administrador cartera liquidacion honorarios',
+    feature: 'multi_owner',
   },
   {
     id: 'equipo',

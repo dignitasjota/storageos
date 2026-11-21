@@ -2953,3 +2953,14 @@ Qué cambia para los usuarios:
 - **Preguntas frecuentes** en inglés.
 - **Protección de datos**: vista previa antes de anonimizar, fecha de recepción y motivo al denegar.
 - **Integraciones**: evento de prueba, editar webhooks, cuatro eventos nuevos y API de lectura.
+
+## 174. Revisión de Novedades, Cómo funciona y Soporte del panel del tenant: fallos (2026-11-21)
+
+Migración `20270216110000_support_ticket_closed_reason` (se aplica sola): `support_tickets.closed_reason` (`tenant`, `admin` o `inactivity`). Sin variables nuevas.
+
+Qué cambia para los usuarios:
+
+- **Novedades**: quien entra nuevo ya no ve como «sin leer» lo publicado antes de su alta, la ventana de «novedad destacada» solo sale con novedades del último mes, la marca «Sin leer» se mantiene durante la visita, «Ver» solo sale si puede abrir esa página, error con reintentar y «Cargar más».
+- **Cómo funciona**: once guías nuevas (WhatsApp, Informes, Asistente IA, Vencimientos, Gastos, Propietarios, Mensajes, Lista de espera, Cierre de caja, Cámaras y Veri\*Factu), los enlaces respetan permisos y plan, el enlace a una guía baja hasta ella y el buscador encuentra también por los enlaces y en plural.
+- **Soporte**: validaciones en español, el aviso del menú cuenta los mensajes de TrasterOS, límite de 5 tickets por hora y 20 al día por persona, motivo del cierre en la ficha, no se valora un ticket sin respuesta, quién abrió cada ticket y su categoría, «Cargar más», lista legible en el móvil y firma «Soporte de TrasterOS».
+- **Sesión de soporte (impersonación)**: entrar en el panel de un tenant ya no deja leídos sus tickets, mensajes ni novedades.

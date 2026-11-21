@@ -4,6 +4,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -26,6 +28,7 @@ import {
   attachmentsDto,
   requestAttachmentUpload,
 } from '../../common/message-attachments';
+import { pageArgs, toPage, type PageRequest } from '../../common/pagination';
 import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -43,6 +46,8 @@ import type {
   AdminSupportTicketsPageDto,
   AssignTicketInput,
   CreateSupportTicketInput,
+  PageDto,
+  SupportTicketClosedReason,
   SupportTicketDto,
   SupportTicketMessageDto,
   SupportTicketPriorityValue,
@@ -59,6 +64,11 @@ interface TenantContext {
   tenantId: string;
   userId: string;
   meta?: RequestMeta;
+  /**
+   * Es el soporte de TrasterOS entrando en nombre de esta persona: no se
+   * escribe lo que ha leído (lo leería el soporte, no ella).
+   */
+  impersonating?: boolean;
 }
 
 interface AdminContext {
@@ -85,6 +95,7 @@ type TicketWithRelations = {
   assignedAdminId: string | null;
   resolvedAt: Date | null;
   closedAt: Date | null;
+  closedReason: string | null;
   firstResponseAt: Date | null;
   rating: number | null;
   ratingComment: string | null;
@@ -111,6 +122,22 @@ type MessageRow = {
   authorUser: { fullName: string } | null;
   authorAdmin: { fullName: string } | null;
 };
+
+/** Tope de tickets nuevos por persona: cada uno avisa al soporte por panel y push. */
+export const SUPPORT_TICKETS_PER_HOUR = 5;
+export const SUPPORT_TICKETS_PER_DAY = 20;
+
+const TICKET_INCLUDE = {
+  tenant: { select: { name: true, slug: true } },
+  createdBy: { select: { fullName: true } },
+  assignedAdmin: { select: { fullName: true } },
+} as const;
+
+/** Cómo firma el soporte ante el negocio: «Ana · Soporte de TrasterOS». */
+export function supportSignature(fullName: string | null | undefined): string {
+  const first = fullName?.trim().split(/\s+/)[0];
+  return first ? `${first} · Soporte de TrasterOS` : 'Soporte de TrasterOS';
+}
 
 const VALID_TRANSITIONS: Record<SupportTicketStatusValue, SupportTicketStatusValue[]> = {
   open: ['in_progress', 'waiting_user', 'resolved', 'closed'],
@@ -200,38 +227,90 @@ export class SupportTicketsService {
     const [rows, unread] = await Promise.all([
       this.admin.supportTicket.findMany({
         where: { tenantId },
-        include: {
-          tenant: { select: { name: true, slug: true } },
-          createdBy: { select: { fullName: true } },
-          assignedAdmin: { select: { fullName: true } },
-        },
+        include: TICKET_INCLUDE,
         orderBy: { updatedAt: 'desc' },
       }),
       this.unreadByTicket(tenantId, userId),
     ]);
-    return rows.map((r) => ({ ...this.toDto(r), unreadCount: unread.get(r.id) ?? 0 }));
+    return rows.map((r) => ({ ...this.tenantDto(r), unreadCount: unread.get(r.id) ?? 0 }));
   }
 
-  /** Abrir el ticket lo deja leído para quien lo abre. */
+  /** Lo mismo por páginas (cursor = id del último ticket visto). */
+  async pageForTenant(
+    tenantId: string,
+    userId: string,
+    page: PageRequest,
+  ): Promise<PageDto<SupportTicketDto>> {
+    const [rows, unread] = await Promise.all([
+      this.admin.supportTicket.findMany({
+        where: { tenantId },
+        include: TICKET_INCLUDE,
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        ...pageArgs(page),
+      }),
+      this.unreadByTicket(tenantId, userId),
+    ]);
+    const result = toPage(rows, page);
+    return {
+      items: result.items.map((r) => ({
+        ...this.tenantDto(r),
+        unreadCount: unread.get(r.id) ?? 0,
+      })),
+      nextCursor: result.nextCursor,
+    };
+  }
+
+  /** Abrir el ticket lo deja leído para quien lo abre (no si es el soporte entrando en su nombre). */
   async detailForTenant(
     tenantId: string,
     ticketId: string,
     userId: string,
+    opts: { impersonating?: boolean } = {},
   ): Promise<SupportTicketDto> {
     const ticket = await this.findForTenant(tenantId, ticketId);
-    const messages = await this.loadMessages(ticketId, { includeInternal: false });
+    const messages = await this.loadMessages(ticketId, { includeInternal: false, forTenant: true });
+    if (!opts.impersonating) await this.markTicketRead(tenantId, ticketId, userId);
+    return { ...this.tenantDto(ticket), messages };
+  }
+
+  private async markTicketRead(tenantId: string, ticketId: string, userId: string): Promise<void> {
     const now = new Date();
     await this.admin.supportTicketRead.upsert({
       where: { ticketId_userId: { ticketId, userId } },
       create: { ticketId, userId, tenantId, lastReadAt: now },
       update: { lastReadAt: now },
     });
-    return { ...this.toDto(ticket), messages };
+  }
+
+  /** Corta la ráfaga de tickets: cada uno avisa al soporte por panel y push. */
+  private async assertCanOpenTicket(userId: string): Promise<void> {
+    const now = Date.now();
+    const [lastHour, lastDay] = await Promise.all([
+      this.admin.supportTicket.count({
+        where: { createdByUserId: userId, createdAt: { gt: new Date(now - 3_600_000) } },
+      }),
+      this.admin.supportTicket.count({
+        where: { createdByUserId: userId, createdAt: { gt: new Date(now - 86_400_000) } },
+      }),
+    ]);
+    if (lastHour >= SUPPORT_TICKETS_PER_HOUR || lastDay >= SUPPORT_TICKETS_PER_DAY) {
+      throw new HttpException(
+        {
+          code: 'too_many_tickets',
+          message:
+            lastHour >= SUPPORT_TICKETS_PER_HOUR
+              ? `Has abierto ${SUPPORT_TICKETS_PER_HOUR} tickets en la última hora. Espera un poco o añade lo que falte en uno de los que ya tienes abiertos.`
+              : `Has abierto ${SUPPORT_TICKETS_PER_DAY} tickets hoy. Añade lo que falte en uno de los que ya tienes abiertos o vuelve a intentarlo mañana.`,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   async createForTenant(
     args: TenantContext & { input: CreateSupportTicketInput },
   ): Promise<SupportTicketDto> {
+    await this.assertCanOpenTicket(args.userId);
     const attachment = await this.attachmentFields(args.tenantId, args.input);
     const created = await this.admin.supportTicket.create({
       data: {
@@ -288,7 +367,9 @@ export class SupportTicketsService {
       body: args.input.subject,
       link: `/admin/support/${created.id}`,
     });
-    return this.toDto(created);
+    // El resto del equipo lo ve en su lista sin recargar.
+    await this.publish(args.tenantId, created.id);
+    return this.tenantDto(created);
   }
 
   async addMessageAsTenant(
@@ -325,18 +406,8 @@ export class SupportTicketsService {
         authorAdmin: { select: { fullName: true } },
       },
     });
-    // Quien contesta ya ha leído lo anterior.
-    const now = new Date();
-    await this.admin.supportTicketRead.upsert({
-      where: { ticketId_userId: { ticketId: args.ticketId, userId: args.userId } },
-      create: {
-        ticketId: args.ticketId,
-        userId: args.userId,
-        tenantId: args.tenantId,
-        lastReadAt: now,
-      },
-      update: { lastReadAt: now },
-    });
+    // Quien contesta ya ha leído lo anterior (el soporte en su nombre, no).
+    if (!args.impersonating) await this.markTicketRead(args.tenantId, args.ticketId, args.userId);
     // Si el ticket estaba esperando al cliente, en curso o resuelto, vuelve a
     // open: la pelota pasa al admin (en curso se quedaba sin aviso alguno).
     if (
@@ -376,16 +447,16 @@ export class SupportTicketsService {
       link: `/admin/support/${args.ticketId}`,
     });
     await this.publish(args.tenantId, args.ticketId);
-    return await this.toMessageDto(message);
+    return await this.toMessageDto(message, { forTenant: true });
   }
 
   /** El tenant da el ticket por terminado. */
   async closeAsTenant(args: TenantContext & { ticketId: string }): Promise<SupportTicketDto> {
     const ticket = await this.findForTenant(args.tenantId, args.ticketId);
-    if (ticket.status === 'closed') return this.toDto(ticket);
+    if (ticket.status === 'closed') return this.tenantDto(ticket);
     const updated = await this.admin.supportTicket.update({
       where: { id: args.ticketId },
-      data: { status: 'closed', closedAt: new Date() },
+      data: { status: 'closed', closedAt: new Date(), closedReason: 'tenant' },
       include: {
         tenant: { select: { name: true, slug: true } },
         createdBy: { select: { fullName: true } },
@@ -409,7 +480,7 @@ export class SupportTicketsService {
       link: `/admin/support/${args.ticketId}`,
     });
     await this.publish(args.tenantId, args.ticketId);
-    return this.toDto(updated as TicketWithRelations);
+    return this.tenantDto(updated as TicketWithRelations);
   }
 
   /** Valoración del tenant, una vez resuelto o cerrado. */
@@ -425,6 +496,16 @@ export class SupportTicketsService {
     }
     if (ticket.rating !== null) {
       throw new ConflictException({ code: 'ticket_already_rated', message: 'Ya lo has valorado' });
+    }
+    // Sin una respuesta del soporte no hay atención que valorar.
+    const answered = await this.admin.supportTicketMessage.count({
+      where: { ticketId: args.ticketId, isInternal: false, authorAdminId: { not: null } },
+    });
+    if (answered === 0) {
+      throw new BadRequestException({
+        code: 'ticket_not_answered',
+        message: 'Se puede valorar cuando el soporte haya respondido en el ticket',
+      });
     }
     const updated = await this.admin.supportTicket.update({
       where: { id: args.ticketId },
@@ -447,7 +528,7 @@ export class SupportTicketsService {
         link: `/admin/support/${args.ticketId}`,
       });
     }
-    return this.toDto(updated as TicketWithRelations);
+    return this.tenantDto(updated as TicketWithRelations);
   }
 
   /**
@@ -491,7 +572,7 @@ export class SupportTicketsService {
       if (ticket.updatedAt.getTime() > now.getTime() - TICKET_WAITING_CLOSE_DAYS * day) continue;
       const done = await this.admin.supportTicket.updateMany({
         where: { id: ticket.id, status: 'waiting_user' },
-        data: { status: 'closed', closedAt: now },
+        data: { status: 'closed', closedAt: now, closedReason: 'inactivity' },
       });
       if (done.count === 0) continue;
       await this.noticeTenant(ticket, {
@@ -656,6 +737,8 @@ export class SupportTicketsService {
         status: args.input.status,
         resolvedAt: args.input.status === 'resolved' ? now : ticket.resolvedAt,
         closedAt: args.input.status === 'closed' ? now : ticket.closedAt,
+        // Al reabrirlo deja de estar cerrado por nadie.
+        closedReason: args.input.status === 'closed' ? 'admin' : null,
       },
       include: {
         tenant: { select: { name: true, slug: true } },
@@ -689,6 +772,7 @@ export class SupportTicketsService {
             : 'Si necesitas algo más, abre un ticket nuevo desde Soporte.',
       });
     }
+    await this.publish(ticket.tenantId, args.ticketId);
     return this.toDto(updated);
   }
 
@@ -924,7 +1008,7 @@ export class SupportTicketsService {
 
   private async loadMessages(
     ticketId: string,
-    opts: { includeInternal: boolean },
+    opts: { includeInternal: boolean; forTenant?: boolean },
   ): Promise<SupportTicketMessageDto[]> {
     const rows = await this.admin.supportTicketMessage.findMany({
       where: {
@@ -937,7 +1021,7 @@ export class SupportTicketsService {
       },
       orderBy: { createdAt: 'asc' },
     });
-    return Promise.all(rows.map((r) => this.toMessageDto(r)));
+    return Promise.all(rows.map((r) => this.toMessageDto(r, { forTenant: opts.forTenant })));
   }
 
   private toDto(row: TicketWithRelations): SupportTicketDto {
@@ -956,6 +1040,7 @@ export class SupportTicketsService {
       assignedAdminName: row.assignedAdmin?.fullName ?? null,
       resolvedAt: row.resolvedAt ? row.resolvedAt.toISOString() : null,
       closedAt: row.closedAt ? row.closedAt.toISOString() : null,
+      closedReason: (row.closedReason as SupportTicketClosedReason | null) ?? null,
       firstResponseAt: row.firstResponseAt ? row.firstResponseAt.toISOString() : null,
       rating: row.rating,
       ratingComment: row.ratingComment,
@@ -964,8 +1049,21 @@ export class SupportTicketsService {
     };
   }
 
-  private async toMessageDto(row: MessageRow): Promise<SupportTicketMessageDto> {
+  /** Lo que ve el negocio: el soporte firma como «Ana · Soporte de TrasterOS». */
+  private tenantDto(row: TicketWithRelations): SupportTicketDto {
+    const dto = this.toDto(row);
+    return {
+      ...dto,
+      assignedAdminName: dto.assignedAdminId ? supportSignature(dto.assignedAdminName) : null,
+    };
+  }
+
+  private async toMessageDto(
+    row: MessageRow,
+    opts: { forTenant?: boolean | undefined } = {},
+  ): Promise<SupportTicketMessageDto> {
     const attachments: MessageAttachmentDto[] = await attachmentsDto(this.files, row);
+    const adminName = row.authorAdmin?.fullName ?? null;
     return {
       id: row.id,
       ticketId: row.ticketId,
@@ -974,7 +1072,8 @@ export class SupportTicketsService {
       authorUserId: row.authorUserId,
       authorUserName: row.authorUser?.fullName ?? null,
       authorAdminId: row.authorAdminId,
-      authorAdminName: row.authorAdmin?.fullName ?? null,
+      authorAdminName:
+        opts.forTenant && row.authorAdminId ? supportSignature(adminName) : adminName,
       attachment: attachments[0] ?? null,
       attachments,
       createdAt: row.createdAt.toISOString(),

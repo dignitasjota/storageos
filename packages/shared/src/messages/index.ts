@@ -247,8 +247,16 @@ export const TICKET_WAITING_REMINDER_DAYS = 5;
 export const TICKET_WAITING_CLOSE_DAYS = 10;
 
 export const RateTicketSchema = z.object({
-  score: z.number().int().min(1).max(5),
-  comment: z.string().trim().max(1000).optional(),
+  score: z
+    .number({ invalid_type_error: 'Elige de 1 a 5 estrellas' })
+    .int('Elige de 1 a 5 estrellas')
+    .min(1, 'Elige de 1 a 5 estrellas')
+    .max(5, 'Elige de 1 a 5 estrellas'),
+  comment: z
+    .string()
+    .trim()
+    .max(1000, 'El comentario no puede pasar de 1.000 caracteres')
+    .optional(),
 });
 export type RateTicketInput = z.infer<typeof RateTicketSchema>;
 

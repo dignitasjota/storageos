@@ -45,7 +45,7 @@ export class SupportAutoCloseCron {
     const before = new Date(now.getTime() - ADMIN_MESSAGE_AUTO_CLOSE_DAYS * 86_400_000);
     const res = await this.admin.supportTicket.updateMany({
       where: { ...UNANSWERED_ADMIN_MESSAGE, status: 'waiting_user', createdAt: { lt: before } },
-      data: { status: 'closed', closedAt: now },
+      data: { status: 'closed', closedAt: now, closedReason: 'inactivity' },
     });
     return res.count;
   }
