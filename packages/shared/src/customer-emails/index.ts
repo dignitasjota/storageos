@@ -137,6 +137,7 @@ export const STAFF_EMAIL_KINDS = [
   'daily_summary',
   'facility_opened',
   'product_updates_digest',
+  'unit_cession',
 ] as const;
 export type StaffEmailKind = (typeof STAFF_EMAIL_KINDS)[number];
 
@@ -172,6 +173,11 @@ export const STAFF_EMAIL_LABELS: Record<StaffEmailKind, { label: string; descrip
     description:
       'A las 8:00, lo que toca hoy: entradas, salidas, cobros, firmas y tareas. Solo si hay algo. Lo activa cada usuario.',
   },
+  unit_cession: {
+    label: 'Trasteros cedidos',
+    description:
+      'Cuando vence pronto o ha vencido la cesión de un trastero, y el recordatorio de las cesiones sin fecha de fin. Por defecto solo al propietario.',
+  },
   product_updates_digest: {
     label: 'Resumen mensual de novedades',
     description:
@@ -201,6 +207,8 @@ export function defaultStaffNoticeForRole(role: string, kind?: StaffEmailKind): 
   if (kind === 'daily_summary') return false;
   // Las novedades de TrasterOS interesan a todo el equipo; cada uno puede quitarlas.
   if (kind === 'product_updates_digest') return true;
+  // Las cesiones las gestiona solo el propietario.
+  if (kind === 'unit_cession') return role === 'owner';
   return role === 'owner' || role === 'manager';
 }
 

@@ -25,7 +25,12 @@ type UnitRow = {
 
 const INCLUDE = { facility: { select: { name: true } } } satisfies Prisma.UnitInclude;
 
-function toIssue(u: UnitRow, expected: UnitStatusValue, reason: string): InventoryIssueDto {
+function toIssue(
+  u: UnitRow,
+  expected: UnitStatusValue,
+  reason: string,
+  opts: { fixable: boolean } = { fixable: true },
+): InventoryIssueDto {
   return {
     unitId: u.id,
     code: u.code,
@@ -34,6 +39,8 @@ function toIssue(u: UnitRow, expected: UnitStatusValue, reason: string): Invento
     currentStatus: u.status as UnitStatusValue,
     expectedStatus: expected,
     reason,
+    fixable: opts.fixable,
+    link: opts.fixable ? null : `/units/${u.id}`,
   };
 }
 
@@ -69,6 +76,14 @@ export class InventoryService {
       throw new ConflictException({
         code: 'no_inventory_issue',
         message: 'Este trastero ya no tiene ningún descuadre',
+      });
+    }
+    // Una cesión viva con el trastero en otro estado no se arregla cambiando el
+    // estado: se cede de nuevo o se termina la cesión desde la ficha.
+    if (!issue.fixable) {
+      throw new ConflictException({
+        code: 'inventory_issue_needs_action',
+        message: 'Este descuadre se arregla desde la ficha del trastero',
       });
     }
     await this.admin.$transaction(async (tx) => {
@@ -160,7 +175,24 @@ export class InventoryService {
       contracts: { some: { ...LIVE_CONTRACT, ...STARTED_CONTRACT_WHERE } },
     });
 
-    return [
+    // (5) Una cesión viva con el trastero en otro estado → hay que decidir en
+    // la ficha (cederlo de nuevo no se hace cambiando el estado a mano).
+    const cessionNotCeded = await find({
+      status: { not: 'ceded' },
+      cessions: { some: { endedAt: null } },
+    });
+    // (6) Cedido sin ninguna cesión viva → disponible (sus códigos sueltos los
+    // revoca el repaso de accesos).
+    const cededOrphan = await find({
+      status: 'ceded',
+      cessions: { none: { endedAt: null } },
+    });
+
+    const issues = [
+      ...cessionNotCeded.map((u) =>
+        toIssue(u, 'ceded', 'Tiene una cesión en curso y no está cedido', { fixable: false }),
+      ),
+      ...cededOrphan.map((u) => toIssue(u, 'available', 'Cedido sin ninguna cesión en curso')),
       ...occupiedNoContract.map((u) =>
         toIssue(u, 'available', 'Ocupado sin ningún contrato activo'),
       ),
@@ -172,5 +204,8 @@ export class InventoryService {
       ),
       ...blockedWithContract.map((u) => toIssue(u, 'occupied', 'Tiene un contrato en vigor')),
     ];
+    // Un trastero, un descuadre: la cesión manda (es lo que hay que decidir).
+    const seen = new Set<string>();
+    return issues.filter((i) => (seen.has(i.unitId) ? false : (seen.add(i.unitId), true)));
   }
 }

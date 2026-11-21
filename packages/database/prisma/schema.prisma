@@ -1631,7 +1631,8 @@ model UnitCession {
   holderPhone        String?    @map("holder_phone")
   customerId         String?    @map("customer_id") @db.Uuid
   startsOn           DateTime   @map("starts_on") @db.Date
-  endsOn             DateTime   @map("ends_on") @db.Date
+  /// Null = sin fecha de fin («hasta nuevo aviso»): no vence nunca.
+  endsOn             DateTime?  @map("ends_on") @db.Date
   notes              String?
   accessCredentialId String?    @map("access_credential_id") @db.Uuid
   /// Estado del trastero antes de cederlo.
@@ -1643,6 +1644,15 @@ model UnitCession {
   endedUnitStatus    UnitStatus? @map("ended_unit_status")
   expiringNotifiedAt DateTime?  @map("expiring_notified_at") @db.Timestamptz(6)
   expiredNotifiedAt  DateTime?  @map("expired_notified_at") @db.Timestamptz(6)
+  /// Días de antelación del aviso «vence pronto» (0, 3, 7, 15 o 30).
+  noticeDays         Int        @default(7) @map("notice_days")
+  /// Aviso de una vencida pospuesto hasta este momento.
+  snoozedUntil       DateTime?  @map("snoozed_until") @db.Timestamptz(6)
+  /// Sin fecha de fin: cada cuántos meses se recuerda (1, 3, 6 o 12).
+  reviewEveryMonths  Int?       @map("review_every_months")
+  lastReviewNotifiedAt DateTime? @map("last_review_notified_at") @db.Timestamptz(6)
+  /// Motivo con que se terminó (p. ej. «Pasa a contrato»).
+  endedReason        String?    @map("ended_reason")
   createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4994,6 +5004,7 @@ model AccessLog {
   @@index([tenantId, customerId, occurredAt(sort: Desc)])
   @@index([tenantId, deviceId, occurredAt(sort: Desc)])
   @@index([tenantId, result])
+  @@index([credentialId, occurredAt(sort: Desc)])
   @@map("access_logs")
 }
 

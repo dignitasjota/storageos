@@ -68,7 +68,7 @@ interface PlanUnit {
   typeName: string;
   typeId: string;
   /** Cedido: a quién y si la cesión ya venció. */
-  cession: { holderName: string; endsOn: string; expired: boolean } | null;
+  cession: { holderName: string; endsOn: string | null; expired: boolean } | null;
 }
 
 /** Tramos de tamaño del filtro del plano. */
@@ -109,7 +109,7 @@ function planUnit(u: {
   basePriceMonthly: number;
   unitTypeName: string;
   unitTypeId: string;
-  cession?: { holderName: string; endsOn: string; expired: boolean } | null;
+  cession?: { holderName: string; endsOn: string | null; expired: boolean } | null;
 }): PlanUnit {
   return {
     id: u.id,
@@ -690,8 +690,10 @@ function SelectedUnitPanel({
         </p>
         {unit.cession && (
           <p className="text-xs">
-            Cedido a <span className="font-medium">{unit.cession.holderName}</span> · hasta el{' '}
-            {formatDate(unit.cession.endsOn)}
+            Cedido a <span className="font-medium">{unit.cession.holderName}</span> ·{' '}
+            {unit.cession.endsOn
+              ? `hasta el ${formatDate(unit.cession.endsOn)}`
+              : 'sin fecha de fin'}
             {unit.cession.expired && (
               <span className="ml-2 font-medium text-rose-700 dark:text-rose-400">
                 Cesión vencida

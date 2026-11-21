@@ -31,4 +31,10 @@ describe('resolveUserEmailNotices', () => {
       resolveUserEmailNotices({ product_updates_digest: false }, 'staff').product_updates_digest,
     ).toBe(false);
   });
+
+  it('los avisos de las cesiones, por defecto solo al propietario', () => {
+    expect(resolveUserEmailNotices({}, 'owner').unit_cession).toBe(true);
+    expect(resolveUserEmailNotices({}, 'manager').unit_cession).toBe(false);
+    expect(resolveUserEmailNotices({}, 'staff').unit_cession).toBe(false);
+  });
 });

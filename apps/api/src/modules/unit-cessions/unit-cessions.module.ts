@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { AccessModule } from '../access/access.module';
 import { AuthModule } from '../auth/auth.module';
+import { CustomerEmailsModule } from '../customer-emails/customer-emails.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 import { CessionsListController, UnitCessionsController } from './unit-cessions.controller';
@@ -14,7 +15,7 @@ import { UnitCessionsService } from './unit-cessions.service';
  * avisos de vencimiento solo corren donde corren los workers.
  */
 @Module({
-  imports: [AuthModule, AccessModule, NotificationsModule],
+  imports: [AuthModule, AccessModule, NotificationsModule, CustomerEmailsModule],
   controllers: [UnitCessionsController, CessionsListController],
   providers: [UnitCessionsService, ...(WORKERS_ENABLED_IN_API ? [UnitCessionsCron] : [])],
   exports: [UnitCessionsService],

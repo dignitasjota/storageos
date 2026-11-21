@@ -82,7 +82,8 @@ export const UNIT_INCLUDE = {
 
 type LiveCessionRow = {
   holderName: string | null;
-  endsOn: Date;
+  /** Null = sin fecha de fin. */
+  endsOn: Date | null;
   customer: {
     customerType: string;
     firstName: string | null;
@@ -1014,7 +1015,7 @@ export class UnitsService {
   }
 
   private cessionSummary(c: LiveCessionRow, timezone?: string): UnitCessionSummaryDto {
-    const endsOn = c.endsOn.toISOString().slice(0, 10);
+    const endsOn = c.endsOn ? c.endsOn.toISOString().slice(0, 10) : null;
     const today = todayInTimezone(timezone ?? 'Europe/Madrid')
       .toISOString()
       .slice(0, 10);
@@ -1026,8 +1027,9 @@ export class UnitsService {
     return {
       holderName: c.holderName ?? name ?? '',
       endsOn,
-      // El día de fin aún está en plazo: vencida desde el día siguiente.
-      expired: endsOn < today,
+      // El día de fin aún está en plazo: vencida desde el día siguiente. Sin
+      // fecha de fin no vence nunca.
+      expired: endsOn !== null && endsOn < today,
     };
   }
 

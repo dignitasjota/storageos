@@ -1,6 +1,7 @@
 'use client';
 
 import { AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -51,18 +52,32 @@ export function InventoryIssuesBanner() {
             className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900 dark:text-amber-200"
           >
             <span>
-              <strong>{i.code}</strong> ({i.facilityName}) · {i.reason} · debería estar{' '}
-              <strong>{STATUS_LABELS[i.expectedStatus] ?? i.expectedStatus}</strong>
+              <strong>{i.code}</strong> ({i.facilityName}) · {i.reason}
+              {i.fixable && (
+                <>
+                  {' '}
+                  · debería estar{' '}
+                  <strong>{STATUS_LABELS[i.expectedStatus] ?? i.expectedStatus}</strong>
+                </>
+              )}
             </span>
-            {canManage && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={change.isPending}
-                onClick={() => void fix(i.unitId)}
-              >
-                Corregir a {STATUS_LABELS[i.expectedStatus] ?? i.expectedStatus}
+            {!i.fixable && i.link ? (
+              // Una cesión no se arregla cambiando el estado: en la ficha se
+              // termina o se decide qué hacer.
+              <Button size="sm" variant="outline" asChild>
+                <Link href={i.link}>Ver el trastero</Link>
               </Button>
+            ) : (
+              canManage && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={change.isPending}
+                  onClick={() => void fix(i.unitId)}
+                >
+                  Corregir a {STATUS_LABELS[i.expectedStatus] ?? i.expectedStatus}
+                </Button>
+              )
             )}
           </li>
         ))}

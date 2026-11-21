@@ -69,7 +69,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { apiFetch, ApiError } from '@/lib/auth/api';
-import { useHasPermission, useMe, usePermissions } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission, useMe, usePermissions } from '@/lib/auth/hooks';
 import { useBulkRemindInvoices, useChargeInvoice } from '@/lib/billing/hooks';
 import { useRenewContract, useRequestSignature } from '@/lib/customers/hooks';
 import { useToday, useTodayExtras, useTodaySummary } from '@/lib/dashboard/hooks';
@@ -78,6 +78,7 @@ import { useFacilityFilterState } from '@/lib/facilities/store';
 import { useUpdateFollowup } from '@/lib/followups/hooks';
 import { useUpdateLeadFollowup } from '@/lib/leads/hooks';
 import { useTransitionTask } from '@/lib/operations/hooks';
+import { useExtendCession } from '@/lib/unit-cessions/hooks';
 
 function eur(n: number): string {
   return n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
@@ -403,6 +404,7 @@ export default function TodayPage() {
     label: string;
   } | null>(null);
   const me = useMe();
+  const cessionsOn = useHasFeature('unit_cession');
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['dashboard', 'today'] });
   const permissions = usePermissions();
   const canCollections = permissions.includes('invoices:read');
@@ -519,6 +521,23 @@ export default function TodayPage() {
       <SnoozeMenu kind="lead" refId={it.id} label={it.label} />
     </>
   );
+  // Ampliar una cesión en un clic (solo el propietario, con la función activa).
+  const extendCession = useExtendCession();
+  const canExtendCessions = me.data?.user.role === 'owner' && cessionsOn;
+  function extendCessionNow(it: TodayItemDto, months: number) {
+    void run(`cession-${months}-${it.id}`, async () => {
+      await extendCession.mutateAsync({ unitId: it.id, months });
+      toast.success(`Cesión ampliada ${months === 1 ? '1 mes' : `${months} meses`}.`);
+    });
+  }
+  const cessionActions = (it: TodayItemDto) =>
+    canExtendCessions ? (
+      <>
+        {rowButton(`cession-1-${it.id}`, '+1 mes', () => extendCessionNow(it, 1))}
+        {rowButton(`cession-3-${it.id}`, '+3 meses', () => extendCessionNow(it, 3))}
+      </>
+    ) : null;
+
   const invoiceActions = (it: TodayItemDto) => (
     <>
       {canCharge &&
@@ -977,8 +996,9 @@ export default function TodayPage() {
                     icon={Handshake}
                     count={data.cessionsExpired.count}
                     items={data.cessionsExpired.items}
-                    href="/units?status=ceded"
+                    href="/cessions?status=expired"
                     itemHref={(it) => `/units/${it.id}`}
+                    renderActions={cessionActions}
                     empty=""
                   />
                 )}
@@ -988,8 +1008,9 @@ export default function TodayPage() {
                     icon={Handshake}
                     count={data.cessionsExpiring.count}
                     items={data.cessionsExpiring.items}
-                    href="/units?status=ceded"
+                    href="/cessions?status=expiring"
                     itemHref={(it) => `/units/${it.id}`}
+                    renderActions={cessionActions}
                     empty=""
                   />
                 )}

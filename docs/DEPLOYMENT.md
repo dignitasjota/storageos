@@ -3003,3 +3003,17 @@ Sin migración ni variables nuevas.
 - No se puede borrar un local con trasteros cedidos; una cesión sin acceso puede crearlo después; el repaso de credenciales retira el código de una cesión terminada.
 - Ceder, reservar y contratar el mismo trastero a la vez ya no se cuelan (mismo candado por trastero, también en la reserva online).
 - Durante una sesión de soporte no se ve ni se cambia el código de una cesión.
+
+## 178. Trasteros cedidos: mejoras (2026-11-21)
+
+Migración `20270220100000_unit_cessions_improvements` (se aplica sola): fecha de fin opcional, días de aviso, aplazamiento, recordatorio de las cesiones sin fecha y motivo de fin. Sin variables nuevas.
+
+- **Avisos al propietario** también al móvil y por correo (tipo de aviso «Trasteros cedidos», solo propietarios, desactivable en su perfil o en Ajustes → Correo). A la persona cedida no le llega nada.
+- **Página «Cesiones»** (menú Inventario): en curso y terminadas, con filtros, buscador y CSV.
+- **Última entrada** de la persona en la tarjeta del acceso («No ha entrado en N días» a partir de 60).
+- **Ampliar en un clic** (+1 mes, +3 meses) desde «Hoy» y la página.
+- **Pasar a contrato**: termina la cesión y abre el asistente de contrato con el trastero (y el inquilino, si estaba enlazado), sin avisar a la lista de espera.
+- **Sin fecha de fin**, con recordatorio cada 1, 3, 6 o 12 meses.
+- **Avisar N días antes** (0, 3, 7, 15 o 30) y **posponer el aviso** de una vencida 7 o 30 días.
+- **Acceso 24 h** y hasta 5 códigos por cesión, cada uno con su nombre.
+- **Descuadres**: la revisión de inventario avisa de un «Cedido» sin cesión y de una cesión cuyo trastero no está cedido.

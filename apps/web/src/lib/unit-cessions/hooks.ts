@@ -1,14 +1,20 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiFetch } from '../auth/api';
 import { dashboardOccupancyKey } from '../facilities/hooks';
 
 import type {
+  CreateUnitCessionCodeInput,
   CreateUnitCessionInput,
   EndUnitCessionInput,
+  PageDto,
+  SnoozeUnitCessionInput,
   UnitCessionCodeDto,
   UnitCessionDto,
   UnitCessionListStatus,
+  UnitCessionNewCodeDto,
+  UnitCessionToContractDto,
+  UpdateUnitCessionCodeInput,
   UpdateUnitCessionInput,
 } from '@storageos/shared';
 
@@ -47,6 +53,43 @@ export function useCessions(
     queryKey: ['cessions', filters.status ?? null, filters.customerId ?? null] as const,
     queryFn: () => apiFetch<UnitCessionDto[]>(`/cessions${qs.size ? `?${qs.toString()}` : ''}`),
     enabled,
+  });
+}
+
+/** Página «Cesiones»: por estado, local y búsqueda, con «Cargar más». */
+export function useCessionsPage(
+  filters: { status: UnitCessionListStatus; search?: string; facilityId?: string },
+  enabled = true,
+) {
+  return useInfiniteQuery({
+    queryKey: [
+      'cessions',
+      'page',
+      filters.status,
+      filters.search ?? '',
+      filters.facilityId ?? null,
+    ] as const,
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => {
+      const qs = new URLSearchParams({ status: filters.status, limit: '50' });
+      if (filters.search) qs.set('search', filters.search);
+      if (filters.facilityId) qs.set('facilityId', filters.facilityId);
+      if (pageParam) qs.set('cursor', pageParam);
+      return apiFetch<PageDto<UnitCessionDto>>(`/cessions/page?${qs.toString()}`);
+    },
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled,
+  });
+}
+
+/** ¿Hay alguna cesión (viva o pasada)? Para el menú sin la función activada. */
+export function useHasAnyCession(enabled: boolean) {
+  return useQuery({
+    queryKey: ['cessions', 'page', 'any'] as const,
+    queryFn: () => apiFetch<PageDto<UnitCessionDto>>('/cessions/page?status=all&limit=1'),
+    select: (page) => page.items.length > 0,
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -119,6 +162,128 @@ export function useCreateCessionAccess(unitId: string) {
   return useMutation({
     mutationFn: () =>
       apiFetch<UnitCessionDto>(`/units/${unitId}/cession/access`, { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Amplía N meses la cesión de un trastero (desde «Hoy» o la página «Cesiones»). */
+export function useExtendCession() {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: ({ unitId, months }: { unitId: string; months: number }) =>
+      apiFetch<UnitCessionDto>(`/units/${unitId}/cession`, {
+        method: 'PATCH',
+        json: { months } satisfies UpdateUnitCessionInput,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Pospone el aviso de una cesión vencida. */
+export function useSnoozeCession() {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: ({ unitId, days }: { unitId: string } & SnoozeUnitCessionInput) =>
+      apiFetch<UnitCessionDto>(`/units/${unitId}/cession/snooze`, {
+        method: 'POST',
+        json: { days },
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Termina la cesión dejando el trastero disponible y da el asistente de contrato. */
+export function useCessionToContract(unitId: string) {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<UnitCessionToContractDto>(`/units/${unitId}/cession/to-contract`, {
+        method: 'POST',
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Ruta de un código concreto de la cesión (sin id, el principal). */
+function codePath(unitId: string, credentialId: string | null | undefined, action: string) {
+  return credentialId
+    ? `/units/${unitId}/cession/access/codes/${credentialId}${action}`
+    : `/units/${unitId}/cession/access${action}`;
+}
+
+/** Ver el código de un código concreto (sin id, el principal). */
+export function useRevealCessionCodeOf(unitId: string) {
+  return useMutation({
+    mutationFn: (credentialId: string | null) =>
+      apiFetch<UnitCessionCodeDto>(codePath(unitId, credentialId, '/code')),
+  });
+}
+
+export function useRotateCessionCodeOf(unitId: string) {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: (credentialId: string | null) =>
+      apiFetch<UnitCessionCodeDto>(codePath(unitId, credentialId, '/rotate'), {
+        method: 'POST',
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetCessionCodeAccess(unitId: string) {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: ({
+      credentialId,
+      action,
+    }: {
+      credentialId: string | null;
+      action: 'suspend' | 'resume';
+    }) =>
+      apiFetch<UnitCessionDto>(codePath(unitId, credentialId, `/${action}`), { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Acceso 24 h o nombre de un código. */
+export function useUpdateCessionCode(unitId: string) {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: ({
+      credentialId,
+      input,
+    }: {
+      credentialId: string | null;
+      input: UpdateUnitCessionCodeInput;
+    }) =>
+      apiFetch<UnitCessionDto>(codePath(unitId, credentialId, ''), {
+        method: 'PATCH',
+        json: input,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Otro código para la misma cesión. */
+export function useCreateCessionCode(unitId: string) {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: (input: CreateUnitCessionCodeInput) =>
+      apiFetch<UnitCessionNewCodeDto>(`/units/${unitId}/cession/access/codes`, {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRemoveCessionCode(unitId: string) {
+  const invalidate = useInvalidateCession();
+  return useMutation({
+    mutationFn: (credentialId: string) =>
+      apiFetch<UnitCessionDto>(`/units/${unitId}/cession/access/codes/${credentialId}`, {
+        method: 'DELETE',
+      }),
     onSuccess: invalidate,
   });
 }

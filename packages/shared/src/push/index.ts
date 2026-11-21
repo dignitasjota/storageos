@@ -65,6 +65,9 @@ export const STAFF_PUSH_TYPES: Record<string, string> = {
   'access.night_attempt': 'Alguien intenta entrar fuera de horario',
   'access.device_offline': 'Una puerta se ha quedado sin conexión',
   'business_reminder.due': 'Se acerca un vencimiento del negocio',
+  'unit.cession_expiring': 'Vence pronto la cesión de un trastero',
+  'unit.cession_expired': 'Ha vencido la cesión de un trastero',
+  'unit.cession_review': 'Sigue cedido un trastero sin fecha de fin',
   'invoice.offline_payment_chosen':
     'Un inquilino pagará por transferencia, en el local o domiciliando',
 };
