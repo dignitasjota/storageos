@@ -241,6 +241,9 @@ export interface AdminAtRiskTenantDto {
   owedPeriods?: number;
   /** Pruebas: cuánto la está usando, para decidir si llamar. */
   usage?: AdminTrialUsageDto;
+  /** Estaba apartado y ha empeorado: vuelve a salir con el motivo. */
+  reappeared?: boolean;
+  reappearedReason?: string | null;
 }
 
 export interface AdminTrialUsageDto {
@@ -1339,6 +1342,9 @@ export interface AdminAddonChargeDueDto {
   nextChargeAt: string;
   /** Días de retraso respecto a hoy (0 si vence hoy). */
   overdueDays: number;
+  /** Estaba apartado y ha empeorado: vuelve a salir con el motivo. */
+  reappeared?: boolean;
+  reappearedReason?: string | null;
 }
 
 /** Panel «Hoy» del super admin: acciones pendientes del día. */
@@ -1349,6 +1355,9 @@ export interface AdminManualRenewalDueDto {
   currentPeriodEnd: string;
   /** Días hasta el vencimiento (negativo = ya vencida). */
   daysLeft: number;
+  /** Estaba apartado y ha empeorado: vuelve a salir con el motivo. */
+  reappeared?: boolean;
+  reappearedReason?: string | null;
 }
 
 /** Add-on suspendido hace mucho (candidato a quitar definitivamente). */
@@ -1369,6 +1378,9 @@ export interface AdminFailedWebhooksDto {
   failedCount: number;
   lastFailedAt: string;
   lastError: string | null;
+  /** Estaba apartado y ha empeorado: vuelve a salir con el motivo. */
+  reappeared?: boolean;
+  reappearedReason?: string | null;
 }
 
 export interface AdminOpenTicketDto {
@@ -1379,8 +1391,13 @@ export interface AdminOpenTicketDto {
   priority: SupportTicketPriorityValue;
   /** Días desde la última actividad del ticket (lleva N días esperando). */
   waitingDays: number;
+  /** Último mensaje del tenant (o la apertura del ticket). */
+  lastTenantMessageAt: string;
   assignedAdminId: string | null;
   assignedAdminName: string | null;
+  /** Estaba apartado y ha empeorado: vuelve a salir con el motivo. */
+  reappeared?: boolean;
+  reappearedReason?: string | null;
 }
 
 /** Mensaje de la web de TrasterOS sin atender. */
@@ -1460,7 +1477,7 @@ export interface AdminTodayDto {
   openTickets: AdminOpenTicketDto[];
   /** Tenants con entregas de webhook fallidas en los últimos 7 días. */
   failedWebhooks: AdminFailedWebhooksDto[];
-  /** Nº de jobs BullMQ en estado failed (colas rotas → revisar /admin/queues). */
+  /** Trabajos de las colas que han fallado en las últimas 24 h (→ /admin/queues). */
   failedJobs: number;
   /** Tenants con facturas rechazadas o con error en la AEAT, o pendientes >48 h. */
   aeatIssues: AdminTenantIssueCountDto[];
@@ -1472,14 +1489,13 @@ export interface AdminTodayDto {
   devicesOffline: AdminTenantIssueCountDto[];
   /** Tareas programadas que no se han ejecutado cuando tocaba. */
   overdueCrons: AdminCronStatusDto[];
-  /** Nº de acciones accionables hoy (cobros + renovaciones + past_due + seguimientos + tickets + colas + incidencias). */
   /** Solicitudes del rol soporte pendientes de aprobar. */
   pendingApprovals: AdminApprovalRequestDto[];
   /** Cortesías y pruebas gratis que vencen en 7 días. */
   expiringOverrides: AdminExpiringOverrideDto[];
   /** Seguimientos de los próximos 7 días. */
   followupsUpcoming: TenantFollowupDto[];
-  /** Leads nuevos (formulario de la web o alta a mano) sin atender. */
+  /** Leads nuevos (formulario de la web o alta a mano) sin atender. Solo los sin asignar son urgentes. */
   newLeads: AdminTodayLeadDto[];
   /** Seguimientos de leads de hoy o atrasados. */
   leadFollowupsDue: PlatformLeadFollowupDto[];
@@ -1498,6 +1514,13 @@ export interface AdminTodayDto {
   kpis: AdminTodayKpisDto;
   /** Lo que ha pasado en las últimas 48 horas. */
   activity: AdminActivityItemDto[];
+  /** Secciones que no se pudieron cargar (claves de `ADMIN_TODAY_SECTION_LABELS`). */
+  failedSections: string[];
+  urgentCount: number;
+}
+
+/** Solo el número de urgentes (contador del menú). */
+export interface AdminTodayCountDto {
   urgentCount: number;
 }
 
@@ -1506,6 +1529,9 @@ export interface AdminTenantIssueCountDto {
   tenantId: string;
   tenantName: string;
   count: number;
+  /** Estaba apartado y ha empeorado: vuelve a salir con el motivo. */
+  reappeared?: boolean;
+  reappearedReason?: string | null;
 }
 
 export interface AdminCertificateExpiringDto {
@@ -1518,6 +1544,9 @@ export interface AdminCertificateExpiringDto {
   validTo: string;
   /** Días que faltan (≤0 = caducado). */
   daysLeft: number;
+  /** Estaba apartado y ha empeorado: vuelve a salir con el motivo. */
+  reappeared?: boolean;
+  reappearedReason?: string | null;
 }
 
 /** Estado de una tarea programada (cron). */

@@ -3,10 +3,13 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { adminTodayUrgentCounts } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
+import { TtlCache } from '../../common/cache/ttl-cache';
 import { todayInTimezone } from '../../common/format';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
@@ -33,14 +36,23 @@ import { AdminTodayExtrasService } from './admin-today-extras.service';
 import { FeatureExpiryService } from './feature-expiry.service';
 import { PlatformLeadsService } from './leads/platform-leads.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
+import {
+  type TodayFingerprint,
+  todayFingerprintOf,
+  todayReappearReason,
+} from './today-fingerprint';
 
 import type {
   AdminAddonChargeDueDto,
+  AdminAtRiskDto,
   AdminFailedWebhooksDto,
   AdminManualRenewalDueDto,
   AdminOpenTicketDto,
   AdminStaleSuspendedAddonDto,
   AdminTodayDto,
+  AdminTodayKpisDto,
+  AdminTodaySnoozeDto,
+  CreateTodaySnoozeInput,
   TodaySnoozeKind,
 } from '@storageos/shared';
 
@@ -61,6 +73,12 @@ const LIVE_TENANT_FOR_TICKETS = { deletedAt: null, status: { not: 'cancelled' as
 /** Orden de prioridad de los tickets (mayor = antes). */
 const PRIORITY_ORDER: Record<string, number> = { urgent: 3, high: 2, normal: 1, low: 0 };
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/** Cuánto vale la bandeja guardada (contador del menú y tarea de avisos). */
+const TODAY_CACHE_MS = process.env.NODE_ENV === 'test' ? 0 : 30_000;
+/** Fallidos recientes de las colas: los de más atrás ya no son «hoy». */
+const FAILED_JOBS_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Cuántos fallidos mira de cada cola (los más nuevos primero). */
+const FAILED_JOBS_SCAN = 500;
 
 /**
  * Bandeja «Hoy» del super admin: acciones pendientes del día. Reutiliza
@@ -71,7 +89,9 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  */
 @Injectable()
 export class AdminTodayService {
+  private readonly logger = new Logger(AdminTodayService.name);
   private readonly queues: Queue[];
+  private readonly cache = new TtlCache<AdminTodayDto>(TODAY_CACHE_MS);
 
   constructor(
     private readonly approvals: AdminApprovalsService,
@@ -109,8 +129,54 @@ export class AdminTodayService {
     ];
   }
 
-  async getToday(): Promise<AdminTodayDto> {
+  /**
+   * La bandeja «Hoy». Se guarda 30 s en memoria para el contador del menú y la
+   * tarea de avisos; la página la pide fresca (`fresh`) y las acciones de aquí
+   * (apartar, cobrar) la invalidan.
+   */
+  getToday(options: { fresh?: boolean } = {}): Promise<AdminTodayDto> {
+    if (options.fresh) this.cache.clear();
+    return this.cache.get('today', () => this.buildToday());
+  }
+
+  /** Solo el número de urgentes (contador del menú), de la bandeja guardada. */
+  async getUrgentCount(): Promise<number> {
+    return (await this.getToday()).urgentCount;
+  }
+
+  /** Olvida la bandeja guardada tras un cambio (apartar, recuperar, cobrar). */
+  invalidate(): void {
+    this.cache.clear();
+  }
+
+  private async buildToday(): Promise<AdminTodayDto> {
     const now = new Date();
+    const failedSections: string[] = [];
+    // Cada sección falla por separado: sin ella la bandeja sigue y avisa.
+    const safe = <T>(name: string, load: () => Promise<T>, fallback: T): Promise<T> =>
+      load().catch((err: unknown) => {
+        this.logger.warn(`«Hoy»: no se pudo cargar ${name}: ${(err as Error).message}`);
+        failedSections.push(name);
+        return fallback;
+      });
+    const emptyAtRisk: AdminAtRiskDto = {
+      trialExpiring: [],
+      pastDue: [],
+      inactive: [],
+      lowHealth: [],
+      snoozedCount: 0,
+    };
+    const emptyKpis: AdminTodayKpisDto = {
+      mrr: 0,
+      collected7d: 0,
+      collectedPrev7d: 0,
+      mrrPrevMonth: null,
+      newPrevMonthToDate: 0,
+      pending: 0,
+      trials: 0,
+      suspended: 0,
+      newThisMonth: 0,
+    };
     const [
       addonCharges,
       manualRenewalsDue,
@@ -130,7 +196,7 @@ export class AdminTodayService {
       kpis,
       activity,
       goals,
-      snoozes,
+      snoozeRows,
       leadsAll,
       leadFollowupsAll,
       domainsAll,
@@ -141,39 +207,64 @@ export class AdminTodayService {
       workload,
       done,
     ] = await Promise.all([
-      this.addonChargesDue(now),
-      this.manualRenewalsDue(now),
-      this.staleSuspendedAddons(now),
-      this.tenants.getAtRisk(),
-      this.followups.listPending(),
-      this.openTickets(now),
-      this.countFailedJobs(),
-      this.failedWebhooks(now),
-      this.ops.aeatIssues(now),
-      this.ops.certificatesExpiring(now),
-      this.ops.holdedReview(),
-      this.ops.devicesOffline(now),
-      this.ops.crons(now),
-      this.approvals.pending(),
-      this.featureExpiry.expiringSoon(now),
-      this.activityService.kpis(now),
-      this.activityService.activity(new Date(now.getTime() - 48 * 3_600_000), now),
-      this.business.getGoals().catch(() => null),
-      this.extras.snoozes(now),
-      this.extras.newLeads(now),
-      this.leads.followupsDue(now),
-      this.extras.domainsReady(),
-      this.extras.incompleteInvoices(now),
-      this.extras.rgpdOverdue(now),
-      this.extras.npsNegative(now),
-      this.extras.activationStalled(now),
-      this.extras.workload(),
-      this.extras.done(now),
+      safe('addonCharges', () => this.addonChargesDue(now), []),
+      safe('manualRenewalsDue', () => this.manualRenewalsDue(now), []),
+      safe('staleSuspendedAddons', () => this.staleSuspendedAddons(now), []),
+      safe('atRisk', () => this.tenants.getAtRisk(), emptyAtRisk),
+      safe('followups', () => this.followups.listPending(), []),
+      safe('openTickets', () => this.openTickets(now), []),
+      safe('failedJobs', () => this.countFailedJobs(now), 0),
+      safe('failedWebhooks', () => this.failedWebhooks(now), []),
+      safe('aeatIssues', () => this.ops.aeatIssues(now), []),
+      safe('certificatesExpiring', () => this.ops.certificatesExpiring(now), []),
+      safe('holdedReview', () => this.ops.holdedReview(), []),
+      safe('devicesOffline', () => this.ops.devicesOffline(now), []),
+      safe('crons', () => this.ops.crons(now), []),
+      safe('pendingApprovals', () => this.approvals.pending(), []),
+      safe('expiringOverrides', () => this.featureExpiry.expiringSoon(now), []),
+      safe('kpis', () => this.activityService.kpis(now), emptyKpis),
+      safe(
+        'activity',
+        () => this.activityService.activity(new Date(now.getTime() - 48 * 3_600_000), now),
+        [],
+      ),
+      safe('businessGoals', () => this.business.getGoals(), null),
+      safe('snoozes', () => this.extras.snoozeRecords(now), []),
+      safe('newLeads', () => this.extras.newLeads(now), []),
+      safe('leadFollowupsDue', () => this.leads.followupsDue(now), []),
+      safe('domainsReady', () => this.extras.domainsReady(), []),
+      safe('incompleteInvoices', () => this.extras.incompleteInvoices(now), []),
+      safe('rgpdOverdue', () => this.extras.rgpdOverdue(now), []),
+      safe('npsNegative', () => this.extras.npsNegative(now), []),
+      safe('activationStalled', () => this.extras.activationStalled(now), []),
+      safe('workload', () => this.extras.workload(), []),
+      safe('done', () => this.extras.done(now), {
+        ticketsAnswered: 0,
+        followupsDone: 0,
+        actions: [],
+      }),
     ]);
-    // Lo apartado por el equipo no sale hasta que venza.
-    const apart = new Set(snoozes.map((s) => `${s.kind}:${s.ref}`));
-    const keep = <T>(items: T[], kind: TodaySnoozeKind, ref: (item: T) => string): T[] =>
-      items.filter((item) => !apart.has(`${kind}:${ref(item)}`));
+    // Lo apartado por el equipo no sale hasta que venza, salvo que empeore:
+    // entonces vuelve con el motivo.
+    const snoozedBy = new Map(snoozeRows.map((s) => [`${s.kind}:${s.ref}`, s]));
+    const reappearedIds = new Set<string>();
+    const keep = <T extends object>(
+      items: T[],
+      kind: TodaySnoozeKind,
+      ref: (item: T) => string,
+    ): T[] =>
+      items.flatMap((item) => {
+        const snoozed = snoozedBy.get(`${kind}:${ref(item)}`);
+        if (!snoozed) return [item];
+        const reason = todayReappearReason(
+          kind,
+          snoozed.fingerprint,
+          todayFingerprintOf(kind, item),
+        );
+        if (!reason) return [];
+        reappearedIds.add(snoozed.id);
+        return [{ ...item, reappeared: true, reappearedReason: reason }];
+      });
     // Progreso de los objetivos del negocio (solo si hay alguno puesto).
     const businessGoals =
       goals && (goals.progress.mrr || goals.progress.signups || goals.progress.trialConversion)
@@ -194,7 +285,9 @@ export class AdminTodayService {
     const lists = {
       addonCharges: keep(addonCharges, 'addon_charge', (c) => c.tenantAddonId),
       manualRenewalsDue: keep(manualRenewalsDue, 'renewal', (r) => r.tenantId),
-      trialsExpiring: await this.extras.withTrialUsage(
+      trialsExpiring: await safe(
+        'trialUsage',
+        () => this.extras.withTrialUsage(keep(atRisk.trialExpiring, 'trial', (t) => t.id)),
         keep(atRisk.trialExpiring, 'trial', (t) => t.id),
       ),
       // Quien más debe, primero.
@@ -219,26 +312,17 @@ export class AdminTodayService {
       activationStalled: keep(activationAll, 'activation', (a) => a.tenantId),
     };
 
-    const urgentCount =
-      lists.addonCharges.length +
-      // Lo que aún tiene días por delante es de «Esta semana», no urgente.
-      lists.manualRenewalsDue.filter((r) => r.daysLeft <= 1).length +
-      lists.pastDue.length +
-      followupsDue.length +
-      lists.openTickets.length +
-      lists.failedWebhooks.length +
-      (failedJobs > 0 ? 1 : 0) +
-      lists.aeatIssues.length +
-      lists.certificatesExpiring.filter((c) => c.daysLeft <= 15).length +
-      lists.holdedReview.length +
-      lists.devicesOffline.length +
-      lists.overdueCrons.length +
-      pendingApprovals.length +
-      lists.expiringOverrides.filter((o) => o.daysLeft <= 1).length +
-      lists.newLeads.length +
-      lists.leadFollowupsDue.length +
-      lists.domainsReady.length +
-      lists.rgpdOverdue.length;
+    // La misma cuenta que la web usa en las pestañas: siempre cuadran.
+    const urgentCount = adminTodayUrgentCounts({
+      ...lists,
+      followupsDue,
+      failedJobs,
+      pendingApprovals,
+    }).total;
+    // Lo que ha vuelto a salir ya no está «apartado».
+    const snoozes: AdminTodaySnoozeDto[] = snoozeRows
+      .filter((s) => !reappearedIds.has(s.id))
+      .map((s) => ({ id: s.id, kind: s.kind, ref: s.ref, label: s.label, until: s.until }));
     return {
       date: now.toISOString(),
       ...lists,
@@ -252,8 +336,67 @@ export class AdminTodayService {
       kpis,
       activity,
       businessGoals,
+      failedSections,
       urgentCount,
     };
+  }
+
+  /**
+   * Aparta un aviso guardando cómo estaba: si después empeora, vuelve a salir.
+   * Si no se puede calcular la huella se aparta igual (sin volver antes).
+   */
+  async snooze(input: CreateTodaySnoozeInput, superAdminId: string): Promise<void> {
+    const fingerprint = await this.currentFingerprint(input.kind, input.ref).catch(
+      (err: unknown) => {
+        this.logger.warn(`«Hoy»: huella de ${input.kind}: ${(err as Error).message}`);
+        return null;
+      },
+    );
+    await this.extras.snooze(input, superAdminId, fingerprint);
+    this.invalidate();
+  }
+
+  async unsnooze(id: string): Promise<void> {
+    await this.extras.unsnooze(id);
+    this.invalidate();
+  }
+
+  /** Cómo está ahora el aviso que se va a apartar (solo los tipos con huella). */
+  private async currentFingerprint(
+    kind: TodaySnoozeKind,
+    ref: string,
+  ): Promise<TodayFingerprint | null> {
+    const now = new Date();
+    const pick = <T extends object>(items: T[], match: (item: T) => boolean) => {
+      const item = items.find(match);
+      return item ? todayFingerprintOf(kind, item) : null;
+    };
+    switch (kind) {
+      case 'ticket':
+        return pick(await this.openTickets(now), (t) => t.id === ref);
+      case 'past_due':
+        return pick((await this.tenants.getAtRisk()).pastDue, (t) => t.id === ref);
+      case 'webhook':
+        return pick(await this.failedWebhooks(now), (w) => w.tenantId === ref);
+      case 'device':
+        return pick(await this.ops.devicesOffline(now), (t) => t.tenantId === ref);
+      case 'aeat':
+        return pick(await this.ops.aeatIssues(now), (t) => t.tenantId === ref);
+      case 'holded':
+        return pick(await this.ops.holdedReview(), (t) => t.tenantId === ref);
+      case 'rgpd':
+        return pick(await this.extras.rgpdOverdue(now), (t) => t.tenantId === ref);
+      case 'invoice_data':
+        return pick(await this.extras.incompleteInvoices(now), (t) => t.tenantId === ref);
+      case 'addon_charge':
+        return pick(await this.addonChargesDue(now), (c) => c.tenantAddonId === ref);
+      case 'certificate':
+        return pick(await this.ops.certificatesExpiring(now), (c) => c.id === ref);
+      case 'renewal':
+        return pick(await this.manualRenewalsDue(now), (r) => r.tenantId === ref);
+      default:
+        return null;
+    }
   }
 
   /** Tickets de soporte esperando respuesta del admin (status open). */
@@ -291,6 +434,7 @@ export class AdminTodayService {
             subject: r.subject,
             priority: r.priority,
             waitingDays: Math.floor((now.getTime() - since.getTime()) / MS_PER_DAY),
+            lastTenantMessageAt: since.toISOString(),
             assignedAdminId: r.assignedAdminId,
             assignedAdminName: r.assignedAdmin?.fullName ?? null,
           },
@@ -306,18 +450,29 @@ export class AdminTodayService {
 
   /**
    * Tenants con entregas de webhook salientes en `failed` en los últimos 7 días
-   * (agotaron los reintentos): su integración está rota y conviene avisarles.
+   * (agotaron los reintentos) que siguen rotas: cada webhook cuenta solo los
+   * fallos posteriores a su última entrega correcta. Si la integración ya
+   * vuelve a funcionar, el tenant no sale.
    */
   private async failedWebhooks(now: Date): Promise<AdminFailedWebhooksDto[]> {
     const since = new Date(now.getTime() - 7 * MS_PER_DAY);
-    const groups = await this.admin.webhookDelivery.groupBy({
-      by: ['tenantId'],
-      where: { status: 'failed', createdAt: { gte: since } },
-      _count: { _all: true },
-      _max: { createdAt: true },
-    });
+    const groups = await this.admin.$queryRaw<
+      { tenant_id: string; failed: number; last_failed_at: Date }[]
+    >`
+      SELECT d.tenant_id, count(*)::int AS failed, max(d.created_at) AS last_failed_at
+      FROM webhook_deliveries d
+      LEFT JOIN (
+        SELECT webhook_id, max(created_at) AS last_ok
+        FROM webhook_deliveries
+        WHERE status = 'success'
+        GROUP BY webhook_id
+      ) ok ON ok.webhook_id = d.webhook_id
+      WHERE d.status = 'failed'
+        AND d.created_at >= ${since}
+        AND (ok.last_ok IS NULL OR d.created_at > ok.last_ok)
+      GROUP BY d.tenant_id`;
     if (groups.length === 0) return [];
-    const tenantIds = groups.map((g) => g.tenantId);
+    const tenantIds = groups.map((g) => g.tenant_id);
     const [tenants, lastErrors] = await Promise.all([
       this.admin.tenant.findMany({
         where: { id: { in: tenantIds }, deletedAt: null, status: { not: 'cancelled' } },
@@ -338,21 +493,32 @@ export class AdminTodayService {
       ]),
     );
     return groups
-      .filter((g) => names.has(g.tenantId))
+      .filter((g) => names.has(g.tenant_id))
       .map((g) => ({
-        tenantId: g.tenantId,
-        tenantName: names.get(g.tenantId) ?? '—',
-        failedCount: g._count._all,
-        lastFailedAt: (g._max.createdAt ?? now).toISOString(),
-        lastError: errors.get(g.tenantId) ?? null,
+        tenantId: g.tenant_id,
+        tenantName: names.get(g.tenant_id) ?? '—',
+        failedCount: g.failed,
+        lastFailedAt: new Date(g.last_failed_at).toISOString(),
+        lastError: errors.get(g.tenant_id) ?? null,
       }))
       .sort((a, b) => b.failedCount - a.failedCount);
   }
 
-  /** Nº total de jobs BullMQ en estado failed (colas que necesitan atención). */
-  private async countFailedJobs(): Promise<number> {
-    const counts = await Promise.all(this.queues.map((q) => q.getJobCounts('failed')));
-    return counts.reduce((sum, c) => sum + (c.failed ?? 0), 0);
+  /**
+   * Trabajos de las colas que han fallado en las últimas 24 h. Los fallidos se
+   * guardan 30 días: contarlos todos dejaba el aviso encendido un mes.
+   */
+  private async countFailedJobs(now: Date): Promise<number> {
+    const since = now.getTime() - FAILED_JOBS_WINDOW_MS;
+    const perQueue = await Promise.all(
+      this.queues.map(async (q) => {
+        const jobs = await q.getFailed(0, FAILED_JOBS_SCAN - 1);
+        return jobs.filter(
+          (job) => (job?.finishedOn ?? job?.processedOn ?? job?.timestamp ?? 0) >= since,
+        ).length;
+      }),
+    );
+    return perQueue.reduce((sum, n) => sum + n, 0);
   }
 
   /**
@@ -426,6 +592,8 @@ export class AdminTodayService {
         tenant: {
           deletedAt: null,
           billingExempt: false,
+          // Un tenant dado de baja ya no se cobra (aunque no esté borrado).
+          status: { not: 'cancelled' },
           // Con la cuota domiciliada o cobrada sola con tarjeta, los extras van
           // en el mismo cargo.
           NOT: { subscription: { billingMode: { in: ['sepa', 'redsys'] } } },
@@ -473,6 +641,7 @@ export class AdminTodayService {
           select: {
             currency: true,
             deletedAt: true,
+            status: true,
             billingExempt: true,
             subscription: { select: { billingMode: true } },
           },
@@ -499,7 +668,12 @@ export class AdminTodayService {
       row.billingMode === 'stripe' ||
       row.tenant.subscription?.billingMode === 'sepa' ||
       row.tenant.subscription?.billingMode === 'redsys';
-    if (chargedAlone || row.tenant.deletedAt || row.tenant.billingExempt) {
+    if (
+      chargedAlone ||
+      row.tenant.deletedAt ||
+      row.tenant.status === 'cancelled' ||
+      row.tenant.billingExempt
+    ) {
       throw new ConflictException({
         code: 'addon_not_chargeable',
         message: 'Este extra ya no se cobra a mano: actualiza la página.',
@@ -556,6 +730,6 @@ export class AdminTodayService {
       userAgent: actor.userAgent,
       changes: { addon: row.addon.name, amount, provider },
     });
-    return this.getToday();
+    return this.getToday({ fresh: true });
   }
 }

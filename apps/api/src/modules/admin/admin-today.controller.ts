@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -17,13 +18,12 @@ import { createZodDto } from 'nestjs-zod';
 import { Public } from '../../common/decorators/public.decorator';
 
 import { AdminAudit } from './admin-audit.decorator';
-import { AdminTodayExtrasService } from './admin-today-extras.service';
 import { AdminTodayService } from './admin-today.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 
-import type { AdminTodayDto } from '@storageos/shared';
+import type { AdminTodayCountDto, AdminTodayDto } from '@storageos/shared';
 import type { Request } from 'express';
 
 class ChargeAddonDto extends createZodDto(ChargeAddonSchema) {}
@@ -38,14 +38,18 @@ class CreateTodaySnoozeDto extends createZodDto(CreateTodaySnoozeSchema) {}
 @Controller('admin/today')
 @UseGuards(AdminGuard)
 export class AdminTodayController {
-  constructor(
-    private readonly service: AdminTodayService,
-    private readonly extras: AdminTodayExtrasService,
-  ) {}
+  constructor(private readonly service: AdminTodayService) {}
 
+  /** La bandeja entera. `?fresh=1` (la página) no usa la copia de 30 s. */
   @Get()
-  today(): Promise<AdminTodayDto> {
-    return this.service.getToday();
+  today(@Query('fresh') fresh?: string): Promise<AdminTodayDto> {
+    return this.service.getToday({ fresh: fresh === '1' || fresh === 'true' });
+  }
+
+  /** Solo el número de urgentes, para el contador del menú (copia de 30 s). */
+  @Get('count')
+  async count(): Promise<AdminTodayCountDto> {
+    return { urgentCount: await this.service.getUrgentCount() };
   }
 
   /** Aparta un aviso unos días (también el rol soporte: no cambia nada del tenant). */
@@ -56,13 +60,14 @@ export class AdminTodayController {
     @Body() input: CreateTodaySnoozeDto,
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
   ): Promise<void> {
-    await this.extras.snooze(input, admin.sub);
+    await this.service.snooze(input, admin.sub);
   }
 
+  @AdminAudit('admin.today.unsnoozed')
   @Delete('snoozes/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async unsnooze(@Param('id', new ParseUUIDPipe()) id: string): Promise<void> {
-    await this.extras.unsnooze(id);
+    await this.service.unsnooze(id);
   }
 
   @RequireSuperadmin()

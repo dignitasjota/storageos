@@ -1,8 +1,11 @@
 'use client';
 
 import {
+  adminTodaySectionLabel,
+  adminTodayUrgentCounts,
   FEATURE_LABELS,
   PLATFORM_LEAD_SOURCE_LABELS,
+  pluralEs,
   superAdminAuditLabel,
   type TodaySnoozeKind,
 } from '@storageos/shared';
@@ -27,7 +30,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import Link from 'next/link';
-import { type ReactNode, useEffect, useState } from 'react';
+import { Children, type ReactNode, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { AddManualPaymentDialog } from '../tenants/[id]/saas-payments-card';
@@ -179,6 +182,9 @@ export default function AdminTodayPage() {
   const weekCount =
     renewalsWeek.length + trialsWeek.length + overridesWeek.length + data.followupsUpcoming.length;
 
+  // Urgentes por pestaña: la misma cuenta que el servidor, así que cuadran con la
+  // cabecera (con «Lo mío», sobre lo que queda).
+  const urgent = adminTodayUrgentCounts(data);
   const opsCount =
     data.aeatIssues.length +
     data.certificatesExpiring.length +
@@ -229,6 +235,7 @@ export default function AdminTodayPage() {
             : `Vence en ${r.daysLeft} d`
       }
       snooze={{ kind: 'renewal', ref: r.tenantId, label: r.tenantName }}
+      notice={r.reappearedReason}
     />
   );
 
@@ -239,8 +246,8 @@ export default function AdminTodayPage() {
           <h1 className="text-xl font-semibold tracking-tight">Hoy</h1>
           <p className="text-sm text-muted-foreground">
             {new Date(data.date).toLocaleDateString('es-ES', { dateStyle: 'full' })}
-            {today.data.urgentCount > 0
-              ? ` · ${today.data.urgentCount} acción(es) pendiente(s)`
+            {urgent.total > 0
+              ? ` · ${pluralEs(urgent.total, 'acción urgente', 'acciones urgentes')}`
               : ''}
           </p>
           {today.data.workload.length > 0 && (
@@ -265,18 +272,40 @@ export default function AdminTodayPage() {
         </div>
       </div>
 
+      {today.data.failedSections.length > 0 && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          <span>
+            No se pudo cargar: {today.data.failedSections.map(adminTodaySectionLabel).join(', ')}.
+            El resto de la bandeja está al día.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={today.isFetching}
+            onClick={() => void today.refetch()}
+          >
+            Reintentar
+          </Button>
+        </div>
+      )}
+
       <TodayKpis kpis={today.data.kpis} />
       {today.data.businessGoals && <TodayGoals goals={today.data.businessGoals} />}
 
       <Tabs defaultValue="business">
         <TabsList>
           <TabsTrigger value="business">
-            Negocio{businessCount > 0 ? ` (${businessCount})` : ''}
+            <TabLabel label="Negocio" total={businessCount} urgent={urgent.business} />
           </TabsTrigger>
           <TabsTrigger value="week">
             Esta semana{weekCount > 0 ? ` (${weekCount})` : ''}
           </TabsTrigger>
-          <TabsTrigger value="ops">Operación{opsCount > 0 ? ` (${opsCount})` : ''}</TabsTrigger>
+          <TabsTrigger value="ops">
+            <TabLabel label="Operación" total={opsCount} urgent={urgent.ops} />
+          </TabsTrigger>
           <TabsTrigger value="activity">Actividad</TabsTrigger>
         </TabsList>
 
@@ -296,9 +325,11 @@ export default function AdminTodayPage() {
                   Extras que se cobran a mano. Registrar el cobro no toca el periodo del plan y
                   programa el siguiente un mes después de la fecha que tocaba.
                 </p>
-                {data.addonCharges.map((c) => (
-                  <AddonChargeRow key={c.tenantAddonId} charge={c} />
-                ))}
+                <ExpandableList>
+                  {data.addonCharges.map((c) => (
+                    <AddonChargeRow key={c.tenantAddonId} charge={c} />
+                  ))}
+                </ExpandableList>
               </CardContent>
             </Card>
           )}
@@ -439,6 +470,7 @@ export default function AdminTodayPage() {
                   name={t.tenantName}
                   detail={`${t.count} sin atender`}
                   snooze={{ kind: 'rgpd', ref: t.tenantId, label: t.tenantName }}
+                  notice={t.reappearedReason}
                 />
               ))}
             </SimpleCard>
@@ -456,6 +488,7 @@ export default function AdminTodayPage() {
                   name={t.tenantName}
                   detail={`${t.count} por rectificar`}
                   snooze={{ kind: 'invoice_data', ref: t.tenantId, label: t.tenantName }}
+                  notice={t.reappearedReason}
                 />
               ))}
             </SimpleCard>
@@ -591,8 +624,13 @@ export default function AdminTodayPage() {
                   key={t.tenantId}
                   id={t.tenantId}
                   name={t.tenantName}
-                  detail={`${t.count} factura(s) rechazada(s), con error o sin respuesta`}
+                  detail={pluralEs(
+                    t.count,
+                    'factura rechazada, con error o sin respuesta',
+                    'facturas rechazadas, con error o sin respuesta',
+                  )}
                   snooze={{ kind: 'aeat', ref: t.tenantId, label: t.tenantName }}
+                  notice={t.reappearedReason}
                 />
               ))}
             </SimpleCard>
@@ -614,6 +652,7 @@ export default function AdminTodayPage() {
                       : `Caduca en ${c.daysLeft} d (${fmtDate(c.validTo)})`
                   }
                   snooze={{ kind: 'certificate', ref: c.id, label: c.tenantName }}
+                  notice={c.reappearedReason}
                 />
               ))}
             </SimpleCard>
@@ -632,6 +671,7 @@ export default function AdminTodayPage() {
                   name={t.tenantName}
                   detail={`${t.count} para revisar`}
                   snooze={{ kind: 'holded', ref: t.tenantId, label: t.tenantName }}
+                  notice={t.reappearedReason}
                 />
               ))}
             </SimpleCard>
@@ -649,6 +689,7 @@ export default function AdminTodayPage() {
                   name={t.tenantName}
                   detail={`${t.count} sin señal desde hace más de 1 h`}
                   snooze={{ kind: 'device', ref: t.tenantId, label: t.tenantName }}
+                  notice={t.reappearedReason}
                 />
               ))}
             </SimpleCard>
@@ -673,7 +714,7 @@ export default function AdminTodayPage() {
 
           {data.failedWebhooks.length > 0 && (
             <SimpleCard
-              title={`Webhooks fallidos · 7 días (${data.failedWebhooks.length})`}
+              title={`Webhooks que siguen fallando (${data.failedWebhooks.length})`}
               icon={<AlertTriangle className="size-4 text-amber-500" />}
             >
               {data.failedWebhooks.map((w) => (
@@ -694,8 +735,9 @@ export default function AdminTodayPage() {
                       )}
                     </>
                   }
-                  detail={`${w.failedCount} fallo(s) · ${fmtDate(w.lastFailedAt)}`}
+                  detail={`${pluralEs(w.failedCount, 'fallo', 'fallos')} · ${fmtDate(w.lastFailedAt)}`}
                   snooze={{ kind: 'webhook', ref: w.tenantId, label: w.tenantName }}
+                  notice={w.reappearedReason}
                 />
               ))}
             </SimpleCard>
@@ -708,13 +750,14 @@ export default function AdminTodayPage() {
             >
               <div className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
                 <span>
-                  {data.failedJobs} job(s) en estado <span className="font-medium">failed</span>.
+                  {pluralEs(data.failedJobs, 'trabajo fallido', 'trabajos fallidos')} en las últimas
+                  24 h.
                 </span>
                 <Link
                   href="/admin/queues"
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  Ver colas →
+                  Ver Sistema y colas →
                 </Link>
               </div>
             </SimpleCard>
@@ -831,6 +874,7 @@ function PastDueRow({ tenant }: { tenant: AdminAtRiskTenantDto }) {
         name={tenant.name}
         detail={parts.join(' · ')}
         snooze={{ kind: 'past_due', ref: tenant.id, label: tenant.name }}
+        notice={tenant.reappearedReason}
         actions={
           canAct && (
             <>
@@ -984,6 +1028,7 @@ function TicketRow({ ticket: t }: { ticket: AdminOpenTicketDto }) {
           {t.assignedAdminName && (
             <span className="ml-1 text-xs text-muted-foreground">· {t.assignedAdminName}</span>
           )}
+          <ReappearedBadge reason={t.reappearedReason} />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <span className="text-xs text-muted-foreground">
@@ -1031,8 +1076,9 @@ function DoneToday({ done }: { done: AdminTodayDoneDto }) {
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
         <p className="text-muted-foreground">
-          {done.ticketsAnswered} respuestas a tickets · {done.followupsDone} seguimientos hechos ·{' '}
-          {done.actions.length} acciones
+          {pluralEs(done.ticketsAnswered, 'ticket respondido', 'tickets respondidos')} ·{' '}
+          {pluralEs(done.followupsDone, 'seguimiento hecho', 'seguimientos hechos')} ·{' '}
+          {pluralEs(done.actions.length, 'acción', 'acciones')}
         </p>
         <ul className="space-y-1">
           {done.actions.map((a) => (
@@ -1082,6 +1128,7 @@ function AddonChargeRow({ charge }: { charge: AdminAddonChargeDueDto }) {
         {charge.overdueDays > 0 && (
           <span className="ml-1 text-xs text-red-500">(+{charge.overdueDays} d)</span>
         )}
+        <ReappearedBadge reason={charge.reappearedReason} />
       </div>
       <div className="flex items-center gap-2">
         <span className="font-semibold tabular-nums">{eur(charge.amount, charge.currency)}</span>
@@ -1149,8 +1196,66 @@ function SimpleCard({
           </Link>
         )}
       </CardHeader>
-      <CardContent className="space-y-2">{children}</CardContent>
+      <CardContent className="space-y-2">
+        <ExpandableList>{children}</ExpandableList>
+      </CardContent>
     </Card>
+  );
+}
+
+/** Cuántas filas se ven de cada lista antes de «Ver todo». */
+const LIST_PREVIEW = 5;
+
+/** Las listas largas enseñan las 5 primeras y se despliegan con un botón. */
+function ExpandableList({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const items = Children.toArray(children);
+  if (items.length <= LIST_PREVIEW) return <>{items}</>;
+  return (
+    <>
+      {open ? items : items.slice(0, LIST_PREVIEW)}
+      <Button
+        size="sm"
+        variant="ghost"
+        className="w-full text-xs text-muted-foreground"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {open ? 'Ver menos' : `Ver todo (${items.length})`}
+      </Button>
+    </>
+  );
+}
+
+/** Pestaña con sus avisos y, aparte, cuántos son urgentes. */
+function TabLabel({ label, total, urgent }: { label: string; total: number; urgent: number }) {
+  const hint =
+    total === 0
+      ? 'Nada pendiente'
+      : `${pluralEs(total, 'aviso', 'avisos')}, ${pluralEs(urgent, 'urgente', 'urgentes')}`;
+  return (
+    <span className="flex items-center gap-1.5" title={hint}>
+      {label}
+      {total > 0 && <span className="text-muted-foreground">({total})</span>}
+      {urgent > 0 && (
+        <span
+          className="rounded-full bg-red-600 px-1.5 text-[10px] font-semibold leading-4 text-white"
+          aria-label={pluralEs(urgent, 'urgente', 'urgentes')}
+        >
+          {urgent}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Estaba apartado y ha empeorado: por qué vuelve a salir. */
+function ReappearedBadge({ reason }: { reason?: string | null | undefined }) {
+  if (!reason) return null;
+  return (
+    <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+      {reason}
+    </span>
   );
 }
 
@@ -1165,15 +1270,21 @@ function Row({
   detail,
   snooze,
   actions,
+  notice,
 }: {
   title: ReactNode;
   detail: string;
   snooze?: SnoozeTarget;
   actions?: ReactNode;
+  /** Motivo por el que un aviso apartado ha vuelto a salir. */
+  notice?: string | null | undefined;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
-      <div className="min-w-0">{title}</div>
+      <div className="min-w-0">
+        {title}
+        <ReappearedBadge reason={notice} />
+      </div>
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 text-xs text-muted-foreground">{detail}</span>
         {actions}
@@ -1189,12 +1300,14 @@ function TenantRow({
   detail,
   snooze,
   actions,
+  notice,
 }: {
   id: string;
   name: string;
   detail: string;
   snooze?: SnoozeTarget;
   actions?: ReactNode;
+  notice?: string | null | undefined;
 }) {
   return (
     <Row
@@ -1206,6 +1319,7 @@ function TenantRow({
       detail={detail}
       {...(snooze ? { snooze } : {})}
       {...(actions ? { actions } : {})}
+      notice={notice}
     />
   );
 }
