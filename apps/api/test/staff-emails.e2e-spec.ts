@@ -87,6 +87,7 @@ describe('Avisos por email al equipo (e2e)', () => {
       daily_summary: true,
       facility_opened: true,
       product_updates_digest: true,
+      unit_cession: true,
     });
     await request(app.getHttpServer())
       .patch('/settings/tenant/staff-emails')
@@ -125,6 +126,8 @@ describe('Avisos por email al equipo (e2e)', () => {
         daily_summary: false,
         facility_opened: true,
         product_updates_digest: true,
+        // Las cesiones las gestiona el propietario: activado para él.
+        unit_cession: true,
       },
       disabledByTenant: [],
     });

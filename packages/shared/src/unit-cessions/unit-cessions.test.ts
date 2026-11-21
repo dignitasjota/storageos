@@ -8,7 +8,10 @@ import {
   cessionExtendedEnd,
   cessionIsExpired,
   cessionIsExpiring,
+  cessionMonthsBetween,
+  cessionNextReview,
   cessionRemainingText,
+  cessionState,
   isRealIsoDay,
 } from './index';
 
@@ -105,5 +108,50 @@ describe('UpdateUnitCessionSchema', () => {
     );
     expect(UpdateUnitCessionSchema.safeParse({ months: 1 }).success).toBe(true);
     expect(UpdateUnitCessionSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('mejoras de las cesiones', () => {
+  it('avisa con los días elegidos', () => {
+    expect(cessionIsExpiring(10, 15)).toBe(true);
+    expect(cessionIsExpiring(1, 0)).toBe(false);
+    expect(cessionIsExpiring(0, 0)).toBe(true);
+  });
+
+  it('estado de la cesión', () => {
+    expect(cessionState({ ended: false, daysLeft: null, noticeDays: 7 })).toBe('on_time');
+    expect(cessionState({ ended: false, daysLeft: 20, noticeDays: 7 })).toBe('on_time');
+    expect(cessionState({ ended: false, daysLeft: 5, noticeDays: 7 })).toBe('expiring');
+    expect(cessionState({ ended: false, daysLeft: 0, noticeDays: 7 })).toBe('due_today');
+    expect(cessionState({ ended: false, daysLeft: -1, noticeDays: 7 })).toBe('expired');
+    expect(cessionState({ ended: true, daysLeft: null, noticeDays: 7 })).toBe('ended');
+  });
+
+  it('sin fecha de fin: ampliar cuenta desde hoy y no queda tiempo en palabras', () => {
+    expect(cessionExtendedEnd('2027-03-10', null, 1)).toBe('2027-04-10');
+    expect(cessionRemainingText('2027-03-10', null)).toBeNull();
+  });
+
+  it('recordatorio cada N meses', () => {
+    expect(cessionNextReview('2027-01-31', 3)).toBe('2027-04-30');
+    expect(cessionMonthsBetween('2027-01-15', '2027-04-14')).toBe(2);
+    expect(cessionMonthsBetween('2027-01-15', '2027-04-15')).toBe(3);
+  });
+
+  it('una sola forma de fijar el fin', () => {
+    const base = { holderName: 'Ana' };
+    expect(CreateUnitCessionSchema.safeParse({ ...base, openEnded: true }).success).toBe(true);
+    expect(CreateUnitCessionSchema.safeParse({ ...base, openEnded: true, months: 2 }).success).toBe(
+      false,
+    );
+    expect(
+      CreateUnitCessionSchema.safeParse({ ...base, months: 2, reviewEveryMonths: 3 }).success,
+    ).toBe(false);
+    expect(CreateUnitCessionSchema.safeParse({ ...base, months: 2, noticeDays: 4 }).success).toBe(
+      false,
+    );
+    expect(
+      UpdateUnitCessionSchema.safeParse({ openEnded: true, endsOn: '2027-03-01' }).success,
+    ).toBe(false);
   });
 });

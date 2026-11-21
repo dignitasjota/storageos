@@ -475,9 +475,19 @@ export class RgpdService {
         where: { customerId },
         data: { holderName: '*** ANONIMIZADO ***', holderPhone: null, notes: null },
       });
+      // Sus códigos: el principal y los demás de esas cesiones (por su id).
+      const cededIds = (
+        await tx.unitCession.findMany({ where: { customerId }, select: { id: true } })
+      ).map((c) => c.id);
       await tx.accessCredential.updateMany({
-        where: { unitCessions: { some: { customerId } } },
-        data: { holderName: '*** ANONIMIZADO ***' },
+        where: {
+          OR: [
+            { unitCessions: { some: { customerId } } },
+            ...cededIds.map((id) => ({ metadata: { path: ['cessionId'], equals: id } })),
+          ],
+        },
+        // El nombre de un código («Para Ana») también es un dato suyo.
+        data: { holderName: '*** ANONIMIZADO ***', label: null },
       });
       // Borrar metodos de pago.
       await tx.paymentMethod.deleteMany({ where: { customerId } });

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { leadSourceLabel, UNIT_CESSION_NOTICE_DAYS } from '@storageos/shared';
+import { leadSourceLabel, UNIT_CESSION_NOTICE_DAYS_OPTIONS } from '@storageos/shared';
 
 import { customerScopeWhere } from '../../common/customer-scope';
 import {
@@ -75,6 +75,9 @@ const RGPD_REQUEST_LABELS: Record<string, string> = {
   restriction: 'Pide limitar el uso de sus datos',
 };
 
+/** El mayor plazo de aviso de una cesión. */
+const UNIT_CESSION_MAX_NOTICE_DAYS = Math.max(...UNIT_CESSION_NOTICE_DAYS_OPTIONS);
+
 /** Vencimientos del negocio que salen en «Hoy»: los vencidos y los de 7 días. */
 const REMINDERS_SOON_DAYS = 7;
 
@@ -115,15 +118,17 @@ export class TodayService {
     const reservationsLimit = new Date(now.getTime() + RESERVATION_SOON_DAYS * 86_400_000);
     const marketingRenewalsLimit = addDays(startOfToday, MARKETING_RENEWAL_SOON_DAYS);
     const today = { gte: startOfToday, lt: startOfTomorrow };
-    // Trasteros cedidos que vencen en 7 días o ya vencidos (hasta terminarlos).
-    // No cuentan como urgentes ni en las cifras: son un préstamo sin cobro.
+    // Trasteros cedidos que vencen pronto (con el plazo de aviso de cada una) o
+    // ya vencidos, hasta terminarlos. Sin fecha de fin no vencen nunca; una
+    // vencida con el aviso pospuesto no sale hasta que pase. No cuentan como
+    // urgentes ni en las cifras: son un préstamo sin cobro.
     const cessions = can('units:read')
       ? await this.prisma.withTenant(
           (tx) =>
             tx.unitCession.findMany({
               where: {
                 endedAt: null,
-                endsOn: { lt: addDays(startOfToday, UNIT_CESSION_NOTICE_DAYS + 1) },
+                endsOn: { not: null, lt: addDays(startOfToday, UNIT_CESSION_MAX_NOTICE_DAYS + 1) },
                 unit: { facility: { deletedAt: null }, ...(fac ? { facilityId: fac } : {}) },
               },
               select: {
@@ -131,6 +136,8 @@ export class TodayService {
                 unitId: true,
                 holderName: true,
                 endsOn: true,
+                noticeDays: true,
+                snoozedUntil: true,
                 unit: { select: { code: true, facility: { select: { name: true } } } },
               },
               orderBy: { endsOn: 'asc' },
@@ -142,12 +149,16 @@ export class TodayService {
       id: c.unitId,
       label: `${c.unit.code} · ${c.holderName ?? 'Cedido'}`,
       detail: c.unit.facility.name,
-      date: c.endsOn.toISOString(),
-      overdue: c.endsOn < startOfToday,
+      date: c.endsOn!.toISOString(),
+      overdue: c.endsOn! < startOfToday,
     });
     // El día de fin aún está en plazo («vence hoy»): vencidas desde el siguiente.
-    const cessionsExpired = cessions.filter((c) => c.endsOn < startOfToday);
-    const cessionsExpiring = cessions.filter((c) => c.endsOn >= startOfToday);
+    const cessionsExpired = cessions.filter(
+      (c) => c.endsOn! < startOfToday && !(c.snoozedUntil && c.snoozedUntil > now),
+    );
+    const cessionsExpiring = cessions.filter(
+      (c) => c.endsOn! >= startOfToday && c.endsOn! < addDays(startOfToday, c.noticeDays + 1),
+    );
     // Cuotas que cambian en los próximos 7 días (programadas o de una subida).
     const priceChangeItems: TodayItemDto[] = [];
     if (can('contracts:read')) {

@@ -28,7 +28,7 @@ import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 import { escapeHtml } from './customer-emails.templates';
 
 import type { Env } from '../../config/env.schema';
-import type { Prisma } from '@storageos/database';
+import type { Prisma, UserRole } from '@storageos/database';
 
 /** Leads que llegan solos desde fuera (no los que da de alta el staff). */
 const PUBLIC_LEAD_SOURCES = new Set(['web', 'widget', 'web_chat', 'landing']);
@@ -46,6 +46,8 @@ interface StaffMessage {
   facilityId: string | null;
   /** Varios locales: lo reciben quienes tienen alguno (manda sobre `facilityId`). */
   facilityIds?: string[];
+  /** Solo para estos roles (p. ej. lo que gestiona solo el propietario). */
+  roles?: string[];
 }
 
 /**
@@ -283,6 +285,27 @@ export class StaffEmailsService {
     });
   }
 
+  /**
+   * Aviso de una cesión de trastero (vence pronto, ha vencido o sigue cedido
+   * sin fecha de fin): solo a los propietarios activos y verificados, que son
+   * quienes la gestionan. Nunca a la persona a quien se cede.
+   */
+  async notifyUnitCession(
+    tenantId: string,
+    msg: { subject: string; lines: string[]; unitId: string; facilityId: string },
+  ): Promise<void> {
+    await this.safe('unit_cession', tenantId, () =>
+      this.notify(tenantId, 'unit_cession', {
+        subject: msg.subject,
+        lines: msg.lines,
+        path: `/units/${msg.unitId}`,
+        cta: 'Ver el trastero',
+        facilityId: msg.facilityId,
+        roles: ['owner'],
+      }),
+    );
+  }
+
   /** Preferencias del usuario sobre los avisos (su perfil). */
   async getMyNotices(tenantId: string, userId: string): Promise<MyEmailNoticesDto> {
     const [user, settings] = await Promise.all([
@@ -336,6 +359,7 @@ export class StaffEmailsService {
           tenantId,
           isActive: true,
           emailVerifiedAt: { not: null },
+          ...(msg.roles ? { role: { in: msg.roles as UserRole[] } } : {}),
           // Un usuario restringido a ciertos locales solo recibe los suyos.
           ...(facilities.length > 0
             ? {

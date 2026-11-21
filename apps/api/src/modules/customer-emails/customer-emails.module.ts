@@ -29,6 +29,6 @@ import { StaffEmailsService } from './staff-emails.service';
     MyEmailNoticesController,
   ],
   providers: [CustomerEmailsService, CustomerEmailPreviewService, StaffEmailsService],
-  exports: [CustomerEmailsService],
+  exports: [CustomerEmailsService, StaffEmailsService],
 })
 export class CustomerEmailsModule {}

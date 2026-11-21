@@ -24,6 +24,7 @@ import {
   Gauge,
   Gift,
   HandCoins,
+  Handshake,
   KeyRound,
   Cctv,
   Landmark,
@@ -91,6 +92,7 @@ import { useOpportunityInterestedCount } from '@/lib/opportunities/hooks';
 import { appInitials, appName, brandColorOf, textColorOn } from '@/lib/portal/tenant-app';
 import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
 import { usePlatformMessagesUnreadCount, useSupportWaitingCount } from '@/lib/support/hooks';
+import { useHasAnyCession } from '@/lib/unit-cessions/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 import { useUnitRequestPendingCount } from '@/lib/unit-requests/hooks';
 import { useWaitlistPendingCount } from '@/lib/waitlist/hooks';
@@ -227,6 +229,8 @@ const GROUPS: NavGroup[] = [
         permission: 'facilities:read',
       },
       { href: '/units', labelKey: 'units', icon: Boxes, permission: 'units:read' },
+      // Con la función o si queda alguna cesión (para terminarla sin ella).
+      { href: '/cessions', labelKey: 'cessions', icon: Handshake, permission: 'units:read' },
       { href: '/products', labelKey: 'products', icon: Package, permission: 'products:read' },
       {
         href: '/owners',
@@ -496,8 +500,15 @@ export function AppSidebar() {
   const companyWide = useCompanyWide();
   const can = (p?: Permission) => !p || permissions.includes(p);
   const hasFeature = (f?: TenantFeature) => !f || features.includes(f);
+  // «Cesiones»: con la función activada o si el negocio tiene alguna cesión.
+  const cessionsFeature = features.includes('unit_cession');
+  const anyCession =
+    useHasAnyCession(!cessionsFeature && permissions.includes('units:read')).data ?? false;
   const visibleItem = (i: NavItem) =>
-    can(i.permission) && hasFeature(i.feature) && (!i.companyWide || companyWide);
+    can(i.permission) &&
+    hasFeature(i.feature) &&
+    (!i.companyWide || companyWide) &&
+    (i.href !== '/cessions' || cessionsFeature || anyCession);
 
   // Tenant recién creado: menú corto y progreso de la puesta en marcha.
   const onboarding = useOnboarding().data;

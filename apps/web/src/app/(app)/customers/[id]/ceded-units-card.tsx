@@ -31,7 +31,8 @@ export function CededUnitsCard({ customerId }: { customerId: string }) {
                 {c.unitCode}
               </Link>
               <span className="text-muted-foreground">
-                {c.facilityName} · hasta el {formatDate(c.endsOn)}
+                {c.facilityName} ·{' '}
+                {c.endsOn ? `hasta el ${formatDate(c.endsOn)}` : 'sin fecha de fin'}
               </span>
               {c.expired && (
                 <span className="font-medium text-rose-700 dark:text-rose-400">Vencida</span>

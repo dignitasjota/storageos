@@ -1,16 +1,35 @@
 'use client';
 
 import {
+  UNIT_CESSION_DEFAULT_REVIEW_MONTHS,
+  UNIT_CESSION_IDLE_DAYS,
+  UNIT_CESSION_MAX_CODES,
   UNIT_CESSION_MAX_MONTHS,
   UNIT_CESSION_NOTICE_DAYS,
+  UNIT_CESSION_NOTICE_DAYS_OPTIONS,
+  UNIT_CESSION_REVIEW_MONTHS_OPTIONS,
+  UNIT_CESSION_SNOOZE_DAYS_OPTIONS,
   cessionExtendedEnd,
   cessionRemainingText,
+  type UnitCessionAccessDto,
   type UnitCessionDto,
   type UnitCessionEndStatus,
   type UnitDto,
 } from '@storageos/shared';
-import { Eye, EyeOff, Handshake, KeyRound, Loader2, RefreshCw } from 'lucide-react';
+import {
+  BellOff,
+  Eye,
+  EyeOff,
+  FileSignature,
+  Handshake,
+  KeyRound,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -19,6 +38,7 @@ import { CustomerSearchSelect } from '@/components/customer-search-select';
 import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -41,16 +61,21 @@ import { ApiError } from '@/lib/auth/api';
 import { useHasFeature, useMe } from '@/lib/auth/hooks';
 import { useReservations } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
-import { formatDate, formatEur } from '@/lib/format';
+import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 import {
+  useCessionToContract,
   useCreateCessionAccess,
+  useCreateCessionCode,
   useCreateUnitCession,
   useEndUnitCession,
-  useRevealCessionCode,
-  useRotateCessionCode,
-  useSetCessionAccess,
+  useRemoveCessionCode,
+  useRevealCessionCodeOf,
+  useRotateCessionCodeOf,
+  useSetCessionCodeAccess,
+  useSnoozeCession,
   useUnitCession,
   useUnitCessionHistory,
+  useUpdateCessionCode,
   useUpdateUnitCession,
 } from '@/lib/unit-cessions/hooks';
 
@@ -93,23 +118,35 @@ function plural(n: number, one: string, many: string): string {
  * «Le quedan 12 días», «Vence hoy», «Vencida hace 3 días». El día de fin sigue
  * en plazo: vencida desde el día siguiente.
  */
-function remainingLabel(c: UnitCessionDto): string {
+export function remainingLabel(c: UnitCessionDto): string {
+  if (c.endedAt) return '';
+  if (c.endsOn === null) return 'Sin fecha de fin';
   if (c.daysLeft === null) return '';
   if (c.daysLeft > 0) return `Le quedan ${plural(c.daysLeft, 'día', 'días')}`;
   if (c.daysLeft === 0) return 'Vence hoy (último día)';
   return `Vencida hace ${plural(-c.daysLeft, 'día', 'días')}`;
 }
 
-/** Color del plazo: vencida en rojo, la última semana en ámbar. */
-function remainingClass(c: UnitCessionDto): string {
+/** Color del plazo: vencida en rojo, dentro del plazo de aviso en ámbar. */
+export function remainingClass(c: UnitCessionDto): string {
   if (c.expired) return 'font-medium text-rose-700 dark:text-rose-400';
-  if (c.daysLeft !== null && c.daysLeft <= UNIT_CESSION_NOTICE_DAYS) {
+  if (c.daysLeft !== null && c.daysLeft <= c.noticeDays) {
     return 'font-medium text-amber-700 dark:text-amber-400';
   }
   return 'text-xs text-muted-foreground';
 }
 
-/** Plazo: durante N meses o hasta un día. */
+type TermMode = 'months' | 'date' | 'open';
+
+const NOTICE_LABELS: Record<number, string> = {
+  0: 'El mismo día que vence',
+  3: '3 días antes',
+  7: '7 días antes',
+  15: '15 días antes',
+  30: '30 días antes',
+};
+
+/** Plazo: durante N meses, hasta un día o sin fecha de fin. */
 function TermFields({
   mode,
   onMode,
@@ -118,14 +155,20 @@ function TermFields({
   endsOn,
   onEndsOn,
   monthsLabel,
+  reviewEvery,
+  onReviewEvery,
+  allowOpen = true,
 }: {
-  mode: 'months' | 'date';
-  onMode: (m: 'months' | 'date') => void;
+  mode: TermMode;
+  onMode: (m: TermMode) => void;
   months: number;
   onMonths: (n: number) => void;
   endsOn: string | undefined;
   onEndsOn: (d: string | undefined) => void;
   monthsLabel: string;
+  reviewEvery: number;
+  onReviewEvery: (n: number) => void;
+  allowOpen?: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -146,8 +189,18 @@ function TermFields({
         >
           Hasta el día…
         </Button>
+        {allowOpen && (
+          <Button
+            type="button"
+            size="sm"
+            variant={mode === 'open' ? 'default' : 'outline'}
+            onClick={() => onMode('open')}
+          >
+            Sin fecha de fin
+          </Button>
+        )}
       </div>
-      {mode === 'months' ? (
+      {mode === 'months' && (
         <Select value={String(months)} onValueChange={(v) => onMonths(Number(v))}>
           <SelectTrigger className="w-full sm:w-48" aria-label="Meses">
             <SelectValue />
@@ -160,9 +213,54 @@ function TermFields({
             ))}
           </SelectContent>
         </Select>
-      ) : (
-        <DateSelect value={endsOn} onChange={onEndsOn} future years={6} />
       )}
+      {mode === 'date' && <DateSelect value={endsOn} onChange={onEndsOn} future years={6} />}
+      {mode === 'open' && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            No vence nunca. Te recordaremos que sigue cedido para que decidas si continúa.
+          </p>
+          <ReviewEverySelect value={reviewEvery} onChange={onReviewEvery} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewEverySelect({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  return (
+    <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+      <SelectTrigger className="w-full sm:w-64" aria-label="Recordármelo cada">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {UNIT_CESSION_REVIEW_MONTHS_OPTIONS.map((m) => (
+          <SelectItem key={m} value={String(m)}>
+            Recordármelo cada {plural(m, 'mes', 'meses')}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** «Avisarme N días antes» (el día de fin, 3, 7, 15 o 30 días antes). */
+function NoticeDaysSelect({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  return (
+    <div className="space-y-1">
+      <Label>Avisarme</Label>
+      <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+        <SelectTrigger className="w-full sm:w-64" aria-label="Avisarme">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {UNIT_CESSION_NOTICE_DAYS_OPTIONS.map((d) => (
+            <SelectItem key={d} value={String(d)}>
+              {NOTICE_LABELS[d] ?? `${d} días antes`}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
@@ -182,9 +280,11 @@ export function CedeUnitButton({ unit, rented }: { unit: UnitDto; rented: boolea
   const [holderPhone, setHolderPhone] = useState('');
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [startsOn, setStartsOn] = useState<string | undefined>(localDateString());
-  const [mode, setMode] = useState<'months' | 'date'>('months');
+  const [mode, setMode] = useState<TermMode>('months');
   const [months, setMonths] = useState(3);
   const [endsOn, setEndsOn] = useState<string | undefined>();
+  const [reviewEvery, setReviewEvery] = useState<number>(UNIT_CESSION_DEFAULT_REVIEW_MONTHS);
+  const [noticeDays, setNoticeDays] = useState<number>(UNIT_CESSION_NOTICE_DAYS);
   const [notes, setNotes] = useState('');
 
   // Un trastero reservado para otra persona no se cede (el API lo rechaza igual).
@@ -216,7 +316,11 @@ export function CedeUnitButton({ unit, rented }: { unit: UnitDto; rented: boolea
           ? { holderName: holderName.trim(), holderPhone: holderPhone.trim() }
           : { customerId }),
         ...(startsOn ? { startsOn } : {}),
-        ...(mode === 'months' ? { months } : { endsOn }),
+        ...(mode === 'months'
+          ? { months, noticeDays }
+          : mode === 'date'
+            ? { endsOn, noticeDays }
+            : { openEnded: true, reviewEveryMonths: reviewEvery }),
         ...(notes.trim() ? { notes: notes.trim() } : {}),
       });
       toast.success('Trastero cedido. El código de acceso lo ves en su ficha.');
@@ -307,8 +411,11 @@ export function CedeUnitButton({ unit, rented }: { unit: UnitDto; rented: boolea
                 endsOn={endsOn}
                 onEndsOn={setEndsOn}
                 monthsLabel="Durante…"
+                reviewEvery={reviewEvery}
+                onReviewEvery={setReviewEvery}
               />
             </div>
+            {mode !== 'open' && <NoticeDaysSelect value={noticeDays} onChange={setNoticeDays} />}
             <div className="space-y-1">
               <Label htmlFor="cession-notes">Notas (opcional)</Label>
               <Textarea
@@ -361,7 +468,7 @@ export function UnitCessionSection({ unit }: { unit: UnitDto }) {
 
 /** La cesión tiene un código que abre (o que está denegado, pero vivo). */
 function hasLiveAccess(c: UnitCessionDto): boolean {
-  return !!c.access && ['active', 'suspended', 'pending'].includes(c.access.status);
+  return c.codes.length > 0;
 }
 
 /**
@@ -415,10 +522,34 @@ function CessionCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto
   const me = useMe();
   const isOwner = me.data?.user.role === 'owner';
   const enabled = useHasFeature('unit_cession');
+  const router = useRouter();
+  const confirm = useConfirm();
+  const toContract = useCessionToContract(unit.id);
   const [extendOpen, setExtendOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [endOpen, setEndOpen] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
   const expired = cession.expired;
+
+  async function onToContract() {
+    const ok = await confirm({
+      title: '¿Pasar la cesión a contrato?',
+      description: `Se termina la cesión, ${
+        cession.codes.length > 0 ? 'su código deja de abrir ' : ''
+      }y el trastero queda disponible para hacerle el contrato${
+        cession.customerName ? ` a ${cession.customerName}` : ''
+      }. No se avisa a la lista de espera. Después se abre el contrato nuevo con el trastero ya elegido.`,
+      confirmLabel: 'Pasar a contrato',
+    });
+    if (!ok) return;
+    try {
+      const res = await toContract.mutateAsync();
+      toast.success('Cesión terminada. Completa el contrato.');
+      router.push(res.url);
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo pasar a contrato.'));
+    }
+  }
 
   return (
     <Card className="border-violet-200 dark:border-violet-900">
@@ -451,9 +582,15 @@ function CessionCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto
           <div>
             <p className="text-xs text-muted-foreground">Desde · hasta</p>
             <p className="font-medium">
-              {formatDate(cession.startsOn)} · {formatDate(cession.endsOn)}
+              {formatDate(cession.startsOn)} ·{' '}
+              {cession.endsOn ? formatDate(cession.endsOn) : 'sin fecha de fin'}
             </p>
             <p className={remainingClass(cession)}>{remainingLabel(cession)}</p>
+            <p className="text-xs text-muted-foreground">
+              {cession.endsOn === null
+                ? `Te lo recordamos cada ${plural(cession.reviewEveryMonths ?? UNIT_CESSION_DEFAULT_REVIEW_MONTHS, 'mes', 'meses')}`
+                : `Avisa ${(NOTICE_LABELS[cession.noticeDays] ?? `${cession.noticeDays} días antes`).toLowerCase()}`}
+            </p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Precio del trastero</p>
@@ -465,6 +602,8 @@ function CessionCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto
           <p className="rounded-md border border-rose-300 bg-rose-50 p-3 text-rose-900 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
             La cesión ha vencido. El trastero sigue cedido y su acceso activo hasta que la amplíes o
             la termines.
+            {cession.snoozedUntil &&
+              ` Aviso pospuesto hasta el ${formatDate(cession.snoozedUntil)}.`}
           </p>
         )}
         {cession.notes && (
@@ -486,6 +625,19 @@ function CessionCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto
             <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
               Editar
             </Button>
+            {expired && !cession.snoozedUntil && (
+              <Button size="sm" variant="outline" onClick={() => setSnoozeOpen(true)}>
+                <BellOff className="mr-1 size-4" /> Posponer el aviso
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void onToContract()}
+              disabled={toContract.isPending}
+            >
+              <FileSignature className="mr-1 size-4" /> Pasar a contrato
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setEndOpen(true)}>
               Terminar la cesión
             </Button>
@@ -493,7 +645,7 @@ function CessionCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto
         )}
       </CardContent>
       <ExtendDialog
-        key={`extend-${cession.endsOn}-${String(extendOpen)}`}
+        key={`extend-${cession.endsOn ?? 'open'}-${String(extendOpen)}`}
         unitId={unit.id}
         cession={cession}
         open={extendOpen}
@@ -507,7 +659,53 @@ function CessionCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto
         onOpenChange={setEditOpen}
       />
       <EndDialog unit={unit} cession={cession} open={endOpen} onOpenChange={setEndOpen} />
+      <SnoozeDialog unitId={unit.id} open={snoozeOpen} onOpenChange={setSnoozeOpen} />
     </Card>
+  );
+}
+
+/** Pospone 7 o 30 días el aviso de una cesión vencida (no cambia la fecha). */
+function SnoozeDialog({
+  unitId,
+  open,
+  onOpenChange,
+}: {
+  unitId: string;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const snooze = useSnoozeCession();
+  async function onSnooze(days: number) {
+    try {
+      await snooze.mutateAsync({ unitId, days });
+      toast.success(`Aviso pospuesto ${plural(days, 'día', 'días')}.`);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo posponer el aviso.'));
+    }
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Posponer el aviso</DialogTitle>
+          <DialogDescription>
+            La cesión sale de «Cesiones vencidas» de «Hoy» y no te volvemos a avisar hasta que pasen
+            esos días. La fecha de fin no cambia; si la amplías o la terminas, se quita.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="flex-wrap gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          {UNIT_CESSION_SNOOZE_DAYS_OPTIONS.map((d) => (
+            <Button key={d} onClick={() => void onSnooze(d)} disabled={snooze.isPending}>
+              {plural(d, 'día', 'días')}
+            </Button>
+          ))}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -523,12 +721,16 @@ function ExtendDialog({
   onOpenChange: (o: boolean) => void;
 }) {
   const update = useUpdateUnitCession(unitId);
-  const [mode, setMode] = useState<'months' | 'date'>('months');
+  const [mode, setMode] = useState<TermMode>('months');
   const [months, setMonths] = useState(3);
-  const [endsOn, setEndsOn] = useState<string | undefined>(cession.endsOn);
-  // Los meses cuentan desde la fecha de fin; si ya había vencido, desde hoy.
+  const [endsOn, setEndsOn] = useState<string | undefined>(cession.endsOn ?? undefined);
+  const [reviewEvery, setReviewEvery] = useState<number>(
+    cession.reviewEveryMonths ?? UNIT_CESSION_DEFAULT_REVIEW_MONTHS,
+  );
+  // Los meses cuentan desde la fecha de fin; si ya había vencido (o no tenía
+  // fecha), desde hoy.
   const today = localDateString();
-  const fromToday = cession.endsOn < today;
+  const fromToday = cession.endsOn === null || cession.endsOn < today;
   const preview = cessionExtendedEnd(today, cession.endsOn, months);
 
   async function onSubmit() {
@@ -537,8 +739,14 @@ function ExtendDialog({
       return;
     }
     try {
-      await update.mutateAsync(mode === 'months' ? { months } : { endsOn });
-      toast.success('Cesión ampliada.');
+      await update.mutateAsync(
+        mode === 'months'
+          ? { months }
+          : mode === 'date'
+            ? { endsOn }
+            : { openEnded: true, reviewEveryMonths: reviewEvery },
+      );
+      toast.success(mode === 'open' ? 'La cesión ya no tiene fecha de fin.' : 'Cesión ampliada.');
       onOpenChange(false);
     } catch (err) {
       toast.error(errorMessage(err, 'No se pudo ampliar la cesión.'));
@@ -549,11 +757,15 @@ function ExtendDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ampliar la cesión</DialogTitle>
+          <DialogTitle>
+            {cession.endsOn === null ? 'Ponerle fecha de fin' : 'Ampliar la cesión'}
+          </DialogTitle>
           <DialogDescription>
-            {fromToday
-              ? `Venció el ${formatDate(cession.endsOn)}. Los meses cuentan desde hoy porque ya había vencido.`
-              : `Ahora vence el ${formatDate(cession.endsOn)}. Los meses se suman a esa fecha.`}
+            {cession.endsOn === null
+              ? 'Ahora no tiene fecha de fin. Los meses cuentan desde hoy.'
+              : fromToday
+                ? `Venció el ${formatDate(cession.endsOn)}. Los meses cuentan desde hoy porque ya había vencido.`
+                : `Ahora vence el ${formatDate(cession.endsOn)}. Los meses se suman a esa fecha.`}
           </DialogDescription>
         </DialogHeader>
         <TermFields
@@ -564,11 +776,17 @@ function ExtendDialog({
           endsOn={endsOn}
           onEndsOn={setEndsOn}
           monthsLabel="Meses más…"
+          reviewEvery={reviewEvery}
+          onReviewEvery={setReviewEvery}
+          allowOpen={cession.endsOn !== null}
         />
         {mode === 'months' && (
           <p className="text-sm text-muted-foreground">
             Vencerá el {formatDate(preview)}
-            {fromToday ? ' (cuenta desde hoy porque ya había vencido)' : ''}.
+            {fromToday && cession.endsOn !== null
+              ? ' (cuenta desde hoy porque ya había vencido)'
+              : ''}
+            .
           </p>
         )}
         <DialogFooter>
@@ -601,6 +819,11 @@ function EditDialog({
   const [holderPhone, setHolderPhone] = useState(cession.holderPhone ?? '');
   const [customerId, setCustomerId] = useState<string | undefined>(cession.customerId ?? undefined);
   const [notes, setNotes] = useState(cession.notes ?? '');
+  const [noticeDays, setNoticeDays] = useState<number>(cession.noticeDays);
+  const [reviewEvery, setReviewEvery] = useState<number>(
+    cession.reviewEveryMonths ?? UNIT_CESSION_DEFAULT_REVIEW_MONTHS,
+  );
+  const openEnded = cession.endsOn === null;
 
   async function onSubmit() {
     if (!customerId && holderName.trim().length < 2) {
@@ -613,6 +836,13 @@ function EditDialog({
         holderPhone: holderPhone.trim(),
         customerId: customerId ?? null,
         notes: notes.trim(),
+        ...(openEnded
+          ? reviewEvery !== cession.reviewEveryMonths
+            ? { reviewEveryMonths: reviewEvery }
+            : {}
+          : noticeDays !== cession.noticeDays
+            ? { noticeDays }
+            : {}),
       });
       toast.success('Cesión guardada.');
       onOpenChange(false);
@@ -657,6 +887,14 @@ function EditDialog({
               clearLabel="Sin inquilino"
             />
           </div>
+          {openEnded ? (
+            <div className="space-y-1">
+              <Label>Sin fecha de fin</Label>
+              <ReviewEverySelect value={reviewEvery} onChange={setReviewEvery} />
+            </div>
+          ) : (
+            <NoticeDaysSelect value={noticeDays} onChange={setNoticeDays} />
+          )}
           <div className="space-y-1">
             <Label htmlFor="cession-edit-notes">Notas</Label>
             <Textarea
@@ -712,7 +950,7 @@ function EndDialog({
     try {
       await end.mutateAsync({ status, ...(reason.trim() ? { reason: reason.trim() } : {}) });
       toast.success(
-        cession.access ? 'Cesión terminada y su acceso revocado.' : 'Cesión terminada.',
+        cession.codes.length > 0 ? 'Cesión terminada y su acceso revocado.' : 'Cesión terminada.',
       );
       onOpenChange(false);
     } catch (err) {
@@ -726,8 +964,8 @@ function EndDialog({
         <DialogHeader>
           <DialogTitle>Terminar la cesión</DialogTitle>
           <DialogDescription>
-            {cession.access
-              ? 'El código de acceso deja de abrir y el trastero queda en el estado que elijas.'
+            {cession.codes.length > 0
+              ? 'Sus códigos de acceso dejan de abrir y el trastero queda en el estado que elijas.'
               : 'El trastero queda en el estado que elijas.'}
           </DialogDescription>
         </DialogHeader>
@@ -776,24 +1014,140 @@ function EndDialog({
   );
 }
 
+/**
+ * «Entró por última vez el 12/11/2026 a las 18:20», «Aún no ha entrado» y, si
+ * lleva más de 60 días sin entrar, en ámbar.
+ */
+export function lastEntryText(lastUsedAt: string | null): { text: string; idle: boolean } {
+  if (!lastUsedAt) return { text: 'Aún no ha entrado', idle: false };
+  const at = new Date(lastUsedAt);
+  const days = Math.floor((Date.now() - at.getTime()) / 86_400_000);
+  if (days > UNIT_CESSION_IDLE_DAYS) {
+    return { text: `No ha entrado en ${days} días`, idle: true };
+  }
+  const time = at.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  return { text: `Entró por última vez el ${formatDate(at)} a las ${time}`, idle: false };
+}
+
 function CessionAccessCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto }) {
   const me = useMe();
   const isOwner = me.data?.user.role === 'owner';
-  const reveal = useRevealCessionCode(unit.id);
-  const rotate = useRotateCessionCode(unit.id);
-  const setAccess = useSetCessionAccess(unit.id);
+  const createCode = useCreateCessionCode(unit.id);
+  const [newCode, setNewCode] = useState<{ credentialId: string; code: string } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState('');
+  const last = lastEntryText(cession.access?.lastUsedAt ?? null);
+  const codes = cession.codes;
+
+  async function onAdd() {
+    try {
+      const created = await createCode.mutateAsync(label.trim() ? { label: label.trim() } : {});
+      setNewCode(created);
+      setAdding(false);
+      setLabel('');
+      toast.success('Código creado. Dáselo en mano.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo crear el código.'));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <KeyRound className="size-4 text-muted-foreground" />
+          Acceso de la cesión
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p
+          className={
+            last.idle ? 'font-medium text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+          }
+        >
+          {last.text}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Solo este trastero, sin caducidad hasta terminar la cesión. Al terminarla dejan de abrir
+          todos sus códigos.
+        </p>
+        <ul className="space-y-3">
+          {codes.map((c) => (
+            <CessionCodeRow
+              key={c.credentialId}
+              unitId={unit.id}
+              code={c}
+              isOwner={isOwner}
+              revealed={newCode?.credentialId === c.credentialId ? newCode.code : null}
+            />
+          ))}
+        </ul>
+        {isOwner ? (
+          codes.length < UNIT_CESSION_MAX_CODES &&
+          (adding ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                aria-label="Para quién (opcional)"
+                placeholder="Para quién (opcional)"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                maxLength={60}
+                className="w-full sm:w-64"
+              />
+              <Button size="sm" onClick={() => void onAdd()} disabled={createCode.isPending}>
+                {createCode.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
+                Crear el código
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setAdding(false)}>
+                Cancelar
+              </Button>
+            </div>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+              <Plus className="mr-1 size-4" /> Añadir otro código
+            </Button>
+          ))
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            El código y el acceso los gestiona el propietario de la cuenta.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Un código de la cesión: verlo, cambiarlo, denegarlo o permitirlo, 24 h y quitarlo. */
+function CessionCodeRow({
+  unitId,
+  code: c,
+  isOwner,
+  revealed,
+}: {
+  unitId: string;
+  code: UnitCessionAccessDto;
+  isOwner: boolean;
+  revealed: string | null;
+}) {
+  const reveal = useRevealCessionCodeOf(unitId);
+  const rotate = useRotateCessionCodeOf(unitId);
+  const setAccess = useSetCessionCodeAccess(unitId);
+  const update = useUpdateCessionCode(unitId);
+  const remove = useRemoveCessionCode(unitId);
   const confirm = useConfirm();
-  const [code, setCode] = useState<string | null>(null);
-  const access = cession.access!;
-  const suspended = access.status === 'suspended';
+  const [shown, setShown] = useState<string | null>(revealed);
+  const suspended = c.status === 'suspended';
+  const last = lastEntryText(c.lastUsedAt);
+  // El principal va por los endpoints de siempre; los demás, por su id.
+  const id = c.primary ? null : c.credentialId;
 
   async function onReveal() {
-    if (code) {
-      setCode(null);
+    if (shown) {
+      setShown(null);
       return;
     }
     try {
-      setCode((await reveal.mutateAsync()).code);
+      setShown((await reveal.mutateAsync(id)).code);
     } catch (err) {
       toast.error(errorMessage(err, 'No se pudo mostrar el código.'));
     }
@@ -807,7 +1161,7 @@ function CessionAccessCard({ unit, cession }: { unit: UnitDto; cession: UnitCess
     });
     if (!ok) return;
     try {
-      setCode((await rotate.mutateAsync()).code);
+      setShown((await rotate.mutateAsync(id)).code);
       toast.success('Código cambiado.');
     } catch (err) {
       toast.error(errorMessage(err, 'No se pudo cambiar el código.'));
@@ -816,40 +1170,76 @@ function CessionAccessCard({ unit, cession }: { unit: UnitDto; cession: UnitCess
 
   async function onToggle() {
     try {
-      await setAccess.mutateAsync(suspended ? 'resume' : 'suspend');
+      await setAccess.mutateAsync({ credentialId: id, action: suspended ? 'resume' : 'suspend' });
       toast.success(suspended ? 'Acceso permitido.' : 'Acceso denegado.');
     } catch (err) {
       toast.error(errorMessage(err, 'No se pudo cambiar el acceso.'));
     }
   }
 
+  async function onBypass(on: boolean) {
+    try {
+      await update.mutateAsync({ credentialId: id, input: { bypassCurfew: on } });
+      toast.success(on ? 'Puede entrar a cualquier hora.' : 'Entra en el horario del local.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo cambiar el horario.'));
+    }
+  }
+
+  async function onRemove() {
+    const ok = await confirm({
+      title: '¿Quitar este código?',
+      description: 'Deja de abrir. Los demás códigos de la cesión siguen igual.',
+      confirmLabel: 'Quitar el código',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await remove.mutateAsync(c.credentialId);
+      toast.success('Código quitado.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo quitar el código.'));
+    }
+  }
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <KeyRound className="size-4 text-muted-foreground" />
-          Acceso de la cesión
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <p>
-          Estado:{' '}
+    <li className="space-y-2 rounded-md border p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="font-medium">
+          {c.primary ? 'Código principal' : (c.label ?? 'Otro código')}
           <span
-            className={suspended ? 'font-medium text-rose-700 dark:text-rose-400' : 'font-medium'}
+            className={
+              suspended ? 'ml-2 text-rose-700 dark:text-rose-400' : 'ml-2 text-muted-foreground'
+            }
           >
-            {ACCESS_LABELS[access.status] ?? access.status}
-          </span>
-          <span className="text-muted-foreground">
-            {' '}
-            · solo este trastero, sin caducidad hasta terminar la cesión
+            {ACCESS_LABELS[c.status] ?? c.status}
           </span>
         </p>
-        {code && (
-          <p className="font-mono text-2xl font-semibold tracking-widest" aria-live="polite">
-            {code}
-          </p>
-        )}
-        {isOwner ? (
+        <p
+          className={
+            last.idle
+              ? 'text-xs font-medium text-amber-700 dark:text-amber-400'
+              : 'text-xs text-muted-foreground'
+          }
+        >
+          {last.text}
+        </p>
+      </div>
+      {shown && (
+        <p className="font-mono text-2xl font-semibold tracking-widest" aria-live="polite">
+          {shown}
+        </p>
+      )}
+      {isOwner && (
+        <>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={c.bypassCurfew}
+              disabled={update.isPending}
+              onCheckedChange={(v) => void onBypass(v === true)}
+            />
+            Acceso 24 h (sin el toque de queda del local)
+          </label>
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -857,8 +1247,8 @@ function CessionAccessCard({ unit, cession }: { unit: UnitDto; cession: UnitCess
               onClick={() => void onReveal()}
               disabled={reveal.isPending}
             >
-              {code ? <EyeOff className="mr-1 size-4" /> : <Eye className="mr-1 size-4" />}
-              {code ? 'Ocultar código' : 'Ver código'}
+              {shown ? <EyeOff className="mr-1 size-4" /> : <Eye className="mr-1 size-4" />}
+              {shown ? 'Ocultar código' : 'Ver código'}
             </Button>
             <Button
               size="sm"
@@ -876,14 +1266,20 @@ function CessionAccessCard({ unit, cession }: { unit: UnitDto; cession: UnitCess
             >
               {suspended ? 'Permitir el acceso' : 'Denegar el acceso'}
             </Button>
+            {!c.primary && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void onRemove()}
+                disabled={remove.isPending}
+              >
+                <Trash2 className="mr-1 size-4" /> Quitar
+              </Button>
+            )}
           </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            El código y el acceso los gestiona el propietario de la cuenta.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+        </>
+      )}
+    </li>
   );
 }
 
@@ -908,9 +1304,10 @@ function PastCessions({ items }: { items: UnitCessionDto[] }) {
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {formatDate(c.startsOn)} – {formatDate(c.endsOn)}
-                  {c.endedAt && ` · terminada el ${formatDate(c.endedAt)}`}
+                  {formatDate(c.startsOn)} – {c.endsOn ? formatDate(c.endsOn) : 'sin fecha de fin'}
+                  {c.endedAt && ` · terminada el ${formatDateTime(c.endedAt)}`}
                   {c.endedByName && ` por ${c.endedByName}`}
+                  {c.endedReason && ` · ${c.endedReason}`}
                 </p>
               </li>
             ))}

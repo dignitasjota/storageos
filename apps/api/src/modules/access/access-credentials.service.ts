@@ -1188,6 +1188,10 @@ export class AccessCredentialsService {
     unitId: string;
     cessionId: string;
     meta: RequestMeta;
+    /** Nombre del código (otro código de la misma cesión). Por defecto «Cesión». */
+    label?: string;
+    /** Acceso 24 h: salta el toque de queda del local. */
+    bypassCurfew?: boolean;
   }): Promise<AccessCredentialWithSecretDto> {
     const pin = await this.resolveUniquePin(args.tenantId, undefined);
     const secretHash = await argonHash(pin);
@@ -1201,7 +1205,8 @@ export class AccessCredentialsService {
             holderKind: 'other',
             method: 'pin' as AccessMethod,
             status: 'active' as AccessCredentialStatus,
-            label: 'Cesión',
+            label: args.label?.trim() || 'Cesión',
+            bypassCurfew: args.bypassCurfew ?? false,
             secretHash,
             secretPreview: pin.slice(-4),
             secretEncrypted: this.crypto.encryptString(pin, args.tenantId),
@@ -1209,6 +1214,8 @@ export class AccessCredentialsService {
             allowedUnitIds: [args.unitId],
             expiresAt: null,
             activatedAt: new Date(),
+            // Todos los códigos de la cesión llevan su id: así se revocan juntos
+            // al terminarla y el repaso de huérfanos los encuentra.
             metadata: { source: UNIT_CESSION_SOURCE, cessionId: args.cessionId },
           },
           include: CUSTOMER_SELECT,
