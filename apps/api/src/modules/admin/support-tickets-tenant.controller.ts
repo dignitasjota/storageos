@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
@@ -15,6 +16,7 @@ import {
   MessageAttachmentUploadSchema,
   RateTicketSchema,
   type MessageAttachmentUploadDto,
+  type PageDto,
   type SupportTicketDto,
   type SupportTicketMessageDto,
 } from '@storageos/shared';
@@ -24,6 +26,7 @@ import {
   type AuthenticatedUser,
   CurrentUser,
 } from '../../common/decorators/current-user.decorator';
+import { parsePageRequest } from '../../common/pagination';
 
 import { SupportTicketsService } from './support-tickets.service';
 
@@ -59,6 +62,16 @@ export class SupportTicketsTenantController {
     return this.tickets.listForTenant(user.tenantId, user.sub);
   }
 
+  /** La lista por páginas («Cargar más»). */
+  @Get('page')
+  async page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<PageDto<SupportTicketDto>> {
+    return this.tickets.pageForTenant(user.tenantId, user.sub, parsePageRequest(cursor, limit));
+  }
+
   /** Nº de tickets con una respuesta de soporte sin leer — badge del menú. */
   @Get('waiting-count')
   async waitingCount(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
@@ -70,7 +83,9 @@ export class SupportTicketsTenantController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<SupportTicketDto> {
-    return this.tickets.detailForTenant(user.tenantId, id, user.sub);
+    return this.tickets.detailForTenant(user.tenantId, id, user.sub, {
+      impersonating: Boolean(user.impersonation),
+    });
   }
 
   /** URL firmada para subir un adjunto (imagen o PDF) a un ticket. */
@@ -111,6 +126,7 @@ export class SupportTicketsTenantController {
       ticketId: id,
       input,
       meta: extractMeta(req),
+      impersonating: Boolean(user.impersonation),
     });
   }
 

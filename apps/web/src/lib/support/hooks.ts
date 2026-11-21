@@ -1,12 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { apiFetch } from '../auth/api';
+import { ApiError, apiFetch } from '../auth/api';
 import { liveRefetchInterval } from '../realtime/store';
 
 import type {
   AddTicketMessageInput,
   RateTicketInput,
   CreateSupportTicketInput,
+  PageDto,
   SupportTicketDto,
   MessageAttachmentUploadDto,
   TenantPlatformMessagesPageDto,
@@ -26,6 +27,19 @@ export function useSupportTickets() {
   });
 }
 
+/** Los tickets del tenant por páginas («Cargar más»). */
+export function useSupportTicketsPage() {
+  return useInfiniteQuery({
+    queryKey: [...supportTicketsKey, 'page'] as const,
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      apiFetch<PageDto<SupportTicketDto>>(
+        `/support/tickets/page${pageParam ? `?cursor=${pageParam}` : ''}`,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
 /** Nº de tickets con una respuesta sin leer — para el badge del menú (sondea cada 60 s). */
 export function useSupportWaitingCount() {
   return useQuery({
@@ -40,6 +54,9 @@ export function useSupportTicket(id: string | undefined) {
     queryKey: ['support', 'tickets', id] as const,
     queryFn: () => apiFetch<SupportTicketDto>(`/support/tickets/${id}`),
     enabled: Boolean(id),
+    // Un ticket que no existe no va a aparecer por reintentar.
+    retry: (count, err) =>
+      !(err instanceof ApiError && err.statusCode >= 400 && err.statusCode < 500) && count < 3,
     refetchInterval: liveRefetchInterval(),
     refetchIntervalInBackground: false,
   });
@@ -101,6 +118,16 @@ export function usePlatformMessages(enabled = true) {
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+}
+
+/** Mensajes de TrasterOS sin leer por esta persona (se suman al aviso del menú «Soporte»). */
+export function usePlatformMessagesUnreadCount(enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryKey: ['support', 'platform-messages', 'unread-count'] as const,
+    queryFn: () => apiFetch<{ count: number }>('/support/platform-messages/unread-count'),
+    refetchInterval: 60_000,
   });
 }
 

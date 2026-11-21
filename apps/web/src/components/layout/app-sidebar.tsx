@@ -90,7 +90,7 @@ import { useIncidentPendingCounts, useMyTasksCount } from '@/lib/operations/hook
 import { useOpportunityInterestedCount } from '@/lib/opportunities/hooks';
 import { appInitials, appName, brandColorOf, textColorOn } from '@/lib/portal/tenant-app';
 import { useProductUpdatesUnread } from '@/lib/product-updates/hooks';
-import { useSupportWaitingCount } from '@/lib/support/hooks';
+import { usePlatformMessagesUnreadCount, useSupportWaitingCount } from '@/lib/support/hooks';
 import { useUnitChangePendingCount } from '@/lib/unit-changes/hooks';
 import { useUnitRequestPendingCount } from '@/lib/unit-requests/hooks';
 import { useWaitlistPendingCount } from '@/lib/waitlist/hooks';
@@ -549,8 +549,12 @@ export function AppSidebar() {
   // Mensajes de inquilinos sin leer (total, para el item «Inquilinos»).
   const unreadMessages =
     useCustomerUnreadSummary(permissions.includes('customers:read')).data?.total ?? 0;
-  // Tickets de soporte esperando respuesta del tenant (el admin ya contestó).
-  const supportWaiting = useSupportWaitingCount().data?.count ?? 0;
+  // Tickets con una respuesta de soporte sin leer + mensajes de TrasterOS sin
+  // leer (estos solo para quien puede verlos: propietario y gestor).
+  const platformUnread =
+    usePlatformMessagesUnreadCount(permissions.includes('platform_messages:manage')).data?.count ??
+    0;
+  const supportWaiting = (useSupportWaitingCount().data?.count ?? 0) + platformUnread;
   const updatesUnread = useProductUpdatesUnread().data?.count ?? 0;
   // Mensajes de WhatsApp sin leer (extra «WhatsApp Business»).
   const whatsappUnread =

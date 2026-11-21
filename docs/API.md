@@ -2388,7 +2388,7 @@ Items pendientes tras cerrar Fases 1-14 (MVP listo para vender):
 
 - `GET /admin/crons` (tareas programadas: última ejecución, siguiente prevista, atrasada), `GET /admin/billing-health` (facturas con problemas en Veri\*Factu, Holded para revisar, certificados), `GET /admin/usage?days=` (correo, IA y almacenamiento por tenant) y `POST /admin/usage/measure-storage` (superadmin).
 - `GET /admin/tenants/:id/config` (configuración del tenant, solo lectura y sin secretos).
-- Novedades: `GET /product-updates`, `GET /product-updates/unread-count`, `POST /product-updates/seen` (cualquier usuario del tenant); `GET/POST /admin/product-updates`, `PUT/DELETE /admin/product-updates/:id` (escribir: superadmin).
+- Novedades: `GET /product-updates` (las 50 últimas), `GET /product-updates/page?cursor=&limit=` (por páginas, con `readUntil`: lo publicado después estaba sin leer), `GET /product-updates/highlighted` → `{ update }` (la destacada sin leer de los últimos 30 días o null), `GET /product-updates/unread-count`, `POST /product-updates/seen` (no hace nada durante una impersonación; también en solo lectura) (cualquier usuario del tenant; sin marca de lectura, cuenta como leído todo lo publicado antes del alta del usuario); `GET/POST /admin/product-updates`, `PUT/DELETE /admin/product-updates/:id` (escribir: superadmin).
 - Soporte: `GET /admin/support/stats?days=` y CRUD `/admin/support/canned-responses` (también el rol soporte). `SupportTicketDto.firstResponseAt`.
 - Exportar datos: `POST /settings/data-export` (`rgpd:manage`) y `POST /admin/tenants/:id/data-export` (superadmin) → `TenantDataExportDto {url, expiresAt, counts}` (Excel, enlace de 1 h; incluye propietarios, liquidaciones, emisor, tipo fiscal por línea y retención de IRPF).
 
@@ -3468,3 +3468,13 @@ Perfil **Comercial** (`super_admins.role = 'sales'`) en el panel de administraci
 - **Correo**: `GET /settings/tenant/customer-emails/:kind/preview?locale=es|en` (`settings:read`) → `{subject, html}` con datos de ejemplo; `POST /settings/tenant/customer-emails/:kind/test {locale}` (`settings:manage`, 5 por hora; 429 `too_many_test_emails`). `GET/PUT /settings/tenant/email-reply-to`: adonde llegan las respuestas de los inquilinos, también sin dominio propio.
 - **Horarios** (Mensajes, asistente de WhatsApp, chat de la web): cada día admite segundo turno (`open2`/`close2`) y `closedDates` (festivos `AAAA-MM-DD`, hasta 60).
 - **Integraciones**: `POST /settings/webhooks/:id/test {event?}` (`integrations:manage`, 10/min) envía una entrega de prueba firmada. Eventos nuevos: `contract.move_out_requested`, `contract.ended`, `booking.created`, `payment.failed`. API de lectura con clave (`Authorization: Bearer sk_live_…`): `GET /v1/integrations/customers[/:id]` (`customers:read`, filtro `email`), `/contracts[/:id]` (`contracts:read`, `status`, `customerId`), `/invoices[/:id]` (`invoices:read`, `status`, `customerId`, `contractId`; sin borradores ni PDF); todas con `updatedSince`, `cursor` y `limit` (≤ 100) → `{data, nextCursor}`. Límite de 120 peticiones por minuto por clave (429 `rate_limited`, `Retry-After`, `X-RateLimit-*`).
+
+### Revisión del soporte del panel del tenant (2026-11-20)
+
+- `GET /support/tickets/page?cursor=&limit=` → `{items, nextCursor}` (más recientes primero; `GET /support/tickets` sigue devolviendo la lista entera).
+- `POST /support/tickets`: como mucho 5 por persona en una hora y 20 en un día (429 `too_many_tickets`). Validaciones en español. Publica el evento de tiempo real para el resto del equipo (también el cambio de estado del soporte).
+- `SupportTicketDto.closedReason`: `tenant` (lo cerró el negocio), `admin` (el soporte; al reabrirlo vuelve a `null`) o `inactivity` (sin respuesta: recordatorio y cierre automático, y avisos del soporte sin contestar). Migración `20270216110000_support_ticket_closed_reason`.
+- En la cara del tenant, el soporte firma `«<nombre de pila> · Soporte de TrasterOS»` (`authorAdminName` y `assignedAdminName`); el admin sigue viendo el nombre completo.
+- `POST /support/tickets/:id/rating`: 400 `ticket_not_answered` si el soporte no llegó a responder en el ticket.
+- `GET /support/platform-messages/unread-count` (`platform_messages:manage`) → `{count}`; el aviso del menú «Soporte» suma estos y los tickets con respuesta sin leer.
+- Durante una impersonación del soporte, abrir o responder un ticket y `POST /support/platform-messages/read` no dejan nada leído para la persona.

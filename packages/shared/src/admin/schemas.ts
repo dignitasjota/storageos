@@ -7,8 +7,6 @@ import { MESSAGE_MAX_ATTACHMENTS, MessageAttachmentSchema } from '../messages';
 import { AddonPriceTiersSchema } from './catalog';
 import { ProfitabilityInputSchema } from './profitability';
 
-const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(''));
-
 /** `sales` = comercial: solo sus pantallas y su cartera. */
 export const SuperAdminRoleEnum = z.enum(['superadmin', 'support', 'sales']);
 export type SuperAdminRoleValue = z.infer<typeof SuperAdminRoleEnum>;
@@ -302,10 +300,23 @@ export type UpdateTenantFollowupInput = z.infer<typeof UpdateTenantFollowupSchem
 // ============================================================================
 
 export const CreateSupportTicketSchema = z.object({
-  subject: z.string().trim().min(3).max(200),
-  body: z.string().trim().min(1).max(10_000),
+  subject: z
+    .string()
+    .trim()
+    .min(3, 'Escribe un asunto de al menos 3 caracteres')
+    .max(200, 'El asunto no puede pasar de 200 caracteres'),
+  body: z
+    .string()
+    .trim()
+    .min(1, 'Cuéntanos qué necesitas')
+    .max(10_000, 'El mensaje no puede pasar de 10.000 caracteres'),
   priority: SupportTicketPriorityEnum.default('normal'),
-  category: optionalText(80),
+  category: z
+    .string()
+    .trim()
+    .max(80, 'La categoría no puede pasar de 80 caracteres')
+    .optional()
+    .or(z.literal('')),
   attachment: MessageAttachmentSchema.optional(),
   attachments: z.array(MessageAttachmentSchema).max(MESSAGE_MAX_ATTACHMENTS).optional(),
 });
@@ -313,7 +324,11 @@ export type CreateSupportTicketInput = z.infer<typeof CreateSupportTicketSchema>
 
 export const AddTicketMessageSchema = z
   .object({
-    body: z.string().trim().max(10_000).default(''),
+    body: z
+      .string()
+      .trim()
+      .max(10_000, 'El mensaje no puede pasar de 10.000 caracteres')
+      .default(''),
     isInternal: z.boolean().default(false),
     attachment: MessageAttachmentSchema.optional(),
     attachments: z.array(MessageAttachmentSchema).max(MESSAGE_MAX_ATTACHMENTS).optional(),

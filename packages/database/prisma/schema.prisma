@@ -5185,6 +5185,8 @@ model SupportTicket {
   priority        SupportTicketPriority @default(normal)
   category        String?
   closedAt        DateTime?             @map("closed_at") @db.Timestamptz(6)
+  /// Quién lo cerró: `tenant`, `admin` o `inactivity` (sin respuesta del negocio).
+  closedReason    String?               @map("closed_reason")
   /// Primera respuesta del equipo (no cuenta las notas internas).
   firstResponseAt DateTime?             @map("first_response_at") @db.Timestamptz(6)
   /// Lo abrió el super admin al escribir al tenant (no cuenta en los tiempos de respuesta).

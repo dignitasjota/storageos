@@ -336,12 +336,7 @@ export class AdminCommsService {
     cursor?: string,
   ): Promise<TenantPlatformMessagesPageDto> {
     const take = 30;
-    // Hasta cuándo ha leído esta persona (o desde su alta: no hereda lo anterior).
-    const [read, user] = await Promise.all([
-      this.admin.tenantPlatformMessageRead.findUnique({ where: { userId } }),
-      this.admin.user.findFirst({ where: { id: userId, tenantId }, select: { createdAt: true } }),
-    ]);
-    const readUntil = read?.lastReadAt ?? user?.createdAt ?? new Date(0);
+    const readUntil = await this.platformReadUntil(tenantId, userId);
     const [rows, unread] = await Promise.all([
       this.admin.tenantPlatformMessage.findMany({
         where: { tenantId },
@@ -372,6 +367,23 @@ export class AdminCommsService {
       nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
       unread,
     };
+  }
+
+  /** Hasta cuándo ha leído esta persona (o desde su alta: no hereda lo anterior). */
+  private async platformReadUntil(tenantId: string, userId: string): Promise<Date> {
+    const [read, user] = await Promise.all([
+      this.admin.tenantPlatformMessageRead.findUnique({ where: { userId } }),
+      this.admin.user.findFirst({ where: { id: userId, tenantId }, select: { createdAt: true } }),
+    ]);
+    return read?.lastReadAt ?? user?.createdAt ?? new Date(0);
+  }
+
+  /** Mensajes de TrasterOS sin leer por esta persona (aviso del menú «Soporte»). */
+  async unreadCountForTenant(tenantId: string, userId: string): Promise<number> {
+    const readUntil = await this.platformReadUntil(tenantId, userId);
+    return this.admin.tenantPlatformMessage.count({
+      where: { tenantId, createdAt: { gt: readUntil } },
+    });
   }
 
   /** Abrir la pestaña deja todo leído para quien la abre, no para el resto del equipo. */

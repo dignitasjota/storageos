@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -21,6 +22,7 @@ import { createZodDto } from 'nestjs-zod';
 
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { parsePageRequest } from '../../common/pagination';
 import { AdminGuard } from '../admin/admin.guard';
 import {
   type AuthenticatedSuperAdmin,
@@ -28,7 +30,7 @@ import {
 } from '../admin/current-super-admin.decorator';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
-import { ProductUpdatesService } from './product-updates.service';
+import { ProductUpdatesService, type ProductUpdatesPageDto } from './product-updates.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 
@@ -45,6 +47,24 @@ export class ProductUpdatesController {
     return this.service.listForUser(user.tenantId, user.sub);
   }
 
+  /** Por páginas (`?cursor=&limit=`), con la fecha hasta la que ya estaban leídas. */
+  @Get('page')
+  page(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<ProductUpdatesPageDto> {
+    return this.service.pageForUser(user.tenantId, user.sub, parsePageRequest(cursor, limit));
+  }
+
+  /** La novedad destacada reciente y sin leer que se enseña al entrar (o null). */
+  @Get('highlighted')
+  async highlighted(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ update: ProductUpdateDto | null }> {
+    return { update: await this.service.highlightedForUser(user.tenantId, user.sub) };
+  }
+
   @Get('unread-count')
   unread(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
     return this.service.unreadCount(user.tenantId, user.sub);
@@ -53,6 +73,9 @@ export class ProductUpdatesController {
   @Post('seen')
   @HttpCode(HttpStatus.NO_CONTENT)
   async seen(@CurrentUser() user: AuthenticatedUser): Promise<void> {
+    // El soporte de TrasterOS que entra en nombre del tenant no gasta la marca
+    // de leído de la persona suplantada.
+    if (user.impersonation) return;
     await this.service.markSeen(user.tenantId, user.sub);
   }
 }

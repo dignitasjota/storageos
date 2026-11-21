@@ -8,12 +8,14 @@ import {
 } from '@storageos/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, Star } from 'lucide-react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
 import { useConfirm } from '@/components/confirm-provider';
+import { SectionError } from '@/components/dashboard/section-state';
 import { BackLink } from '@/components/layout/back-link';
 import {
   AttachmentPicker,
@@ -70,9 +72,24 @@ export default function SupportTicketPage() {
   }
 
   if (!ticket.data) {
+    const err = ticket.error;
+    // 404 (no es de este negocio o no existe) o 400 (la dirección no es de un ticket).
+    const missing = err instanceof ApiError && (err.statusCode === 404 || err.statusCode === 400);
     return (
-      <div className="px-4 py-4 sm:px-6 sm:py-6 text-sm text-muted-foreground">
-        No hemos podido cargar el ticket.
+      <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
+        <BackLink href="/support" label="Soporte" />
+        {missing ? (
+          <div className="rounded-md border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
+            <p>Este ticket no existe o ya no está disponible.</p>
+            <Button asChild size="sm" variant="outline" className="mt-3">
+              <Link href="/support">Ver tus tickets</Link>
+            </Button>
+          </div>
+        ) : (
+          <div className="rounded-md border bg-card">
+            <SectionError onRetry={() => void ticket.refetch()} />
+          </div>
+        )}
       </div>
     );
   }
@@ -81,6 +98,8 @@ export default function SupportTicketPage() {
   // En la vista tenant ocultamos notas internas que el backend podria
   // devolver por error: defensa en profundidad.
   const visible = (t.messages ?? []).filter((m) => !m.isInternal);
+  // Solo se valora la atención si el soporte llegó a responder.
+  const answered = visible.some((m) => m.authorAdminId !== null);
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -111,7 +130,8 @@ export default function SupportTicketPage() {
           Lo hemos dado por resuelto. Si el problema sigue, responde aquí y lo reabriremos.
         </p>
       )}
-      {(t.status === 'resolved' || t.status === 'closed') && <RatingCard ticket={t} />}
+      {t.status === 'closed' && <ClosedNote ticket={t} messages={visible} />}
+      {(t.status === 'resolved' || t.status === 'closed') && answered && <RatingCard ticket={t} />}
       {t.status !== 'closed' && <ReplyForm ticketId={t.id} />}
       {t.status !== 'closed' && <CloseTicketButton ticketId={t.id} />}
     </div>
@@ -185,6 +205,41 @@ function RatingCard({ ticket }: { ticket: SupportTicketDto }) {
   );
 }
 
+/** Por qué está cerrado, dentro de la propia conversación. */
+function ClosedNote({
+  ticket,
+  messages,
+}: {
+  ticket: SupportTicketDto;
+  messages: SupportTicketMessageDto[];
+}) {
+  let text: string;
+  if (ticket.closedReason === 'inactivity') {
+    // Días desde el último mensaje hasta el cierre (el cierre lo hace una tarea diaria).
+    const last = messages[messages.length - 1]?.createdAt ?? ticket.updatedAt;
+    const days = ticket.closedAt
+      ? Math.max(1, Math.floor((Date.parse(ticket.closedAt) - Date.parse(last)) / 86_400_000))
+      : null;
+    text = `Lo cerramos porque no tuvimos respuesta${
+      days ? ` en ${days} ${days === 1 ? 'día' : 'días'}` : ''
+    }. Si sigue pasando, abre otro.`;
+  } else if (ticket.closedReason === 'tenant') {
+    text = 'Lo diste por terminado. Si necesitas algo más, abre otro.';
+  } else if (ticket.closedReason === 'admin') {
+    text = 'El soporte de TrasterOS lo dio por terminado. Si necesitas algo más, abre otro.';
+  } else {
+    text = 'Este ticket está cerrado. Si necesitas algo más, abre otro.';
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+      <span>{text}</span>
+      <Button asChild size="sm" variant="outline">
+        <Link href="/support">Ir a Soporte</Link>
+      </Button>
+    </div>
+  );
+}
+
 function CloseTicketButton({ ticketId }: { ticketId: string }) {
   const close = useCloseTicket(ticketId);
   const confirm = useConfirm();
@@ -211,8 +266,9 @@ function CloseTicketButton({ ticketId }: { ticketId: string }) {
 
 function MessageBubble({ message }: { message: SupportTicketMessageDto }) {
   const isStaff = message.authorAdminId !== null;
+  // El API ya da la firma del soporte («Ana · Soporte de TrasterOS»).
   const author = isStaff
-    ? `${message.authorAdminName ?? 'Soporte TrasterOS'} (staff)`
+    ? (message.authorAdminName ?? 'Soporte de TrasterOS')
     : (message.authorUserName ?? 'Tú');
   return (
     <div className={`rounded-md border px-3 py-2 text-sm ${isStaff ? 'bg-muted/40' : 'bg-card'}`}>
