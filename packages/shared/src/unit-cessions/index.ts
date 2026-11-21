@@ -8,7 +8,19 @@ import type { UnitStatusValue } from '../facilities/schemas';
  * persona entra con un código que el propietario le da en mano.
  */
 
-const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD');
+/** ¿Existe de verdad este día AAAA-MM-DD? (ni mes 13 ni 31 de febrero). */
+export function isRealIsoDay(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [, y, m, d] = match.map(Number) as [number, number, number, number];
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+const isoDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD')
+  .refine(isRealIsoDay, 'Esa fecha no existe');
 
 /** Meses de una cesión o de una ampliación. */
 export const UNIT_CESSION_MAX_MONTHS = 60;
@@ -32,7 +44,7 @@ export const CreateUnitCessionSchema = z
     holderPhone: holderPhone.optional().or(z.literal('')),
     /** Inquilino al que se presta (opcional). */
     customerId: z.string().uuid().optional(),
-    /** Desde cuándo (por defecto hoy en la zona del negocio). */
+    /** Desde cuándo (por defecto hoy en la zona del local; nunca después de hoy). */
     startsOn: isoDay.optional(),
     /** Durante N meses… */
     months: months.optional(),
@@ -52,7 +64,10 @@ export type CreateUnitCessionInput = z.infer<typeof CreateUnitCessionSchema>;
 
 export const UpdateUnitCessionSchema = z
   .object({
-    /** Meses que se suman a la fecha de fin actual (aunque ya haya vencido). */
+    /**
+     * Meses que se suman a la fecha de fin; si la cesión ya había vencido,
+     * cuentan desde hoy.
+     */
     months: months.optional(),
     /** Nueva fecha de fin. */
     endsOn: isoDay.optional(),
@@ -104,8 +119,9 @@ export interface UnitCessionDto {
   startsOn: string;
   endsOn: string;
   notes: string | null;
-  /** Días hasta el fin (0 = hoy; negativo = vencida). Solo en las vivas. */
+  /** Días hasta el fin (0 = vence hoy; negativo = vencida). Solo en las vivas. */
   daysLeft: number | null;
+  /** Vencida: desde el día siguiente al de fin (el último día sigue en plazo). */
   expired: boolean;
   previousUnitStatus: UnitStatusValue;
   endedAt: string | null;
@@ -128,6 +144,27 @@ export interface UnitCessionSummaryDto {
 
 export interface UnitCessionCodeDto {
   code: string;
+}
+
+/**
+ * El día de fin todavía está en plazo («vence hoy»): una cesión está vencida
+ * desde el día siguiente. `daysLeft` = días de hoy al fin.
+ */
+export function cessionIsExpired(daysLeft: number): boolean {
+  return daysLeft < 0;
+}
+
+/** Vence pronto: del día de fin (incluido) a los 7 días anteriores. */
+export function cessionIsExpiring(daysLeft: number): boolean {
+  return daysLeft >= 0 && daysLeft <= UNIT_CESSION_NOTICE_DAYS;
+}
+
+/**
+ * Nueva fecha de fin al ampliar por meses: desde la fecha de fin si aún no ha
+ * vencido y desde hoy si ya venció (si no, la ampliación podía dejarla vencida).
+ */
+export function cessionExtendedEnd(today: string, endsOn: string, monthsToAdd: number): string {
+  return addMonthsToDay(endsOn < today ? today : endsOn, monthsToAdd);
 }
 
 /** Días naturales de `from` a `to` (fechas AAAA-MM-DD o Date a medianoche UTC). */

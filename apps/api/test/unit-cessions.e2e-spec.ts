@@ -266,13 +266,17 @@ describe('Trasteros cedidos (e2e)', () => {
     const s = await setup('cess-flow');
     const [a] = s.unitIds as [string, string];
     const startsOn = isoDay(-30);
-    const endsOn = isoDay(5);
     const created = await http()
       .post(`/units/${a}/cession`)
       .set(s.auth)
-      .send({ holderName: 'Ana Amiga', startsOn, endsOn })
+      .send({ holderName: 'Ana Amiga', startsOn, endsOn: isoDay(20) })
       .expect(201);
     const cessionId = created.body.id as string;
+    // Pasan los días: le quedan 5 (creada ya dentro del plazo, no se avisaría).
+    await db.unitCession.update({
+      where: { id: cessionId },
+      data: { endsOn: new Date(`${isoDay(5)}T00:00:00Z`) },
+    });
     const credentialId = created.body.access.credentialId as string;
 
     // La credencial: PIN sin caducidad, solo ese local y trastero, sin inquilino.
@@ -346,13 +350,13 @@ describe('Trasteros cedidos (e2e)', () => {
       (await db.accessCredential.findUniqueOrThrow({ where: { id: credentialId } })).status,
     ).toBe('active');
 
-    // Ampliar por meses (desde la fecha de fin, aunque ya pasara) y por fecha.
+    // Ampliar por meses (ya vencida: desde hoy) y por fecha.
     const extended = await http()
       .patch(`/units/${a}/cession`)
       .set(s.auth)
       .send({ months: 2 })
       .expect(200);
-    expect(extended.body.endsOn).toBe(addMonthsToDay(isoDay(-1), 2));
+    expect(extended.body.endsOn).toBe(addMonthsToDay(madridToday(), 2));
     expect(extended.body.expired).toBe(false);
     const row = await db.unitCession.findUniqueOrThrow({ where: { id: cessionId } });
     expect(row.expiredNotifiedAt).toBeNull();

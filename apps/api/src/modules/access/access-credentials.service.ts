@@ -1369,7 +1369,54 @@ export class AccessCredentialsService {
     });
     let revoked = 0;
     for (const c of gone) revoked += await this.revokeAllForCustomer(c.tenantId, c.id);
+    revoked += await this.revokeOrphanCessionCredentials(now);
     return { expired: due.length, revoked };
+  }
+
+  /**
+   * Códigos de cesiones que ya no están vivas (terminadas o borradas): si al
+   * terminar la cesión falló la retirada, se revocan aquí. Los de una cesión
+   * viva, aunque haya vencido, no se tocan.
+   */
+  private async revokeOrphanCessionCredentials(now: Date): Promise<number> {
+    const rows = await this.admin.accessCredential.findMany({
+      where: {
+        status: { in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[] },
+        metadata: { path: ['source'], equals: UNIT_CESSION_SOURCE },
+      },
+      select: { id: true, tenantId: true, metadata: true },
+      take: 1000,
+    });
+    if (rows.length === 0) return 0;
+    const cessionIdOf = (m: unknown): string | null => {
+      const id = (m as { cessionId?: unknown } | null)?.cessionId;
+      return typeof id === 'string' ? id : null;
+    };
+    const ids = rows.map((r) => cessionIdOf(r.metadata)).filter((id): id is string => !!id);
+    const live = new Set(
+      (
+        await this.admin.unitCession.findMany({
+          where: { id: { in: ids }, endedAt: null },
+          select: { id: true },
+        })
+      ).map((c) => c.id),
+    );
+    let revoked = 0;
+    for (const r of rows) {
+      const cessionId = cessionIdOf(r.metadata);
+      if (cessionId && live.has(cessionId)) continue;
+      const claimed = await this.admin.accessCredential.updateMany({
+        where: {
+          id: r.id,
+          status: { in: ['active', 'suspended', 'pending'] as AccessCredentialStatus[] },
+        },
+        data: { status: 'revoked' as AccessCredentialStatus, revokedAt: now },
+      });
+      if (claimed.count === 0) continue;
+      await this.sync.applyState(r.tenantId, r.id, 'revoked');
+      revoked += 1;
+    }
+    return revoked;
   }
 
   // ===================== portal del inquilino =============================

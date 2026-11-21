@@ -1026,7 +1026,8 @@ export class UnitsService {
     return {
       holderName: c.holderName ?? name ?? '',
       endsOn,
-      expired: endsOn <= today,
+      // El día de fin aún está en plazo: vencida desde el día siguiente.
+      expired: endsOn < today,
     };
   }
 

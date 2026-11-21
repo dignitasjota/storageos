@@ -112,8 +112,20 @@ export class UnitCessionsController {
   async code(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
   ): Promise<UnitCessionCodeDto> {
-    return this.cessions.accessCode(user, id);
+    return this.cessions.accessCode(user, id, extractMeta(req));
+  }
+
+  /** Crea el acceso de una cesión que no lo tiene (con control de accesos). */
+  @RequirePermission('units:read')
+  @Post('cession/access')
+  async createAccess(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: Request,
+  ): Promise<UnitCessionDto> {
+    return this.cessions.createAccess(user, id, extractMeta(req));
   }
 
   @RequirePermission('units:read')

@@ -68,7 +68,7 @@ import { ChangeUnitStatusDialog } from '@/components/units/change-status-dialog'
 import { CreateUnitDialog } from '@/components/units/create-unit-dialog';
 import { useDeleteUnitAction } from '@/components/units/use-delete-unit';
 import { ApiError } from '@/lib/auth/api';
-import { useHasPermission } from '@/lib/auth/hooks';
+import { useHasFeature, useHasPermission } from '@/lib/auth/hooks';
 import { downloadCsv } from '@/lib/csv';
 import { useFacilities, useFloors, useUnitTypes } from '@/lib/facilities/hooks';
 import {
@@ -183,7 +183,8 @@ export default function UnitsPage() {
     // «Ver en el plano» desde la ficha: abre el plano en ese trastero.
     const params = new URLSearchParams(window.location.search);
     if (params.get('view') === 'plan') setView('plan');
-    const facility = params.get('facility');
+    // `facilityId` viene, p. ej., del aviso de borrar un local con cedidos.
+    const facility = params.get('facility') ?? params.get('facilityId');
     if (facility) setFacilityId(facility);
     const floor = params.get('floor');
     if (floor) setFloorId(floor);
@@ -242,6 +243,14 @@ export default function UnitsPage() {
     return counts;
   }, [filtered]);
   const stopped = useMemo(() => filtered.filter((u) => u.outOfService), [filtered]);
+  // «Cedidos» solo a quien tiene la función o algún trastero cedido.
+  const cessionEnabled = useHasFeature('unit_cession');
+  const showCeded =
+    cessionEnabled || filters.status === 'ceded' || allUnits.some((u) => u.status === 'ceded');
+  const statusKpis = useMemo(
+    () => STATUS_KPIS.filter((k) => k.status !== 'ceded' || showCeded),
+    [showCeded],
+  );
   const lostIncome = stopped.reduce((sum, u) => sum + (u.outOfService?.lostIncome ?? 0), 0);
 
   const canWrite = useHasPermission('units:write');
@@ -585,7 +594,7 @@ export default function UnitsPage() {
         // En el móvil, una tira compacta que se desliza (antes, cinco tarjetas
         // grandes ocupaban la pantalla antes del primer trastero).
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-3 sm:overflow-visible sm:px-0 sm:pb-0 lg:grid-cols-5">
-          {STATUS_KPIS.map((k) => {
+          {statusKpis.map((k) => {
             const count = statusCounts[k.status] ?? 0;
             const active = filters.status === k.status;
             return (
@@ -661,7 +670,7 @@ export default function UnitsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los estados</SelectItem>
-                {STATUS_KPIS.map((k) => (
+                {statusKpis.map((k) => (
                   <SelectItem key={k.status} value={k.status}>
                     {STATUS_LABELS[k.status]}
                   </SelectItem>

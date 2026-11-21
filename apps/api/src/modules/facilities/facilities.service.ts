@@ -585,7 +585,7 @@ export class FacilitiesService {
     facilityId: string,
   ): Promise<FacilityDeleteBlockerDto[]> {
     const unit = { facilityId };
-    const [live, drafts, reservations, moves, waitlist] = await Promise.all([
+    const [live, drafts, reservations, moves, waitlist, ceded] = await Promise.all([
       tx.contract.count({
         where: { status: { in: ['active', 'ending'] }, deletedAt: null, unit },
       }),
@@ -595,6 +595,8 @@ export class FacilitiesService {
         where: { status: { in: ['active', 'ending'] }, deletedAt: null, scheduledUnit: unit },
       }),
       tx.waitlistEntry.count({ where: { facilityId, status: { in: ['waiting', 'notified'] } } }),
+      // Un trastero cedido tiene un código que abre: se termina la cesión antes.
+      tx.unitCession.count({ where: { endedAt: null, unit } }),
     ]);
     const blockers: FacilityDeleteBlockerDto[] = [];
     if (live > 0) {
@@ -635,6 +637,14 @@ export class FacilitiesService {
         count: waitlist,
         label: plural(waitlist, 'persona en la lista de espera', 'personas en la lista de espera'),
         href: '/waitlist',
+      });
+    }
+    if (ceded > 0) {
+      blockers.push({
+        kind: 'ceded_units',
+        count: ceded,
+        label: plural(ceded, 'trastero cedido', 'trasteros cedidos'),
+        href: `/units?status=ceded&facilityId=${facilityId}`,
       });
     }
     return blockers;

@@ -2,6 +2,8 @@
 
 import {
   UNIT_CESSION_MAX_MONTHS,
+  UNIT_CESSION_NOTICE_DAYS,
+  cessionExtendedEnd,
   cessionRemainingText,
   type UnitCessionDto,
   type UnitCessionEndStatus,
@@ -41,6 +43,7 @@ import { useReservations } from '@/lib/customers/hooks';
 import { localDateString } from '@/lib/dates';
 import { formatDate, formatEur } from '@/lib/format';
 import {
+  useCreateCessionAccess,
   useCreateUnitCession,
   useEndUnitCession,
   useRevealCessionCode,
@@ -86,12 +89,24 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** «Le quedan 12 días», «Vence hoy», «Vencida hace 3 días». */
+/**
+ * «Le quedan 12 días», «Vence hoy», «Vencida hace 3 días». El día de fin sigue
+ * en plazo: vencida desde el día siguiente.
+ */
 function remainingLabel(c: UnitCessionDto): string {
   if (c.daysLeft === null) return '';
   if (c.daysLeft > 0) return `Le quedan ${plural(c.daysLeft, 'día', 'días')}`;
-  if (c.daysLeft === 0) return 'Vence hoy';
+  if (c.daysLeft === 0) return 'Vence hoy (último día)';
   return `Vencida hace ${plural(-c.daysLeft, 'día', 'días')}`;
+}
+
+/** Color del plazo: vencida en rojo, la última semana en ámbar. */
+function remainingClass(c: UnitCessionDto): string {
+  if (c.expired) return 'font-medium text-rose-700 dark:text-rose-400';
+  if (c.daysLeft !== null && c.daysLeft <= UNIT_CESSION_NOTICE_DAYS) {
+    return 'font-medium text-amber-700 dark:text-amber-400';
+  }
+  return 'text-xs text-muted-foreground';
 }
 
 /** Plazo: durante N meses o hasta un día. */
@@ -274,7 +289,13 @@ export function CedeUnitButton({ unit, rented }: { unit: UnitDto; rented: boolea
             </div>
             <div className="space-y-1">
               <Label>Desde</Label>
-              <DateSelect value={startsOn} onChange={setStartsOn} around />
+              {/* Cedido desde ya: el inicio es hoy o un día anterior. */}
+              <DateSelect
+                value={startsOn}
+                onChange={setStartsOn}
+                years={3}
+                max={localDateString()}
+              />
             </div>
             <div className="space-y-1">
               <Label>Plazo</Label>
@@ -327,9 +348,66 @@ export function UnitCessionSection({ unit }: { unit: UnitDto }) {
   return (
     <>
       {isCeded && cession.data && <CessionCard unit={unit} cession={cession.data} />}
-      {isCeded && cession.data?.access && <CessionAccessCard unit={unit} cession={cession.data} />}
+      {isCeded && cession.data && hasLiveAccess(cession.data) && (
+        <CessionAccessCard unit={unit} cession={cession.data} />
+      )}
+      {isCeded && cession.data && !hasLiveAccess(cession.data) && (
+        <CreateCessionAccess unit={unit} />
+      )}
       {past.length > 0 && <PastCessions items={past} />}
     </>
+  );
+}
+
+/** La cesión tiene un código que abre (o que está denegado, pero vivo). */
+function hasLiveAccess(c: UnitCessionDto): boolean {
+  return !!c.access && ['active', 'suspended', 'pending'].includes(c.access.status);
+}
+
+/**
+ * Cesión sin acceso (se cedió sin control de accesos o el código se perdió):
+ * el propietario lo crea aquí si el negocio tiene control de accesos.
+ */
+function CreateCessionAccess({ unit }: { unit: UnitDto }) {
+  const me = useMe();
+  const isOwner = me.data?.user.role === 'owner';
+  const accessControl = useHasFeature('access_control');
+  const create = useCreateCessionAccess(unit.id);
+  if (!isOwner || !accessControl) return null;
+
+  async function onCreate() {
+    try {
+      await create.mutateAsync();
+      toast.success('Acceso creado. Pulsa «Ver código» para dárselo en mano.');
+    } catch (err) {
+      toast.error(errorMessage(err, 'No se pudo crear el acceso.'));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <KeyRound className="size-4 text-muted-foreground" />
+          Acceso de la cesión
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Esta cesión no tiene código de acceso. Puedes crearle uno: solo abre este trastero y no se
+          envía a nadie.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void onCreate()}
+          disabled={create.isPending}
+        >
+          {create.isPending && <Loader2 className="mr-1 size-4 animate-spin" />}
+          Crear acceso
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -375,15 +453,7 @@ function CessionCard({ unit, cession }: { unit: UnitDto; cession: UnitCessionDto
             <p className="font-medium">
               {formatDate(cession.startsOn)} · {formatDate(cession.endsOn)}
             </p>
-            <p
-              className={
-                expired
-                  ? 'font-medium text-rose-700 dark:text-rose-400'
-                  : 'text-xs text-muted-foreground'
-              }
-            >
-              {remainingLabel(cession)}
-            </p>
+            <p className={remainingClass(cession)}>{remainingLabel(cession)}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Precio del trastero</p>
@@ -456,6 +526,10 @@ function ExtendDialog({
   const [mode, setMode] = useState<'months' | 'date'>('months');
   const [months, setMonths] = useState(3);
   const [endsOn, setEndsOn] = useState<string | undefined>(cession.endsOn);
+  // Los meses cuentan desde la fecha de fin; si ya había vencido, desde hoy.
+  const today = localDateString();
+  const fromToday = cession.endsOn < today;
+  const preview = cessionExtendedEnd(today, cession.endsOn, months);
 
   async function onSubmit() {
     if (mode === 'date' && !endsOn) {
@@ -477,8 +551,9 @@ function ExtendDialog({
         <DialogHeader>
           <DialogTitle>Ampliar la cesión</DialogTitle>
           <DialogDescription>
-            Ahora vence el {formatDate(cession.endsOn)}. Los meses se suman a esa fecha, aunque ya
-            haya pasado.
+            {fromToday
+              ? `Venció el ${formatDate(cession.endsOn)}. Los meses cuentan desde hoy porque ya había vencido.`
+              : `Ahora vence el ${formatDate(cession.endsOn)}. Los meses se suman a esa fecha.`}
           </DialogDescription>
         </DialogHeader>
         <TermFields
@@ -490,6 +565,12 @@ function ExtendDialog({
           onEndsOn={setEndsOn}
           monthsLabel="Meses más…"
         />
+        {mode === 'months' && (
+          <p className="text-sm text-muted-foreground">
+            Vencerá el {formatDate(preview)}
+            {fromToday ? ' (cuenta desde hoy porque ya había vencido)' : ''}.
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar

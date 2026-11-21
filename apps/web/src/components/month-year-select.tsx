@@ -39,9 +39,12 @@ export function MonthYearSelect({
   years = 6,
   future = false,
   around = false,
+  max,
 }: {
   value?: string;
   onChange: (v: string) => void;
+  /** Último mes elegible (YYYY-MM): los posteriores no se ofrecen. */
+  max?: string;
   /** Cuántos años ofrecer (incluido el actual). */
   years?: number;
   /** Hacia delante (fechas futuras) en vez de hacia atrás. */
@@ -50,11 +53,21 @@ export function MonthYearSelect({
   around?: boolean;
 }) {
   const now = new Date();
-  const yearList = around
-    ? [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1]
-    : Array.from({ length: years }, (_, i) =>
-        future ? now.getFullYear() + i : now.getFullYear() - i,
-      );
+  const [maxYear, maxMonth] = max ? (max.split('-').map(Number) as [number, number]) : [];
+  const yearList = (
+    around
+      ? [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1]
+      : Array.from({ length: years }, (_, i) =>
+          future ? now.getFullYear() + i : now.getFullYear() - i,
+        )
+  ).filter((y) => maxYear === undefined || y <= maxYear);
+  /** Mes y año, sin pasar del máximo. */
+  const pick = (y: number, m: number) =>
+    onChange(
+      maxYear !== undefined && maxMonth !== undefined && y === maxYear && m > maxMonth
+        ? ym(y, maxMonth)
+        : ym(y, m),
+    );
   const parsed = value ? value.split('-').map(Number) : null;
   const curMonth = parsed?.[1];
   const curYear = parsed?.[0];
@@ -64,14 +77,23 @@ export function MonthYearSelect({
     <div className="flex gap-1.5">
       <Select
         value={curMonth ? String(curMonth) : undefined}
-        onValueChange={(v) => onChange(ym(baseYear, Number(v)))}
+        onValueChange={(v) => pick(baseYear, Number(v))}
       >
         <SelectTrigger className="h-9 w-[130px]" aria-label="Mes">
           <SelectValue placeholder="Mes" />
         </SelectTrigger>
         <SelectContent>
           {MONTHS_ES.map((label, i) => (
-            <SelectItem key={i} value={String(i + 1)}>
+            <SelectItem
+              key={i}
+              value={String(i + 1)}
+              disabled={
+                maxYear !== undefined &&
+                maxMonth !== undefined &&
+                baseYear === maxYear &&
+                i + 1 > maxMonth
+              }
+            >
               {label}
             </SelectItem>
           ))}
@@ -79,7 +101,7 @@ export function MonthYearSelect({
       </Select>
       <Select
         value={curYear ? String(curYear) : undefined}
-        onValueChange={(v) => onChange(ym(Number(v), baseMonth))}
+        onValueChange={(v) => pick(Number(v), baseMonth)}
       >
         <SelectTrigger className="h-9 w-[90px]" aria-label="Año">
           <SelectValue placeholder="Año" />
@@ -106,6 +128,7 @@ export function DateSelect({
   years = 6,
   future = false,
   around = false,
+  max,
 }: {
   value?: string;
   onChange: (v: string | undefined) => void;
@@ -113,6 +136,8 @@ export function DateSelect({
   future?: boolean;
   /** El año pasado, este y el que viene. */
   around?: boolean;
+  /** Último día elegible (YYYY-MM-DD): no se ofrece ninguno posterior. */
+  max?: string;
 }) {
   const now = new Date();
   const parts = value ? value.split('-').map(Number) : null;
@@ -122,7 +147,8 @@ export function DateSelect({
   const daysInMonth = new Date(year ?? now.getFullYear(), month ?? 1, 0).getDate();
   const emit = (y: number, m: number, d: number) => {
     const last = new Date(y, m, 0).getDate();
-    onChange(`${ym(y, m)}-${String(Math.min(d, last)).padStart(2, '0')}`);
+    const next = `${ym(y, m)}-${String(Math.min(d, last)).padStart(2, '0')}`;
+    onChange(max && next > max ? max : next);
   };
   const baseY = year ?? now.getFullYear();
   const baseM = month ?? now.getMonth() + 1;
@@ -138,7 +164,11 @@ export function DateSelect({
         </SelectTrigger>
         <SelectContent>
           {Array.from({ length: daysInMonth }, (_, i) => (
-            <SelectItem key={i + 1} value={String(i + 1)}>
+            <SelectItem
+              key={i + 1}
+              value={String(i + 1)}
+              disabled={!!max && `${ym(baseY, baseM)}-${String(i + 1).padStart(2, '0')}` > max}
+            >
               {i + 1}
             </SelectItem>
           ))}
@@ -148,6 +178,7 @@ export function DateSelect({
         years={years}
         future={future}
         around={around}
+        {...(max ? { max: max.slice(0, 7) } : {})}
         value={year && month ? ym(year, month) : undefined}
         onChange={(v) => {
           const [y, m] = v.split('-').map(Number);

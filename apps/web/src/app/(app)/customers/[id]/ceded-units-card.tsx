@@ -36,6 +36,9 @@ export function CededUnitsCard({ customerId }: { customerId: string }) {
               {c.expired && (
                 <span className="font-medium text-rose-700 dark:text-rose-400">Vencida</span>
               )}
+              {c.daysLeft === 0 && (
+                <span className="font-medium text-amber-700 dark:text-amber-400">Vence hoy</span>
+              )}
             </li>
           ))}
         </ul>

@@ -298,7 +298,13 @@ export interface OwnersOverviewDto {
 
 /** Lo que impide borrar un local: hay que resolverlo antes. */
 export interface FacilityDeleteBlockerDto {
-  kind: 'live_contracts' | 'draft_contracts' | 'reservations' | 'scheduled_moves' | 'waitlist';
+  kind:
+    | 'live_contracts'
+    | 'draft_contracts'
+    | 'reservations'
+    | 'scheduled_moves'
+    | 'waitlist'
+    | 'ceded_units';
   count: number;
   /** «3 contratos en vigor». */
   label: string;
