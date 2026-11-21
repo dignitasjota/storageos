@@ -7,16 +7,21 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  BadRequestException,
   Post,
   Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import {
+  ProductUpdateCategoryEnum,
   RequestPlatformLogoUploadSchema,
+  SetProductUpdateReactionSchema,
   UpsertProductUpdateSchema,
   type AdminProductUpdateDto,
   type ProductUpdateDto,
+  type ProductUpdateReaction,
+  type ProductUpdatesDigestResultDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
@@ -30,12 +35,14 @@ import {
 } from '../admin/current-super-admin.decorator';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
+import { ProductUpdatesDigestService } from './product-updates-digest.service';
 import { ProductUpdatesService, type ProductUpdatesPageDto } from './product-updates.service';
 
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 
 class UpsertProductUpdateDto extends createZodDto(UpsertProductUpdateSchema) {}
 class ImageUploadDto extends createZodDto(RequestPlatformLogoUploadSchema) {}
+class SetReactionDto extends createZodDto(SetProductUpdateReactionSchema) {}
 
 /** Novedades vistas por cualquier usuario del tenant (sin permiso especial). */
 @Controller('product-updates')
@@ -47,14 +54,30 @@ export class ProductUpdatesController {
     return this.service.listForUser(user.tenantId, user.sub);
   }
 
-  /** Por páginas (`?cursor=&limit=`), con la fecha hasta la que ya estaban leídas. */
+  /**
+   * Por páginas (`?cursor=&limit=`), con la fecha hasta la que ya estaban
+   * leídas. Filtros: `category` (new|improvement|fix), `search` (título y
+   * texto) y `onlyMyPlan=1` (sin las de funciones que el negocio no tiene).
+   */
   @Get('page')
   page(
     @CurrentUser() user: AuthenticatedUser,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Query('category') category?: string,
+    @Query('search') search?: string,
+    @Query('onlyMyPlan') onlyMyPlan?: string,
   ): Promise<ProductUpdatesPageDto> {
-    return this.service.pageForUser(user.tenantId, user.sub, parsePageRequest(cursor, limit));
+    const parsed = category ? ProductUpdateCategoryEnum.safeParse(category) : null;
+    if (parsed && !parsed.success) {
+      throw new BadRequestException({ code: 'invalid_category', message: 'Tipo no válido' });
+    }
+    const text = search?.trim().slice(0, 100);
+    return this.service.pageForUser(user.tenantId, user.sub, parsePageRequest(cursor, limit), {
+      ...(parsed?.success ? { category: parsed.data } : {}),
+      ...(text ? { search: text } : {}),
+      onlyMyPlan: onlyMyPlan === '1' || onlyMyPlan === 'true',
+    });
   }
 
   /** La novedad destacada reciente y sin leer que se enseña al entrar (o null). */
@@ -68,6 +91,16 @@ export class ProductUpdatesController {
   @Get('unread-count')
   unread(@CurrentUser() user: AuthenticatedUser): Promise<{ count: number }> {
     return this.service.unreadCount(user.tenantId, user.sub);
+  }
+
+  /** «¿Te ha sido útil?»: 👍 (`up`), 👎 (`down`) o quitarla (`null`). */
+  @Put(':id/reaction')
+  setReaction(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: SetReactionDto,
+  ): Promise<{ value: ProductUpdateReaction | null }> {
+    return this.service.setReaction(user.tenantId, user.sub, id, body.value);
   }
 
   @Post('seen')
@@ -85,7 +118,10 @@ export class ProductUpdatesController {
 @UseGuards(AdminGuard)
 @Controller('admin/product-updates')
 export class AdminProductUpdatesController {
-  constructor(private readonly service: ProductUpdatesService) {}
+  constructor(
+    private readonly service: ProductUpdatesService,
+    private readonly digest: ProductUpdatesDigestService,
+  ) {}
 
   @Get()
   list(): Promise<AdminProductUpdateDto[]> {
@@ -97,6 +133,17 @@ export class AdminProductUpdatesController {
   @RequireSuperadmin()
   imageUpload(@Body() body: ImageUploadDto) {
     return this.service.requestImageUpload(body.mimeType);
+  }
+
+  /**
+   * Envía ya el resumen mensual del mes anterior (a quien aún no lo tenga):
+   * por si el envío del día 2 no salió.
+   */
+  @Post('digest/send')
+  @RequireSuperadmin()
+  @HttpCode(HttpStatus.OK)
+  sendDigest(): Promise<ProductUpdatesDigestResultDto> {
+    return this.digest.sendMonthly();
   }
 
   @Post()

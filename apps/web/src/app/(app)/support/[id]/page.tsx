@@ -2,12 +2,16 @@
 
 import {
   type AddTicketMessageInput,
+  supportCategoryLabel,
+  supportResponseTimeText,
   type SupportTicketDto,
   type SupportTicketMessageDto,
+  SupportTicketPriorityEnum,
+  type SupportTicketPriorityValue,
   type SupportTicketStatusValue,
 } from '@storageos/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Star } from 'lucide-react';
+import { Bot, Loader2, Star } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -26,6 +30,7 @@ import { MessageText } from '@/components/messages/message-text';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Form,
   FormControl,
@@ -34,6 +39,13 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/auth/api';
 import {
@@ -41,7 +53,12 @@ import {
   useAddTicketMessage,
   useCloseTicket,
   useRateTicket,
+  useReopenTicket,
+  useSetTicketWatchers,
+  useSupportResponseTimes,
+  useSupportTeammates,
   useSupportTicket,
+  useUpdateTicketPriority,
 } from '@/lib/support/hooks';
 
 const STATUS_LABELS: Record<SupportTicketStatusValue, string> = {
@@ -50,6 +67,13 @@ const STATUS_LABELS: Record<SupportTicketStatusValue, string> = {
   waiting_user: 'Esperamos tu respuesta',
   resolved: 'Resuelto',
   closed: 'Cerrado',
+};
+
+const PRIORITY_LABELS: Record<SupportTicketPriorityValue, string> = {
+  low: 'Prioridad baja',
+  normal: 'Prioridad normal',
+  high: 'Prioridad alta',
+  urgent: 'Prioridad urgente',
 };
 
 export default function SupportTicketPage() {
@@ -100,6 +124,7 @@ export default function SupportTicketPage() {
   const visible = (t.messages ?? []).filter((m) => !m.isInternal);
   // Solo se valora la atención si el soporte llegó a responder.
   const answered = visible.some((m) => m.authorAdminId !== null);
+  const category = supportCategoryLabel(t.category);
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -108,9 +133,18 @@ export default function SupportTicketPage() {
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">{t.subject}</h1>
         <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
           <Badge variant="secondary">{STATUS_LABELS[t.status]}</Badge>
+          {category && <Badge variant="outline">{category}</Badge>}
+          {t.status === 'closed' ? (
+            <Badge variant="outline">{PRIORITY_LABELS[t.priority]}</Badge>
+          ) : (
+            <PrioritySelect ticket={t} />
+          )}
           <span>Abierto el {new Date(t.createdAt).toLocaleString('es-ES')}</span>
         </div>
+        <ResponseEta ticket={t} />
       </div>
+
+      <Watchers ticket={t} />
 
       <Card>
         <CardHeader>
@@ -129,6 +163,15 @@ export default function SupportTicketPage() {
         <p className="text-sm text-muted-foreground">
           Lo hemos dado por resuelto. Si el problema sigue, responde aquí y lo reabriremos.
         </p>
+      )}
+      {t.aiAnswer && (
+        <details className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+          <summary className="flex cursor-pointer items-center gap-1.5 text-muted-foreground">
+            <Bot className="size-4" />
+            Lo que te respondió el asistente antes de abrirlo
+          </summary>
+          <MessageText text={t.aiAnswer} className="mt-2" />
+        </details>
       )}
       {t.status === 'closed' && <ClosedNote ticket={t} messages={visible} />}
       {(t.status === 'resolved' || t.status === 'closed') && answered && <RatingCard ticket={t} />}
@@ -230,13 +273,167 @@ function ClosedNote({
   } else {
     text = 'Este ticket está cerrado. Si necesitas algo más, abre otro.';
   }
+  const until = ticket.reopenableUntil ? new Date(ticket.reopenableUntil) : null;
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-      <span>{text}</span>
-      <Button asChild size="sm" variant="outline">
-        <Link href="/support">Ir a Soporte</Link>
-      </Button>
+      <span>
+        {until
+          ? `${text.replace(/ Si (sigue pasando|necesitas algo más), abre otro\.$/, '')} Si no está resuelto, puedes reabrirlo hasta el ${until.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}.`
+          : text}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {until && <ReopenButton ticketId={ticket.id} />}
+        <Button asChild size="sm" variant="outline">
+          <Link href="/support">{until ? 'Ir a Soporte' : 'Abrir uno nuevo'}</Link>
+        </Button>
+      </div>
     </div>
+  );
+}
+
+function ReopenButton({ ticketId }: { ticketId: string }) {
+  const reopen = useReopenTicket(ticketId);
+  return (
+    <Button
+      size="sm"
+      disabled={reopen.isPending}
+      onClick={async () => {
+        try {
+          await reopen.mutateAsync();
+          toast.success('Ticket reabierto. Cuéntanos qué sigue pasando.');
+        } catch (err) {
+          toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido reabrir.');
+        }
+      }}
+    >
+      Reabrir el ticket
+    </Button>
+  );
+}
+
+/** Cambiar la prioridad mientras no esté cerrado. */
+function PrioritySelect({ ticket }: { ticket: SupportTicketDto }) {
+  const update = useUpdateTicketPriority(ticket.id);
+  return (
+    <Select
+      value={ticket.priority}
+      disabled={update.isPending}
+      onValueChange={async (v) => {
+        try {
+          await update.mutateAsync(v as SupportTicketPriorityValue);
+          toast.success('Prioridad cambiada.');
+        } catch (err) {
+          toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido cambiar.');
+        }
+      }}
+    >
+      <SelectTrigger className="h-7 w-auto gap-1 text-xs" aria-label="Prioridad">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {SupportTicketPriorityEnum.options.map((p) => (
+          <SelectItem key={p} value={p}>
+            {PRIORITY_LABELS[p]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** «Solemos responder en…» mientras el soporte no haya respondido. */
+function ResponseEta({ ticket }: { ticket: SupportTicketDto }) {
+  const times = useSupportResponseTimes();
+  if (ticket.firstResponseAt || (ticket.status !== 'open' && ticket.status !== 'in_progress')) {
+    return null;
+  }
+  const hours = times.data?.byPriority[ticket.priority]?.hours;
+  if (hours === undefined) return null;
+  return <p className="mt-1 text-sm text-muted-foreground">{supportResponseTimeText(hours)}.</p>;
+}
+
+/** Compañeros en copia: reciben por correo los avisos del ticket. */
+function Watchers({ ticket }: { ticket: SupportTicketDto }) {
+  const [editing, setEditing] = useState(false);
+  const teammates = useSupportTeammates(editing);
+  const save = useSetTicketWatchers(ticket.id);
+  const current = ticket.watchers ?? [];
+  const [selected, setSelected] = useState<string[]>([]);
+
+  function start() {
+    setSelected(current.map((w) => w.userId));
+    setEditing(true);
+  }
+
+  async function submit() {
+    try {
+      await save.mutateAsync(selected);
+      toast.success('Guardado.');
+      setEditing(false);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se ha podido guardar.');
+    }
+  }
+
+  if (!editing) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {current.length > 0
+          ? `En copia: ${current.map((w) => w.fullName).join(', ')}. `
+          : 'Nadie más en copia. '}
+        {ticket.status !== 'closed' && (
+          <button
+            type="button"
+            className="text-primary underline-offset-2 hover:underline"
+            onClick={start}
+          >
+            {current.length > 0 ? 'Cambiar' : 'Poner en copia a un compañero'}
+          </button>
+        )}
+      </p>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Compañeros en copia</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">Recibirán por correo las respuestas del soporte.</p>
+        {teammates.isLoading ? (
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        ) : (teammates.data ?? []).filter((u) => u.id !== ticket.createdByUserId).length === 0 ? (
+          <p className="text-muted-foreground">No hay más personas activas en tu equipo.</p>
+        ) : (
+          <div className="max-h-48 space-y-1.5 overflow-y-auto">
+            {(teammates.data ?? [])
+              .filter((u) => u.id !== ticket.createdByUserId)
+              .map((u) => (
+                <label key={u.id} className="flex items-center gap-2">
+                  <Checkbox
+                    checked={selected.includes(u.id)}
+                    onCheckedChange={(v) =>
+                      setSelected((prev) =>
+                        v === true ? [...prev, u.id] : prev.filter((id) => id !== u.id),
+                      )
+                    }
+                  />
+                  <span>{u.fullName}</span>
+                  <span className="truncate text-xs text-muted-foreground">{u.email}</span>
+                </label>
+              ))}
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            Cancelar
+          </Button>
+          <Button size="sm" onClick={submit} disabled={save.isPending}>
+            Guardar
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

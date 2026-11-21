@@ -126,7 +126,8 @@ function DomainCard() {
         subject: `Activar dominio propio ${d}`,
         body: `He apuntado ${d} a la plataforma en mi proveedor de dominios. Por favor, activadlo y emitid el certificado HTTPS.`,
         priority: 'normal',
-        category: 'custom_domain',
+        category: 'web',
+        pageUrl: '/settings/domain',
       });
       setNotified(true);
       toast.success('Aviso enviado. Te responderemos en Soporte cuando esté activo.');

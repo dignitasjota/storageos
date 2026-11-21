@@ -1,5 +1,6 @@
 import type { AdminBusinessGoalsDto, AdminPeriodComparisonDto } from './business';
 import type { PlatformLeadFollowupDto, PlatformLeadSource } from './leads';
+import type { SupportTicketWatcherDto } from './support';
 import type { EmailDnsRecordDto } from '../email-domains';
 import type { TenantFeature } from '../features';
 import type { MessageAttachmentDto } from '../messages';
@@ -650,6 +651,16 @@ export interface SupportTicketDto {
   ratingComment?: string | null;
   /** Por qué se cerró: lo cerró el tenant, el soporte o se cerró por falta de respuesta. */
   closedReason?: SupportTicketClosedReason | null;
+  /** Pantalla del panel desde la que se escribió y datos del navegador. */
+  pageUrl?: string | null;
+  userAgent?: string | null;
+  screenSize?: string | null;
+  /** Lo que respondió el asistente antes de abrir el ticket. */
+  aiAnswer?: string | null;
+  /** Compañeros en copia (en el detalle). */
+  watchers?: SupportTicketWatcherDto[];
+  /** Hasta cuándo el negocio puede reabrirlo (solo en cerrados; null si ya no). */
+  reopenableUntil?: string | null;
 }
 
 export type SupportTicketClosedReason = 'tenant' | 'admin' | 'inactivity';

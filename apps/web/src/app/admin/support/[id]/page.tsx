@@ -7,6 +7,7 @@ import {
   type SupportTicketPriorityValue,
   type SupportTicketStatusValue,
   SupportTicketStatusEnum,
+  supportCategoryLabel,
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -166,7 +167,7 @@ export default function AdminSupportTicketPage() {
         </div>
 
         <Badge variant="outline">Prioridad: {PRIORITY_LABELS[t.priority] ?? t.priority}</Badge>
-        {t.category && <Badge variant="secondary">{t.category}</Badge>}
+        {t.category && <Badge variant="secondary">{supportCategoryLabel(t.category)}</Badge>}
 
         <div className="ml-auto flex items-center gap-2 text-xs">
           {t.assignedAdminName ? (
@@ -183,6 +184,8 @@ export default function AdminSupportTicketPage() {
           )}
         </div>
       </div>
+
+      <TicketContext ticket={t} />
 
       <Card>
         <CardHeader>
@@ -210,6 +213,52 @@ export default function AdminSupportTicketPage() {
         closed={t.status === 'closed'}
       />
     </div>
+  );
+}
+
+/** Desde dónde escribió, con qué navegador, quién está en copia y qué le dijo el asistente. */
+function TicketContext({ ticket }: { ticket: SupportTicketDto }) {
+  const watchers = ticket.watchers ?? [];
+  if (!ticket.pageUrl && !ticket.userAgent && !ticket.aiAnswer && watchers.length === 0) {
+    return null;
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Contexto</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2 text-sm">
+        {ticket.pageUrl && (
+          <p>
+            <span className="text-muted-foreground">Escribió desde: </span>
+            <code className="break-all rounded bg-muted px-1 py-0.5 text-xs">{ticket.pageUrl}</code>
+          </p>
+        )}
+        {(ticket.userAgent || ticket.screenSize) && (
+          <p className="break-words">
+            <span className="text-muted-foreground">Navegador: </span>
+            {ticket.userAgent ?? 'desconocido'}
+            {ticket.screenSize && (
+              <span className="text-muted-foreground"> · ventana de {ticket.screenSize}</span>
+            )}
+          </p>
+        )}
+        {watchers.length > 0 && (
+          <p>
+            <span className="text-muted-foreground">En copia: </span>
+            {watchers.map((w) => `${w.fullName} (${w.email})`).join(', ')}
+          </p>
+        )}
+        {ticket.aiAnswer && (
+          <div className="space-y-1 rounded-md border bg-muted/40 p-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              Antes de abrirlo preguntó al asistente, que respondió:
+            </p>
+            <MessageText text={ticket.aiAnswer} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

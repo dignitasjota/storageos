@@ -172,6 +172,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { href: '/admin/email-log', label: 'Correos enviados', icon: Inbox },
       { href: '/admin/email-templates', label: 'Correos automáticos', icon: MailCheck },
       { href: '/admin/nps', label: 'Encuestas NPS', icon: Gauge },
+      { href: '/admin/help-topics', label: 'Guías de ayuda', icon: BookOpen },
     ],
   },
   {
@@ -197,6 +198,7 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { href: '/admin/impersonation', label: 'Impersonaciones', icon: Eye },
       { href: '/admin/super-admins', label: 'Super admins', icon: UserCog },
       { href: '/admin/queues', label: 'Sistema y colas', icon: Layers },
+      { href: '/admin/service-status', label: 'Estado del servicio', icon: HeartPulse },
       { href: '/admin/webhooks-cleanup', label: 'Limpieza de webhooks', icon: Trash2 },
     ],
   },

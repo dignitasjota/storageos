@@ -31,6 +31,7 @@ import { NotificationsModule } from '../../api/src/modules/notifications/notific
 import { OperationsModule } from '../../api/src/modules/operations/operations.module';
 import { PaymentsModule } from '../../api/src/modules/payments/payments.module';
 import { PlanLimitsModule } from '../../api/src/modules/plan-limits/plan-limits.module';
+import { ProductUpdatesDigestModule } from '../../api/src/modules/product-updates/product-updates-digest.module';
 import { PushModule } from '../../api/src/modules/push/push.module';
 import { QueuesModule } from '../../api/src/modules/queues/queues.module';
 import { RealtimeModule } from '../../api/src/modules/realtime/realtime.module';
@@ -176,6 +177,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     RetentionModule,
     // BlogScheduleModule: cron cada 5 min que publica las entradas del blog programadas.
     BlogScheduleModule,
+    // ProductUpdatesDigestModule: resumen mensual de «Novedades» por correo (día 2).
+    ProductUpdatesDigestModule,
   ],
 })
 export class WorkerModule {}

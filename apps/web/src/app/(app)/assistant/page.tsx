@@ -149,6 +149,20 @@ function Assistant() {
   const qc = useQueryClient();
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Pregunta que llega escrita (`?q=`, desde «Cómo funciona»): se deja en la
+  // caja sin enviarla (no gasta una consulta hasta que la mande) y se quita
+  // de la dirección para que no vuelva a aparecer al recargar.
+  const initialQuestion = searchParams.get('q');
+  useEffect(() => {
+    if (!initialQuestion) return;
+    setInput(initialQuestion.slice(0, 2000));
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('q');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuestion]);
+
   const messages: AiMessageDto[] = detail.data?.messages ?? [];
 
   useEffect(() => {

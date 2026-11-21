@@ -23,4 +23,12 @@ describe('resolveUserEmailNotices', () => {
     expect(resolveUserEmailNotices({}, 'owner').daily_summary).toBe(false);
     expect(resolveUserEmailNotices({ daily_summary: true }, 'staff').daily_summary).toBe(true);
   });
+
+  it('el resumen de novedades llega a todos los roles salvo que se den de baja', () => {
+    expect(resolveUserEmailNotices({}, 'readonly').product_updates_digest).toBe(true);
+    expect(resolveUserEmailNotices({}, 'owner').product_updates_digest).toBe(true);
+    expect(
+      resolveUserEmailNotices({ product_updates_digest: false }, 'staff').product_updates_digest,
+    ).toBe(false);
+  });
 });

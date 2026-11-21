@@ -1,4 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  DEFAULT_SUPPORT_RESPONSE_HOURS,
+  medianHours,
+  SUPPORT_RESPONSE_MIN_SAMPLE,
+  type SupportResponseTimesDto,
+} from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -9,6 +15,9 @@ import type {
 } from '@storageos/shared';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Periodo con el que se calcula el plazo orientativo de respuesta. */
+const RESPONSE_TIMES_DAYS = 90;
 
 /**
  * Soporte más ágil: respuestas guardadas para las preguntas frecuentes y
@@ -57,6 +66,43 @@ export class SupportAgilityService {
   async removeCanned(id: string): Promise<void> {
     const deleted = await this.admin.supportCannedResponse.deleteMany({ where: { id } });
     if (deleted.count === 0) throw new NotFoundException({ code: 'canned_response_not_found' });
+  }
+
+  /**
+   * Plazo orientativo de primera respuesta por prioridad: la mediana real de
+   * los últimos 90 días o, con pocos tickets, un valor por defecto.
+   */
+  async responseTimes(now = new Date()): Promise<SupportResponseTimesDto> {
+    const since = new Date(now.getTime() - RESPONSE_TIMES_DAYS * DAY_MS);
+    const rows = await this.admin.supportTicket.findMany({
+      where: { createdAt: { gte: since }, openedByAdmin: false, firstResponseAt: { not: null } },
+      select: { priority: true, createdAt: true, firstResponseAt: true },
+    });
+    const minutes: Record<keyof typeof DEFAULT_SUPPORT_RESPONSE_HOURS, number[]> = {
+      low: [],
+      normal: [],
+      high: [],
+      urgent: [],
+    };
+    for (const r of rows) {
+      minutes[r.priority].push((r.firstResponseAt!.getTime() - r.createdAt.getTime()) / 60_000);
+    }
+    const entry = (p: keyof typeof DEFAULT_SUPPORT_RESPONSE_HOURS) => {
+      const sample = minutes[p].length;
+      const median = sample >= SUPPORT_RESPONSE_MIN_SAMPLE ? medianHours(minutes[p]) : null;
+      return median === null
+        ? { hours: DEFAULT_SUPPORT_RESPONSE_HOURS[p], sample, fromData: false }
+        : { hours: median, sample, fromData: true };
+    };
+    return {
+      days: RESPONSE_TIMES_DAYS,
+      byPriority: {
+        urgent: entry('urgent'),
+        high: entry('high'),
+        normal: entry('normal'),
+        low: entry('low'),
+      },
+    };
   }
 
   async stats(days = 30, now = new Date()): Promise<AdminSupportStatsDto> {
