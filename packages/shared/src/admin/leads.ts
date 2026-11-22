@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
+import { ImportFormatEnum } from '../imports/schemas';
+import { MessageAttachmentSchema, type MessageAttachmentDto } from '../messages';
+
 import type { PlatformQuoteOfferDto } from './catalog';
+import type { PlatformLeadScoreFactor } from './leads-insights';
 
 /**
  * Leads del panel admin: quien se interesa por TrasterOS, desde el primer
@@ -124,6 +128,7 @@ export const PLATFORM_LEAD_ACTIVITY_TYPES = [
   'meeting',
   'whatsapp',
   'email_out',
+  'email_in',
   'web_form',
   'signup',
   'quote',
@@ -138,6 +143,7 @@ export const PLATFORM_LEAD_ACTIVITY_LABELS: Record<PlatformLeadActivityType, str
   meeting: 'Reunión',
   whatsapp: 'WhatsApp',
   email_out: 'Correo enviado',
+  email_in: 'Correo recibido',
   web_form: 'Mensaje desde la web',
   signup: 'Se registró',
   quote: 'Propuesta enviada',
@@ -156,8 +162,27 @@ export const PlatformLeadManualActivityEnum = z.enum([
 /** Lo que forma la conversación (lo escrito y lo enviado); el resto es actividad. */
 export const PLATFORM_LEAD_CONVERSATION_TYPES: readonly PlatformLeadActivityType[] = [
   'web_form',
+  'email_in',
   'email_out',
   'quote',
+];
+
+/** Lo que escribe el lead (el resto de la conversación es nuestro). */
+export const PLATFORM_LEAD_INBOUND_TYPES: readonly PlatformLeadActivityType[] = [
+  'web_form',
+  'email_in',
+];
+
+/**
+ * Lo que cuenta como que ha contestado: un correo suyo o una conversación de
+ * verdad (llamada, demo, reunión). Para las secuencias y la puntuación.
+ */
+export const PLATFORM_LEAD_REPLY_TYPES: readonly PlatformLeadActivityType[] = [
+  'email_in',
+  'web_form',
+  'call',
+  'demo',
+  'meeting',
 ];
 
 /** Horas sin atender a partir de las que un lead nuevo avisa. */
@@ -261,14 +286,336 @@ export const UpdatePlatformLeadFollowupSchema = z
   .refine((v) => Object.keys(v).length > 0, { message: 'Nada que cambiar' });
 export type UpdatePlatformLeadFollowupInput = z.infer<typeof UpdatePlatformLeadFollowupSchema>;
 
+/** Adjuntos de un correo a un lead (imagen o PDF ya subidos). */
+export const PLATFORM_LEAD_MAX_ATTACHMENTS = 5;
+
 export const SendPlatformLeadEmailSchema = z.object({
   subject: z.string().trim().min(3).max(200),
   body: z.string().trim().min(1).max(10_000),
+  attachments: z.array(MessageAttachmentSchema).max(PLATFORM_LEAD_MAX_ATTACHMENTS).optional(),
 });
 export type SendPlatformLeadEmailInput = z.infer<typeof SendPlatformLeadEmailSchema>;
 
 export const LinkPlatformLeadTenantSchema = z.object({ tenantId: z.string().uuid() });
 export type LinkPlatformLeadTenantInput = z.infer<typeof LinkPlatformLeadTenantSchema>;
+
+// ---------------------------------------------------------------- descartes
+
+export const PLATFORM_LEAD_DISCARD_REASONS = [
+  'spam',
+  'supplier',
+  'support',
+  'existing_customer',
+  'merged',
+  'other',
+] as const;
+export type PlatformLeadDiscardReason = (typeof PLATFORM_LEAD_DISCARD_REASONS)[number];
+
+export const PLATFORM_LEAD_DISCARD_REASON_LABELS: Record<PlatformLeadDiscardReason, string> = {
+  spam: 'Spam',
+  supplier: 'Proveedor',
+  support: 'Consulta de soporte',
+  existing_customer: 'Ya es cliente',
+  merged: 'Fusionado con otro lead',
+  other: 'Otro',
+};
+
+/** Los que se eligen a mano («Fusionado» lo pone el sistema). */
+export const PLATFORM_LEAD_MANUAL_DISCARD_REASONS = PLATFORM_LEAD_DISCARD_REASONS.filter(
+  (r) => r !== 'merged',
+) as Exclude<PlatformLeadDiscardReason, 'merged'>[];
+
+export const DiscardPlatformLeadSchema = z.object({
+  reasonCode: z
+    .enum(['spam', 'supplier', 'support', 'existing_customer', 'other'])
+    .default('other'),
+  reason: z.string().trim().max(500).optional().or(z.literal('')),
+});
+export type DiscardPlatformLeadInput = z.infer<typeof DiscardPlatformLeadSchema>;
+
+// ------------------------------------------------------------------ fusión
+
+export const MergePlatformLeadSchema = z.object({ sourceId: z.string().uuid() });
+export type MergePlatformLeadInput = z.infer<typeof MergePlatformLeadSchema>;
+
+/** Datos con los que buscar posibles duplicados (al dar de alta). */
+export const CheckPlatformLeadDuplicatesSchema = z.object({
+  companyName: optionalText(160),
+  contactName: optionalText(160),
+  email: z.string().trim().toLowerCase().max(200).optional().or(z.literal('')),
+  phone: optionalText(40),
+  excludeId: z.string().uuid().optional(),
+});
+export type CheckPlatformLeadDuplicatesInput = z.infer<typeof CheckPlatformLeadDuplicatesSchema>;
+
+export interface PlatformLeadDuplicateDto {
+  kind: 'lead' | 'tenant';
+  id: string;
+  name: string;
+  /** Por qué parece el mismo: «mismo email», «empresa parecida»… */
+  reason: string;
+  /** Mismo email o teléfono: es el mismo seguro. */
+  exact: boolean;
+  status: PlatformLeadStage | null;
+  slug: string | null;
+}
+
+// ---------------------------------------------------------------- secuencias
+
+export const PlatformLeadSequenceStepSchema = z
+  .object({
+    /** Días desde que empieza (el primer correo o la propuesta). */
+    day: z.number().int().min(0).max(180),
+    /** Plantilla de correo (las de «Materiales y plantillas»). */
+    templateId: z.string().uuid().nullable().optional(),
+    subject: z.string().trim().max(200).optional().or(z.literal('')),
+    body: z.string().trim().max(10_000).optional().or(z.literal('')),
+  })
+  .refine((s) => !!s.templateId || (!!s.subject && !!s.body), {
+    message: 'Elige una plantilla o escribe el asunto y el texto',
+    path: ['templateId'],
+  });
+export type PlatformLeadSequenceStep = z.infer<typeof PlatformLeadSequenceStepSchema>;
+
+export const UpsertPlatformLeadSequenceSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(500).nullable().optional(),
+  steps: z.array(PlatformLeadSequenceStepSchema).min(1).max(10),
+  isActive: z.boolean().default(true),
+  /** La que empieza sola con el primer correo o la propuesta. */
+  isDefault: z.boolean().default(false),
+});
+export type UpsertPlatformLeadSequenceInput = z.infer<typeof UpsertPlatformLeadSequenceSchema>;
+
+export interface PlatformLeadSequenceDto {
+  id: string;
+  name: string;
+  description: string | null;
+  steps: PlatformLeadSequenceStep[];
+  isActive: boolean;
+  isDefault: boolean;
+  /** Leads que la tienen en marcha ahora. */
+  activeCount: number;
+}
+
+/** Activar o parar la secuencia de un lead desde su ficha. */
+export const SetPlatformLeadSequenceSchema = z.object({
+  enabled: z.boolean(),
+  /** Otra secuencia que la de por defecto. */
+  sequenceId: z.string().uuid().optional(),
+});
+export type SetPlatformLeadSequenceInput = z.infer<typeof SetPlatformLeadSequenceSchema>;
+
+export const PLATFORM_LEAD_SEQUENCE_STOP_LABELS: Record<string, string> = {
+  replied: 'Ha contestado',
+  stage: 'Ya no está abierto (cuenta, cliente o perdido)',
+  discarded: 'Descartado',
+  manual: 'Parada a mano',
+  no_email: 'Sin email',
+  finished: 'Se enviaron todos los pasos',
+  merged: 'Fusionado con otro lead',
+};
+
+export interface PlatformLeadSequenceStateDto {
+  enrollmentId: string;
+  sequenceId: string;
+  sequenceName: string;
+  status: 'active' | 'done' | 'stopped';
+  /** Pasos ya enviados. */
+  sent: number;
+  totalSteps: number;
+  nextRunAt: string | null;
+  startedAt: string;
+  stopReason: string | null;
+}
+
+// --------------------------------------------------------- ajustes y reparto
+
+export const PLATFORM_LEAD_ASSIGN_MODES = ['off', 'round_robin', 'zone'] as const;
+export type PlatformLeadAssignMode = (typeof PLATFORM_LEAD_ASSIGN_MODES)[number];
+
+export const PLATFORM_LEAD_ASSIGN_MODE_LABELS: Record<PlatformLeadAssignMode, string> = {
+  off: 'No repartir: los asigna alguien',
+  round_robin: 'Por turnos',
+  zone: 'Por zona (ciudad o provincia)',
+};
+
+export const PlatformLeadZoneRuleSchema = z.object({
+  /** Ciudad o provincia (se busca en la ciudad que dejó). */
+  match: z.string().trim().min(2).max(80),
+  superAdminId: z.string().uuid(),
+});
+export type PlatformLeadZoneRule = z.infer<typeof PlatformLeadZoneRuleSchema>;
+
+const staleDay = z.number().int().min(1).max(90);
+
+export const UpdatePlatformLeadSettingsSchema = z
+  .object({
+    assignMode: z.enum(PLATFORM_LEAD_ASSIGN_MODES),
+    roundRobinIds: z.array(z.string().uuid()).max(50),
+    zoneRules: z.array(PlatformLeadZoneRuleSchema).max(100),
+    zoneFallbackRoundRobin: z.boolean(),
+    responseHours: z.number().int().min(1).max(72),
+    businessHours: z.boolean(),
+    reassignEnabled: z.boolean(),
+    staleDays: z.object({
+      new: staleDay,
+      contacted: staleDay,
+      interested: staleDay,
+      trial: staleDay,
+    }),
+    highValueMonthly: z.number().min(0).max(100_000),
+    sequenceAutoStart: z.boolean(),
+  })
+  .partial();
+export type UpdatePlatformLeadSettingsInput = z.infer<typeof UpdatePlatformLeadSettingsSchema>;
+
+export interface PlatformLeadSettingsDto {
+  assignMode: PlatformLeadAssignMode;
+  roundRobinIds: string[];
+  zoneRules: PlatformLeadZoneRule[];
+  zoneFallbackRoundRobin: boolean;
+  responseHours: number;
+  businessHours: boolean;
+  reassignEnabled: boolean;
+  staleDays: { new: number; contacted: number; interested: number; trial: number };
+  highValueMonthly: number;
+  sequenceAutoStart: boolean;
+}
+
+// ------------------------------------------------------------------- lista
+
+export const PLATFORM_LEAD_LIST_SORTS = [
+  'score',
+  'value',
+  'name',
+  'company',
+  'status',
+  'source',
+  'city',
+  'assignee',
+  'lastActivity',
+  'nextFollowup',
+  'createdAt',
+] as const;
+export type PlatformLeadListSort = (typeof PLATFORM_LEAD_LIST_SORTS)[number];
+
+export const PlatformLeadListQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  source: PlatformLeadSourceEnum.optional(),
+  assignedTo: z.string().trim().max(60).optional(),
+  status: z.array(PlatformLeadStageEnum).max(6).optional(),
+  /** Tamaño (trasteros declarados). */
+  sizeMin: z.number().int().min(0).max(1_000_000).optional(),
+  sizeMax: z.number().int().min(0).max(1_000_000).optional(),
+  city: z.string().trim().max(120).optional(),
+  campaign: z.string().trim().max(120).optional(),
+  /** Sin actividad en al menos estos días. */
+  inactiveDays: z.number().int().min(1).max(365).optional(),
+  /** Solo los parados. */
+  stale: z.boolean().optional(),
+  discarded: z.boolean().optional(),
+  sort: z.enum(PLATFORM_LEAD_LIST_SORTS).default('createdAt'),
+  dir: z.enum(['asc', 'desc']).default('desc'),
+  cursor: z.string().regex(/^\d+$/).optional(),
+  limit: z.number().int().min(1).max(200).default(50),
+});
+export type PlatformLeadListQuery = z.infer<typeof PlatformLeadListQuerySchema>;
+
+export interface PlatformLeadListDto {
+  items: PlatformLeadDto[];
+  nextCursor: string | null;
+  total: number;
+  /** Cuota prevista sumada de todos los que casan con el filtro. */
+  totalValue: number;
+}
+
+// ------------------------------------------------------------------- lote
+
+const bulkIds = z.array(z.string().uuid()).min(1).max(200);
+
+export const PlatformLeadBulkSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('assign'),
+    ids: bulkIds,
+    assignedToId: z.string().uuid().nullable(),
+  }),
+  z.object({ action: z.literal('move'), ids: bulkIds, status: PlatformLeadManualStageEnum }),
+  z.object({
+    action: z.literal('lose'),
+    ids: bulkIds,
+    reasonCode: PlatformLeadManualLostReasonEnum,
+    reason: z.string().trim().max(1000).optional().or(z.literal('')),
+  }),
+  z.object({
+    action: z.literal('discard'),
+    ids: bulkIds,
+    reasonCode: z.enum(['spam', 'supplier', 'support', 'existing_customer', 'other']),
+    reason: z.string().trim().max(500).optional().or(z.literal('')),
+  }),
+  z.object({
+    action: z.literal('followup'),
+    ids: bulkIds,
+    title: z.string().trim().min(2).max(200),
+    dueDate: dateString,
+    note: z.string().trim().max(2000).optional().or(z.literal('')),
+  }),
+]);
+export type PlatformLeadBulkInput = z.infer<typeof PlatformLeadBulkSchema>;
+
+export interface PlatformLeadBulkResultDto {
+  done: number;
+  failed: { id: string; name: string; message: string }[];
+}
+
+// ----------------------------------------------------------------- importar
+
+export const PlatformLeadImportSchema = z.object({
+  csv: z.string().min(1).max(2_000_000),
+  format: ImportFormatEnum.default('csv'),
+  /** Un lead que ya existe (mismo email o teléfono): se omite o se le suman los datos. */
+  onDuplicate: z.enum(['skip', 'merge']).default('skip'),
+  /** Origen de los que no traen columna «origen». */
+  source: PlatformLeadSourceEnum.default('other'),
+  assignedToId: z.string().uuid().nullable().optional(),
+});
+export type PlatformLeadImportInput = z.infer<typeof PlatformLeadImportSchema>;
+
+// ------------------------------------------------------------ captura rápida
+
+export const PLATFORM_LEAD_CAPTURE_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+export const PlatformLeadCapturePhotoSchema = z.object({
+  mimeType: z.enum(PLATFORM_LEAD_CAPTURE_PHOTO_TYPES),
+});
+
+export const PlatformLeadCaptureSchema = z
+  .object({
+    contactName: optionalText(160),
+    companyName: optionalText(160),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email('Email no válido')
+      .max(200)
+      .optional()
+      .or(z.literal('')),
+    phone: optionalText(40),
+    note: z.string().trim().max(2000).optional().or(z.literal('')),
+    source: PlatformLeadSourceEnum.default('event'),
+    /** Foto de su tarjeta (ya subida). */
+    photoKey: z.string().max(300).optional(),
+  })
+  .refine((v) => !!(v.companyName || v.contactName), {
+    message: 'Indica la empresa o la persona',
+    path: ['contactName'],
+  })
+  .refine((v) => !!(v.email || v.phone), {
+    message: 'Indica un email o un teléfono',
+    path: ['phone'],
+  });
+export type PlatformLeadCaptureInput = z.infer<typeof PlatformLeadCaptureSchema>;
 
 export const PlatformLeadsQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
@@ -346,6 +693,23 @@ export interface PlatformLeadDto {
   accountKeptBy: { id: string; name: string } | null;
   lastActivityAt: string | null;
   nextFollowup: { id: string; title: string; dueDate: string } | null;
+  /** Puntuación (0-100) de lo probable que es que pague, con sus motivos. */
+  score: number;
+  scoreFactors: PlatformLeadScoreFactor[];
+  /** Cuota prevista al mes sin IVA (null: sin trasteros ni plan). */
+  estimatedMonthly: number | null;
+  estimatedPlanName: string | null;
+  /** De alto valor (cuota prevista a partir del umbral de los ajustes). */
+  highValue: boolean;
+  /** Días sin actividad si está parado (pasado el umbral de su fase). */
+  staleDays: number | null;
+  /** Hasta cuándo tiene su responsable para responder (reparto automático). */
+  responseDueAt: string | null;
+  /** Veces que ha abierto sus propuestas. */
+  proposalOpens: number;
+  discardReasonCode: PlatformLeadDiscardReason | null;
+  discardReason: string | null;
+  mergedIntoId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -354,6 +718,8 @@ export interface PlatformLeadBoardDto {
   items: PlatformLeadDto[];
   /** Total por fase (Cliente y Perdido solo traen los últimos). */
   counts: Record<PlatformLeadStage, number>;
+  /** Cuota prevista sumada por fase («€ en juego»), sin IVA. */
+  valueByStage: Record<PlatformLeadStage, number>;
   /** Hay más leads abiertos de los que trae el tablero. */
   truncated: boolean;
   /** Cuántos leads abiertos no se ven (0 si cabe todo). */
@@ -367,6 +733,7 @@ export interface PlatformLeadActivityDto {
   content: string;
   occurredAt: string;
   superAdminName: string | null;
+  attachments: MessageAttachmentDto[];
 }
 
 export interface PlatformLeadFollowupDto {
@@ -387,6 +754,14 @@ export interface PlatformLeadDetailDto extends PlatformLeadDto {
   activities: PlatformLeadActivityDto[];
   followups: PlatformLeadFollowupDto[];
   quoteOffers: PlatformQuoteOfferDto[];
+  /** Secuencia de correos (la última que tuvo). */
+  sequence: PlatformLeadSequenceStateDto | null;
+  /** Sin correos automáticos de secuencia. */
+  sequenceOptOut: boolean;
+  /** Posibles duplicados (otros leads o cuentas que ya existen). */
+  duplicates: PlatformLeadDuplicateDto[];
+  /** Sus respuestas vuelven a esta ficha (hay dominio de correo entrante). */
+  repliesToThread: boolean;
 }
 
 export interface PlatformLeadStatsSourceDto {
@@ -425,6 +800,41 @@ export interface PlatformLeadStatsDto {
   /** Media de días del alta del lead al primer pago. */
   avgDaysToCustomer: number | null;
   mrr: number;
+  /** Filtro por origen aplicado (null: todos). */
+  source: PlatformLeadSource | null;
+  /** Días de media en cada fase hasta pasar a la siguiente. */
+  stageDays: {
+    stage: 'new' | 'contacted' | 'interested' | 'trial';
+    avgDays: number | null;
+    count: number;
+  }[];
+  /** Por quien lo lleva. */
+  byAssignee: PlatformLeadStatsGroupDto[];
+  /** Por campaña (`utm_campaign`). */
+  byCampaign: PlatformLeadStatsGroupDto[];
+  /** Descartados en el periodo, por motivo. */
+  discardReasons: { code: PlatformLeadDiscardReason; count: number }[];
+  /** Lo mismo del periodo anterior, de la misma duración. */
+  previous: {
+    from: string;
+    leads: number;
+    customers: number;
+    conversionPct: number | null;
+    mrr: number;
+    medianFirstResponseHours: number | null;
+  };
+  /** «€ en juego» hoy: cuota prevista (sin IVA) de los abiertos, por fase. */
+  valueByStage: { stage: PlatformLeadStage; leads: number; value: number }[];
+}
+
+export interface PlatformLeadStatsGroupDto {
+  /** Id del responsable o nombre de la campaña (null: sin él). */
+  key: string | null;
+  label: string;
+  leads: number;
+  customers: number;
+  conversionPct: number | null;
+  mrr: number;
 }
 
 /** Nombre a mostrar: la empresa o la persona. */
@@ -436,12 +846,57 @@ export function platformLeadName(l: {
   return l.companyName?.trim() || l.contactName?.trim() || l.email || 'Sin nombre';
 }
 
-/** Rellena `{empresa}` y `{nombre}` de una respuesta guardada para un lead. */
+/** Rellena `{empresa}`, `{nombre}` y `{trasteros}` de una respuesta guardada para un lead. */
 export function fillPlatformLeadTemplate(
   text: string,
-  lead: { companyName?: string | null; contactName?: string | null },
+  lead: { companyName?: string | null; contactName?: string | null; units?: string | null },
 ): string {
   const company = lead.companyName?.trim() || lead.contactName?.trim() || '';
   const name = lead.contactName?.trim().split(/\s+/)[0] || company;
-  return text.replace(/\{empresa\}/g, company).replace(/\{nombre\}/g, name);
+  return text
+    .replace(/\{empresa\}/g, company)
+    .replace(/\{nombre\}/g, name)
+    .replace(/\{trasteros\}/g, lead.units?.trim() ?? '');
+}
+
+/** Variables de las plantillas de correo a un lead (las de los comerciales). */
+const LEAD_TEMPLATE_KEYS = new Set([
+  'nombre',
+  'empresa',
+  'trasteros',
+  'ciudad',
+  'comercial',
+  'telefono_comercial',
+  'email_comercial',
+  'agenda',
+  'enlace_registro',
+  'codigo',
+]);
+
+/**
+ * Plantilla (o paso de una secuencia) para un lead: `{nombre}`, `{empresa}`,
+ * `{trasteros}`, `{ciudad}` y los datos de quien escribe. Una variable sin
+ * valor desaparece; una desconocida se queda tal cual.
+ */
+export function renderPlatformLeadTemplate(
+  text: string,
+  lead: {
+    companyName?: string | null;
+    contactName?: string | null;
+    units?: string | null;
+    city?: string | null;
+  },
+  sender: Record<string, string | null | undefined> = {},
+): string {
+  const company = lead.companyName?.trim() || lead.contactName?.trim() || '';
+  const vars: Record<string, string> = {
+    nombre: lead.contactName?.trim().split(/\s+/)[0] || company,
+    empresa: company,
+    trasteros: lead.units?.trim() ?? '',
+    ciudad: lead.city?.trim() ?? '',
+  };
+  return text.replace(/\{([a-z_]+)\}/g, (match, key: string) => {
+    if (!LEAD_TEMPLATE_KEYS.has(key)) return match;
+    return (vars[key] ?? sender[key] ?? '').trim();
+  });
 }

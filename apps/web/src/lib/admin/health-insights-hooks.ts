@@ -94,9 +94,9 @@ export function useBulkFollowups() {
   });
 }
 
-export type ListViewPage = 'health' | 'adoption' | 'usage';
+export type ListViewPage = 'health' | 'adoption' | 'usage' | 'leads';
 
-/** Vistas guardadas de una de las listas de Salud, Adopción o Uso (por super admin). */
+/** Vistas guardadas de una de las listas de Salud, Adopción, Uso o Leads (por super admin). */
 export function useListViews(page: ListViewPage) {
   return useQuery({
     queryKey: ['admin', 'saved-views', page] as const,

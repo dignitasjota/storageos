@@ -4,7 +4,7 @@ import type {
   HealthMainDragDto,
   PayProbabilityLevel,
 } from './health-insights';
-import type { PlatformLeadFollowupDto, PlatformLeadSource } from './leads';
+import type { PlatformLeadFollowupDto, PlatformLeadSource, PlatformLeadStage } from './leads';
 import type {
   AdminForecastAccuracyDto,
   AdminForecastScenarioDto,
@@ -1653,6 +1653,19 @@ export interface AdminTodayLeadDto {
   assignedToName: string | null;
 }
 
+/** Lead parado: lleva más días sin actividad de los que toca en su fase. */
+export interface AdminTodayStaleLeadDto {
+  id: string;
+  name: string;
+  status: PlatformLeadStage;
+  staleDays: number;
+  assignedToId: string | null;
+  assignedToName: string | null;
+  estimatedMonthly: number | null;
+  /** De alto valor: cuenta como urgente. */
+  highValue: boolean;
+}
+
 export interface AdminTodayDomainDto {
   tenantId: string;
   tenantName: string;
@@ -1752,6 +1765,8 @@ export interface AdminTodayDto {
   responseTargets: Record<SupportTicketPriorityValue, number>;
   /** Seguimientos de leads de hoy o atrasados. */
   leadFollowupsDue: PlatformLeadFollowupDto[];
+  /** Leads parados (sin actividad pasado el umbral de su fase); urgentes solo los de alto valor. */
+  staleLeads: AdminTodayStaleLeadDto[];
   /** Dominios con el DNS listo, por activar. */
   domainsReady: AdminTodayDomainDto[];
   /** Facturas de suscripción de los últimos 90 días sin NIF o domicilio. */

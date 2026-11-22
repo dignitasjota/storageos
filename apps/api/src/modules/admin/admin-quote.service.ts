@@ -288,27 +288,74 @@ export class AdminQuoteService {
       include: OFFER_INCLUDE,
     });
     if (!row) return web;
-    if (!row.openedAt) {
-      const { count } = await this.admin.platformQuoteOffer.updateMany({
-        where: { id: offerId, openedAt: null },
-        data: { openedAt: new Date() },
-      });
-      if (count > 0 && row.superAdminId) {
-        const name = row.tenant?.name ?? (row.lead ? platformLeadName(row.lead) : 'Un cliente');
-        await this.admin.superAdminNotification
-          .create({
-            data: {
-              type: 'sales.offer_opened',
-              title: `${name} ha abierto tu propuesta`,
-              body: 'Buen momento para llamarle.',
-              link: row.leadId ? `/admin/sales/accounts/${row.leadId}` : null,
-              recipientId: row.superAdminId,
-            },
-          })
-          .catch(() => undefined);
-      }
-    }
+    const now = new Date();
+    // Cada apertura cuenta (veces y la última); la primera, además, la fecha.
+    await this.admin.platformQuoteOffer.update({
+      where: { id: offerId },
+      data: { openCount: { increment: 1 }, lastOpenedAt: now },
+    });
+    await this.admin.platformQuoteOffer.updateMany({
+      where: { id: offerId, openedAt: null },
+      data: { openedAt: now },
+    });
+    // Aviso a quien lleva el lead (o a quien la envió), una vez por propuesta.
+    const { count } = await this.admin.platformQuoteOffer.updateMany({
+      where: { id: offerId, openNotifiedAt: null },
+      data: { openNotifiedAt: now },
+    });
+    if (count > 0) await this.notifyOfferOpened(row);
     return row.tenantId || !row.lead ? this.acceptUrl(row) : this.registerUrl(row.lead);
+  }
+
+  private async notifyOfferOpened(row: {
+    id: string;
+    leadId: string | null;
+    tenantId: string | null;
+    superAdminId: string | null;
+    tenant: { name: string } | null;
+    lead: { email: string | null; companyName: string | null; contactName: string | null } | null;
+  }): Promise<void> {
+    const name = row.tenant?.name ?? (row.lead ? platformLeadName(row.lead) : 'Un cliente');
+    const lead = row.leadId
+      ? await this.admin.platformLead.findUnique({
+          where: { id: row.leadId },
+          select: { assignedToId: true },
+        })
+      : null;
+    const recipientId = lead?.assignedToId ?? row.superAdminId;
+    if (row.leadId) {
+      await this.admin.platformLeadActivity
+        .create({
+          data: { leadId: row.leadId, type: 'system', content: 'Ha abierto la propuesta' },
+        })
+        .catch(() => undefined);
+    }
+    if (!recipientId) return;
+    const recipient = await this.admin.superAdmin.findUnique({
+      where: { id: recipientId },
+      select: { role: true },
+    });
+    const link = row.leadId
+      ? recipient?.role === 'sales'
+        ? `/admin/sales/accounts/${row.leadId}`
+        : `/admin/leads?lead=${row.leadId}`
+      : row.tenantId
+        ? `/admin/tenants/${row.tenantId}`
+        : null;
+    await this.admin.superAdminNotification
+      .create({
+        data: {
+          type: 'sales.offer_opened',
+          title:
+            recipientId === row.superAdminId
+              ? `${name} ha abierto tu propuesta`
+              : `${name} ha abierto la propuesta`,
+          body: 'Buen momento para llamarle.',
+          link,
+          recipientId,
+        },
+      })
+      .catch(() => undefined);
   }
 
   private acceptUrl(r: {
@@ -395,6 +442,8 @@ export class AdminQuoteService {
       resolvedAt: Date | null;
       createdAt: Date;
       openedAt: Date | null;
+      openCount: number;
+      lastOpenedAt: Date | null;
       expiresAt: Date | null;
       tenant: { name: string } | null;
       lead: {
@@ -423,6 +472,8 @@ export class AdminQuoteService {
       resolvedAt: r.resolvedAt?.toISOString() ?? null,
       createdAt: r.createdAt.toISOString(),
       openedAt: r.openedAt?.toISOString() ?? null,
+      openCount: r.openCount,
+      lastOpenedAt: r.lastOpenedAt?.toISOString() ?? null,
       expiresAt: r.expiresAt?.toISOString() ?? null,
       expired: r.status === 'sent' && !!r.expiresAt && r.expiresAt.getTime() < Date.now(),
       superAdminName,

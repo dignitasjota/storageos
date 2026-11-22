@@ -115,6 +115,7 @@ export const AdminSavedViewPageEnum = z.enum([
   'health',
   'adoption',
   'usage',
+  'leads',
 ]);
 export const CreateAdminSavedViewSchema = z.object({
   page: AdminSavedViewPageEnum,
@@ -713,6 +714,7 @@ export const TodaySnoozeKindEnum = z.enum([
   'lead_followup',
   'payment_failure',
   'inactive',
+  'stale_lead',
 ]);
 export type TodaySnoozeKind = z.infer<typeof TodaySnoozeKindEnum>;
 

@@ -24,6 +24,7 @@ export const ADMIN_TODAY_SECTION_LABELS: Record<string, string> = {
   snoozes: 'avisos apartados',
   newLeads: 'leads nuevos',
   leadFollowupsDue: 'seguimientos de leads',
+  staleLeads: 'leads parados',
   domainsReady: 'dominios propios',
   incompleteInvoices: 'facturas sin datos fiscales',
   rgpdOverdue: 'solicitudes RGPD',
@@ -62,6 +63,7 @@ export type AdminTodayUrgencySource = Pick<
   | 'assignedLeads'
   | 'paymentFailures'
   | 'leadFollowupsDue'
+  | 'staleLeads'
   | 'domainsReady'
   | 'rgpdOverdue'
   | 'aeatIssues'
@@ -109,6 +111,7 @@ export function adminTodayUrgentCounts(
     (options.mine ? d.assignedLeads.length : 0) +
     d.paymentFailures.length +
     d.leadFollowupsDue.length +
+    d.staleLeads.filter((l) => l.highValue).length +
     d.domainsReady.length +
     d.rgpdOverdue.length;
   const ops =
@@ -205,6 +208,9 @@ export function adminTodayVisitItems(d: AdminTodayDto): AdminTodayVisitSnapshotI
       `${f.leadName}: ${f.title}`,
       `/admin/leads?lead=${f.leadId}`,
     ),
+  );
+  d.staleLeads.forEach((l) =>
+    add('staleLeads', `stale_lead:${l.id}`, l.name, `/admin/leads?lead=${l.id}`),
   );
   d.domainsReady.forEach((x) =>
     add('domainsReady', `domain:${x.tenantId}`, x.tenantName, '/admin/custom-domains'),

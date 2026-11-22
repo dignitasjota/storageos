@@ -11,6 +11,7 @@ export * from './email-format';
 export * from './comms';
 export * from './audit-labels';
 export * from './leads';
+export * from './leads-insights';
 export * from './profitability';
 export * from './platform-blog';
 export * from './support';

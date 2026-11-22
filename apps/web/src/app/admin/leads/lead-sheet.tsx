@@ -4,13 +4,18 @@ import {
   CONTACT_PROFILE_OPTIONS,
   PLATFORM_LEAD_ACTIVITY_LABELS,
   PLATFORM_LEAD_CONVERSATION_TYPES,
+  PLATFORM_LEAD_DISCARD_REASON_LABELS,
+  PLATFORM_LEAD_INBOUND_TYPES,
   PLATFORM_LEAD_LOST_REASON_LABELS,
+  PLATFORM_LEAD_SEQUENCE_STOP_LABELS,
   PLATFORM_LEAD_SOURCE_LABELS,
   PLATFORM_LEAD_SOURCES,
   PLATFORM_LEAD_STAGE_LABELS,
   fillPlatformLeadTemplate,
+  renderPlatformLeadTemplate,
   type PlatformLeadActivityDto,
   type PlatformLeadDetailDto,
+  type PlatformLeadDuplicateDto,
   type PlatformLeadSource,
 } from '@storageos/shared';
 import {
@@ -35,9 +40,15 @@ import {
   PlanSelect,
   QuoteLeadDialog,
 } from './lead-dialogs';
+import { DiscardLeadDialog, MergeLeadDialog } from './lead-extra-dialogs';
 
 import { LeadAppointmentsPanel } from '@/components/admin/sales/appointments-views';
 import { useConfirm } from '@/components/confirm-provider';
+import {
+  AttachmentList,
+  AttachmentPicker,
+  uploadMessageAttachments,
+} from '@/components/messages/attachments';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -68,13 +79,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useAdminSuperAdmins, useSupportCannedResponses } from '@/lib/admin/hooks';
 import {
+  leadAttachmentUploadUrl,
   useAdminLead,
   useCreateLeadFollowup,
   useDeleteLead,
   useDeleteLeadActivity,
   useDeleteLeadFollowup,
-  useDiscardLead,
   useLeadActivity,
+  useLeadTemplates,
+  useSetLeadSequence,
   useMoveLead,
   useReopenLead,
   useRestoreLead,
@@ -86,6 +99,7 @@ import { useSalesTeam } from '@/lib/admin/sales-team-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
+import { formatEur } from '@/lib/format';
 
 const NONE = '-';
 const MANUAL_ACTIVITY = new Set(['note', 'call', 'demo', 'meeting', 'whatsapp']);
@@ -108,6 +122,15 @@ const day = (iso: string) =>
     year: 'numeric',
   });
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+function ago(iso: string): string {
+  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (minutes < 1) return 'hace un momento';
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? 'hace 1 día' : `hace ${days} días`;
+}
 
 export const STAGE_BADGE: Record<string, string> = {
   new: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
@@ -208,22 +231,33 @@ function DiscardedBody({ lead }: { lead: PlatformLeadDetailDto }) {
       </SheetHeader>
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted p-3 text-sm">
         <span>
-          Marcado «No es un lead» el {day(lead.discardedAt!)}. Se ve en solo lectura: no está en el
-          tablero ni en los resultados.
+          Marcado «No es un lead» el {day(lead.discardedAt!)}
+          {lead.discardReasonCode
+            ? ` (${PLATFORM_LEAD_DISCARD_REASON_LABELS[lead.discardReasonCode]}${lead.discardReason ? `: ${lead.discardReason}` : ''})`
+            : ''}
+          . Se ve en solo lectura: no está en el tablero ni en los resultados.
         </span>
-        <Button
-          size="sm"
-          disabled={restore.isPending}
-          onClick={() =>
-            void restore
-              .mutateAsync(lead.id)
-              .then(() => toast.success('Vuelve a estar en el tablero.'))
-              .catch((err) => toast.error(errorText(err, 'No se ha podido recuperar.')))
-          }
-        >
-          {restore.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
-          Recuperar
-        </Button>
+        {lead.mergedIntoId ? (
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/admin/leads?lead=${lead.mergedIntoId}`}>
+              Ver el lead con el que se unió
+            </Link>
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            disabled={restore.isPending}
+            onClick={() =>
+              void restore
+                .mutateAsync(lead.id)
+                .then(() => toast.success('Vuelve a estar en el tablero.'))
+                .catch((err) => toast.error(errorText(err, 'No se ha podido recuperar.')))
+            }
+          >
+            {restore.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+            Recuperar
+          </Button>
+        )}
       </div>
       <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
         {facts
@@ -245,6 +279,7 @@ function DiscardedBody({ lead }: { lead: PlatformLeadDetailDto }) {
               </p>
               {a.subject && <p className="font-medium">{a.subject}</p>}
               <p className="whitespace-pre-line break-words">{a.content}</p>
+              {a.attachments.length > 0 && <AttachmentList attachments={a.attachments} />}
             </li>
           ))}
         </ul>
@@ -260,9 +295,11 @@ function LeadBody({ lead, onClose }: { lead: PlatformLeadDetailDto; onClose: () 
   const update = useUpdateLead();
   const move = useMoveLead();
   const reopen = useReopenLead();
-  const discard = useDiscardLead();
   const remove = useDeleteLead();
-  const [dialog, setDialog] = useState<null | 'lose' | 'tenant' | 'link' | 'quote'>(null);
+  const [dialog, setDialog] = useState<null | 'lose' | 'tenant' | 'link' | 'quote' | 'discard'>(
+    null,
+  );
+  const [mergeFrom, setMergeFrom] = useState<PlatformLeadDuplicateDto | null>(null);
   const automatic = lead.status === 'trial' || lead.status === 'customer';
   const conversation = lead.activities.filter((a) =>
     PLATFORM_LEAD_CONVERSATION_TYPES.includes(a.type),
@@ -345,6 +382,10 @@ function LeadBody({ lead, onClose }: { lead: PlatformLeadDetailDto; onClose: () 
           {lead.lostReason ? ` — ${lead.lostReason}` : ''}
         </p>
       )}
+      <LeadSignals lead={lead} />
+      {lead.duplicates.length > 0 && (
+        <DuplicatesPanel lead={lead} onMerge={(d) => setMergeFrom(d)} />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {!automatic && lead.status !== 'lost' && (
@@ -409,21 +450,7 @@ function LeadBody({ lead, onClose }: { lead: PlatformLeadDetailDto; onClose: () 
                 Vincular a una cuenta que ya existe
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              onClick={async () => {
-                const ok = await confirm({
-                  title: '¿No es un lead?',
-                  description:
-                    'Sale del tablero y de las cifras (spam, una consulta de soporte, un proveedor…).',
-                  confirmLabel: 'No es un lead',
-                });
-                if (!ok) return;
-                await run(() => discard.mutateAsync(lead.id), 'Fuera del tablero.');
-                onClose();
-              }}
-            >
-              No es un lead
-            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setDialog('discard')}>No es un lead…</DropdownMenuItem>
             {superadmin && (
               <>
                 <DropdownMenuSeparator />
@@ -507,6 +534,132 @@ function LeadBody({ lead, onClose }: { lead: PlatformLeadDetailDto; onClose: () 
       {dialog === 'tenant' && <CreateTenantDialog lead={lead} onClose={() => setDialog(null)} />}
       {dialog === 'link' && <LinkTenantDialog lead={lead} onClose={() => setDialog(null)} />}
       {dialog === 'quote' && <QuoteLeadDialog lead={lead} onClose={() => setDialog(null)} />}
+      {dialog === 'discard' && (
+        <DiscardLeadDialog
+          leadIds={[lead.id]}
+          name={lead.displayName}
+          onClose={() => setDialog(null)}
+          onDone={onClose}
+        />
+      )}
+      {mergeFrom && (
+        <MergeLeadDialog
+          leadId={lead.id}
+          leadName={lead.displayName}
+          source={mergeFrom}
+          onClose={() => setMergeFrom(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+const SCORE_TONE = (score: number) =>
+  score >= 70
+    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+    : score >= 40
+      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+      : 'bg-muted text-muted-foreground';
+
+/** Puntuación (con sus motivos), cuota prevista, parado y plazo de respuesta. */
+function LeadSignals({ lead }: { lead: PlatformLeadDetailDto }) {
+  const [open, setOpen] = useState(false);
+  const late = lead.responseDueAt && new Date(lead.responseDueAt).getTime() < Date.now();
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className={`rounded px-2 py-0.5 text-xs font-medium ${SCORE_TONE(lead.score)}`}
+          title="Ver por qué"
+        >
+          Puntuación {lead.score}/100
+        </button>
+        <span className="text-muted-foreground">
+          {lead.estimatedMonthly !== null
+            ? `≈ ${formatEur(lead.estimatedMonthly)} al mes sin IVA${lead.estimatedPlanName ? ` (${lead.estimatedPlanName})` : ''}`
+            : 'Cuota prevista: falta saber sus trasteros o el plan'}
+        </span>
+        {lead.highValue && <Badge variant="secondary">Alto valor</Badge>}
+        {lead.staleDays !== null && (
+          <Badge variant="outline" className="border-amber-400 text-amber-800 dark:text-amber-300">
+            Parado · {lead.staleDays} días
+          </Badge>
+        )}
+        {lead.responseDueAt && (
+          <span
+            className={`text-xs ${late ? 'font-medium text-destructive' : 'text-muted-foreground'}`}
+          >
+            {late
+              ? 'Plazo de respuesta pasado'
+              : `Responder antes de ${dateTime(lead.responseDueAt)}`}
+          </span>
+        )}
+      </div>
+      {open && (
+        <ul className="mt-2 grid gap-0.5 sm:grid-cols-2">
+          {lead.scoreFactors.map((f) => (
+            <li key={`${f.key}-${f.label}`} className="flex justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">
+                {f.key === 'source'
+                  ? `Origen: ${PLATFORM_LEAD_SOURCE_LABELS[lead.source] ?? lead.source}`
+                  : f.label}
+              </span>
+              <span className={`tabular-nums ${f.points < 0 ? 'text-destructive' : ''}`}>
+                {f.points > 0 ? `+${f.points}` : f.points}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Posibles duplicados: otros leads (se pueden fusionar) o cuentas que ya existen. */
+function DuplicatesPanel({
+  lead,
+  onMerge,
+}: {
+  lead: PlatformLeadDetailDto;
+  onMerge: (d: PlatformLeadDuplicateDto) => void;
+}) {
+  return (
+    <div className="space-y-1 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+      <p className="inline-flex items-center gap-1.5 font-medium">
+        <AlertTriangle className="size-4" aria-hidden /> Puede estar repetido
+      </p>
+      <ul className="space-y-1">
+        {lead.duplicates.map((d) => (
+          <li
+            key={`${d.kind}-${d.id}`}
+            className="flex flex-wrap items-center justify-between gap-2"
+          >
+            <span>
+              {d.kind === 'lead' ? 'Lead' : 'Cuenta'} «{d.name}» · {d.reason}
+              {d.status ? ` · ${PLATFORM_LEAD_STAGE_LABELS[d.status]}` : ''}
+            </span>
+            <span className="flex gap-1">
+              {d.kind === 'lead' ? (
+                <>
+                  <Button size="sm" variant="ghost" className="h-7" asChild>
+                    <Link href={`/admin/leads?lead=${d.id}`}>Abrir</Link>
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7" onClick={() => onMerge(d)}>
+                    Fusionar aquí
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="ghost" className="h-7" asChild>
+                  <Link href={`/admin/tenants/${d.id}`}>Ver cuenta</Link>
+                </Button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -661,6 +814,10 @@ function DataTab({ lead }: { lead: PlatformLeadDetailDto }) {
                 <span className="block text-xs text-muted-foreground">
                   {day(o.createdAt)}
                   {o.superAdminName ? ` · ${o.superAdminName}` : ''}
+                  {' · '}
+                  {o.openCount > 0
+                    ? `Abierta ${o.openCount === 1 ? '1 vez' : `${o.openCount} veces`}${o.lastOpenedAt ? `, la última ${ago(o.lastOpenedAt)}` : ''}`
+                    : 'Sin abrir'}
                 </span>
               </span>
               <span className="flex items-center gap-2">
@@ -701,30 +858,59 @@ function ConversationTab({
   items: PlatformLeadActivityDto[];
 }) {
   const send = useSendLeadEmail();
+  const templates = useLeadTemplates();
   const canned = useSupportCannedResponses();
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
   const ordered = [...items].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
 
   async function submit() {
     try {
-      await send.mutateAsync({ id: lead.id, input: { subject, body } });
+      setUploading(true);
+      const attachments = files.length
+        ? await uploadMessageAttachments(files, (mime) => leadAttachmentUploadUrl(lead.id, mime))
+        : [];
+      await send.mutateAsync({
+        id: lead.id,
+        input: { subject, body, ...(attachments.length ? { attachments } : {}) },
+      });
       toast.success('Correo enviado.');
       setSubject('');
       setBody('');
+      setFiles([]);
     } catch (err) {
       toast.error(errorText(err, 'No se ha podido enviar.'));
+    } finally {
+      setUploading(false);
     }
   }
 
+  const options = [
+    ...(templates.data ?? []).map((t) => ({
+      id: `t:${t.id}`,
+      label: t.name,
+      subject: t.subject ?? '',
+      body: t.body,
+    })),
+    ...(canned.data ?? []).map((c) => ({
+      id: `c:${c.id}`,
+      label: `${c.title} (soporte)`,
+      subject: c.title,
+      body: c.body,
+    })),
+  ];
+
   return (
     <div className="space-y-4">
+      <SequenceCard lead={lead} />
       {ordered.length === 0 ? (
         <p className="text-sm text-muted-foreground">Aún no hay mensajes con este lead.</p>
       ) : (
         <ul className="space-y-2">
           {ordered.map((a) => {
-            const ours = a.type !== 'web_form';
+            const ours = !PLATFORM_LEAD_INBOUND_TYPES.includes(a.type);
             return (
               <li
                 key={a.id}
@@ -735,7 +921,8 @@ function ConversationTab({
                   {a.superAdminName ? ` · ${a.superAdminName}` : ''}
                 </p>
                 {a.subject && <p className="font-medium">{a.subject}</p>}
-                <p className="whitespace-pre-line">{a.content}</p>
+                <p className="whitespace-pre-line break-words">{a.content}</p>
+                {a.attachments.length > 0 && <AttachmentList attachments={a.attachments} />}
               </li>
             );
           })}
@@ -745,23 +932,27 @@ function ConversationTab({
         <div className="space-y-2 rounded-md border p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium">Escribir a {lead.email}</p>
-            {(canned.data ?? []).length > 0 && (
+            {options.length > 0 && (
               <Select
                 value=""
                 onValueChange={(id) => {
-                  const c = canned.data?.find((x) => x.id === id);
-                  if (!c) return;
-                  setBody(fillPlatformLeadTemplate(c.body, lead));
-                  if (!subject) setSubject(fillPlatformLeadTemplate(c.title, lead));
+                  const o = options.find((x) => x.id === id);
+                  if (!o) return;
+                  const fill = (t: string) =>
+                    o.id.startsWith('t:')
+                      ? renderPlatformLeadTemplate(t, lead)
+                      : fillPlatformLeadTemplate(t, lead);
+                  setBody(fill(o.body));
+                  if (!subject && o.subject) setSubject(fill(o.subject));
                 }}
               >
-                <SelectTrigger className="h-8 w-[220px]">
-                  <SelectValue placeholder="Respuesta guardada…" />
+                <SelectTrigger className="h-8 w-[220px]" aria-label="Plantilla">
+                  <SelectValue placeholder="Plantilla…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {canned.data!.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.title}
+                  {options.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -783,17 +974,21 @@ function ConversationTab({
             maxLength={10_000}
             onChange={(e) => setBody(e.target.value)}
           />
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <AttachmentPicker files={files} onChange={setFiles} disabled={uploading} />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
-              Sale con el remitente de «Contacto web»; si responde, le llega al email del
-              formulario.
+              {lead.repliesToThread
+                ? 'Si responde, su respuesta vuelve a esta conversación y te avisamos.'
+                : 'Sale con el remitente de «Contacto web»; si responde, le llega al email del formulario.'}
             </p>
             <Button
               size="sm"
-              disabled={subject.trim().length < 3 || !body.trim() || send.isPending}
+              disabled={subject.trim().length < 3 || !body.trim() || send.isPending || uploading}
               onClick={() => void submit()}
             >
-              {send.isPending ? (
+              {send.isPending || uploading ? (
                 <Loader2 className="mr-1.5 size-4 animate-spin" />
               ) : (
                 <Send className="mr-1.5 size-3.5" aria-hidden />
@@ -806,6 +1001,70 @@ function ConversationTab({
         <p className="text-sm text-muted-foreground">
           Este lead no tiene email: añádelo en «Datos» para escribirle desde aquí.
         </p>
+      )}
+    </div>
+  );
+}
+
+/** Correos automáticos (secuencia) de este lead: en qué van y pararlos o activarlos. */
+function SequenceCard({ lead }: { lead: PlatformLeadDetailDto }) {
+  const set = useSetLeadSequence();
+  const seq = lead.sequence;
+  const active = seq?.status === 'active';
+  const open = ['new', 'contacted', 'interested'].includes(lead.status);
+  if (!open && !seq) return null;
+  async function toggle(enabled: boolean) {
+    try {
+      await set.mutateAsync({ id: lead.id, input: { enabled } });
+      toast.success(enabled ? 'Secuencia activada.' : 'Secuencia parada.');
+    } catch (err) {
+      toast.error(errorText(err, 'No se ha podido cambiar.'));
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
+      <span className="text-muted-foreground">
+        {active
+          ? `Correos automáticos: «${seq.sequenceName}», ${seq.sent} de ${seq.totalSteps} enviados${seq.nextRunAt ? `; el siguiente, ${dateTime(seq.nextRunAt)}` : ''}.`
+          : seq
+            ? `Correos automáticos: «${seq.sequenceName}» ${seq.status === 'done' ? 'terminada' : `parada (${PLATFORM_LEAD_SEQUENCE_STOP_LABELS[seq.stopReason ?? 'manual'] ?? 'parada'})`}, ${seq.sent} de ${seq.totalSteps} enviados.`
+            : lead.sequenceOptOut
+              ? 'Sin correos automáticos para este lead.'
+              : 'Sin correos automáticos todavía: empiezan solos con el primer correo o la propuesta.'}
+      </span>
+      {active ? (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={set.isPending}
+          onClick={() => void toggle(false)}
+        >
+          Parar
+        </Button>
+      ) : (
+        open &&
+        lead.email && (
+          <span className="flex gap-1">
+            {!lead.sequenceOptOut && !seq && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={set.isPending}
+                onClick={() => void toggle(false)}
+              >
+                No enviarle
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={set.isPending}
+              onClick={() => void toggle(true)}
+            >
+              Activar ahora
+            </Button>
+          </span>
+        )
       )}
     </div>
   );
@@ -876,6 +1135,7 @@ function ActivityTab({ lead }: { lead: PlatformLeadDetailDto }) {
               </p>
               {a.subject && <p className="font-medium">{a.subject}</p>}
               <p className="whitespace-pre-line break-words">{a.content}</p>
+              {a.attachments.length > 0 && <AttachmentList attachments={a.attachments} />}
             </div>
             {MANUAL_ACTIVITY.has(a.type) && (
               <Button

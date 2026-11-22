@@ -22,6 +22,7 @@ const empty: AdminTodayUrgencySource = {
   assignedLeads: [],
   paymentFailures: [],
   leadFollowupsDue: [],
+  staleLeads: [],
   domainsReady: [],
   rgpdOverdue: [],
   aeatIssues: [],
@@ -45,6 +46,21 @@ const lead = (assignedToId: string | null) =>
   }) as AdminTodayUrgencySource['newLeads'][number];
 
 describe('urgentes de «Hoy»', () => {
+  it('un lead parado solo es urgente si es de alto valor', () => {
+    const stale = (highValue: boolean) => ({
+      id: highValue ? 'a' : 'b',
+      name: 'Lead',
+      status: 'contacted' as const,
+      staleDays: 6,
+      assignedToId: null,
+      assignedToName: null,
+      estimatedMonthly: highValue ? 300 : 40,
+      highValue,
+    });
+    const counts = adminTodayUrgentCounts({ ...empty, staleLeads: [stale(true), stale(false)] });
+    expect(counts.business).toBe(1);
+  });
+
   it('cuadran por pestaña y en total', () => {
     const counts = adminTodayUrgentCounts({
       ...empty,

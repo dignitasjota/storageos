@@ -1,15 +1,20 @@
 'use client';
 
 import {
+  PLATFORM_LEAD_DISCARD_REASON_LABELS,
   PLATFORM_LEAD_LOST_REASON_LABELS,
   PLATFORM_LEAD_SOURCE_LABELS,
+  PLATFORM_LEAD_SOURCES,
   PLATFORM_LEAD_STAGE_LABELS,
+  type PlatformLeadSource,
+  type PlatformLeadStatsGroupDto,
 } from '@storageos/shared';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { CsvButton } from '@/components/admin/metrics/csv-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -54,13 +59,117 @@ function BarRow({
   );
 }
 
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+  change,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  /** Variación frente al periodo anterior («+3», «−12 %»…) y si es buena. */
+  change?: { text: string; good: boolean | null } | null;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-2xl font-semibold tabular-nums">{value}</p>
+        {change && (
+          <p
+            className={`text-xs tabular-nums ${
+              change.good === null
+                ? 'text-muted-foreground'
+                : change.good
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-destructive'
+            }`}
+          >
+            {change.text} vs. periodo anterior
+          </p>
+        )}
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** «+3» / «−2» con el signo y si subir es bueno. */
+function delta(
+  now: number | null,
+  before: number | null,
+  opts: { higherIsBetter?: boolean; format?: (n: number) => string } = {},
+): { text: string; good: boolean | null } | null {
+  if (now === null || before === null) return null;
+  const diff = Math.round((now - before) * 10) / 10;
+  if (diff === 0) return { text: 'igual', good: null };
+  const fmt = opts.format ?? ((n: number) => formatNumber(n, Number.isInteger(n) ? 0 : 1));
+  const better = opts.higherIsBetter ?? true;
+  return {
+    text: `${diff > 0 ? '+' : '−'}${fmt(Math.abs(diff))}`,
+    good: diff > 0 ? better : !better,
+  };
+}
+
+/** Tabla de leads, clientes, conversión y cuota de un grupo (responsable o campaña). */
+function GroupTable({
+  title,
+  rows,
+  csvName,
+  column,
+}: {
+  title: string;
+  rows: PlatformLeadStatsGroupDto[];
+  csvName: string;
+  column: string;
+}) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CsvButton
+          filename={csvName}
+          disabled={rows.length === 0}
+          rows={() => [
+            [column, 'Leads', 'Clientes', 'Conversión (%)', 'Pagan al mes (sin IVA)'],
+            ...rows.map((r) => [r.label, r.leads, r.customers, r.conversionPct ?? '', r.mrr]),
+          ]}
+        />
+      </CardHeader>
+      <CardContent className="p-0">
+        {rows.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">Sin datos en el periodo.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="px-4 py-2 font-medium">{column}</th>
+                  <th className="px-4 py-2 text-right font-medium">Leads</th>
+                  <th className="px-4 py-2 text-right font-medium">Clientes</th>
+                  <th className="px-4 py-2 text-right font-medium">Conversión</th>
+                  <th className="px-4 py-2 text-right font-medium">Pagan al mes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.key ?? '-'} className="border-b last:border-0">
+                    <td className="px-4 py-2">{r.label}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{formatCount(r.leads)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {formatCount(r.customers)}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {r.conversionPct === null ? '—' : formatPct(r.conversionPct)}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">{formatEur(r.mrr)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -72,7 +181,8 @@ function Stat({ label, value, hint }: { label: string; value: string; hint?: str
  */
 export default function AdminLeadStatsPage() {
   const [months, setMonths] = useState(6);
-  const q = useAdminLeadStats(months);
+  const [source, setSource] = useState<PlatformLeadSource | 'all'>('all');
+  const q = useAdminLeadStats(months, source === 'all' ? null : source);
   const s = q.data;
   // Clientes: los que se trabajaron y llegaron a pagar más los que entraron solos y pagan.
   const worked = s?.funnel.find((f) => f.stage === 'new')?.reached ?? 0;
@@ -94,18 +204,33 @@ export default function AdminLeadStatsPage() {
             dónde han llegado. «Cliente» es quien ya ha pagado.
           </p>
         </div>
-        <Select value={String(months)} onValueChange={(v) => setMonths(Number(v))}>
-          <SelectTrigger className="h-9 w-[180px]" aria-label="Periodo">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {[3, 6, 12, 24].map((m) => (
-              <SelectItem key={m} value={String(m)}>
-                {`Este mes y los ${m - 1} anteriores`}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap gap-2">
+          <Select value={source} onValueChange={(v) => setSource(v as PlatformLeadSource | 'all')}>
+            <SelectTrigger className="h-9 w-[200px]" aria-label="Origen">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los orígenes</SelectItem>
+              {PLATFORM_LEAD_SOURCES.map((x) => (
+                <SelectItem key={x} value={x}>
+                  {PLATFORM_LEAD_SOURCE_LABELS[x]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={String(months)} onValueChange={(v) => setMonths(Number(v))}>
+            <SelectTrigger className="h-9 w-[180px]" aria-label="Periodo">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[3, 6, 12, 24].map((m) => (
+                <SelectItem key={m} value={String(m)}>
+                  {`Este mes y los ${m - 1} anteriores`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {q.isError ? (
@@ -117,13 +242,31 @@ export default function AdminLeadStatsPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-            <Stat label="Leads" value={formatCount(s.leads)} />
-            <Stat label="Clientes" value={formatCount(customers)} />
-            <Stat label="Conversión" value={pct(customers, s.leads)} hint="de lead a cliente" />
+            <Stat
+              label="Leads"
+              value={formatCount(s.leads)}
+              change={delta(s.leads, s.previous.leads)}
+            />
+            <Stat
+              label="Clientes"
+              value={formatCount(customers)}
+              change={delta(customers, s.previous.customers)}
+            />
+            <Stat
+              label="Conversión"
+              value={pct(customers, s.leads)}
+              hint="de lead a cliente"
+              change={delta(
+                s.leads ? (customers / s.leads) * 100 : null,
+                s.previous.conversionPct,
+                { format: (n) => `${formatNumber(n, 1)} puntos` },
+              )}
+            />
             <Stat
               label="Pagan al mes"
               value={formatEur(s.mrr)}
               hint="los que son clientes, sin IVA"
+              change={delta(s.mrr, s.previous.mrr, { format: formatEur })}
             />
             <Stat
               label="Primera respuesta"
@@ -133,6 +276,10 @@ export default function AdminLeadStatsPage() {
                   : `${formatNumber(s.medianFirstResponseHours, 1)} h`
               }
               hint="mediana, de quien escribe solo"
+              change={delta(s.medianFirstResponseHours, s.previous.medianFirstResponseHours, {
+                higherIsBetter: false,
+                format: (n) => `${formatNumber(n, 1)} h`,
+              })}
             />
             <Stat
               label="Hasta pagar"
@@ -145,7 +292,7 @@ export default function AdminLeadStatsPage() {
             />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Hasta dónde llegan</CardTitle>
@@ -202,9 +349,128 @@ export default function AdminLeadStatsPage() {
             </Card>
           </div>
 
+          <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-base">Días en cada fase</CardTitle>
+                <CsvButton
+                  filename="leads-dias-por-fase.csv"
+                  rows={() => [
+                    ['Fase', 'Días de media', 'Leads'],
+                    ...s.stageDays.map((d) => [
+                      PLATFORM_LEAD_STAGE_LABELS[d.stage],
+                      d.avgDays ?? '',
+                      d.count,
+                    ]),
+                  ]}
+                />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Cuánto tarda de media en pasar a la siguiente fase (de los que pasaron).
+                </p>
+                {s.stageDays.map((d) => (
+                  <BarRow
+                    key={d.stage}
+                    label={PLATFORM_LEAD_STAGE_LABELS[d.stage]}
+                    value={d.avgDays ?? 0}
+                    max={Math.max(...s.stageDays.map((x) => x.avgDays ?? 0), 1)}
+                    note={d.avgDays === null ? 'sin datos' : `días (${formatCount(d.count)})`}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+                <CardTitle className="text-base">En juego ahora</CardTitle>
+                <CsvButton
+                  filename="leads-en-juego.csv"
+                  rows={() => [
+                    ['Fase', 'Leads abiertos', 'Cuota prevista al mes (sin IVA)'],
+                    ...s.valueByStage.map((v) => [
+                      PLATFORM_LEAD_STAGE_LABELS[v.stage],
+                      v.leads,
+                      v.value,
+                    ]),
+                  ]}
+                />
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Lo que pagarían al mes (sin IVA) los leads abiertos hoy, por fase, según sus
+                  trasteros o el plan que les interesa.
+                </p>
+                {s.valueByStage.map((v) => (
+                  <div key={v.stage} className="flex justify-between gap-2 text-sm">
+                    <span className="text-muted-foreground">
+                      {PLATFORM_LEAD_STAGE_LABELS[v.stage]} ({formatCount(v.leads)})
+                    </span>
+                    <span className="tabular-nums">{formatEur(v.value)}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between gap-2 border-t pt-1 text-sm font-medium">
+                  <span>Total</span>
+                  <span className="tabular-nums">
+                    {formatEur(s.valueByStage.reduce((a, v) => a + v.value, 0))}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
+            <GroupTable
+              title="Por responsable"
+              column="Responsable"
+              csvName="leads-por-responsable.csv"
+              rows={s.byAssignee}
+            />
+            <GroupTable
+              title="Por campaña"
+              column="Campaña"
+              csvName="leads-por-campana.csv"
+              rows={s.byCampaign}
+            />
+          </div>
+
           <Card>
             <CardHeader className="pb-2">
+              <CardTitle className="text-base">Descartados («No es un lead»)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {s.discardReasons.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Ninguno descartado en el periodo.</p>
+              ) : (
+                s.discardReasons.map((r) => (
+                  <BarRow
+                    key={r.code}
+                    label={PLATFORM_LEAD_DISCARD_REASON_LABELS[r.code] ?? r.code}
+                    value={r.count}
+                    max={s.discardReasons[0]!.count}
+                  />
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
               <CardTitle className="text-base">Por origen</CardTitle>
+              <CsvButton
+                filename="leads-por-origen.csv"
+                disabled={s.bySource.length === 0}
+                rows={() => [
+                  ['Origen', 'Leads', 'Con cuenta', 'Clientes', 'Conversión (%)', 'Pagan al mes'],
+                  ...s.bySource.map((r) => [
+                    PLATFORM_LEAD_SOURCE_LABELS[r.source] ?? r.source,
+                    r.leads,
+                    r.trials,
+                    r.customers,
+                    r.conversionPct ?? '',
+                    r.mrr,
+                  ]),
+                ]}
+              />
             </CardHeader>
             <CardContent className="p-0">
               {s.bySource.length === 0 ? (

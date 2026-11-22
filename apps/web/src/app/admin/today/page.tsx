@@ -4,6 +4,7 @@ import {
   adminTodaySectionLabel,
   adminTodayUrgentCounts,
   FEATURE_LABELS,
+  PLATFORM_LEAD_STAGE_LABELS,
   pluralEs,
   superAdminAuditLabel,
 } from '@storageos/shared';
@@ -143,6 +144,7 @@ function onlyMine(data: AdminTodayDto, me: string | undefined): AdminTodayDto {
     newLeads: [],
     assignedLeads: data.assignedLeads.filter((l) => l.assignedToId === me),
     leadFollowupsDue: data.leadFollowupsDue.filter((f) => f.assignedToId === me),
+    staleLeads: data.staleLeads.filter((l) => l.assignedToId === me),
     paymentFailures: [],
     inactivePaying: [],
     domainsReady: [],
@@ -253,6 +255,7 @@ export default function AdminTodayPage() {
     data.newLeads.length +
     data.assignedLeads.length +
     data.leadFollowupsDue.length +
+    data.staleLeads.length +
     data.domainsReady.length +
     data.incompleteInvoices.length +
     data.rgpdOverdue.length +
@@ -548,6 +551,36 @@ export default function AdminTodayPage() {
                       ref: f.id,
                       label: `${f.leadName}: ${f.title}`,
                     }}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.staleLeads.length > 0 && (
+              <SimpleCard
+                title={`Leads parados (${data.staleLeads.length})`}
+                icon={<Hourglass className="size-4 text-amber-500" />}
+                action={{ href: '/admin/leads?view=list', label: 'Ver leads →' }}
+                description="Llevan más días sin actividad de los que toca en su fase. Los de alto valor cuentan como urgentes."
+              >
+                {data.staleLeads.map((l) => (
+                  <Row
+                    key={l.id}
+                    urgent={l.highValue}
+                    title={
+                      <Link
+                        href={`/admin/leads?lead=${l.id}`}
+                        data-row-link=""
+                        className="hover:underline"
+                      >
+                        <span className="font-medium">{l.name}</span> ·{' '}
+                        {PLATFORM_LEAD_STAGE_LABELS[l.status]}
+                      </Link>
+                    }
+                    detail={`${l.staleDays} días sin actividad${
+                      l.estimatedMonthly !== null ? ` · ≈ ${eur(l.estimatedMonthly)}/mes` : ''
+                    }${l.assignedToName ? ` · ${l.assignedToName}` : ' · sin responsable'}`}
+                    snooze={{ kind: 'stale_lead', ref: l.id, label: l.name }}
                   />
                 ))}
               </SimpleCard>

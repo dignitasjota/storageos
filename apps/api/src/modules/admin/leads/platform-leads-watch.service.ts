@@ -15,9 +15,10 @@ import { PlatformLeadsService } from './platform-leads.service';
 
 /**
  * Lo automático de los leads del panel admin: los mensajes de la web y las
- * cuentas nuevas entran solos, y cada 15 minutos se mueven las fases que marca
- * la cuenta (en prueba → cliente o perdido) y se avisa de los nuevos sin
- * atender. Corre en el API (ligero); cada cambio se reserva con una condición,
+ * cuentas nuevas entran solos (y se reparten si está activado), y cada 15
+ * minutos se mueven las fases que marca la cuenta (en prueba → cliente o
+ * perdido), se avisa de los nuevos sin atender, se reasignan los que se pasan
+ * del plazo de primera respuesta y se avisa de los parados. Corre en el API (ligero); cada cambio se reserva con una condición,
  * así que dos réplicas no lo hacen dos veces.
  */
 @Injectable()
@@ -36,6 +37,8 @@ export class PlatformLeadsWatchService {
       const leadId = await this.leads.ingestContact(e);
       // Con el código de un comercial, el contacto es suyo.
       if (e.salesCode) await this.sales.attributeContact(leadId, e.salesCode);
+      // Si nadie lo lleva, se reparte (por turnos o por zona, según los ajustes).
+      await this.leads.autoAssign(leadId);
     } catch (err) {
       this.logger.error(`Mensaje de la web ${e.contactMessageId} sin lead: ${String(err)}`);
     }
@@ -53,6 +56,11 @@ export class PlatformLeadsWatchService {
         salesCodeFrom: e.salesCodeFrom ?? null,
         createdById: e.source === 'admin' ? e.superAdminId : null,
       });
+      // Un registro en la web sin responsable también se reparte.
+      if (e.source !== 'admin') {
+        const lead = await this.leads.leadIdForTenant(e.tenantId);
+        if (lead) await this.leads.autoAssign(lead);
+      }
     } catch (err) {
       this.logger.error(`Tenant ${e.tenantId} sin lead: ${String(err)}`);
     }
@@ -69,6 +77,13 @@ export class PlatformLeadsWatchService {
       }
       for (const u of await this.leads.unattended()) {
         await this.chat.leadUnattended(u.name, u.hours, u.id);
+      }
+      // Sin primera respuesta en plazo: pasa al siguiente del turno (una vez).
+      const reassigned = await this.leads.reassignOverdue();
+      // Parados: aviso a quien lo lleva, una vez por lead y fase.
+      const stale = await this.leads.notifyStale();
+      if (reassigned || stale) {
+        this.logger.log(`[leads] ${reassigned} reasignados por plazo, ${stale} avisos de parados`);
       }
     } catch (err) {
       this.logger.error(`[leads] vigilancia: ${String(err)}`);
