@@ -8,6 +8,12 @@ import {
   WEB_CHAT_AI_FEATURE,
 } from '@storageos/shared';
 
+import {
+  aiCostUsd,
+  aiModelPrice,
+  isKnownAiModel,
+  type AiModelPrice,
+} from '../../common/ai-pricing';
 import { currentMonth } from '../../common/format';
 import { OWN_KEY_AI_FEATURES } from '../../common/saas-metrics';
 import { liveOverrideWhere } from '../../common/tenant-features';
@@ -36,34 +42,49 @@ export class AdminUsageService {
     this.outputPrice = config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true });
   }
 
-  async getUsage(days = 30, now = new Date()): Promise<AdminUsageDto> {
-    const period = Math.min(Math.max(Math.trunc(days) || 30, 1), 365);
+  /** Uso de un solo tenant (para su ficha de negocio). null si no existe. */
+  async getUsageForTenant(
+    tenantId: string,
+    days = 30,
+    now = new Date(),
+  ): Promise<AdminTenantUsageRowDto | null> {
+    const r = await this.getUsage(days, now, tenantId);
+    return r.rows[0] ?? null;
+  }
+
+  async getUsage(days = 30, now = new Date(), tenantId?: string): Promise<AdminUsageDto> {
+    const period = parseUsageDays(days);
     const since = new Date(now.getTime() - period * DAY_MS);
+    const scope = tenantId ? { tenantId } : {};
 
     const [tenants, emailRows, complaintRows, aiRows, storageRows] = await Promise.all([
       this.admin.tenant.findMany({
-        where: { deletedAt: null },
+        where: { deletedAt: null, ...(tenantId ? { id: tenantId } : {}) },
         select: { id: true, name: true, slug: true },
         orderBy: { name: 'asc' },
       }),
       this.admin.communication.groupBy({
         by: ['tenantId', 'status'],
-        where: { channel: 'email', createdAt: { gte: since } },
+        where: { ...scope, channel: 'email', createdAt: { gte: since } },
         _count: { _all: true },
       }),
       this.admin.emailSuppression.groupBy({
         by: ['tenantId'],
-        where: { tenantId: { not: null }, scope: 'marketing', createdAt: { gte: since } },
+        where: {
+          tenantId: tenantId ?? { not: null },
+          scope: 'marketing',
+          createdAt: { gte: since },
+        },
         _count: { _all: true },
       }),
       this.admin.aiUsageEvent.groupBy({
-        by: ['tenantId', 'feature', 'ownKey'],
+        by: ['tenantId', 'feature', 'ownKey', 'model'],
         // Solo las llamadas al modelo (no las reservas de consulta del límite).
-        where: { createdAt: { gte: since }, countsAsQuery: false },
+        where: { ...scope, createdAt: { gte: since }, countsAsQuery: false },
         _count: { _all: true },
         _sum: { inputTokens: true, outputTokens: true },
       }),
-      this.admin.tenantStorageUsage.findMany(),
+      this.admin.tenantStorageUsage.findMany({ where: scope }),
     ]);
     const ai30 = await this.aiQuotas(
       tenants.map((t) => t.id),
@@ -81,15 +102,24 @@ export class AdminUsageService {
     const complaints = new Map(complaintRows.map((r) => [r.tenantId ?? '', r._count._all]));
     // Las llamadas con la clave propia del tenant no nos cuestan: se cuentan
     // aparte y no entran en el coste.
-    const ai = new Map<string, { calls: number; input: number; output: number; own: number }>();
+    // El coste se calcula con el precio de cada modelo (`ai-pricing.ts`).
+    const ai = new Map<
+      string,
+      { calls: number; input: number; output: number; own: number; cost: number }
+    >();
+    const models = new Map<string, number>();
     for (const r of aiRows) {
-      const a = ai.get(r.tenantId) ?? { calls: 0, input: 0, output: 0, own: 0 };
+      const a = ai.get(r.tenantId) ?? { calls: 0, input: 0, output: 0, own: 0, cost: 0 };
       if (r.ownKey || OWN_KEY_AI_FEATURES.includes(r.feature)) {
         a.own += r._count._all;
       } else {
+        const input = r._sum.inputTokens ?? 0;
+        const output = r._sum.outputTokens ?? 0;
         a.calls += r._count._all;
-        a.input += r._sum.inputTokens ?? 0;
-        a.output += r._sum.outputTokens ?? 0;
+        a.input += input;
+        a.output += output;
+        a.cost += aiCostUsd(r.model, input, output, this.fallback);
+        models.set(r.model, (models.get(r.model) ?? 0) + r._count._all);
       }
       ai.set(r.tenantId, a);
     }
@@ -115,7 +145,7 @@ export class AdminUsageService {
           calls: a?.calls ?? 0,
           inputTokens,
           outputTokens,
-          costUsd: this.cost(inputTokens, outputTokens),
+          costUsd: Math.round((a?.cost ?? 0) * 100) / 100,
           ownKeyCalls: a?.own ?? 0,
           ...(ai30.get(t.id) ?? { queriesThisMonth: 0, queryLimit: null, revenueMonthly: 0 }),
         },
@@ -141,7 +171,16 @@ export class AdminUsageService {
         aiRevenueMonthly: Math.round(rows.reduce((n, r) => n + r.ai.revenueMonthly, 0) * 100) / 100,
         storageBytes: rows.reduce((n, r) => n + r.storage.bytes, 0),
       },
-      aiPricing: { inputPerMTokUsd: this.inputPrice, outputPerMTokUsd: this.outputPrice },
+      aiPricing: {
+        inputPerMTokUsd: this.inputPrice,
+        outputPerMTokUsd: this.outputPrice,
+        models: [...models.entries()]
+          .sort((x, y) => y[1] - x[1])
+          .map(([model, calls]) => {
+            const p = aiModelPrice(model, this.fallback);
+            return { model, calls, known: isKnownAiModel(model), ...p };
+          }),
+      },
       storageMeasuredAt: storageMeasuredAt?.toISOString() ?? null,
     };
   }
@@ -237,10 +276,25 @@ export class AdminUsageService {
     return result;
   }
 
-  private cost(input: number, output: number): number {
-    const usd = (input * this.inputPrice + output * this.outputPrice) / 1_000_000;
-    return Math.round(usd * 100) / 100;
+  private get fallback(): AiModelPrice {
+    return { inputPerMTokUsd: this.inputPrice, outputPerMTokUsd: this.outputPrice };
   }
+}
+
+/**
+ * Días del periodo de Uso: un número entre 1 y 365; cualquier otra cosa
+ * (vacío, texto, NaN) vale 30. Más de 365 se queda en 365 (las consultas son
+ * agrupaciones por tenant, así que un año sigue siendo barato).
+ */
+export function parseUsageDays(raw: unknown): number {
+  const n =
+    typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim() !== ''
+        ? Number(raw)
+        : NaN;
+  if (!Number.isFinite(n) || n < 1) return 30;
+  return Math.min(Math.trunc(n), 365);
 }
 
 /** El límite del plan si el panel le puso uno; si no, el general. */

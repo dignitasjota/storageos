@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { loadMrrContext, mrrFor } from '../../common/saas-metrics';
+import { lastTeamActivityByTenant } from '../../common/team-activity';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminTenantsService } from './admin-tenants.service';
@@ -59,12 +60,9 @@ export class AdminTenantsOverviewService {
             addon: { select: { slug: true, name: true } },
           },
         }),
-        // Solo usuarios activos: un ex-empleado que entró ayer no tapa a un equipo que no entra.
-        this.admin.user.groupBy({
-          by: ['tenantId'],
-          where: { isActive: true },
-          _max: { lastLoginAt: true },
-        }),
+        // Último uso real del equipo (solo usuarios activos: un ex-empleado que
+        // entró ayer no tapa a un equipo que no entra).
+        lastTeamActivityByTenant(this.admin),
         this.admin.tenantFollowup.findMany({
           where: { status: 'pending' },
           select: { tenantId: true, title: true, dueDate: true },
@@ -96,7 +94,7 @@ export class AdminTenantsOverviewService {
       list.push(a);
       addonsBy.set(a.tenantId, list);
     }
-    const loginBy = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
+    const loginBy = logins;
     const followupBy = new Map<string, { title: string; dueDate: Date }>();
     for (const f of followups) if (!followupBy.has(f.tenantId)) followupBy.set(f.tenantId, f);
     const facilitiesBy = new Map(facilities.map((f) => [f.tenantId, f._count._all]));

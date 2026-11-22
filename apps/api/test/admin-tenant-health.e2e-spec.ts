@@ -57,33 +57,48 @@ describe('Admin tenant health score (e2e)', () => {
 
   const LEVELS = ['healthy', 'warm', 'at_risk', 'dormant'];
 
-  it('lista la salud de los tenants con score 0-100, nivel y 6 factores', async () => {
+  it('lista la salud por grupos: clientes por defecto y las pruebas con su activación', async () => {
     const owner = await registerVerifiedUser(app, 'admin-health');
 
-    const res = await request(app.getHttpServer())
+    // Por defecto, solo los clientes que pagan: una prueba recién creada no sale.
+    const paying = await request(app.getHttpServer())
       .get('/admin/tenants/health')
       .set('Authorization', `Bearer ${token}`);
-    expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(paying.status).toBe(200);
+    expect(paying.body.segment).toBe('paying');
+    expect((paying.body.tenants as HealthDto[]).some((t) => t.tenantId === owner.tenantId)).toBe(
+      false,
+    );
+    expect(typeof paying.body.counts.trial).toBe('number');
 
-    const mine = (res.body as HealthDto[]).find((t) => t.tenantId === owner.tenantId);
+    const res = await request(app.getHttpServer())
+      .get('/admin/tenants/health?segment=trial')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    const mine = (res.body.tenants as HealthDto[]).find((t) => t.tenantId === owner.tenantId);
     expect(mine).toBeTruthy();
     expect(mine!.score).toBeGreaterThanOrEqual(0);
     expect(mine!.score).toBeLessThanOrEqual(100);
     expect(LEVELS).toContain(mine!.level);
     expect(mine!.factors.map((f) => f.key).sort()).toEqual([
-      'adoption',
-      'billing',
-      'engagement',
-      'portal',
-      'subscription',
-      'support',
+      'contract',
+      'customer',
+      'facility',
+      'invoice',
+      'team',
+      'units',
     ]);
 
-    // Ordenado de menor a mayor score (más urgente primero).
-    const scores = (res.body as HealthDto[]).map((t) => t.score);
+    // Ordenado de menor a mayor puntuación (más urgente primero).
+    const scores = (res.body.tenants as HealthDto[]).map((t) => t.score);
     const sorted = [...scores].sort((a, b) => a - b);
     expect(scores).toEqual(sorted);
+
+    // Un grupo que no existe vuelve al de clientes.
+    const bad = await request(app.getHttpServer())
+      .get('/admin/tenants/health?segment=nada')
+      .set('Authorization', `Bearer ${token}`);
+    expect(bad.body.segment).toBe('paying');
   });
 
   it('devuelve la salud de un tenant concreto + 404 si no existe', async () => {

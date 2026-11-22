@@ -4,6 +4,7 @@ import { platformLeadName } from '@storageos/shared';
 
 import { todayInTimezone, zonedDayStart } from '../../common/format';
 import { loadMrrContext, mrrFor, MRR_SUBSCRIPTION_SELECT } from '../../common/saas-metrics';
+import { lastTeamActivityByTenant } from '../../common/team-activity';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { TodayFingerprint } from './today-fingerprint';
@@ -257,14 +258,10 @@ export class AdminTodayExtrasService {
           },
         },
       }),
-      this.admin.user.groupBy({
-        by: ['tenantId'],
-        where: { tenantId: { in: ids }, isActive: true },
-        _max: { lastLoginAt: true },
-      }),
+      lastTeamActivityByTenant(this.admin, ids),
     ]);
     const countBy = new Map(counts.map((c) => [c.id, c._count]));
-    const loginBy = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt]));
+    const loginBy = logins;
     return trials.map((t) => ({
       ...t,
       usage: {
@@ -444,12 +441,11 @@ export class AdminTodayExtrasService {
       },
     });
     if (tenants.length === 0) return [];
-    const logins = await this.admin.user.groupBy({
-      by: ['tenantId'],
-      where: { tenantId: { in: tenants.map((t) => t.id) }, isActive: true },
-      _max: { lastLoginAt: true },
-    });
-    const loginBy = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
+    // Último uso real (inicio de sesión o sesión renovada con la app abierta).
+    const loginBy = await lastTeamActivityByTenant(
+      this.admin,
+      tenants.map((t) => t.id),
+    );
     const idle = tenants.filter((t) => {
       const last = loginBy.get(t.id) ?? null;
       return !last || last < cutoff;

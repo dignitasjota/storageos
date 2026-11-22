@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { aiCostOfRows } from '../../common/ai-pricing';
 import { currentMonth } from '../../common/format';
 import {
   chargedWithoutVat,
@@ -68,7 +69,8 @@ export class AdminFinanceService {
         },
         select: { priceMonthly: true, quantity: true },
       }),
-      this.admin.aiUsageEvent.aggregate({
+      this.admin.aiUsageEvent.groupBy({
+        by: ['model'],
         where: {
           countsAsQuery: false,
           ownKey: false,
@@ -85,12 +87,19 @@ export class AdminFinanceService {
       }),
       platformPricing(this.admin),
     ]);
-    const input = tokens._sum.inputTokens ?? 0;
-    const output = tokens._sum.outputTokens ?? 0;
-    const cost =
-      (input * this.config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true }) +
-        output * this.config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true })) /
-      1_000_000;
+    // Coste con el precio de cada modelo (`ai-pricing.ts`); los que no
+    // conocemos, con el de las variables de entorno.
+    const cost = aiCostOfRows(
+      tokens.map((t) => ({
+        model: t.model,
+        inputTokens: t._sum.inputTokens ?? 0,
+        outputTokens: t._sum.outputTokens ?? 0,
+      })),
+      {
+        inputPerMTokUsd: this.config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true }),
+        outputPerMTokUsd: this.config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true }),
+      },
+    );
     const gross = addons.reduce((n, a) => n + Number(a.priceMonthly) * a.quantity, 0);
     return {
       revenueMonthly: round2(listPriceWithoutVat(gross, pricing)),

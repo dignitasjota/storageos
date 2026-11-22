@@ -277,37 +277,74 @@ export interface AdminAtRiskDto {
   snoozedCount: number;
 }
 
-/** Nivel de salud de un tenant según su score 0-100. */
+/** Nivel de salud de un tenant según su puntuación 0-100. */
 export type AdminTenantHealthLevel = 'healthy' | 'warm' | 'at_risk' | 'dormant';
 
-/** Un factor del health score (con su peso y puntuación 0-100). */
+/**
+ * Grupo de un tenant en Salud:
+ *  - `paying`: clientes que pagan (pagando o con el pago atrasado, cuota > 0).
+ *  - `trial`: en prueba. Se mide su activación, no su salud de cliente.
+ *  - `unpaid`: activos que no pagan (plan gratis, prueba terminada en solo
+ *    lectura o suscripción cancelada).
+ *  - `exempt`: cuentas exentas de facturación (las nuestras, demos, socios).
+ */
+export type AdminHealthSegment = 'paying' | 'trial' | 'unpaid' | 'exempt';
+
+export const ADMIN_HEALTH_SEGMENTS: readonly AdminHealthSegment[] = [
+  'paying',
+  'trial',
+  'unpaid',
+  'exempt',
+] as const;
+
+/** Un factor de la puntuación (con su peso y puntuación 0-100). */
 export interface AdminTenantHealthFactorDto {
-  /** Clave estable: 'engagement' | 'billing' | 'subscription' | 'adoption'. */
+  /** Clave estable (`engagement`, `billing`, `subscription`, `facility`, …). */
   key: string;
   label: string;
   /** Puntuación de este factor, 0-100. */
   score: number;
-  /** Peso relativo en el score total, 0-1. */
+  /** Peso relativo en la puntuación total, 0-1 (0 si no cuenta). */
   weight: number;
-  /** Explicación legible de la señal (p. ej. "Último acceso hace 3 d"). */
+  /** Si cuenta: un factor que no aplica (p. ej. sin contratos) no penaliza. */
+  counted: boolean;
+  /** Explicación legible de la señal (p. ej. "Último acceso hace 3 días"). */
   detail: string;
 }
 
-/** Health score de un tenant: 0-100 ponderado + nivel + desglose por factor. */
+/**
+ * Puntuación de un tenant: salud de cliente (`kind: 'health'`) o activación
+ * de una prueba (`kind: 'activation'`), 0-100 ponderado + nivel + factores.
+ */
 export interface AdminTenantHealthDto {
   tenantId: string;
   name: string;
   slug: string;
   status: string;
   planName: string | null;
-  /** Score final 0-100. */
+  segment: AdminHealthSegment;
+  kind: 'health' | 'activation';
+  /** Fin de la prueba (solo en prueba). */
+  trialEndsAt: string | null;
+  /** Puntuación final 0-100. */
   score: number;
   level: AdminTenantHealthLevel;
   factors: AdminTenantHealthFactorDto[];
-  /** Última actividad detectada (último login del equipo). */
+  /** Último uso del panel por su equipo (inicio de sesión o sesión renovada). */
   lastActivityAt: string | null;
-  /** Diferencia con el score del mes pasado (null si no hay foto de ese mes). */
+  /** Diferencia con la foto del mes pasado (null si no hay foto de ese mes). */
   trend: number | null;
+}
+
+/** Salud de un grupo de tenants (`GET /admin/tenants/health?segment=`). */
+export interface AdminTenantsHealthDto {
+  segment: AdminHealthSegment;
+  /** Cuántos tenants hay en cada grupo (para las pestañas). */
+  counts: Record<AdminHealthSegment, number>;
+  /** Los del grupo pedido, de menor a mayor puntuación. */
+  tenants: AdminTenantHealthDto[];
+  /** Última foto diaria guardada (null si la tarea aún no ha corrido). */
+  snapshotAt: string | null;
 }
 
 /** Estado de una feature premium para un tenant (incluida en plan vs usada). */
@@ -341,14 +378,25 @@ export interface AdminTenantAdoptionDto {
   planName: string | null;
   features: AdminTenantAdoptionFeatureDto[];
   usage: AdminTenantAdoptionUsageDto;
-  /** Lo que paga al mes: plan + extras activos. */
+  /**
+   * Lo que aporta al mes sin IVA (como el MRR: plan con su descuento + extras).
+   * 0 si no paga (en prueba, plan gratis o solo lectura).
+   */
   monthlyPaid: number;
-  /** Precio mensual del plan recomendado (null si no es candidato). */
+  /** Está en prueba. */
+  inTrial: boolean;
+  /** En prueba: lo que pagaría al mes sin IVA con su plan y extras (null si no). */
+  wouldPay: number | null;
+  /** Precio mensual sin IVA del plan recomendado (null si no es candidato). */
   recommendedPlanPrice: number | null;
-  /** Usa alguna feature que su plan no incluye (downgrade/legacy). */
+  /** Usa alguna función que su plan no incluye (downgrade/legacy). */
   usesFeatureOutsidePlan: boolean;
-  /** Topa o supera algún límite del plan. */
+  /** Topa o supera algún límite del plan (100 % o más). */
   tapsLimit: boolean;
+  /** Está al 80 % o más de algún límite sin topar ninguno. */
+  nearLimit: boolean;
+  /** Qué límite topa o está cerca (p. ej. «9 de 10 trasteros (90 %)»). */
+  limitDetail: string | null;
   /** Candidato a subir de plan (el plan recomendado es más caro que el actual). */
   isCandidate: boolean;
   recommendedPlanSlug: string | null;
@@ -359,6 +407,8 @@ export interface AdminTenantAdoptionDto {
 export interface AdminFeatureAdoptionDto {
   feature: TenantFeature;
   label: string;
+  /** Cómo se mide el uso (en 90 días donde hay fecha; si no, configuración activa). */
+  signal: string;
   tenantsUsing: number;
   /** Tenants cuyo plan la incluye. */
   tenantsWithAccess: number;
@@ -366,12 +416,14 @@ export interface AdminFeatureAdoptionDto {
 
 /** Vista de adopción/upsell del panel super admin. */
 export interface AdminAdoptionDto {
-  /** Tenants, candidatos a upgrade primero. */
+  /** Tenants, candidatos a subir de plan primero. */
   tenants: AdminTenantAdoptionDto[];
-  /** Resumen de adopción por feature. */
+  /** Resumen de adopción por función. */
   featureAdoption: AdminFeatureAdoptionDto[];
-  /** Nº de tenants candidatos a upgrade. */
+  /** Nº de tenants candidatos a subir de plan. */
   candidateCount: number;
+  /** Nº de tenants cerca de algún límite (80 % o más sin topar). */
+  nearLimitCount: number;
 }
 
 /** Un usuario (staff) de un tenant, visto desde el panel super admin. */
@@ -2209,7 +2261,7 @@ export interface AdminTenantUsageRowDto {
     calls: number;
     inputTokens: number;
     outputTokens: number;
-    /** Coste estimado en USD con el precio configurado (solo con la IA de la plataforma). */
+    /** Coste estimado en USD con el precio de cada modelo (solo con la IA de la plataforma). */
     costUsd: number;
     /** Llamadas con la clave de IA propia del tenant (no nos cuestan). */
     ownKeyCalls: number;
@@ -2236,7 +2288,22 @@ export interface AdminUsageDto {
     aiRevenueMonthly: number;
     storageBytes: number;
   };
-  aiPricing: { inputPerMTokUsd: number; outputPerMTokUsd: number };
+  /**
+   * Precios de la IA: los de respaldo (variables de entorno, para modelos que
+   * no conocemos) y los de cada modelo usado en el periodo.
+   */
+  aiPricing: {
+    inputPerMTokUsd: number;
+    outputPerMTokUsd: number;
+    models: {
+      model: string;
+      calls: number;
+      /** false = modelo desconocido: se usa el precio de respaldo. */
+      known: boolean;
+      inputPerMTokUsd: number;
+      outputPerMTokUsd: number;
+    }[];
+  };
   /** Última medición del almacenamiento (null si nunca se ha medido). */
   storageMeasuredAt: string | null;
 }

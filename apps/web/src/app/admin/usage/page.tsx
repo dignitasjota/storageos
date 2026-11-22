@@ -1,11 +1,11 @@
 'use client';
 
-import { HardDrive, Loader2, RefreshCw } from 'lucide-react';
+import { Download, HardDrive, Loader2, RefreshCw } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { AdminTenantUsageRowDto } from '@storageos/shared';
+import type { AdminTenantUsageRowDto, AdminUsageDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAdminUsage, useMeasureStorage } from '@/lib/admin/hooks';
+import { useLoadMore } from '@/lib/admin/use-load-more';
 import { ApiError } from '@/lib/auth/api';
+import { downloadCsv } from '@/lib/csv';
+import { formatEur, plural } from '@/lib/format';
 
 type SortKey = 'bounce' | 'emails' | 'ai' | 'storage' | 'name';
 
@@ -40,8 +43,22 @@ function formatBytes(bytes: number): string {
 const usd = (n: number) =>
   `$${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (n: number) => n.toLocaleString('es-ES');
-const eur = (n: number) =>
-  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 });
+const eur = formatEur;
+/** Resumen de los precios por modelo usados en el periodo. */
+function aiPricingHint(p: AdminUsageDto['aiPricing']): string {
+  if (p.models.length === 0) {
+    return `Por modelo; si no lo conocemos, $${p.inputPerMTokUsd} / $${p.outputPerMTokUsd} por millón de tokens`;
+  }
+  return p.models
+    .slice(0, 3)
+    .map(
+      (m) =>
+        `${m.model}: $${m.inputPerMTokUsd} / $${m.outputPerMTokUsd}${m.known ? '' : ' (respaldo)'}`,
+    )
+    .join(' · ')
+    .concat(' por millón de tokens');
+}
+
 const emailAlert = (r: AdminTenantUsageRowDto) =>
   r.email.complaints > 0 || (r.email.bounceRate ?? 0) > BOUNCE_ALERT;
 
@@ -55,7 +72,7 @@ export default function AdminUsagePage() {
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     const list = (usage.data?.rows ?? []).filter(
-      (r) => !q || r.tenantName.toLowerCase().includes(q) || r.tenantSlug.includes(q),
+      (r) => !q || r.tenantName.toLowerCase().includes(q) || r.tenantSlug.toLowerCase().includes(q),
     );
     const by: Record<SortKey, (a: AdminTenantUsageRowDto, b: AdminTenantUsageRowDto) => number> = {
       bounce: (a, b) =>
@@ -68,11 +85,57 @@ export default function AdminUsagePage() {
     };
     return [...list].sort(by[sort]);
   }, [usage.data, sort, search]);
+  const page = useLoadMore(rows, 25, `${days}|${sort}|${search}`);
+
+  function exportCsv() {
+    downloadCsv(`uso-tenants-${days}-dias.csv`, [
+      [
+        'Tenant',
+        'Identificador',
+        'Correos enviados',
+        'Rebotes',
+        'Fallidos',
+        'Quejas de spam',
+        '% de rebotes',
+        'Llamadas a la IA',
+        'Tokens de entrada',
+        'Tokens de salida',
+        'Coste estimado de IA (USD)',
+        'Llamadas con su clave',
+        'Consultas este mes',
+        'Límite de consultas',
+        'Paga por la IA al mes (EUR)',
+        'Almacenamiento (bytes)',
+        'Ficheros',
+      ],
+      ...rows.map((r) => [
+        r.tenantName,
+        r.tenantSlug,
+        r.email.sent,
+        r.email.bounced,
+        r.email.failed,
+        r.email.complaints,
+        r.email.bounceRate ?? '',
+        r.ai.calls,
+        r.ai.inputTokens,
+        r.ai.outputTokens,
+        r.ai.costUsd,
+        r.ai.ownKeyCalls,
+        r.ai.queriesThisMonth,
+        r.ai.queryLimit ?? '',
+        r.ai.revenueMonthly,
+        r.storage.bytes,
+        r.storage.objects,
+      ]),
+    ]);
+  }
 
   async function onMeasure() {
     try {
       const r = await measure.mutateAsync();
-      toast.success(`Medidos ${r.tenants} tenants: ${formatBytes(r.bytes)} en total.`);
+      toast.success(
+        `${plural(r.tenants, 'tenant medido', 'tenants medidos')}: ${formatBytes(r.bytes)} en total.`,
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo medir.');
     }
@@ -84,23 +147,28 @@ export default function AdminUsagePage() {
   const alerts = data?.rows.filter(emailAlert).length ?? 0;
 
   return (
-    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
+    <div className="min-w-0 space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Uso por tenant</h1>
           <p className="text-sm text-muted-foreground">
             Correos que envía cada negocio a sus inquilinos (la cuenta de envío es compartida: sus
             rebotes y quejas afectan a todos), consumo del asistente de IA y espacio en ficheros.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onMeasure} disabled={measure.isPending}>
-          {measure.isPending ? (
-            <Loader2 className="mr-2 size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-2 size-4" />
-          )}
-          Medir almacenamiento
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
+            <Download className="mr-2 size-4" /> Exportar CSV
+          </Button>
+          <Button variant="outline" size="sm" onClick={onMeasure} disabled={measure.isPending}>
+            {measure.isPending ? (
+              <Loader2 className="mr-2 size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 size-4" />
+            )}
+            Medir almacenamiento
+          </Button>
+        </div>
       </div>
 
       {!data ? (
@@ -122,7 +190,7 @@ export default function AdminUsagePage() {
             <Kpi
               label={`Coste estimado de IA (${data.days} días, sin las claves propias)`}
               value={usd(data.totals.aiCostUsd)}
-              hint={`$${data.aiPricing.inputPerMTokUsd} / $${data.aiPricing.outputPerMTokUsd} por millón de tokens`}
+              hint={aiPricingHint(data.aiPricing)}
             />
             <Kpi
               label="Ingresos por IA al mes"
@@ -148,7 +216,7 @@ export default function AdminUsagePage() {
               className="w-full text-base sm:w-64 sm:text-sm"
             />
             <Select value={String(days)} onValueChange={(v) => setDays(Number(v))}>
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-full sm:w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -158,7 +226,7 @@ export default function AdminUsagePage() {
               </SelectContent>
             </Select>
             <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-              <SelectTrigger className="w-52">
+              <SelectTrigger className="w-full sm:w-52">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -171,18 +239,29 @@ export default function AdminUsagePage() {
             </Select>
           </div>
 
-          <Card>
+          <Card className="min-w-0">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <HardDrive className="size-4 text-muted-foreground" />
-                Tenants ({rows.length})
+                {plural(rows.length, 'tenant', 'tenants')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {rows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Sin resultados.</p>
               ) : (
-                rows.map((r) => <UsageRow key={r.tenantId} r={r} />)
+                <>
+                  {page.visible.map((r) => (
+                    <UsageRow key={r.tenantId} r={r} />
+                  ))}
+                  {page.hasMore && (
+                    <div className="pt-1 text-center">
+                      <Button variant="outline" size="sm" onClick={page.loadMore}>
+                        Cargar más ({plural(page.remaining, 'queda', 'quedan')})
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -224,7 +303,7 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
   const alert = emailAlert(r);
   return (
     <div
-      className={`grid gap-2 rounded-md border p-3 text-sm md:grid-cols-[1.4fr_1.4fr_1.2fr_1fr] md:items-center ${
+      className={`grid min-w-0 gap-2 rounded-md border p-3 text-sm md:grid-cols-[1.4fr_1.4fr_1.2fr_1fr] md:items-center ${
         alert ? 'border-amber-300 dark:border-amber-800' : ''
       }`}
     >
@@ -237,7 +316,7 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
       </Link>
       <div className="text-xs">
         <span className="text-muted-foreground md:hidden">Correo: </span>
-        {num(r.email.sent)} enviados
+        {plural(r.email.sent, 'enviado', 'enviados')}
         {r.email.bounceRate !== null && (
           <span
             className={
@@ -249,10 +328,16 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
           </span>
         )}
         {r.email.complaints > 0 && (
-          <span className="font-medium text-red-600"> · {r.email.complaints} quejas de spam</span>
+          <span className="font-medium text-red-600">
+            {' '}
+            · {plural(r.email.complaints, 'queja de spam', 'quejas de spam')}
+          </span>
         )}
         {r.email.failed > 0 && (
-          <span className="text-muted-foreground"> · {r.email.failed} fallidos</span>
+          <span className="text-muted-foreground">
+            {' '}
+            · {plural(r.email.failed, 'fallido', 'fallidos')}
+          </span>
         )}
       </div>
       <div className="text-xs">
@@ -263,8 +348,8 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
           <>
             {r.ai.calls > 0 && (
               <>
-                {num(r.ai.calls)} llamadas · {num(r.ai.inputTokens + r.ai.outputTokens)} tokens ·{' '}
-                {usd(r.ai.costUsd)}
+                {plural(r.ai.calls, 'llamada', 'llamadas')} ·{' '}
+                {num(r.ai.inputTokens + r.ai.outputTokens)} tokens · {usd(r.ai.costUsd)}
               </>
             )}
             {r.ai.ownKeyCalls > 0 && (
@@ -291,7 +376,7 @@ function UsageRow({ r }: { r: AdminTenantUsageRowDto }) {
       <div className="text-xs md:text-right">
         <span className="text-muted-foreground md:hidden">Almacenamiento: </span>
         {r.storage.measuredAt
-          ? `${formatBytes(r.storage.bytes)} (${num(r.storage.objects)} ficheros)`
+          ? `${formatBytes(r.storage.bytes)} (${plural(r.storage.objects, 'fichero', 'ficheros')})`
           : '—'}
       </div>
     </div>

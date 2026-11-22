@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { lastTeamActivityByTenant } from '../../common/team-activity';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminTenantsService } from './admin-tenants.service';
@@ -88,12 +89,10 @@ export class AdminSegmentService {
     }
     if (segment.inactiveDays != null) {
       const since = new Date(Date.now() - segment.inactiveDays * 86_400_000);
-      const logins = await this.admin.user.groupBy({
-        by: ['tenantId'],
-        where: { tenantId: { in: rows.map((r) => r.id) }, isActive: true },
-        _max: { lastLoginAt: true },
-      });
-      const last = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt]));
+      const last = await lastTeamActivityByTenant(
+        this.admin,
+        rows.map((r) => r.id),
+      );
       rows = rows.filter((r) => {
         const at = last.get(r.id);
         return !at || at < since;

@@ -3072,3 +3072,13 @@ Migración `20270224100000_admin_metrics_finance_improvements` (se aplica sola):
 | Cada correo enviado        | 0,001 €                  |
 
 El gasto de marketing de cada mes se apunta ahí mismo (cuenta para el coste de adquisición). La precisión de la previsión empieza a llenarse con el cron mensual del worker.
+
+## 183. Salud, Adopción y Uso del super admin: arreglos (2026-11-22)
+
+Sin migración ni variables nuevas. Tarea nueva en el worker: `tenant-health.daily-snapshot` (03:20, hora de España) guarda la foto de salud del mes (la tendencia ya no depende de que alguien abra la página).
+
+**Cambian cifras que ya se veían (a propósito):**
+
+- **Salud**: por defecto solo clientes que pagan; pruebas (con su puntuación de activación), sin pagar y exentas en pestañas aparte. El último acceso cuenta el uso real de la sesión (la app instalada ya no parece inactiva) y la facturación mira si cada contrato factura dentro de su ciclo.
+- **Adopción**: uso en los últimos 90 días; el control de accesos solo con puertas o accesos reales; la cuota, sin IVA (0 en prueba, «pagaría X»); candidatos por llegar a un límite con margen y solo con planes públicos.
+- **Coste de IA**: con el precio de cada modelo (Opus 5.5 4/20 $, Sonnet 5.5 2/10 $, Haiku 5.5 0,10/0,50 $…); las variables `AI_COST_*` quedan de respaldo para modelos desconocidos.

@@ -11,11 +11,19 @@ import {
   missingFiscalData,
   resolvePlanFeatures,
   NON_CASH_PAYMENT_METHODS,
+  WEB_CHAT_AI_FEATURE,
 } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
 import { zonedNextDayStart } from '../../common/format';
 import { attachmentKeysOf } from '../../common/message-attachments';
+import {
+  isPayingSubscription,
+  listPriceWithoutVat,
+  loadMrrContext,
+  mrrFor,
+} from '../../common/saas-metrics';
+import { lastTeamActivityByTenant } from '../../common/team-activity';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
 import { AuditService } from '../auth/audit.service';
@@ -26,7 +34,9 @@ import { amountToCharge, platformPricing } from '../billing-saas/platform-pricin
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
+import { ADOPTION_SIGNALS, adoptionLimits, pickRecommendedPlan } from './adoption-rules';
 import { SuperAdminAuditService } from './super-admin-audit.service';
+import { TenantHealthService } from './tenant-health.service';
 
 import type { InvoiceStatus, Prisma } from '@storageos/database';
 import type {
@@ -43,9 +53,9 @@ import type {
   AdminTenantFacilityDto,
   AdminTenantFeaturesDto,
   AdminChangePlanPreviewDto,
+  AdminHealthSegment,
   AdminTenantHealthDto,
-  AdminTenantHealthFactorDto,
-  AdminTenantHealthLevel,
+  AdminTenantsHealthDto,
   AdminTenantInvoicingDto,
   AdminTenantNotesDto,
   UpdateTenantNotesInput,
@@ -115,8 +125,7 @@ const ANON = '*** ANONIMIZADO ***';
 @Injectable()
 export class AdminTenantsService {
   private readonly logger = new Logger(AdminTenantsService.name);
-  /** Caché de 60 s de las agregaciones cross-tenant de salud y adopción. */
-  private readonly healthCache = new TtlCache<AdminTenantHealthDto[]>();
+  /** Caché de 60 s de la adopción (agregación cross-tenant). */
   private readonly adoptionCache = new TtlCache<AdminAdoptionDto>();
 
   constructor(
@@ -125,6 +134,7 @@ export class AdminTenantsService {
     private readonly superAdminAudit: SuperAdminAuditService,
     private readonly files: FilesService,
     private readonly saasBilling: BillingSaasService,
+    private readonly health: TenantHealthService,
   ) {}
 
   // =============================== read ====================================
@@ -296,20 +306,11 @@ export class AdminTenantsService {
       this.getTenantsHealth(),
     ]);
 
-    // Rendimiento: el groupBy de lastLoginAt se acota a los tenants activos ya
-    // cargados (antes escaneaba TODA la tabla `users`; a 500 tenants con miles
-    // de usuarios cada uno, un full-scan cada 60s vía el badge del sidebar).
-    const activeIds = activeTenants.map((t) => t.id);
-    const lastLogins = activeIds.length
-      ? await this.admin.user.groupBy({
-          by: ['tenantId'],
-          where: { tenantId: { in: activeIds }, isActive: true },
-          _max: { lastLoginAt: true },
-        })
-      : [];
-
-    const lastLoginByTenant = new Map(
-      lastLogins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]),
+    // Último uso real del equipo (inicio de sesión o sesión renovada), acotado
+    // a los tenants activos ya cargados.
+    const lastLoginByTenant = await lastTeamActivityByTenant(
+      this.admin,
+      activeTenants.map((t) => t.id),
     );
 
     const toDto = (
@@ -402,6 +403,8 @@ export class AdminTenantsService {
     const lowHealth = health
       .filter(
         (h) =>
+          // Clientes (las pruebas tienen su activación y su propia lista).
+          (h.segment === 'paying' || h.segment === 'unpaid') &&
           (h.level === 'at_risk' || h.level === 'dormant') &&
           !listed.has(h.tenantId) &&
           !snoozed.has(h.tenantId) &&
@@ -416,7 +419,7 @@ export class AdminTenantsService {
         reason: 'low_health',
         since: h.lastActivityAt,
         detail: `Salud ${h.score} · ${
-          [...h.factors].sort((a, b) => a.score - b.score)[0]?.detail ?? ''
+          [...h.factors].filter((f) => f.counted).sort((a, b) => a.score - b.score)[0]?.detail ?? ''
         }`,
       }));
 
@@ -438,12 +441,8 @@ export class AdminTenantsService {
     });
     if (trials.length === 0) return [];
     const ids = trials.map((t) => t.id);
-    const [logins, facilities, units, contracts] = await Promise.all([
-      this.admin.user.groupBy({
-        by: ['tenantId'],
-        _max: { lastLoginAt: true },
-        where: { tenantId: { in: ids }, isActive: true },
-      }),
+    const [loginMap, facilities, units, contracts] = await Promise.all([
+      lastTeamActivityByTenant(this.admin, ids),
       this.admin.facility.groupBy({
         by: ['tenantId'],
         where: { tenantId: { in: ids }, deletedAt: null },
@@ -460,7 +459,6 @@ export class AdminTenantsService {
         _count: { _all: true },
       }),
     ]);
-    const loginMap = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
     const count = (rows: { tenantId: string; _count: { _all: number } }[]) =>
       new Map(rows.map((r) => [r.tenantId, r._count._all]));
     const facBy = count(facilities);
@@ -532,391 +530,78 @@ export class AdminTenantsService {
     };
   }
 
-  // --- Health score por tenant -------------------------------------------
+  // --- Salud por tenant ---------------------------------------------------
 
   /**
-   * Health score 0-100 de cada tenant activo/trial, ordenado de menor (más
-   * urgente) a mayor. Combina 4 señales ponderadas: actividad del equipo,
-   * facturación reciente, estado de la suscripción y adopción (contratos +
-   * locales). Solo lectura/agregación cross-tenant.
+   * Salud de todos los tenants vivos (clientes con su salud y pruebas con su
+   * activación; cada uno con su `segment`). La calcula `TenantHealthService`.
    */
   getTenantsHealth(): Promise<AdminTenantHealthDto[]> {
-    return this.healthCache.get('all', () => this.computeTenantsHealth());
+    return this.health.all();
   }
 
-  private async computeTenantsHealth(): Promise<AdminTenantHealthDto[]> {
-    const tenants = await this.admin.tenant.findMany({
-      where: { deletedAt: null, status: { in: ['active', 'trial'] } },
-      include: { subscription: { include: { plan: { select: { name: true } } } } },
-    });
-    const signals = await this.healthSignals(null);
-    const result = tenants.map((t) => this.scoreTenant(this.healthInput(t, signals)));
-    await this.saveHealthSnapshots(result);
-    // Más urgentes primero (menor score).
-    result.sort((a, b) => a.score - b.score);
-    return result;
+  /** Los tenants de un grupo de Salud, con el recuento de cada grupo. */
+  getTenantsHealthBySegment(segment?: AdminHealthSegment): Promise<AdminTenantsHealthDto> {
+    return this.health.list(segment);
   }
 
-  /** Health score de un tenant concreto (404 si no existe). */
-  async getTenantHealth(tenantId: string): Promise<AdminTenantHealthDto> {
-    const tenant = await this.admin.tenant.findUnique({
-      where: { id: tenantId },
-      include: { subscription: { include: { plan: { select: { name: true } } } } },
-    });
-    if (!tenant) {
-      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
-    }
-    const signals = await this.healthSignals(tenantId);
-    return this.scoreTenant(this.healthInput(tenant, signals));
+  /** Puntuación de un tenant concreto (404 si no existe). */
+  getTenantHealth(tenantId: string): Promise<AdminTenantHealthDto> {
+    return this.health.one(tenantId);
   }
+
+  // --- Adopción de funciones y venta ---------------------------------------
 
   /**
-   * Señales de la salud por tenant (de todos o de uno): último acceso del
-   * equipo, facturas en 30 y 60 días, contratos y locales, tickets sin
-   * responder, uso del área de clientes por sus inquilinos y la foto del mes
-   * pasado (para la tendencia).
-   */
-  private async healthSignals(tenantId: string | null) {
-    const DAY_MS = 86_400_000;
-    const now = Date.now();
-    const since30d = new Date(now - 30 * DAY_MS);
-    const since60d = new Date(now - 60 * DAY_MS);
-    const since90d = new Date(now - 90 * DAY_MS);
-    const ticketStale = new Date(now - 48 * 60 * 60 * 1000);
-    const prevMonth = new Date(
-      Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() - 1, 1),
-    );
-    const scope: { tenantId?: string } = tenantId ? { tenantId } : {};
-    const liveCustomer: Prisma.CustomerWhereInput = {
-      ...scope,
-      deletedAt: null,
-      contracts: { some: { status: { in: ['active', 'ending'] }, deletedAt: null } },
-    };
-    const [
-      lastLogins,
-      invoices30,
-      invoices60,
-      activeContracts,
-      facilities,
-      tickets,
-      customers,
-      portalUsers,
-      prevSnapshots,
-    ] = await Promise.all([
-      this.admin.user.groupBy({
-        by: ['tenantId'],
-        where: { ...scope, isActive: true },
-        _max: { lastLoginAt: true },
-      }),
-      this.admin.invoice.groupBy({
-        by: ['tenantId'],
-        where: {
-          ...scope,
-          deletedAt: null,
-          status: { in: ['issued', 'paid', 'overdue'] },
-          issueDate: { gte: since30d },
-        },
-        _count: { _all: true },
-      }),
-      this.admin.invoice.groupBy({
-        by: ['tenantId'],
-        where: {
-          ...scope,
-          deletedAt: null,
-          status: { in: ['issued', 'paid', 'overdue'] },
-          issueDate: { gte: since60d },
-        },
-        _count: { _all: true },
-      }),
-      this.admin.contract.groupBy({
-        by: ['tenantId'],
-        where: { ...scope, deletedAt: null, status: { in: ['active', 'ending'] } },
-        _count: { _all: true },
-      }),
-      this.admin.facility.groupBy({
-        by: ['tenantId'],
-        where: { ...scope, deletedAt: null },
-        _count: { _all: true },
-      }),
-      this.admin.supportTicket.groupBy({
-        by: ['tenantId'],
-        where: { ...scope, status: 'open', firstResponseAt: null, createdAt: { lt: ticketStale } },
-        _count: { _all: true },
-      }),
-      this.admin.customer.groupBy({
-        by: ['tenantId'],
-        where: liveCustomer,
-        _count: { _all: true },
-      }),
-      this.admin.customer.groupBy({
-        by: ['tenantId'],
-        where: { ...liveCustomer, portalLastSeenAt: { gte: since90d } },
-        _count: { _all: true },
-      }),
-      this.admin.tenantHealthSnapshot.findMany({
-        where: { ...scope, month: prevMonth },
-        select: { tenantId: true, score: true },
-      }),
-    ]);
-    const count = (rows: { tenantId: string; _count: { _all: number } }[]) =>
-      new Map(rows.map((r) => [r.tenantId, r._count._all]));
-    return {
-      lastLogin: new Map(lastLogins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null])),
-      invoices30: count(invoices30),
-      invoices60: count(invoices60),
-      contracts: count(activeContracts),
-      facilities: count(facilities),
-      staleTickets: count(tickets),
-      customers: count(customers),
-      portalUsers: count(portalUsers),
-      prevScore: new Map(prevSnapshots.map((r) => [r.tenantId, r.score])),
-    };
-  }
-
-  private healthInput(
-    t: {
-      id: string;
-      name: string;
-      slug: string;
-      status: string;
-      trialEndsAt: Date | null;
-      subscription: {
-        status: string;
-        cancelAtPeriodEnd: boolean;
-        plan: { name: string } | null;
-      } | null;
-    },
-    s: Awaited<ReturnType<AdminTenantsService['healthSignals']>>,
-  ) {
-    return {
-      id: t.id,
-      name: t.name,
-      slug: t.slug,
-      status: t.status,
-      planName: t.subscription?.plan?.name ?? null,
-      subStatus: t.subscription?.status ?? null,
-      cancelAtPeriodEnd: t.subscription?.cancelAtPeriodEnd ?? false,
-      trialEndsAt: t.trialEndsAt,
-      lastLoginAt: s.lastLogin.get(t.id) ?? null,
-      recentInvoices: s.invoices30.get(t.id) ?? 0,
-      invoices60d: s.invoices60.get(t.id) ?? 0,
-      activeContracts: s.contracts.get(t.id) ?? 0,
-      facilities: s.facilities.get(t.id) ?? 0,
-      staleTickets: s.staleTickets.get(t.id) ?? 0,
-      customers: s.customers.get(t.id) ?? 0,
-      portalUsers: s.portalUsers.get(t.id) ?? 0,
-      previousScore: s.prevScore.get(t.id) ?? null,
-    };
-  }
-
-  /** Guarda la foto del mes en curso (se reescribe con cada cálculo). */
-  private async saveHealthSnapshots(rows: AdminTenantHealthDto[]): Promise<void> {
-    if (rows.length === 0) return;
-    const now = new Date();
-    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    await this.admin
-      .$transaction([
-        this.admin.tenantHealthSnapshot.deleteMany({
-          where: { month, tenantId: { in: rows.map((r) => r.tenantId) } },
-        }),
-        this.admin.tenantHealthSnapshot.createMany({
-          data: rows.map((r) => ({ tenantId: r.tenantId, month, score: r.score, level: r.level })),
-        }),
-      ])
-      .catch(() => undefined);
-  }
-
-  /** Cálculo puro del score a partir de las señales ya recopiladas. */
-  private scoreTenant(s: {
-    id: string;
-    name: string;
-    slug: string;
-    status: string;
-    planName: string | null;
-    subStatus: string | null;
-    cancelAtPeriodEnd: boolean;
-    trialEndsAt: Date | null;
-    lastLoginAt: Date | null;
-    recentInvoices: number;
-    invoices60d: number;
-    activeContracts: number;
-    facilities: number;
-    staleTickets: number;
-    customers: number;
-    portalUsers: number;
-    previousScore: number | null;
-  }): AdminTenantHealthDto {
-    const now = Date.now();
-    const daysSince = (d: Date | null): number =>
-      d ? (now - d.getTime()) / (24 * 60 * 60 * 1000) : Infinity;
-
-    // 1) Engagement: recencia del último login del equipo.
-    const loginDays = daysSince(s.lastLoginAt);
-    const engagement =
-      loginDays <= 7 ? 100 : loginDays <= 14 ? 80 : loginDays <= 30 ? 50 : loginDays <= 90 ? 20 : 0;
-    const engagementDetail = s.lastLoginAt
-      ? `Último acceso hace ${Math.floor(loginDays)} d`
-      : 'Ningún acceso registrado';
-
-    // 2) Facturación: facturas emitidas en los últimos 30 días.
-    // Con contratos activos y sin facturas en 60 días, algo falla en su facturación.
-    const stalledBilling = s.activeContracts > 0 && s.invoices60d === 0;
-    const billing = stalledBilling
-      ? 0
-      : s.recentInvoices >= 5
-        ? 100
-        : s.recentInvoices >= 2
-          ? 75
-          : s.recentInvoices >= 1
-            ? 50
-            : 0;
-    const billingDetail = stalledBilling
-      ? `Sin facturas en 60 días con ${s.activeContracts} contrato(s) activo(s)`
-      : `${s.recentInvoices} factura(s) en 30 días`;
-
-    // 3) Suscripción: estado de pago / trial.
-    let subscription: number;
-    let subDetail: string;
-    if (s.subStatus === 'past_due') {
-      subscription = 10;
-      subDetail = 'Pago de la suscripción fallido';
-    } else if (s.cancelAtPeriodEnd) {
-      subscription = 20;
-      subDetail = 'Cancelación programada';
-    } else if (s.status === 'trial') {
-      const trialDaysLeft = s.trialEndsAt
-        ? (s.trialEndsAt.getTime() - now) / (24 * 60 * 60 * 1000)
-        : 0;
-      if (!s.trialEndsAt) {
-        subscription = 70;
-        subDetail = 'En prueba, sin fecha de fin';
-      } else {
-        subscription = trialDaysLeft > 7 ? 70 : 40;
-        subDetail =
-          trialDaysLeft > 0 ? `Trial: ${Math.ceil(trialDaysLeft)} d restantes` : 'Trial vencido';
-      }
-    } else if (s.subStatus === 'expired') {
-      subscription = 10;
-      subDetail = 'Sin pagar: en solo lectura';
-    } else if (s.subStatus === 'active' || s.status === 'active') {
-      subscription = 100;
-      subDetail = 'Suscripción activa';
-    } else {
-      subscription = 50;
-      subDetail = s.subStatus ?? s.status;
-    }
-
-    // 4) Adopción: contratos activos + locales configurados.
-    const adoption =
-      s.activeContracts >= 10
-        ? 100
-        : s.activeContracts >= 3
-          ? 70
-          : s.activeContracts >= 1
-            ? 40
-            : s.facilities > 0
-              ? 15
-              : 0;
-    const adoptionDetail = `${s.activeContracts} contrato(s) activo(s) · ${s.facilities} local(es)`;
-
-    // 5) Área de clientes: inquilinos con contrato que han entrado en 90 días.
-    const portalPct = s.customers > 0 ? (s.portalUsers / s.customers) * 100 : null;
-    const portal =
-      portalPct === null
-        ? 50
-        : portalPct >= 50
-          ? 100
-          : portalPct >= 25
-            ? 70
-            : portalPct > 0
-              ? 40
-              : 10;
-    const portalDetail =
-      portalPct === null
-        ? 'Sin inquilinos con contrato'
-        : `${Math.round(portalPct)} % de sus inquilinos entró en 90 días`;
-
-    // 6) Soporte: tickets abiertos sin primera respuesta en más de 48 h.
-    const support = s.staleTickets === 0 ? 100 : s.staleTickets === 1 ? 40 : 10;
-    const supportDetail =
-      s.staleTickets === 0
-        ? 'Sin tickets esperando respuesta'
-        : `${s.staleTickets} ticket(s) sin responder en más de 48 h`;
-
-    const factors: AdminTenantHealthFactorDto[] = [
-      {
-        key: 'engagement',
-        label: 'Actividad del equipo',
-        score: engagement,
-        weight: 0.3,
-        detail: engagementDetail,
-      },
-      {
-        key: 'billing',
-        label: 'Facturación reciente',
-        score: billing,
-        weight: 0.2,
-        detail: billingDetail,
-      },
-      {
-        key: 'subscription',
-        label: 'Suscripción',
-        score: subscription,
-        weight: 0.2,
-        detail: subDetail,
-      },
-      { key: 'adoption', label: 'Adopción', score: adoption, weight: 0.15, detail: adoptionDetail },
-      {
-        key: 'portal',
-        label: 'Área de clientes',
-        score: portal,
-        weight: 0.1,
-        detail: portalDetail,
-      },
-      { key: 'support', label: 'Soporte', score: support, weight: 0.05, detail: supportDetail },
-    ];
-    const score = Math.round(factors.reduce((acc, f) => acc + f.score * f.weight, 0));
-    const level: AdminTenantHealthLevel =
-      score >= 75 ? 'healthy' : score >= 50 ? 'warm' : score >= 25 ? 'at_risk' : 'dormant';
-
-    return {
-      tenantId: s.id,
-      name: s.name,
-      slug: s.slug,
-      status: s.status,
-      planName: s.planName,
-      score,
-      level,
-      factors,
-      lastActivityAt: s.lastLoginAt ? s.lastLoginAt.toISOString() : null,
-      trend: s.previousScore !== null ? score - s.previousScore : null,
-    };
-  }
-
-  // --- Adopción de features + upsell -------------------------------------
-
-  /**
-   * Por cada tenant: qué features premium usa de verdad (señal por tabla), uso
-   * vs límites del plan, y si es candidato a subir de plan. El **plan
-   * recomendado** es el más barato que cubre todas sus features en uso y sus
-   * límites; es candidato si ese plan es más caro que el actual (engloba tanto
-   * "usa una feature fuera de su plan" como "topa límites"). Solo lectura.
+   * Por cada tenant vivo (sin las exentas): qué funciones usa de verdad (en los
+   * últimos 90 días donde hay fecha; si no, configuración activa, ver
+   * `ADOPTION_SIGNALS`), uso frente a los límites del plan y si es candidato a
+   * subir de plan. El **plan recomendado** es el público y activo más barato
+   * que cubre sus funciones en uso y sus límites **con margen** (trasteros al
+   * 80 % como mucho; locales y usuarios con hueco para uno más si ya están en
+   * el límite). Es candidato si ese plan es más caro que el suyo y lo necesita
+   * (usa algo que no tiene o topa un límite) o no le cuesta más de lo que ya
+   * paga con los extras. Solo lectura.
    */
   getAdoption(): Promise<AdminAdoptionDto> {
-    return this.adoptionCache.get('all', () => this.computeAdoption());
+    return this.adoptionCache.get('all', () => this.computeAdoption(null));
   }
 
-  private async computeAdoption(): Promise<AdminAdoptionDto> {
+  /** Adopción de un solo tenant (para su ficha de negocio). null si no sale. */
+  async getAdoptionForTenant(tenantId: string): Promise<AdminTenantAdoptionDto | null> {
+    const r = await this.computeAdoption(tenantId);
+    return r.tenants[0] ?? null;
+  }
+
+  private async computeAdoption(tenantId: string | null): Promise<AdminAdoptionDto> {
+    const now = new Date();
+    const since90d = new Date(now.getTime() - 90 * 86_400_000);
+    const scope: { tenantId?: string } = tenantId ? { tenantId } : {};
+    const recent = { gte: since90d };
+    const liveContract: Prisma.ContractWhereInput = {
+      ...scope,
+      deletedAt: null,
+      status: { in: ['active', 'ending'] },
+    };
+    const tenantWhere: Prisma.TenantWhereInput = {
+      deletedAt: null,
+      billingExempt: false,
+      status: { in: ['active', 'trial'] },
+      ...(tenantId ? { id: tenantId } : {}),
+    };
+    const g = <T extends { tenantId: string; _count: { _all: number } }>(rows: T[]) =>
+      new Map(rows.map((r) => [r.tenantId, r._count._all]));
     const [
       tenants,
       plans,
+      pricing,
       aiRows,
       bankRows,
       rentRows,
       insuranceRows,
-      credentialRows,
-      facialCredentialRows,
+      facialRows,
       deviceRows,
+      accessLogRows,
       cameraRows,
       automationRows,
       sepaRows,
@@ -934,129 +619,198 @@ export class AdminTenantsService {
       inviteRows,
       addonRows,
       cessionRows,
+      contractRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
-        where: { deletedAt: null, status: { in: ['active', 'trial'] } },
-        include: { subscription: { include: { plan: true } } },
+        where: tenantWhere,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          billingExempt: true,
+          deletedAt: true,
+          webTemplate: true,
+          customDomainVerifiedAt: true,
+          portalLogoKey: true,
+          portalBrandColor: true,
+          subscription: {
+            select: {
+              status: true,
+              billingMode: true,
+              currentPeriodStart: true,
+              currentPeriodEnd: true,
+              plan: true,
+            },
+          },
+        },
       }),
       this.admin.subscriptionPlan.findMany({ where: { isActive: true } }),
-      this.admin.aiConversation.groupBy({ by: ['tenantId'], _count: { _all: true } }),
-      this.admin.bankStatement.groupBy({ by: ['tenantId'], _count: { _all: true } }),
-      this.admin.rentIncrease.groupBy({ by: ['tenantId'], _count: { _all: true } }),
-      this.admin.insurancePlan.groupBy({
+      platformPricing(this.admin),
+      // Consultas al asistente IA del panel y del área de clientes (no el chat
+      // de la web ni el de WhatsApp, que son otras funciones).
+      this.admin.aiUsageEvent.groupBy({
         by: ['tenantId'],
-        where: { isActive: true },
+        where: {
+          ...scope,
+          countsAsQuery: true,
+          createdAt: recent,
+          feature: { notIn: [WEB_CHAT_AI_FEATURE, 'whatsapp', 'whatsapp_own'] },
+        },
         _count: { _all: true },
       }),
-      this.admin.accessCredential.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.bankStatement.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, createdAt: recent },
+        _count: { _all: true },
+      }),
+      this.admin.rentIncrease.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, createdAt: recent },
+        _count: { _all: true },
+      }),
+      // Contratos en vigor con seguro (no basta con tener planes creados).
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: { ...liveContract, insurancePlanId: { not: null } },
+        _count: { _all: true },
+      }),
       this.admin.accessCredential.groupBy({
         by: ['tenantId'],
-        where: { method: 'face' },
+        where: { ...scope, method: 'face', status: 'active' },
         _count: { _all: true },
       }),
-      this.admin.accessDevice.groupBy({ by: ['tenantId'], _count: { _all: true } }),
-      this.admin.cameraDevice.groupBy({ by: ['tenantId'], _count: { _all: true } }),
-      this.admin.automationRule.groupBy({
+      this.admin.accessDevice.groupBy({
         by: ['tenantId'],
-        where: { isActive: true },
+        where: { ...scope, isActive: true },
         _count: { _all: true },
       }),
-      this.admin.sepaSettings.findMany({ where: { enabled: true }, select: { tenantId: true } }),
-      this.admin.unit.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      // Todo contrato firmado crea un PIN: las credenciales no dicen nada.
+      // Cuenta si hay dispositivos o entradas registradas en 90 días.
+      this.admin.accessLog.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, occurredAt: recent },
+        _count: { _all: true },
+      }),
+      this.admin.cameraDevice.groupBy({ by: ['tenantId'], where: scope, _count: { _all: true } }),
+      this.admin.automationRun.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, startedAt: recent },
+        _count: { _all: true },
+      }),
+      this.admin.sepaRemittance.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, createdAt: recent },
+        _count: { _all: true },
+      }),
+      this.admin.unit.groupBy({ by: ['tenantId'], where: scope, _count: { _all: true } }),
       this.admin.facility.groupBy({
         by: ['tenantId'],
-        where: { deletedAt: null },
+        where: { ...scope, deletedAt: null },
         _count: { _all: true },
       }),
       // Usuarios como los cuenta el límite del plan: activos + invitaciones pendientes.
       this.admin.user.groupBy({
         by: ['tenantId'],
-        where: { isActive: true },
+        where: { ...scope, isActive: true },
         _count: { _all: true },
       }),
-      this.admin.delinquencyCase.groupBy({ by: ['tenantId'], _count: { _all: true } }),
-      this.admin.blogPost.groupBy({ by: ['tenantId'], _count: { _all: true } }),
-      this.admin.unitType.groupBy({
+      this.admin.delinquencyCase.groupBy({
         by: ['tenantId'],
-        where: { propertyKind: 'housing' },
+        where: { ...scope, OR: [{ createdAt: recent }, { closedAt: null }] },
+        _count: { _all: true },
+      }),
+      this.admin.blogPost.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, publishedAt: recent },
+        _count: { _all: true },
+      }),
+      // Contratos en vigor sobre viviendas.
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: { ...liveContract, unit: { unitType: { propertyKind: 'housing' } } },
         _count: { _all: true },
       }),
       this.admin.facility.groupBy({
         by: ['tenantId'],
-        where: { ownerId: { not: null }, deletedAt: null },
+        where: { ...scope, ownerId: { not: null }, deletedAt: null },
         _count: { _all: true },
       }),
       this.admin.tenantFeatureOverride.findMany({
+        where: { ...scope, ...liveOverrideWhere(now) },
         select: { tenantId: true, feature: true, enabled: true },
       }),
-      this.admin.tenantWhatsappSettings.findMany({
-        where: { enabled: true },
-        select: { tenantId: true },
+      this.admin.whatsappMessage.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, createdAt: recent },
+        _count: { _all: true },
       }),
       this.admin.webAreaPage.groupBy({
         by: ['tenantId'],
-        where: { isPublished: true },
+        where: { ...scope, isPublished: true },
         _count: { _all: true },
       }),
       this.admin.businessReminder.groupBy({
         by: ['tenantId'],
-        where: { status: { in: ['active', 'paused'] } },
+        where: { ...scope, status: { in: ['active', 'paused'] } },
         _count: { _all: true },
       }),
       this.admin.invitation.groupBy({
         by: ['tenantId'],
-        where: { acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+        where: { ...scope, acceptedAt: null, revokedAt: null, expiresAt: { gt: now } },
         _count: { _all: true },
       }),
       this.admin.tenantSubscriptionAddon.findMany({
-        where: { suspendedAt: null },
+        where: { ...scope, suspendedAt: null },
         select: {
           tenantId: true,
-          priceMonthly: true,
-          quantity: true,
           addon: { select: { grantsUnits: true, grantsFacilities: true, grantsUsers: true } },
+          quantity: true,
         },
       }),
-      this.admin.unitCession.groupBy({ by: ['tenantId'], _count: { _all: true } }),
+      this.admin.unitCession.groupBy({
+        by: ['tenantId'],
+        where: { ...scope, OR: [{ createdAt: recent }, { endedAt: null }] },
+        _count: { _all: true },
+      }),
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: liveContract,
+        _count: { _all: true },
+      }),
     ]);
 
-    const countMap = (
-      rows: { tenantId: string; _count: { _all: number } }[],
-    ): Map<string, number> => new Map(rows.map((r) => [r.tenantId, r._count._all]));
-    const ai = countMap(aiRows);
-    const bank = countMap(bankRows);
-    const rent = countMap(rentRows);
-    const insurance = countMap(insuranceRows);
-    const credentials = countMap(credentialRows);
-    const facialCredentials = countMap(facialCredentialRows);
-    const devices = countMap(deviceRows);
-    const cameras = countMap(cameraRows);
-    const automations = countMap(automationRows);
-    const sepaEnabled = new Set(sepaRows.map((r) => r.tenantId));
-    const units = countMap(unitRows);
-    const facilities = countMap(facilityRows);
-    const users = countMap(userRows);
-    const collections = countMap(collectionsRows);
-    const blogPosts = countMap(blogRows);
-    const housing = countMap(housingRows);
-    const ownedFacilities = countMap(ownerRows);
-    const whatsappEnabled = new Set(whatsappRows.map((r) => r.tenantId));
-    const areaPages = countMap(areaPageRows);
-    const reminders = countMap(reminderRows);
-    const cessions = countMap(cessionRows);
-    const invites = countMap(inviteRows);
-    // Extras activos: lo que suman al mes y la capacidad que añaden.
-    const addonsByTenant = new Map<
-      string,
-      { monthly: number; units: number; facilities: number; users: number }
-    >();
+    const ai = g(aiRows);
+    const bank = g(bankRows);
+    const rent = g(rentRows);
+    const insurance = g(insuranceRows);
+    const facial = g(facialRows);
+    const devices = g(deviceRows);
+    const accessLogs = g(accessLogRows);
+    const cameras = g(cameraRows);
+    const automations = g(automationRows);
+    const sepa = g(sepaRows);
+    const units = g(unitRows);
+    const facilities = g(facilityRows);
+    const users = g(userRows);
+    const collections = g(collectionsRows);
+    const blogPosts = g(blogRows);
+    const housing = g(housingRows);
+    const ownedFacilities = g(ownerRows);
+    const whatsapp = g(whatsappRows);
+    const areaPages = g(areaPageRows);
+    const reminders = g(reminderRows);
+    const cessions = g(cessionRows);
+    const invites = g(inviteRows);
+    const contracts = g(contractRows);
+    // Capacidad que añaden los extras que ya tiene (sigue sumando con otro plan).
+    const extraBy = new Map<string, { units: number; facilities: number; users: number }>();
     for (const a of addonRows) {
-      const e = addonsByTenant.get(a.tenantId) ?? { monthly: 0, units: 0, facilities: 0, users: 0 };
-      e.monthly += Number(a.priceMonthly) * a.quantity;
+      const e = extraBy.get(a.tenantId) ?? { units: 0, facilities: 0, users: 0 };
       e.units += (a.addon.grantsUnits ?? 0) * a.quantity;
       e.facilities += (a.addon.grantsFacilities ?? 0) * a.quantity;
       e.users += (a.addon.grantsUsers ?? 0) * a.quantity;
-      addonsByTenant.set(a.tenantId, e);
+      extraBy.set(a.tenantId, e);
     }
     const plus = (max: number | null, extra: number): number | null =>
       max === null ? null : max + extra;
@@ -1066,72 +820,66 @@ export class AdminTenantsService {
       list.push({ feature: o.feature as TenantFeature, enabled: o.enabled });
       overridesByTenant.set(o.tenantId, list);
     }
-    const tenantById = new Map(tenants.map((t) => [t.id, t]));
+    const mrrCtx = await loadMrrContext(
+      this.admin,
+      tenants.map((t) => t.id),
+    );
 
-    /** Features que el tenant USA de verdad (señal por feature). */
-    const usedFeaturesOf = (id: string): Set<TenantFeature> => {
+    /** Funciones que el tenant usa de verdad (`ADOPTION_SIGNALS`). */
+    const usedFeaturesOf = (
+      t: (typeof tenants)[number],
+      effective: TenantFeature[],
+    ): Set<TenantFeature> => {
+      const id = t.id;
       const s = new Set<TenantFeature>();
-      if ((ai.get(id) ?? 0) > 0) s.add('ai_assistant');
-      if (sepaEnabled.has(id)) s.add('sepa');
-      if ((bank.get(id) ?? 0) > 0) s.add('bank_reconciliation');
-      if ((rent.get(id) ?? 0) > 0) s.add('rent_increases');
-      if ((insurance.get(id) ?? 0) > 0) s.add('insurance');
-      if ((credentials.get(id) ?? 0) > 0 || (devices.get(id) ?? 0) > 0) s.add('access_control');
-      if ((cameras.get(id) ?? 0) > 0) s.add('cameras');
-      if ((facialCredentials.get(id) ?? 0) > 0) s.add('facial_access');
-      if ((automations.get(id) ?? 0) > 0) s.add('automations');
-      if ((collections.get(id) ?? 0) > 0) s.add('collections');
-      const t = tenantById.get(id);
-      if (t?.customDomainVerifiedAt) s.add('custom_domain');
-      if ((t && t.webTemplate !== 'default') || (blogPosts.get(id) ?? 0) > 0) {
-        s.add('web_premium');
+      const has = (m: Map<string, number>) => (m.get(id) ?? 0) > 0;
+      if (has(ai)) s.add('ai_assistant');
+      if (has(sepa)) s.add('sepa');
+      if (has(bank)) s.add('bank_reconciliation');
+      if (has(rent)) s.add('rent_increases');
+      if (has(insurance)) s.add('insurance');
+      if (has(devices) || has(accessLogs)) s.add('access_control');
+      if (has(cameras)) s.add('cameras');
+      if (has(facial)) s.add('facial_access');
+      if (has(automations)) s.add('automations');
+      if (has(collections)) s.add('collections');
+      if (t.customDomainVerifiedAt) s.add('custom_domain');
+      if (t.webTemplate !== 'default' || has(blogPosts)) s.add('web_premium');
+      if (has(housing)) s.add('housing');
+      if (has(ownedFacilities)) s.add('multi_owner');
+      if (has(whatsapp)) s.add('whatsapp_business');
+      if (has(areaPages)) s.add('local_seo');
+      if (has(reminders)) s.add('business_reminders');
+      if (has(cessions)) s.add('unit_cession');
+      // El panel con su marca solo se ve con la función activa y una marca puesta.
+      if (effective.includes('branded_panel') && (t.portalLogoKey || t.portalBrandColor)) {
+        s.add('branded_panel');
       }
-      if ((housing.get(id) ?? 0) > 0) s.add('housing');
-      if ((ownedFacilities.get(id) ?? 0) > 0) s.add('multi_owner');
-      if (whatsappEnabled.has(id)) s.add('whatsapp_business');
-      if ((areaPages.get(id) ?? 0) > 0) s.add('local_seo');
-      if ((reminders.get(id) ?? 0) > 0) s.add('business_reminders');
-      if ((cessions.get(id) ?? 0) > 0) s.add('unit_cession');
       return s;
     };
 
-    // Planes ordenados por precio asc para elegir el más barato que cubra.
-    const sortedPlans = [...plans].sort((a, b) => Number(a.priceMonthly) - Number(b.priceMonthly));
-    // Las features que no entran en ningún plan (solo se venden como extra) no
+    // Solo se recomiendan planes públicos y activos (nunca uno oculto o a
+    // medida), del más barato al más caro.
+    const recommendable = plans
+      .filter((p) => p.isPublic)
+      .sort((a, b) => Number(a.priceMonthly) - Number(b.priceMonthly));
+    // Las funciones que no entran en ningún plan (solo se venden como extra) no
     // cuentan para recomendar plan: ninguno las cubre y el tenant nunca saldría.
-    const sellableInPlans = new Set(plans.flatMap((p) => resolvePlanFeatures(p)));
-    // Los extras de capacidad que ya tiene el tenant siguen sumando con otro plan.
-    const planCovers = (
-      plan: (typeof plans)[number],
-      used: Set<TenantFeature>,
-      u: number,
-      f: number,
-      usr: number,
-      extra: { units: number; facilities: number; users: number },
-    ): boolean => {
-      const feats = resolvePlanFeatures(plan);
-      for (const ft of used) {
-        if (sellableInPlans.has(ft) && !feats.includes(ft)) return false;
-      }
-      const maxU = plus(plan.maxUnits, extra.units);
-      const maxF = plus(plan.maxFacilities, extra.facilities);
-      const maxUsr = plus(plan.maxUsers, extra.users);
-      if (maxU !== null && u > maxU) return false;
-      if (maxF !== null && f > maxF) return false;
-      if (maxUsr !== null && usr > maxUsr) return false;
-      return true;
-    };
+    const sellableInPlans = new Set(recommendable.flatMap((p) => resolvePlanFeatures(p)));
+    const netList = (price: number) => round2(listPriceWithoutVat(price, pricing));
 
     const tenantDtos: AdminTenantAdoptionDto[] = tenants.map((t) => {
-      const plan = t.subscription?.plan ?? null;
-      const planSlug = plan?.slug ?? null;
+      const sub = t.subscription;
+      const plan = sub?.plan ?? null;
+      const inTrial = t.status === 'trial';
       const inPlan = plan ? resolvePlanFeatures(plan) : [];
       const effective = effectiveFeaturesFromList(inPlan, overridesByTenant.get(t.id) ?? []);
-      const used = usedFeaturesOf(t.id);
+      const used = usedFeaturesOf(t, effective);
       const u = units.get(t.id) ?? 0;
       const f = facilities.get(t.id) ?? 0;
       const usr = (users.get(t.id) ?? 0) + (invites.get(t.id) ?? 0);
-      const extra = addonsByTenant.get(t.id) ?? { monthly: 0, units: 0, facilities: 0, users: 0 };
+      const realUse = (contracts.get(t.id) ?? 0) > 0;
+      const extra = extraBy.get(t.id) ?? { units: 0, facilities: 0, users: 0 };
       const maxUnits = plus(plan?.maxUnits ?? null, extra.units);
       const maxFacilities = plus(plan?.maxFacilities ?? null, extra.facilities);
       const maxUsers = plus(plan?.maxUsers ?? null, extra.users);
@@ -1145,45 +893,61 @@ export class AdminTenantsService {
       }));
       // Fuera de plan = la usa sin tenerla contratada de ninguna forma.
       const usesFeatureOutsidePlan = [...used].some((ft) => !effective.includes(ft));
-      const tapsLimit =
-        (maxUnits !== null && u >= maxUnits) ||
-        (maxFacilities !== null && f >= maxFacilities) ||
-        (maxUsers !== null && usr >= maxUsers);
+      const limits = adoptionLimits(
+        { units: u, facilities: f, users: usr },
+        { units: maxUnits, facilities: maxFacilities, users: maxUsers },
+        { inTrial, realUse },
+      );
 
-      const currentPrice = plan ? Number(plan.priceMonthly) : 0;
-      const monthlyPaid = currentPrice + extra.monthly;
-      const recommended = sortedPlans.find((p) => planCovers(p, used, u, f, usr, extra)) ?? null;
-      const recommendedPrice = recommended ? Number(recommended.priceMonthly) : null;
-      // Candidato si el plan recomendado es más caro que el suyo y lo necesita
-      // (usa algo que no tiene o topa un límite) o no le cuesta más que lo que ya
-      // paga con los extras. Quien paga a gusto plan + extras no es candidato.
+      // Lo que aporta al mes sin IVA (como el MRR). En prueba no paga nada.
+      const mrr = sub ? mrrFor(mrrCtx, t.id, sub).total : 0;
+      const paying = isPayingSubscription(sub, t) && mrr > 0;
+      const monthlyPaid = paying ? mrr : 0;
+      const wouldPay = inTrial && mrr > 0 ? mrr : null;
+      const currentPrice = plan ? netList(Number(plan.priceMonthly)) : 0;
+      const recommended = pickRecommendedPlan(recommendable, {
+        used,
+        sellableInPlans,
+        usage: { units: u, facilities: f, users: usr },
+        extra,
+        needsRoom: limits.atLimit,
+      });
+      const recommendedPrice = recommended ? netList(Number(recommended.priceMonthly)) : null;
       const isCandidate =
         recommendedPrice !== null &&
+        recommended?.id !== plan?.id &&
         recommendedPrice > currentPrice &&
-        (usesFeatureOutsidePlan || tapsLimit || recommendedPrice <= monthlyPaid);
+        (usesFeatureOutsidePlan ||
+          limits.tapsLimit ||
+          (monthlyPaid > 0 && recommendedPrice <= monthlyPaid));
 
       return {
         tenantId: t.id,
         name: t.name,
         slug: t.slug,
-        planSlug,
+        planSlug: plan?.slug ?? null,
         planName: plan?.name ?? null,
         features,
         usage: { units: u, maxUnits, facilities: f, maxFacilities, users: usr, maxUsers },
-        monthlyPaid: Math.round(monthlyPaid * 100) / 100,
+        monthlyPaid: round2(monthlyPaid),
+        inTrial,
+        wouldPay: wouldPay !== null ? round2(wouldPay) : null,
         recommendedPlanPrice: isCandidate ? recommendedPrice : null,
         usesFeatureOutsidePlan,
-        tapsLimit,
+        tapsLimit: limits.tapsLimit,
+        nearLimit: limits.nearLimit,
+        limitDetail: limits.detail,
         isCandidate,
         recommendedPlanSlug: isCandidate ? (recommended?.slug ?? null) : null,
         recommendedPlanName: isCandidate ? (recommended?.name ?? null) : null,
       };
     });
 
-    // Resumen de adopción por feature.
+    // Resumen de adopción por función.
     const featureAdoption: AdminFeatureAdoptionDto[] = TenantFeatures.map((ft) => ({
       feature: ft,
       label: FEATURE_LABELS[ft],
+      signal: ADOPTION_SIGNALS[ft],
       tenantsUsing: tenantDtos.filter((t) => t.features.find((x) => x.feature === ft)?.used).length,
       tenantsWithAccess: tenantDtos.filter((t) => {
         const f = t.features.find((x) => x.feature === ft);
@@ -1201,6 +965,7 @@ export class AdminTenantsService {
       tenants: tenantDtos,
       featureAdoption,
       candidateCount: tenantDtos.filter((t) => t.isCandidate).length,
+      nearLimitCount: tenantDtos.filter((t) => t.nearLimit).length,
     };
   }
 
@@ -1221,6 +986,21 @@ export class AdminTenantsService {
       },
       orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
     });
+    // Último acceso real: inicio de sesión o sesión renovada (la app instalada
+    // mantiene la sesión 90 días sin volver a iniciarla).
+    const sessions = await this.admin.session.groupBy({
+      by: ['userId'],
+      where: { tenantId },
+      _max: { lastUsedAt: true },
+    });
+    const sessionBy = new Map(sessions.map((r) => [r.userId, r._max.lastUsedAt ?? null]));
+    const lastAccess = (u: { id: string; lastLoginAt: Date | null }): Date | null => {
+      const a = u.lastLoginAt;
+      const b = sessionBy.get(u.id) ?? null;
+      if (!a) return b;
+      if (!b) return a;
+      return a > b ? a : b;
+    };
     return users.map((u) => ({
       id: u.id,
       fullName: u.fullName,
@@ -1232,7 +1012,7 @@ export class AdminTenantsService {
       emailVerified: u.emailVerifiedAt !== null,
       twoFactorEnabled: u.twoFactorEnabled,
       facilitiesCount: u._count.facilities,
-      lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
+      lastLoginAt: lastAccess(u)?.toISOString() ?? null,
       createdAt: u.createdAt.toISOString(),
     }));
   }

@@ -17,7 +17,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ADMIN_HEALTH_SEGMENTS,
   type AdminAdoptionDto,
+  type AdminHealthSegment,
+  type AdminTenantsHealthDto,
   type AdminAtRiskDto,
   type AdminCustomDomainDto,
   type AdminOnboardingDto,
@@ -630,13 +633,20 @@ export class AdminTenantsController {
     });
   }
 
-  /** Health score 0-100 de cada tenant (más urgente primero). */
+  /**
+   * Salud de un grupo de tenants (`segment`: `paying` —por defecto—, `trial`,
+   * `unpaid` o `exempt`), de menor a mayor puntuación, con el recuento de cada
+   * grupo. Las pruebas llevan su puntuación de activación.
+   */
   @Get('health')
-  async health(): Promise<AdminTenantHealthDto[]> {
-    return this.tenants.getTenantsHealth();
+  async health(@Query('segment') segment?: string): Promise<AdminTenantsHealthDto> {
+    const valid = (ADMIN_HEALTH_SEGMENTS as readonly string[]).includes(segment ?? '')
+      ? (segment as AdminHealthSegment)
+      : 'paying';
+    return this.tenants.getTenantsHealthBySegment(valid);
   }
 
-  /** Adopción de features + candidatos a upgrade. */
+  /** Adopción de funciones y candidatos a subir de plan. */
   @Get('adoption')
   async adoption(): Promise<AdminAdoptionDto> {
     return this.tenants.getAdoption();

@@ -74,10 +74,10 @@ describe('Admin adoption / upsell (e2e)', () => {
 
   it('un tenant starter que usa IA (feature pro-only) es candidato a pro', async () => {
     const owner = await registerVerifiedUser(app, 'admin-adopt');
-    const user = await adminClient.user.findFirst({ where: { tenantId: owner.tenantId } });
     // IA es pro-only; el registro deja al tenant en `starter` → fuera de su plan.
-    await adminClient.aiConversation.create({
-      data: { tenantId: owner.tenantId, userId: user!.id, title: 'test' },
+    // El uso se mide por consultas al asistente en 90 días (no por conversaciones).
+    await adminClient.aiUsageEvent.create({
+      data: { tenantId: owner.tenantId, feature: 'chat', model: 'x', countsAsQuery: true },
     });
 
     const res = await request(app.getHttpServer())
@@ -106,10 +106,9 @@ describe('Admin adoption / upsell (e2e)', () => {
       where: { id: owner.tenantId },
       data: { webTemplate: 'modern' },
     });
-    const user = await adminClient.user.findFirst({ where: { tenantId: owner.tenantId } });
     // Además usa IA (solo pro): debe seguir saliendo como candidato a pro.
-    await adminClient.aiConversation.create({
-      data: { tenantId: owner.tenantId, userId: user!.id, title: 'test' },
+    await adminClient.aiUsageEvent.create({
+      data: { tenantId: owner.tenantId, feature: 'chat', model: 'x', countsAsQuery: true },
     });
 
     const res = await request(app.getHttpServer())

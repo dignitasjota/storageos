@@ -427,18 +427,28 @@ describe('Mejoras de «Hoy» del panel admin (e2e)', () => {
       data: { status: 'active', planId: plan.id },
     });
     // Su equipo entró ayer: aún no sale.
+    // El último acceso cuenta también la sesión renovada (no solo el inicio de sesión).
     await db.user.updateMany({
       where: { tenantId: owner.tenantId },
       data: { lastLoginAt: new Date(Date.now() - DAY) },
+    });
+    await db.session.updateMany({
+      where: { tenantId: owner.tenantId },
+      data: { lastUsedAt: new Date(Date.now() - DAY) },
     });
     const before = await today();
     expect(
       before.inactivePaying.some((t: { tenantId: string }) => t.tenantId === owner.tenantId),
     ).toBe(false);
 
+    // El último acceso cuenta también la sesión renovada (no solo el inicio de sesión).
     await db.user.updateMany({
       where: { tenantId: owner.tenantId },
       data: { lastLoginAt: new Date(Date.now() - 20 * DAY) },
+    });
+    await db.session.updateMany({
+      where: { tenantId: owner.tenantId },
+      data: { lastUsedAt: new Date(Date.now() - 20 * DAY) },
     });
     const body = await today();
     const row = body.inactivePaying.find(
@@ -467,9 +477,14 @@ describe('Mejoras de «Hoy» del panel admin (e2e)', () => {
       ),
     ).toBe(false);
     // Entró hace 16 días (después de lo apartado) y lo ha vuelto a dejar.
+    // El último acceso cuenta también la sesión renovada (no solo el inicio de sesión).
     await db.user.updateMany({
       where: { tenantId: owner.tenantId },
       data: { lastLoginAt: new Date(Date.now() - 16 * DAY) },
+    });
+    await db.session.updateMany({
+      where: { tenantId: owner.tenantId },
+      data: { lastUsedAt: new Date(Date.now() - 16 * DAY) },
     });
     const back = (await today()).inactivePaying.find(
       (t: { tenantId: string }) => t.tenantId === owner.tenantId,

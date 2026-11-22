@@ -8,6 +8,7 @@ import { CryptoModule } from '../../api/src/common/crypto/crypto.module';
 import { AppConfigModule } from '../../api/src/config/env.config';
 import { AccessModule } from '../../api/src/modules/access/access.module';
 import { MrrModule } from '../../api/src/modules/admin/mrr.module';
+import { TenantHealthModule } from '../../api/src/modules/admin/tenant-health.module';
 import { UsageModule } from '../../api/src/modules/admin/usage.module';
 import { AuthModule } from '../../api/src/modules/auth/auth.module';
 import { AutomationsModule } from '../../api/src/modules/automations/automations.module';
@@ -167,6 +168,8 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     RentIncreasesModule,
     // MrrModule: cron mensual de snapshot de MRR (para los MRR movements).
     MrrModule,
+    // TenantHealthModule: foto diaria de la salud de los tenants (tendencia).
+    TenantHealthModule,
     // UsageModule: medición diaria del almacenamiento por tenant.
     UsageModule,
     // PushModule: listener invoice_overdue (dunning corre aquí en prod) → push.
