@@ -108,6 +108,10 @@ export interface PlatformQuoteOfferDto {
   createdAt: string;
   /** Primera vez que abrió el enlace del correo. */
   openedAt: string | null;
+  /** Veces que ha abierto el enlace del correo. */
+  openCount: number;
+  /** Última vez que lo abrió. */
+  lastOpenedAt: string | null;
   /** Hasta cuándo vale (null = sin fecha). */
   expiresAt: string | null;
   /** Enviada y ya fuera de plazo. */

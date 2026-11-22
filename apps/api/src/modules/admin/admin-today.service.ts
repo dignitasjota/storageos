@@ -68,6 +68,7 @@ import type {
   AdminTodayKpisDto,
   AdminTodayMoneyAtRiskDto,
   AdminTodaySnoozeDto,
+  AdminTodayStaleLeadDto,
   AdminTodayVisitDto,
   CreateTodaySnoozeInput,
   SupportTicketPriorityValue,
@@ -278,6 +279,7 @@ export class AdminTodayService {
       snoozeRows,
       leadsAll,
       leadFollowupsAll,
+      staleLeadsAll,
       domainsAll,
       invoicesAll,
       rgpdAll,
@@ -313,6 +315,7 @@ export class AdminTodayService {
       safe('snoozes', () => this.extras.snoozeRecords(now), []),
       safe('newLeads', () => this.extras.newLeads(now), []),
       safe('leadFollowupsDue', () => this.leads.followupsDue(now), []),
+      safe('staleLeads', () => this.staleLeads(now), [] as AdminTodayStaleLeadDto[]),
       safe('domainsReady', () => this.extras.domainsReady(), []),
       safe('incompleteInvoices', () => this.extras.incompleteInvoices(now), []),
       safe('rgpdOverdue', () => this.extras.rgpdOverdue(now), []),
@@ -420,6 +423,8 @@ export class AdminTodayService {
       leadFollowupsDue: keep(leadFollowupsAll, 'lead_followup', (f) => f.id).sort((a, b) =>
         a.dueDate.localeCompare(b.dueDate),
       ),
+      // Ya vienen ordenados: los de alto valor y los que más días llevan, primero.
+      staleLeads: keep(staleLeadsAll, 'stale_lead', (l) => l.id),
       domainsReady: keep(domainsAll, 'domain', (d) => d.tenantId),
       incompleteInvoices: keep(invoicesAll, 'invoice_data', (t) => t.tenantId).sort(byCount),
       rgpdOverdue: keep(rgpdAll, 'rgpd', (t) => t.tenantId).sort(byCount),
@@ -731,6 +736,21 @@ export class AdminTodayService {
   }
 
   /** Plazo de respuesta por prioridad, en horas (el mismo que ve el tenant). */
+  /** Leads parados (los 30 primeros: alto valor y más días sin actividad). */
+  private async staleLeads(now: Date): Promise<AdminTodayStaleLeadDto[]> {
+    const items = await this.leads.staleLeads(now);
+    return items.slice(0, 30).map((l) => ({
+      id: l.id,
+      name: l.displayName,
+      status: l.status,
+      staleDays: l.staleDays ?? 0,
+      assignedToId: l.assignedToId,
+      assignedToName: l.assignedToName,
+      estimatedMonthly: l.estimatedMonthly,
+      highValue: l.highValue,
+    }));
+  }
+
   private async responseTargets(now: Date): Promise<ResponseTargets> {
     const times = await this.agility.responseTimes(now);
     return {

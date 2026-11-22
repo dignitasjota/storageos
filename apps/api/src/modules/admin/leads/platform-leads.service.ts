@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
@@ -7,33 +9,67 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 import {
+  EXTRA_UNITS_ADDON_SLUG,
+  MESSAGE_ATTACHMENT_MAX_BYTES,
+  MESSAGE_ATTACHMENT_MIME_TYPES,
   PLATFORM_LEAD_BOARD_OPEN_LIMIT,
+  PLATFORM_LEAD_DISCARD_REASON_LABELS,
   PLATFORM_LEAD_LOST_REASON_LABELS,
+  PLATFORM_LEAD_MAX_ATTACHMENTS,
+  PLATFORM_LEAD_REPLY_TYPES,
   PLATFORM_LEAD_SOURCE_LABELS,
   PLATFORM_LEAD_STAGE_LABELS,
   PLATFORM_LEAD_TRIAL_LOST_GRACE_DAYS,
   PLATFORM_LEAD_TRIAL_RECONTACT_DAYS,
   PLATFORM_LEAD_UNATTENDED_HOURS,
+  attachmentLabel,
+  estimatePlatformLeadValue,
+  findTaxId,
   isRealIsoDay,
   platformLeadName,
-  renderAdminEmail,
+  scorePlatformLead,
+  similarCompanyNames,
+  staleDaysOf,
+  stripQuotedReply,
+  type EmailInboundInput,
+  type MessageAttachmentInput,
+  type PlatformLeadDiscardReason,
+  type PlatformLeadDuplicateDto,
+  type PlatformLeadStaleDays,
+  type PlatformLeadValueContext,
 } from '@storageos/shared';
 
 import { CSV_BOM, csvLineCell } from '../../../common/csv';
 import { todayInTimezone } from '../../../common/format';
 import {
+  assertAttachment,
+  attachmentsDto,
+  requestAttachmentUpload,
+  type StoredAttachment,
+} from '../../../common/message-attachments';
+import {
   currentMrrByTenant,
   madridMonthIndex,
   monthIndexStart,
 } from '../../../common/saas-metrics';
+import { platformPricing } from '../../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
-import { EmailService } from '../../email/email.service';
+import { FilesService } from '../../files/files.service';
 import { PlatformService } from '../../platform/platform.service';
 import { AdminQuoteService } from '../admin-quote.service';
 import { AdminTenantInteractionsService } from '../admin-tenant-interactions.service';
 import { AdminTenantToolsService } from '../admin-tenant-tools.service';
 import { SalesAssignmentService } from '../sales/sales-assignment.service';
 import { SuperAdminAuditService } from '../super-admin-audit.service';
+
+import { PlatformLeadMailService, type LeadEmailSender } from './core/platform-lead-mail.service';
+import {
+  PlatformLeadSequencesService,
+  type SequenceStopReason,
+} from './core/platform-lead-sequences.service';
+import { PlatformLeadSettingsService } from './platform-lead-settings.service';
+
+export type { LeadEmailSender } from './core/platform-lead-mail.service';
 
 import type {
   PlatformLeadInboundEvent,
@@ -89,7 +125,7 @@ const AUDITED_FIELDS = [
   'assignedToId',
 ] as const;
 
-const LEAD_INCLUDE = {
+export const LEAD_INCLUDE = {
   assignedTo: { select: { fullName: true } },
   salesRep: { select: { fullName: true } },
   tenant: {
@@ -109,7 +145,7 @@ const LEAD_INCLUDE = {
   },
   activities: { orderBy: { occurredAt: 'desc' }, take: 1, select: { occurredAt: true } },
 } satisfies Prisma.PlatformLeadInclude;
-type LeadRow = Prisma.PlatformLeadGetPayload<{ include: typeof LEAD_INCLUDE }>;
+export type LeadRow = Prisma.PlatformLeadGetPayload<{ include: typeof LEAD_INCLUDE }>;
 
 const FOLLOWUP_INCLUDE = {
   assignedTo: { select: { fullName: true } },
@@ -117,24 +153,40 @@ const FOLLOWUP_INCLUDE = {
 } satisfies Prisma.PlatformLeadFollowupInclude;
 type FollowupRow = Prisma.PlatformLeadFollowupGetPayload<{ include: typeof FOLLOWUP_INCLUDE }>;
 
+/** Lo que hace falta para la cuota prevista y los parados (se carga una vez). */
+export interface LeadInsightContext {
+  value: PlatformLeadValueContext;
+  stale: PlatformLeadStaleDays;
+  highValue: number;
+}
+
+const EMPTY_STAGE_COUNTS = (): Record<PlatformLeadStage, number> => ({
+  new: 0,
+  contacted: 0,
+  interested: 0,
+  trial: 0,
+  customer: 0,
+  lost: 0,
+});
+
+/** Suma de la cuota prevista por fase («€ en juego»). */
+function valueByStage(items: PlatformLeadDto[]): Record<PlatformLeadStage, number> {
+  const out = EMPTY_STAGE_COUNTS();
+  for (const l of items) out[l.status] += l.estimatedMonthly ?? 0;
+  for (const k of Object.keys(out) as PlatformLeadStage[]) out[k] = Math.round(out[k] * 100) / 100;
+  return out;
+}
+
 export interface LeadActor {
   superAdminId: string;
   ipAddress?: string | null;
   userAgent?: string | null;
 }
 
-/** Remitente de un correo a un lead: el comercial que lo lleva (y su firma). */
-export interface LeadEmailSender {
-  fromName: string;
-  replyTo: { email: string; name?: string };
-  /** Firma con la que acaba la propuesta (en vez de «El equipo de TrasterOS»). */
-  signature?: string;
-}
-
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 const madridToday = (now = new Date()) => isoDate(todayInTimezone('Europe/Madrid', now));
-const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
-const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+export const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+export const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
 
 /**
  * Fecha de un seguimiento o de «volver a contactar»: que exista en el
@@ -196,18 +248,21 @@ export class PlatformLeadsService {
 
   constructor(
     private readonly admin: PrismaAdminService,
-    private readonly email: EmailService,
     private readonly platform: PlatformService,
     private readonly tools: AdminTenantToolsService,
     private readonly quotes: AdminQuoteService,
     private readonly interactions: AdminTenantInteractionsService,
     private readonly audit: SuperAdminAuditService,
     private readonly assignment: SalesAssignmentService,
+    private readonly mail: PlatformLeadMailService,
+    private readonly sequences: PlatformLeadSequencesService,
+    private readonly settings: PlatformLeadSettingsService,
+    private readonly files: FilesService,
   ) {}
 
   // ------------------------------------------------------------- lectura
 
-  private listWhere(q: PlatformLeadsQuery, superAdminId: string): Prisma.PlatformLeadWhereInput {
+  listWhere(q: PlatformLeadsQuery, superAdminId: string): Prisma.PlatformLeadWhereInput {
     const where: Prisma.PlatformLeadWhereInput = {
       discardedAt: q.discarded ? { not: null } : null,
     };
@@ -267,9 +322,11 @@ export class PlatformLeadsService {
     }
     const openTotal = counts.new + counts.contacted + counts.interested + counts.trial;
     const hiddenOpen = Math.max(openTotal - open.length, 0);
+    const items = await this.toDtos([...open, ...customers, ...lost]);
     return {
-      items: await this.toDtos([...open, ...customers, ...lost]),
+      items,
       counts,
+      valueByStage: valueByStage(items),
       truncated: hiddenOpen > 0,
       hiddenOpen,
     };
@@ -301,14 +358,21 @@ export class PlatformLeadsService {
       if (g.status in counts) counts[g.status as PlatformLeadStage] = g._count._all;
     }
     const hiddenOpen = Math.max(total - rows.length, 0);
-    return { items: await this.toDtos(rows), counts, truncated: hiddenOpen > 0, hiddenOpen };
+    const items = await this.toDtos(rows);
+    return {
+      items,
+      counts,
+      valueByStage: EMPTY_STAGE_COUNTS(),
+      truncated: hiddenOpen > 0,
+      hiddenOpen,
+    };
   }
 
   /** La ficha (también la de un descartado, que la web abre en solo lectura). */
   async detail(id: string): Promise<PlatformLeadDetailDto> {
     const row = await this.admin.platformLead.findUnique({ where: { id }, include: LEAD_INCLUDE });
     if (!row) throw this.notFound();
-    const [[dto], activities, followups, offers] = await Promise.all([
+    const [[dto], activities, followups, offers, sequence, duplicates] = await Promise.all([
       this.toDtos([row]),
       this.admin.platformLeadActivity.findMany({
         where: { leadId: id },
@@ -322,21 +386,30 @@ export class PlatformLeadsService {
         include: FOLLOWUP_INCLUDE,
       }),
       this.quotes.listOffers({ leadId: id, tenantId: row.tenantId }),
+      this.sequences.state(id),
+      row.discardedAt ? Promise.resolve([]) : this.possibleDuplicates(row),
     ]);
     return {
       ...dto!,
-      activities: activities.map(
-        (a): PlatformLeadActivityDto => ({
-          id: a.id,
-          type: a.type as PlatformLeadActivityType,
-          subject: a.subject,
-          content: a.content,
-          occurredAt: a.occurredAt.toISOString(),
-          superAdminName: a.superAdmin?.fullName ?? null,
-        }),
+      activities: await Promise.all(
+        activities.map(
+          async (a): Promise<PlatformLeadActivityDto> => ({
+            id: a.id,
+            type: a.type as PlatformLeadActivityType,
+            subject: a.subject,
+            content: a.content,
+            occurredAt: a.occurredAt.toISOString(),
+            superAdminName: a.superAdmin?.fullName ?? null,
+            attachments: await this.activityAttachments(a.attachments),
+          }),
+        ),
       ),
       followups: followups.map(toLeadFollowupDto),
       quoteOffers: offers.items,
+      sequence,
+      sequenceOptOut: row.sequenceOptOut,
+      duplicates,
+      repliesToThread: this.mail.repliesToThread,
     };
   }
 
@@ -351,13 +424,59 @@ export class PlatformLeadsService {
     return this.toDtos(rows);
   }
 
-  private async toDtos(rows: LeadRow[]): Promise<PlatformLeadDto[]> {
+  /** Planes, precios y ajustes para la cuota prevista y los parados (una vez por petición). */
+  async insightContext(): Promise<LeadInsightContext> {
+    const [plans, extra, pricing, settings] = await Promise.all([
+      this.admin.subscriptionPlan.findMany({
+        select: {
+          slug: true,
+          name: true,
+          priceMonthly: true,
+          maxUnits: true,
+          includedUnits: true,
+          isActive: true,
+          isPublic: true,
+        },
+      }),
+      this.admin.subscriptionAddon.findUnique({
+        where: { slug: EXTRA_UNITS_ADDON_SLUG },
+        select: { priceMonthly: true },
+      }),
+      platformPricing(this.admin),
+      this.settings.get(),
+    ]);
+    return {
+      value: {
+        plans: plans.map((p) => ({
+          slug: p.slug,
+          name: p.name,
+          priceMonthly: Number(p.priceMonthly),
+          maxUnits: p.maxUnits,
+          includedUnits: p.includedUnits,
+          isActive: p.isActive,
+          isPublic: p.isPublic,
+        })),
+        extraUnitPrice: extra ? Number(extra.priceMonthly) : null,
+        pricesIncludeVat: pricing.includeVat,
+        taxRate: pricing.taxRate,
+      },
+      stale: this.settings.staleDaysOf(settings),
+      highValue: this.settings.highValueOf(settings),
+    };
+  }
+
+  async toDtos(
+    rows: LeadRow[],
+    ctx?: LeadInsightContext,
+    now = new Date(),
+  ): Promise<PlatformLeadDto[]> {
     if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
     const slugs = [...new Set(rows.map((r) => r.planSlug).filter((s): s is string => !!s))];
     const emails = [
       ...new Set(rows.filter((r) => !r.tenantId && r.email).map((r) => r.email!.toLowerCase())),
     ];
-    const [plans, owners] = await Promise.all([
+    const [plans, owners, acts, opens, context] = await Promise.all([
       slugs.length
         ? this.admin.subscriptionPlan.findMany({
             where: { slug: { in: slugs } },
@@ -374,71 +493,137 @@ export class PlatformLeadsService {
             select: { email: true, tenant: { select: { id: true, name: true, slug: true } } },
           })
         : [],
+      this.admin.platformLeadActivity.groupBy({
+        by: ['leadId', 'type'],
+        where: { leadId: { in: ids } },
+        _max: { occurredAt: true },
+      }),
+      this.admin.platformQuoteOffer.groupBy({
+        by: ['leadId'],
+        where: { leadId: { in: ids } },
+        _sum: { openCount: true },
+      }),
+      ctx ? Promise.resolve(ctx) : this.insightContext(),
     ]);
     const planName = new Map(plans.map((p) => [p.slug, p.name]));
     const ownerOf = new Map<string, PlatformLeadTenantRefDto>();
     for (const o of owners) {
       if (!ownerOf.has(o.email.toLowerCase())) ownerOf.set(o.email.toLowerCase(), o.tenant);
     }
-    return rows.map((r) => ({
-      id: r.id,
-      status: r.status as PlatformLeadStage,
-      source: r.source as PlatformLeadSource,
-      displayName: platformLeadName(r),
-      companyName: r.companyName,
-      contactName: r.contactName,
-      email: r.email,
-      phone: r.phone,
-      units: r.units,
-      facilities: r.facilities,
-      profile: r.profile,
-      currentSoftware: r.currentSoftware,
-      city: r.city,
-      planSlug: r.planSlug,
-      planName: r.planSlug ? (planName.get(r.planSlug) ?? null) : null,
-      message: r.message,
-      assignedToId: r.assignedToId,
-      assignedToName: r.assignedTo?.fullName ?? null,
-      tenant: r.tenant ? { id: r.tenant.id, name: r.tenant.name, slug: r.tenant.slug } : null,
-      existingTenant: !r.tenantId && r.email ? (ownerOf.get(r.email.toLowerCase()) ?? null) : null,
-      utmSource: r.utmSource,
-      utmMedium: r.utmMedium,
-      utmCampaign: r.utmCampaign,
-      contactedAt: r.contactedAt?.toISOString() ?? null,
-      interestedAt: r.interestedAt?.toISOString() ?? null,
-      trialAt: r.trialAt?.toISOString() ?? null,
-      customerAt: r.customerAt?.toISOString() ?? null,
-      lostAt: r.lostAt?.toISOString() ?? null,
-      lostReasonCode: (r.lostReasonCode as PlatformLeadLostReason | null) ?? null,
-      lostReason: r.lostReason,
-      firstResponseAt: r.firstResponseAt?.toISOString() ?? null,
-      awaitingReplySince:
-        r.awaitingReplySince?.toISOString() ??
-        (r.status === 'new' && !r.firstResponseAt ? r.createdAt.toISOString() : null),
-      discardedAt: r.discardedAt?.toISOString() ?? null,
-      salesRepName: r.salesRep?.fullName ?? null,
-      accountKeptBy:
-        r.tenant?.salesRep && !r.tenant.deletedAt && r.tenant.salesRep.id !== r.assignedToId
-          ? { id: r.tenant.salesRep.id, name: r.tenant.salesRep.fullName }
+    const actsOf = new Map<string, Map<string, Date>>();
+    for (const a of acts) {
+      if (!a.leadId || !a._max.occurredAt) continue;
+      const m = actsOf.get(a.leadId) ?? new Map<string, Date>();
+      m.set(a.type, a._max.occurredAt);
+      actsOf.set(a.leadId, m);
+    }
+    const opensOf = new Map(opens.map((o) => [o.leadId ?? '', o._sum.openCount ?? 0]));
+    const latest = (m: Map<string, Date> | undefined, types: readonly string[]) => {
+      let best: Date | null = null;
+      for (const t of types) {
+        const d = m?.get(t);
+        if (d && (!best || d > best)) best = d;
+      }
+      return best;
+    };
+    return rows.map((r) => {
+      const a = actsOf.get(r.id);
+      const lastActivityAt = r.activities[0]?.occurredAt ?? null;
+      const status = r.status as PlatformLeadStage;
+      const scored = scorePlatformLead(
+        {
+          status,
+          source: r.source,
+          units: r.units,
+          facilities: r.facilities,
+          replied: ['email_in', 'call', 'demo', 'meeting'].some((t) => a?.has(t)),
+          proposalOpens: opensOf.get(r.id) ?? 0,
+          lastActivityAt,
+          lastOutboundAt: latest(a, ['email_out', 'quote']),
+          lastInboundAt: latest(a, ['web_form', 'email_in']),
+          createdAt: r.createdAt,
+        },
+        now,
+      );
+      const value = estimatePlatformLeadValue(r, context.value);
+      const staleDays = r.discardedAt
+        ? null
+        : staleDaysOf({ status, lastActivityAt, createdAt: r.createdAt }, context.stale, now);
+      return {
+        id: r.id,
+        status,
+        source: r.source as PlatformLeadSource,
+        displayName: platformLeadName(r),
+        companyName: r.companyName,
+        contactName: r.contactName,
+        email: r.email,
+        phone: r.phone,
+        units: r.units,
+        facilities: r.facilities,
+        profile: r.profile,
+        currentSoftware: r.currentSoftware,
+        city: r.city,
+        planSlug: r.planSlug,
+        planName: r.planSlug ? (planName.get(r.planSlug) ?? null) : null,
+        message: r.message,
+        assignedToId: r.assignedToId,
+        assignedToName: r.assignedTo?.fullName ?? null,
+        tenant: r.tenant ? { id: r.tenant.id, name: r.tenant.name, slug: r.tenant.slug } : null,
+        existingTenant:
+          !r.tenantId && r.email ? (ownerOf.get(r.email.toLowerCase()) ?? null) : null,
+        utmSource: r.utmSource,
+        utmMedium: r.utmMedium,
+        utmCampaign: r.utmCampaign,
+        contactedAt: r.contactedAt?.toISOString() ?? null,
+        interestedAt: r.interestedAt?.toISOString() ?? null,
+        trialAt: r.trialAt?.toISOString() ?? null,
+        customerAt: r.customerAt?.toISOString() ?? null,
+        lostAt: r.lostAt?.toISOString() ?? null,
+        lostReasonCode: (r.lostReasonCode as PlatformLeadLostReason | null) ?? null,
+        lostReason: r.lostReason,
+        firstResponseAt: r.firstResponseAt?.toISOString() ?? null,
+        awaitingReplySince:
+          r.awaitingReplySince?.toISOString() ??
+          (r.status === 'new' && !r.firstResponseAt ? r.createdAt.toISOString() : null),
+        discardedAt: r.discardedAt?.toISOString() ?? null,
+        salesRepName: r.salesRep?.fullName ?? null,
+        accountKeptBy:
+          r.tenant?.salesRep && !r.tenant.deletedAt && r.tenant.salesRep.id !== r.assignedToId
+            ? { id: r.tenant.salesRep.id, name: r.tenant.salesRep.fullName }
+            : null,
+        lastActivityAt: lastActivityAt?.toISOString() ?? null,
+        nextFollowup: r.followups[0]
+          ? {
+              id: r.followups[0].id,
+              title: r.followups[0].title,
+              dueDate: isoDate(r.followups[0].dueDate),
+            }
           : null,
-      lastActivityAt: r.activities[0]?.occurredAt.toISOString() ?? null,
-      nextFollowup: r.followups[0]
-        ? {
-            id: r.followups[0].id,
-            title: r.followups[0].title,
-            dueDate: isoDate(r.followups[0].dueDate),
-          }
-        : null,
-      createdAt: r.createdAt.toISOString(),
-      updatedAt: r.updatedAt.toISOString(),
-    }));
+        score: scored.score,
+        scoreFactors: scored.factors,
+        estimatedMonthly: value?.monthly ?? null,
+        estimatedPlanName: value?.planName ?? null,
+        highValue: (value?.monthly ?? 0) >= context.highValue && context.highValue > 0,
+        staleDays,
+        responseDueAt:
+          r.status === 'new' && !r.firstResponseAt
+            ? (r.responseDueAt?.toISOString() ?? null)
+            : null,
+        proposalOpens: opensOf.get(r.id) ?? 0,
+        discardReasonCode: (r.discardReasonCode as PlatformLeadDiscardReason | null) ?? null,
+        discardReason: r.discardReason,
+        mergedIntoId: r.mergedIntoId,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      };
+    });
   }
 
   private notFound() {
     return new NotFoundException({ code: 'lead_not_found', message: 'Lead no encontrado' });
   }
 
-  private async leadOrThrow(id: string) {
+  async leadOrThrow(id: string) {
     const row = await this.admin.platformLead.findUnique({ where: { id } });
     if (!row || row.discardedAt) throw this.notFound();
     return row;
@@ -459,7 +644,7 @@ export class PlatformLeadsService {
   }
 
   /** Otro lead (no descartado) con el mismo email o teléfono. */
-  private async findDuplicate(
+  async findDuplicate(
     email: string | null,
     phone: string | null,
     exceptId?: string,
@@ -510,7 +695,7 @@ export class PlatformLeadsService {
     }
   }
 
-  private async record(
+  async record(
     actor: LeadActor | null | undefined,
     action: string,
     leadId: string,
@@ -635,7 +820,7 @@ export class PlatformLeadsService {
    * comercial, la cuenta (y sus comisiones) no se mueve: solo cambia quién lo
    * trabaja en el tablero (la ficha lo avisa con `accountKeptBy`).
    */
-  private async applyPortfolio(
+  async applyPortfolio(
     leadId: string,
     assigneeId: string | null,
     byId: string | null,
@@ -713,7 +898,7 @@ export class PlatformLeadsService {
    * Al perderse, lo que tenía pendiente ya no toca (el «volver a contactar»
    * que se crea con la pérdida va después).
    */
-  private async closePendingFollowups(leadId: string, now = new Date()): Promise<number> {
+  async closePendingFollowups(leadId: string, now = new Date()): Promise<number> {
     const { count } = await this.admin.platformLeadFollowup.updateMany({
       where: { leadId, status: 'pending' },
       data: { status: 'done', completedAt: now },
@@ -747,6 +932,7 @@ export class PlatformLeadsService {
       },
     });
     const closed = await this.closePendingFollowups(id, now);
+    await this.stopSequence(id, 'stage');
     await this.addActivity(
       id,
       'system',
@@ -792,11 +978,34 @@ export class PlatformLeadsService {
   }
 
   /** «No es un lead»: sale del tablero y de las cifras (spam, soporte, proveedores…). */
-  async discard(id: string, actor: LeadActor): Promise<void> {
+  async discard(
+    id: string,
+    actor: LeadActor,
+    input: {
+      reasonCode: Exclude<PlatformLeadDiscardReason, 'merged'>;
+      reason?: string | null | undefined;
+    } = {
+      reasonCode: 'other',
+    },
+  ): Promise<void> {
     await this.leadOrThrow(id);
     await this.assertNotSalesClient(id);
-    await this.admin.platformLead.update({ where: { id }, data: { discardedAt: new Date() } });
-    await this.record(actor, 'discarded', id);
+    await this.admin.platformLead.update({
+      where: { id },
+      data: {
+        discardedAt: new Date(),
+        discardReasonCode: input.reasonCode,
+        discardReason: clean(input.reason),
+      },
+    });
+    await this.stopSequence(id, 'discarded');
+    await this.addActivity(
+      id,
+      'system',
+      `No es un lead: ${PLATFORM_LEAD_DISCARD_REASON_LABELS[input.reasonCode]}${clean(input.reason) ? ` — ${clean(input.reason)}` : ''}`,
+      actor.superAdminId,
+    );
+    await this.record(actor, 'discarded', id, { reasonCode: input.reasonCode });
   }
 
   /** Recupera un descartado: vuelve al tablero tal como estaba. */
@@ -806,7 +1015,17 @@ export class PlatformLeadsService {
     if (!lead.discardedAt) return this.detail(id);
     // Mientras estaba fuera pudo entrar otro con el mismo email o teléfono.
     await this.assertNoDuplicate(lead.email, lead.phone, id);
-    await this.admin.platformLead.update({ where: { id }, data: { discardedAt: null } });
+    if (lead.mergedIntoId) {
+      throw new ConflictException({
+        code: 'lead_merged',
+        message: 'Se fusionó con otro lead: lo que tenía está en ese lead',
+        details: { leadId: lead.mergedIntoId },
+      });
+    }
+    await this.admin.platformLead.update({
+      where: { id },
+      data: { discardedAt: null, discardReasonCode: null, discardReason: null },
+    });
     await this.addActivity(id, 'system', 'Recuperado: vuelve a ser un lead', actor.superAdminId);
     await this.record(actor, 'restored', id);
     return this.detail(id);
@@ -836,7 +1055,7 @@ export class PlatformLeadsService {
    * él, el comercial pierde la cuenta y sus contadores. Antes hay que quitarle
    * el comercial.
    */
-  private async assertNotSalesClient(id: string): Promise<void> {
+  async assertNotSalesClient(id: string): Promise<void> {
     const lead = await this.admin.platformLead.findUnique({
       where: { id },
       select: { tenant: { select: { salesRepId: true, deletedAt: true } } },
@@ -851,12 +1070,12 @@ export class PlatformLeadsService {
 
   // ---------------------------------------------------------- actividad
 
-  private async addActivity(
+  async addActivity(
     leadId: string,
     type: PlatformLeadActivityType,
     content: string,
     superAdminId: string | null,
-    extra: { subject?: string | null; occurredAt?: Date } = {},
+    extra: { subject?: string | null; occurredAt?: Date; attachments?: StoredAttachment[] } = {},
   ): Promise<void> {
     await this.admin.platformLeadActivity.create({
       data: {
@@ -865,9 +1084,19 @@ export class PlatformLeadsService {
         content,
         superAdminId,
         subject: extra.subject ?? null,
+        ...(extra.attachments?.length
+          ? { attachments: extra.attachments as unknown as Prisma.InputJsonValue }
+          : {}),
         ...(extra.occurredAt ? { occurredAt: extra.occurredAt } : {}),
       },
     });
+    // Si contesta (o se habla con él), los correos automáticos ya no tocan.
+    if (PLATFORM_LEAD_REPLY_TYPES.includes(type)) await this.sequences.stop(leadId, 'replied');
+  }
+
+  /** Para la secuencia de correos (al salir de las fases abiertas, descartarlo…). */
+  async stopSequence(leadId: string, reason: SequenceStopReason): Promise<void> {
+    await this.sequences.stop(leadId, reason);
   }
 
   /**
@@ -875,7 +1104,7 @@ export class PlatformLeadsService {
    * hizo (una llamada anotada más tarde cuenta desde cuando fue). Una respuesta
    * anterior a su último mensaje no cierra la espera de ese mensaje.
    */
-  private async markResponded(leadId: string, at = new Date()): Promise<void> {
+  async markResponded(leadId: string, at = new Date()): Promise<void> {
     const lead = await this.admin.platformLead.findUnique({
       where: { id: leadId },
       select: {
@@ -892,7 +1121,10 @@ export class PlatformLeadsService {
     const answersWait =
       !lead.awaitingReplySince || lead.awaitingReplySince.getTime() <= when.getTime();
     const data: Prisma.PlatformLeadUncheckedUpdateInput = {};
-    if (!lead.firstResponseAt) data.firstResponseAt = when;
+    if (!lead.firstResponseAt) {
+      data.firstResponseAt = when;
+      data.responseDueAt = null;
+    }
     if (answersWait && lead.awaitingReplySince) data.awaitingReplySince = null;
     if (answersWait && lead.status === 'new') {
       data.status = 'contacted';
@@ -1060,45 +1292,89 @@ export class PlatformLeadsService {
         message: 'Este lead no tiene email',
       });
     }
-    await this.deliver(email, to ? to.name : lead.contactName, input.subject, input.body, sender);
+    const attachments = await this.checkAttachments(id, input.attachments);
+    await this.deliver(
+      id,
+      email,
+      to ? to.name : lead.contactName,
+      input.subject,
+      input.body,
+      sender,
+      attachments,
+    );
     await this.addActivity(id, 'email_out', input.body, actor.superAdminId, {
       subject: input.subject,
+      attachments,
     });
     await this.markResponded(id);
-    await this.record(actor, 'email_sent', id, { to: to ? 'account_owner' : 'lead' });
+    if (!to) await this.sequences.autoStart(id, actor.superAdminId);
+    await this.record(actor, 'email_sent', id, {
+      to: to ? 'account_owner' : 'lead',
+      attachments: attachments.length,
+    });
     return this.detail(id);
   }
 
   private async deliver(
+    leadId: string,
     to: string,
     name: string | null,
     subject: string,
     markdown: string,
     sender?: LeadEmailSender,
+    attachments?: StoredAttachment[],
   ): Promise<void> {
-    const website = sender
-      ? null
-      : await this.admin.platformWebsite.findFirst({ select: { contactEmail: true } });
-    const mail = renderAdminEmail(markdown);
-    const result = await this.email.sendRendered({
+    await this.mail.send({
+      leadId,
       to,
+      name,
       subject,
-      html: mail.html,
-      text: mail.text,
-      ...(sender
-        ? { replyTo: sender.replyTo, fromName: sender.fromName }
-        : website?.contactEmail
-          ? { replyTo: { email: website.contactEmail } }
-          : {}),
-      kind: 'web_contact',
-      tags: { type: sender ? 'sales' : 'platform_lead' },
+      markdown,
+      sender,
+      ...(attachments?.length ? { attachments } : {}),
     });
-    if (result.suppressed) {
+  }
+
+  /** URL para subir un adjunto de un correo a este lead (imagen o PDF, 10 MB). */
+  async attachmentUploadUrl(id: string, mimeType: MessageAttachmentInput['mimeType']) {
+    await this.leadOrThrow(id);
+    return requestAttachmentUpload(this.files, this.attachmentPrefix(id), mimeType);
+  }
+
+  private attachmentPrefix(leadId: string): string {
+    return `platform/leads/${leadId}/`;
+  }
+
+  private async checkAttachments(
+    leadId: string,
+    list: MessageAttachmentInput[] | undefined,
+  ): Promise<StoredAttachment[]> {
+    if (!list?.length) return [];
+    if (list.length > PLATFORM_LEAD_MAX_ATTACHMENTS) {
       throw new BadRequestException({
-        code: 'email_suppressed',
-        message: `${name ?? to} tiene la dirección bloqueada (rebotes o quejas): no se le puede escribir`,
+        code: 'too_many_attachments',
+        message: `Como mucho ${PLATFORM_LEAD_MAX_ATTACHMENTS} adjuntos`,
       });
     }
+    const checked = await Promise.all(
+      list.map((a) => assertAttachment(this.files, this.attachmentPrefix(leadId), a)),
+    );
+    return checked.map((c) => ({
+      key: c.attachmentKey,
+      mimeType: c.attachmentMime,
+      filename: c.attachmentName,
+    }));
+  }
+
+  private async activityAttachments(raw: Prisma.JsonValue) {
+    const list = Array.isArray(raw) ? (raw as unknown as StoredAttachment[]) : [];
+    if (list.length === 0) return [];
+    return attachmentsDto(this.files, {
+      attachmentKey: list[0]!.key,
+      attachmentMime: list[0]!.mimeType,
+      attachmentName: list[0]!.filename,
+      extraAttachments: list.slice(1),
+    });
   }
 
   // -------------------------------------------------------------- cuenta
@@ -1174,6 +1450,8 @@ export class PlatformLeadsService {
       where: { leadId, tenantId: null },
       data: { tenantId },
     });
+    // Ya tiene cuenta: los correos de «si no contesta» ya no tocan.
+    await this.stopSequence(leadId, 'stage');
     const text =
       how === 'signup'
         ? `Se ha registrado: cuenta «${tenant.name}» (${tenant.slug})`
@@ -1292,6 +1570,7 @@ export class PlatformLeadsService {
       ].join('\n');
       try {
         await this.deliver(
+          id,
           lead.email,
           lead.contactName,
           `Tu propuesta de TrasterOS: ${money(quote.total)} ${period}`,
@@ -1348,8 +1627,13 @@ export class PlatformLeadsService {
     });
     await this.admin.platformLead.update({
       where: { id },
-      data: { firstResponseAt: lead.firstResponseAt ?? now, ...(planSlug ? { planSlug } : {}) },
+      data: {
+        firstResponseAt: lead.firstResponseAt ?? now,
+        responseDueAt: null,
+        ...(planSlug ? { planSlug } : {}),
+      },
     });
+    await this.sequences.autoStart(id, actor.superAdminId);
     return this.detail(id);
   }
 
@@ -1601,6 +1885,7 @@ export class PlatformLeadsService {
         if (count !== 1) continue;
         churned += 1;
         await this.closePendingFollowups(c.id, now);
+        await this.stopSequence(c.id, 'stage');
         await this.addActivity(
           c.id,
           'system',
@@ -1672,6 +1957,7 @@ export class PlatformLeadsService {
       if (count !== 1) continue;
       lost += 1;
       await this.closePendingFollowups(c.id, now);
+      await this.stopSequence(c.id, 'stage');
       await this.addActivity(
         c.id,
         'system',
@@ -1738,6 +2024,446 @@ export class PlatformLeadsService {
     return claimed;
   }
 
+  // ----------------------------------------------------------- duplicados
+
+  /**
+   * Posibles duplicados de un lead: otros leads con el mismo email o teléfono
+   * o una empresa parecida, y cuentas que ya existen (email de un usuario,
+   * nombre parecido o el mismo NIF). Aviso, no bloqueo (salvo el mismo email o
+   * teléfono al dar de alta, que ya da 409).
+   */
+  async possibleDuplicates(l: {
+    id?: string | null;
+    email: string | null;
+    phone: string | null;
+    companyName: string | null;
+    contactName?: string | null;
+    message?: string | null;
+    tenantId?: string | null;
+  }): Promise<PlatformLeadDuplicateDto[]> {
+    const out: PlatformLeadDuplicateDto[] = [];
+    const seen = new Set<string>();
+    const push = (d: PlatformLeadDuplicateDto) => {
+      const key = `${d.kind}:${d.id}`;
+      if (seen.has(key) || (d.kind === 'lead' && d.id === l.id)) return;
+      if (d.kind === 'tenant' && d.id === l.tenantId) return;
+      seen.add(key);
+      out.push(d);
+    };
+    const exceptId = l.id ? { id: { not: l.id } } : {};
+    const email = clean(l.email)?.toLowerCase() ?? null;
+    if (email) {
+      const rows = await this.admin.platformLead.findMany({
+        where: { discardedAt: null, email: { equals: email, mode: 'insensitive' }, ...exceptId },
+        select: { id: true, companyName: true, contactName: true, email: true, status: true },
+        take: 5,
+      });
+      for (const r of rows) {
+        push({
+          kind: 'lead',
+          id: r.id,
+          name: platformLeadName(r),
+          reason: 'Mismo email',
+          exact: true,
+          status: r.status as PlatformLeadStage,
+          slug: null,
+        });
+      }
+      const users = await this.admin.user.findMany({
+        where: { email: { equals: email, mode: 'insensitive' }, tenant: { deletedAt: null } },
+        select: { tenant: { select: { id: true, name: true, slug: true } } },
+        take: 5,
+      });
+      for (const u of users) {
+        push({
+          kind: 'tenant',
+          id: u.tenant.id,
+          name: u.tenant.name,
+          reason: 'Su email es de un usuario de esta cuenta',
+          exact: true,
+          status: null,
+          slug: u.tenant.slug,
+        });
+      }
+    }
+    const tail = digits(l.phone).slice(-9);
+    if (tail.length === 9) {
+      const rows = await this.admin.$queryRaw<
+        { id: string; company_name: string | null; contact_name: string | null; status: string }[]
+      >`
+        SELECT id, company_name, contact_name, status FROM platform_leads
+        WHERE discarded_at IS NULL AND phone IS NOT NULL
+          AND right(regexp_replace(phone, '\\D', '', 'g'), 9) = ${tail}
+          ${l.id ? Prisma.sql`AND id <> ${l.id}::uuid` : Prisma.empty}
+        LIMIT 5`;
+      for (const r of rows) {
+        push({
+          kind: 'lead',
+          id: r.id,
+          name: platformLeadName({ companyName: r.company_name, contactName: r.contact_name }),
+          reason: 'Mismo teléfono',
+          exact: true,
+          status: r.status as PlatformLeadStage,
+          slug: null,
+        });
+      }
+    }
+    const company = clean(l.companyName);
+    const word = company
+      ?.normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .split(/[^A-Za-z0-9]+/)
+      .filter((w) => w.length >= 4 && !/^(trasteros?|storage|almacen(es)?|sociedad)$/i.test(w))
+      .sort((a, b) => b.length - a.length)[0];
+    if (company && word) {
+      const contains = { contains: word, mode: 'insensitive' as const };
+      const [leads, tenants] = await Promise.all([
+        this.admin.platformLead.findMany({
+          where: { discardedAt: null, companyName: contains, ...exceptId },
+          select: { id: true, companyName: true, contactName: true, email: true, status: true },
+          take: 40,
+        }),
+        this.admin.tenant.findMany({
+          where: { deletedAt: null, OR: [{ name: contains }, { billingLegalName: contains }] },
+          select: { id: true, name: true, slug: true, billingLegalName: true },
+          take: 40,
+        }),
+      ]);
+      for (const r of leads) {
+        if (!similarCompanyNames(company, r.companyName)) continue;
+        push({
+          kind: 'lead',
+          id: r.id,
+          name: platformLeadName(r),
+          reason: 'Empresa parecida',
+          exact: false,
+          status: r.status as PlatformLeadStage,
+          slug: null,
+        });
+      }
+      for (const t of tenants) {
+        if (
+          !similarCompanyNames(company, t.name) &&
+          !similarCompanyNames(company, t.billingLegalName)
+        )
+          continue;
+        push({
+          kind: 'tenant',
+          id: t.id,
+          name: t.name,
+          reason: 'Cuenta con un nombre parecido',
+          exact: false,
+          status: null,
+          slug: t.slug,
+        });
+      }
+    }
+    const taxId = findTaxId(`${company ?? ''} ${l.message ?? ''}`);
+    if (taxId) {
+      const tenants = await this.admin.tenant.findMany({
+        where: { deletedAt: null, taxId: { equals: taxId, mode: 'insensitive' } },
+        select: { id: true, name: true, slug: true },
+        take: 3,
+      });
+      for (const t of tenants) {
+        push({
+          kind: 'tenant',
+          id: t.id,
+          name: t.name,
+          reason: `Mismo NIF (${taxId})`,
+          exact: true,
+          status: null,
+          slug: t.slug,
+        });
+      }
+    }
+    return out.slice(0, 10);
+  }
+
+  // ------------------------------------------------------------ secuencia
+
+  /** Activa o para los correos automáticos de un lead desde su ficha. */
+  async setSequence(
+    id: string,
+    input: { enabled: boolean; sequenceId?: string | undefined },
+    actor: LeadActor,
+  ): Promise<PlatformLeadDetailDto> {
+    await this.leadOrThrow(id);
+    if (input.enabled) {
+      await this.sequences.start(id, {
+        sequenceId: input.sequenceId ?? null,
+        byId: actor.superAdminId,
+        auto: false,
+      });
+      await this.addActivity(id, 'system', 'Secuencia de correos activada', actor.superAdminId);
+    } else {
+      await this.admin.platformLead.update({ where: { id }, data: { sequenceOptOut: true } });
+      const stopped = await this.sequences.stop(id, 'manual');
+      await this.addActivity(
+        id,
+        'system',
+        stopped ? 'Secuencia de correos parada' : 'Sin correos automáticos para este lead',
+        actor.superAdminId,
+      );
+    }
+    await this.record(actor, input.enabled ? 'sequence_started' : 'sequence_stopped', id);
+    return this.detail(id);
+  }
+
+  // ------------------------------------------------------ correo entrante
+
+  /** Guarda los adjuntos válidos de un correo entrante en la carpeta del lead. */
+  private async storeInboundAttachments(
+    leadId: string,
+    list: EmailInboundInput['attachments'],
+  ): Promise<StoredAttachment[]> {
+    const stored: StoredAttachment[] = [];
+    for (const att of (list ?? []).slice(0, PLATFORM_LEAD_MAX_ATTACHMENTS)) {
+      const mimeType = MESSAGE_ATTACHMENT_MIME_TYPES.find(
+        (m) => m === att.contentType.split(';')[0]?.trim().toLowerCase(),
+      );
+      if (!mimeType) continue;
+      const body = Buffer.from(att.contentBase64, 'base64');
+      if (body.length === 0 || body.length > MESSAGE_ATTACHMENT_MAX_BYTES) continue;
+      const key = `${this.attachmentPrefix(leadId)}${randomUUID()}.${mimeType.split('/')[1]}`;
+      await this.files.putObject({ bucket: 'uploads', key, body, contentType: mimeType });
+      stored.push({ key, mimeType, filename: (att.filename || 'adjunto').slice(0, 200) });
+    }
+    return stored;
+  }
+
+  /**
+   * El lead contesta a un correo nuestro (su dirección `p-…` dice de quién es):
+   * queda en su conversación, espera respuesta, se paran los correos
+   * automáticos y se avisa a quien lo lleva. Un perdido sin cuenta vuelve a
+   * «Nuevo». Devuelve false si la dirección no es de ningún lead.
+   */
+  async recordEmailReply(token: string, input: EmailInboundInput): Promise<boolean> {
+    const lead = await this.admin.platformLead.findUnique({ where: { replyToken: token } });
+    if (!lead) return false;
+    const target = lead.mergedIntoId
+      ? ((await this.admin.platformLead.findUnique({ where: { id: lead.mergedIntoId } })) ?? lead)
+      : lead;
+    const text = stripQuotedReply(input.text).slice(0, 5000).trim();
+    const attachments = await this.storeInboundAttachments(target.id, input.attachments);
+    if (!text && attachments.length === 0) return false;
+    const sameSender = target.email?.toLowerCase() === input.from.trim().toLowerCase();
+    const body = text || attachments.map((a) => attachmentLabel(a.filename)).join(' ');
+    const now = new Date();
+    await this.addActivity(
+      target.id,
+      'email_in',
+      sameSender ? body : `[De ${input.from}] ${body}`,
+      null,
+      { subject: input.subject ? input.subject.slice(0, 200) : null, attachments, occurredAt: now },
+    );
+    if (target.discardedAt) return true;
+    await this.admin.platformLead.update({
+      where: { id: target.id },
+      data: {
+        awaitingReplySince: target.awaitingReplySince ?? now,
+        ...(target.status === 'lost' && !target.tenantId
+          ? {
+              status: 'new',
+              lostAt: null,
+              lostReasonCode: null,
+              lostReason: null,
+              unattendedNotifiedAt: null,
+            }
+          : {}),
+      },
+    });
+    await this.platform.notify({
+      type: 'platform_lead.email_reply',
+      title: `${platformLeadName(target)} ha respondido`,
+      body: body.slice(0, 200),
+      link: `/admin/leads?lead=${target.id}`,
+      recipientId: target.assignedToId,
+    });
+    return true;
+  }
+
+  // ------------------------------------------------------------- reparto
+
+  async leadIdForTenant(tenantId: string): Promise<string | null> {
+    const lead = await this.admin.platformLead.findUnique({
+      where: { tenantId },
+      select: { id: true },
+    });
+    return lead?.id ?? null;
+  }
+
+  /**
+   * Reparte un lead que ha entrado solo y no tiene responsable (por turnos o
+   * por zona), con el plazo para la primera respuesta. Respeta la cartera de
+   * los comerciales: si ya es de uno, no se toca.
+   */
+  async autoAssign(leadId: string, now = new Date()): Promise<string | null> {
+    const lead = await this.admin.platformLead.findUnique({
+      where: { id: leadId },
+      select: {
+        id: true,
+        assignedToId: true,
+        salesRepId: true,
+        discardedAt: true,
+        status: true,
+        firstResponseAt: true,
+        city: true,
+        companyName: true,
+        contactName: true,
+        email: true,
+      },
+    });
+    if (!lead || lead.assignedToId || lead.salesRepId || lead.discardedAt) return null;
+    if (lead.status === 'customer' || lead.status === 'lost') return null;
+    const assignee = await this.settings.pickAssignee(lead);
+    if (!assignee) return null;
+    const waiting = lead.status === 'new' && !lead.firstResponseAt;
+    const { count } = await this.admin.platformLead.updateMany({
+      where: { id: leadId, assignedToId: null },
+      data: {
+        assignedToId: assignee,
+        autoAssignedAt: now,
+        responseDueAt: waiting ? await this.settings.deadline(now) : null,
+      },
+    });
+    if (count !== 1) return null;
+    await this.applyPortfolio(leadId, assignee, null);
+    const who = await this.admin.superAdmin.findUnique({
+      where: { id: assignee },
+      select: { fullName: true },
+    });
+    await this.addActivity(
+      leadId,
+      'system',
+      `Asignado automáticamente a ${who?.fullName ?? 'alguien del equipo'}`,
+      null,
+    );
+    await this.platform.notify({
+      type: 'platform_lead.assigned',
+      title: `Te ha tocado un lead: ${platformLeadName(lead)}`,
+      ...(waiting ? { body: 'Responde cuanto antes: tiene un plazo de primera respuesta.' } : {}),
+      link: `/admin/leads?lead=${leadId}`,
+      recipientId: assignee,
+    });
+    return assignee;
+  }
+
+  /**
+   * Leads repartidos solos que siguen sin primera respuesta pasado el plazo:
+   * pasan al siguiente del turno (una sola vez), con aviso a los dos.
+   */
+  async reassignOverdue(now = new Date()): Promise<number> {
+    const s = await this.settings.get();
+    if (!s.reassignEnabled || s.assignMode === 'off') return 0;
+    const rows = await this.admin.platformLead.findMany({
+      where: {
+        discardedAt: null,
+        status: 'new',
+        firstResponseAt: null,
+        reassignedAt: null,
+        responseDueAt: { lt: now },
+        assignedToId: { not: null },
+      },
+      take: 50,
+    });
+    let moved = 0;
+    for (const r of rows) {
+      const next = await this.settings.nextInTurn(r.assignedToId);
+      if (!next) continue;
+      const { count } = await this.admin.platformLead.updateMany({
+        where: {
+          id: r.id,
+          reassignedAt: null,
+          assignedToId: r.assignedToId,
+          firstResponseAt: null,
+        },
+        data: {
+          assignedToId: next,
+          reassignedAt: now,
+          autoAssignedAt: now,
+          responseDueAt: await this.settings.deadline(now),
+        },
+      });
+      if (count !== 1) continue;
+      moved += 1;
+      await this.applyPortfolio(r.id, next, null);
+      const names = await this.admin.superAdmin.findMany({
+        where: { id: { in: [r.assignedToId!, next] } },
+        select: { id: true, fullName: true },
+      });
+      const nameOf = (id: string) => names.find((n) => n.id === id)?.fullName ?? 'alguien';
+      const name = platformLeadName(r);
+      await this.addActivity(
+        r.id,
+        'system',
+        `Sin respuesta en plazo: pasa de ${nameOf(r.assignedToId!)} a ${nameOf(next)}`,
+        null,
+      );
+      await this.platform.notify({
+        type: 'platform_lead.reassigned',
+        title: `${name} pasa a ${nameOf(next)}`,
+        body: 'Se pasó el plazo de primera respuesta.',
+        link: `/admin/leads?lead=${r.id}`,
+        recipientId: r.assignedToId,
+      });
+      await this.platform.notify({
+        type: 'platform_lead.assigned',
+        title: `Te ha tocado un lead: ${name}`,
+        body: `Era de ${nameOf(r.assignedToId!)} y nadie le había respondido a tiempo.`,
+        link: `/admin/leads?lead=${r.id}`,
+        recipientId: next,
+      });
+    }
+    return moved;
+  }
+
+  // ---------------------------------------------------------------- parados
+
+  /** Leads abiertos parados (pasado el umbral de su fase), los de alto valor primero. */
+  async staleLeads(now = new Date()): Promise<PlatformLeadDto[]> {
+    const rows = await this.admin.platformLead.findMany({
+      where: { discardedAt: null, status: { in: ['new', 'contacted', 'interested', 'trial'] } },
+      include: LEAD_INCLUDE,
+      take: 2000,
+    });
+    const items = await this.toDtos(rows, undefined, now);
+    return items
+      .filter((l) => l.staleDays !== null)
+      .sort(
+        (a, b) =>
+          Number(b.highValue) - Number(a.highValue) ||
+          (b.staleDays ?? 0) - (a.staleDays ?? 0) ||
+          a.id.localeCompare(b.id),
+      );
+  }
+
+  /** Aviso a quien lo lleva: una vez por lead y fase. */
+  async notifyStale(now = new Date()): Promise<number> {
+    const stale = await this.staleLeads(now);
+    let sent = 0;
+    for (const l of stale) {
+      const { count } = await this.admin.platformLead.updateMany({
+        where: {
+          id: l.id,
+          status: l.status,
+          OR: [{ staleNotifiedStatus: null }, { staleNotifiedStatus: { not: l.status } }],
+        },
+        data: { staleNotifiedStatus: l.status, staleNotifiedAt: now },
+      });
+      if (count !== 1) continue;
+      sent += 1;
+      await this.platform.notify({
+        type: 'platform_lead.stale',
+        title: `${l.displayName} lleva ${l.staleDays} días parado`,
+        body: `${PLATFORM_LEAD_STAGE_LABELS[l.status]}${l.estimatedMonthly ? ` · ${l.estimatedMonthly.toFixed(2).replace('.', ',')} € al mes previstos` : ''}`,
+        link: `/admin/leads?lead=${l.id}`,
+        recipientId: l.assignedToId,
+      });
+    }
+    return sent;
+  }
+
   // -------------------------------------------------------------- cifras
 
   /**
@@ -1746,42 +2472,99 @@ export class PlatformLeadsService {
    * uno de verdad (con su fecha); quien entró directamente en prueba (se
    * registró solo o se le creó la cuenta) va aparte.
    */
-  async stats(months: number, now = new Date()): Promise<PlatformLeadStatsDto> {
+  async stats(
+    months: number,
+    opts: { source?: PlatformLeadSource | null } = {},
+    now = new Date(),
+  ): Promise<PlatformLeadStatsDto> {
     const m = Math.min(Math.max(Math.round(months) || 6, 1), 24);
-    const from = monthIndexStart(madridMonthIndex(now) - (m - 1));
-    const leads = await this.admin.platformLead.findMany({
-      where: { discardedAt: null, createdAt: { gte: from } },
-      select: {
-        status: true,
-        source: true,
-        tenantId: true,
-        createdById: true,
-        contactedAt: true,
-        interestedAt: true,
-        trialAt: true,
-        customerAt: true,
-        lostReasonCode: true,
-        firstResponseAt: true,
-        createdAt: true,
-      },
-    });
+    const index = madridMonthIndex(now);
+    const from = monthIndexStart(index - (m - 1));
+    const prevFrom = monthIndexStart(index - (2 * m - 1));
+    const source = opts.source ?? null;
+    const select = {
+      status: true,
+      source: true,
+      tenantId: true,
+      createdById: true,
+      assignedToId: true,
+      utmCampaign: true,
+      contactedAt: true,
+      interestedAt: true,
+      trialAt: true,
+      customerAt: true,
+      lostReasonCode: true,
+      firstResponseAt: true,
+      createdAt: true,
+    } satisfies Prisma.PlatformLeadSelect;
+    const bySource = source ? { source } : {};
+    const [leads, previous, discarded, openRows, ctx] = await Promise.all([
+      this.admin.platformLead.findMany({
+        where: { discardedAt: null, createdAt: { gte: from }, ...bySource },
+        select,
+      }),
+      this.admin.platformLead.findMany({
+        where: { discardedAt: null, createdAt: { gte: prevFrom, lt: from }, ...bySource },
+        select,
+      }),
+      this.admin.platformLead.groupBy({
+        by: ['discardReasonCode'],
+        where: { discardedAt: { not: null }, createdAt: { gte: from }, ...bySource },
+        _count: { _all: true },
+      }),
+      this.admin.platformLead.findMany({
+        where: {
+          discardedAt: null,
+          status: { in: ['new', 'contacted', 'interested', 'trial'] },
+          ...bySource,
+        },
+        select: { status: true, units: true, planSlug: true },
+      }),
+      this.insightContext(),
+    ]);
     // MRR sin IVA, con atrasados, anual/12 y descuento: el mismo de Métricas.
     const mrrByTenant = await currentMrrByTenant(this.admin);
     const mrrOf = (tenantId: string | null) =>
       tenantId ? (mrrByTenant.get(tenantId)?.total ?? 0) : 0;
     // Entró ya en prueba: su cuenta y su lead nacen a la vez (o la cuenta, antes).
-    const isDirect = (l: (typeof leads)[number]) =>
+    type Row = (typeof leads)[number];
+    const isDirect = (l: Row) =>
       !!l.trialAt && l.trialAt.getTime() <= l.createdAt.getTime() + 60_000;
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const medianOf = (xs: number[]) => {
+      if (xs.length === 0) return null;
+      const v = [...xs].sort((a, b) => a - b);
+      const mid = Math.floor(v.length / 2);
+      return v.length % 2 ? v[mid]! : (v[mid - 1]! + v[mid]!) / 2;
+    };
+    const responseHoursOf = (rows: Row[]) =>
+      rows
+        .filter((l) => l.firstResponseAt && !l.createdById && INBOUND_SOURCES.has(l.source))
+        .map((l) => Math.max(0, (l.firstResponseAt!.getTime() - l.createdAt.getTime()) / HOUR));
+    const customersOf = (rows: Row[]) => rows.filter((l) => !!l.customerAt).length;
+    const mrrSum = (rows: Row[]) =>
+      round2(
+        rows.filter((l) => l.status === 'customer').reduce((a, l) => a + mrrOf(l.tenantId), 0),
+      );
+    const pctOf = (part: number, whole: number) => (whole ? round1((part / whole) * 100) : null);
 
     const bySourceMap = new Map<
       string,
       { leads: number; trials: number; customers: number; mrr: number }
     >();
     const reasons = new Map<string, number>();
-    const responseHours: number[] = [];
     const daysToCustomer: number[] = [];
     const funnel = [0, 0, 0, 0, 0];
     const direct = { leads: 0, customers: 0 };
+    const stageSpans: Record<'new' | 'contacted' | 'interested' | 'trial', number[]> = {
+      new: [],
+      contacted: [],
+      interested: [],
+      trial: [],
+    };
+    const span = (a: Date | null, b: Date | null) =>
+      a && b && b.getTime() >= a.getTime() ? (b.getTime() - a.getTime()) / DAY : null;
     let lostCount = 0;
     let churned = 0;
     for (const l of leads) {
@@ -1795,13 +2578,24 @@ export class PlatformLeadsService {
         if (l.interestedAt) funnel[2]! += 1;
         if (l.trialAt) funnel[3]! += 1;
         if (l.customerAt) funnel[4]! += 1;
+        // Días en cada fase: hasta la siguiente por la que pasó de verdad.
+        const steps: [keyof typeof stageSpans, Date | null, Date | null][] = [
+          ['new', l.createdAt, l.contactedAt ?? l.interestedAt ?? l.trialAt],
+          ['contacted', l.contactedAt, l.interestedAt ?? l.trialAt],
+          ['interested', l.interestedAt, l.trialAt],
+          ['trial', l.trialAt, l.customerAt],
+        ];
+        for (const [stage, a, b] of steps) {
+          const d = span(a, b);
+          if (d !== null) stageSpans[stage].push(d);
+        }
       }
-      const s = bySourceMap.get(l.source) ?? { leads: 0, trials: 0, customers: 0, mrr: 0 };
-      s.leads += 1;
-      if (l.trialAt) s.trials += 1;
-      if (l.customerAt) s.customers += 1;
-      if (isCustomer) s.mrr += mrrOf(l.tenantId);
-      bySourceMap.set(l.source, s);
+      const sRow = bySourceMap.get(l.source) ?? { leads: 0, trials: 0, customers: 0, mrr: 0 };
+      sRow.leads += 1;
+      if (l.trialAt) sRow.trials += 1;
+      if (l.customerAt) sRow.customers += 1;
+      if (isCustomer) sRow.mrr += mrrOf(l.tenantId);
+      bySourceMap.set(l.source, sRow);
       if (l.status === 'lost') {
         if (l.lostReasonCode === 'churned') {
           churned += 1;
@@ -1811,39 +2605,66 @@ export class PlatformLeadsService {
           reasons.set(code, (reasons.get(code) ?? 0) + 1);
         }
       }
-      // Primera respuesta: solo de quien escribió solo (no los que da de alta el
-      // equipo ni los registros, que no esperan a nadie).
-      if (l.firstResponseAt && !l.createdById && INBOUND_SOURCES.has(l.source)) {
-        responseHours.push(
-          Math.max(0, (l.firstResponseAt.getTime() - l.createdAt.getTime()) / HOUR),
-        );
-      }
       if (l.customerAt) {
         daysToCustomer.push(Math.max(0, (l.customerAt.getTime() - l.createdAt.getTime()) / DAY));
       }
     }
-    responseHours.sort((a, b) => a - b);
-    const median = responseHours.length
-      ? responseHours.length % 2
-        ? responseHours[(responseHours.length - 1) / 2]!
-        : (responseHours[responseHours.length / 2 - 1]! +
-            responseHours[responseHours.length / 2]!) /
-          2
-      : null;
-    const round1 = (n: number) => Math.round(n * 10) / 10;
-    const bySource = [...bySourceMap.entries()]
-      .map(([source, s]) => ({
-        source: source as PlatformLeadSource,
-        leads: s.leads,
-        trials: s.trials,
-        customers: s.customers,
-        mrr: Math.round(s.mrr * 100) / 100,
-        conversionPct: s.leads ? round1((s.customers / s.leads) * 100) : null,
+    const median = medianOf(responseHoursOf(leads));
+    const prevMedian = medianOf(responseHoursOf(previous));
+    const bySourceRows = [...bySourceMap.entries()]
+      .map(([src, x]) => ({
+        source: src as PlatformLeadSource,
+        leads: x.leads,
+        trials: x.trials,
+        customers: x.customers,
+        mrr: round2(x.mrr),
+        conversionPct: pctOf(x.customers, x.leads),
       }))
       .sort((a, b) => b.customers - a.customers || b.leads - a.leads);
+
+    const group = (keyOf: (l: Row) => string | null) => {
+      const map = new Map<string | null, Row[]>();
+      for (const l of leads) {
+        const k = keyOf(l);
+        map.set(k, [...(map.get(k) ?? []), l]);
+      }
+      return map;
+    };
+    const assigneeIds = [
+      ...new Set(leads.map((l) => l.assignedToId).filter((x): x is string => !!x)),
+    ];
+    const admins = assigneeIds.length
+      ? await this.admin.superAdmin.findMany({
+          where: { id: { in: assigneeIds } },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const nameOf = new Map(admins.map((a) => [a.id, a.fullName]));
+    const groupDto = (map: Map<string | null, Row[]>, label: (k: string | null) => string) =>
+      [...map.entries()]
+        .map(([key, rows]) => ({
+          key,
+          label: label(key),
+          leads: rows.length,
+          customers: customersOf(rows),
+          conversionPct: pctOf(customersOf(rows), rows.length),
+          mrr: mrrSum(rows),
+        }))
+        .sort((a, b) => b.customers - a.customers || b.leads - a.leads);
+
+    const valueStages = EMPTY_STAGE_COUNTS();
+    const valueLeads = EMPTY_STAGE_COUNTS();
+    for (const r of openRows) {
+      const v = estimatePlatformLeadValue(r, ctx.value);
+      valueStages[r.status as PlatformLeadStage] += v?.monthly ?? 0;
+      valueLeads[r.status as PlatformLeadStage] += 1;
+    }
+
+    const prevCustomers = customersOf(previous);
     return {
       months: m,
       from: from.toISOString(),
+      source,
       leads: leads.length,
       funnel: (['new', 'contacted', 'interested', 'trial', 'customer'] as const).map(
         (stage, i) => ({ stage, reached: funnel[i]! }),
@@ -1851,7 +2672,7 @@ export class PlatformLeadsService {
       direct,
       lost: lostCount,
       churned,
-      bySource,
+      bySource: bySourceRows,
       lostReasons: [...reasons.entries()]
         .map(([code, count]) => ({ code: code as PlatformLeadLostReason, count }))
         .sort((a, b) => b.count - a.count),
@@ -1859,13 +2680,54 @@ export class PlatformLeadsService {
       avgDaysToCustomer: daysToCustomer.length
         ? round1(daysToCustomer.reduce((a, b) => a + b, 0) / daysToCustomer.length)
         : null,
-      mrr: Math.round(bySource.reduce((a, s) => a + s.mrr, 0) * 100) / 100,
+      mrr: round2(bySourceRows.reduce((a, x) => a + x.mrr, 0)),
+      stageDays: (['new', 'contacted', 'interested', 'trial'] as const).map((stage) => ({
+        stage,
+        avgDays: stageSpans[stage].length
+          ? round1(stageSpans[stage].reduce((a, b) => a + b, 0) / stageSpans[stage].length)
+          : null,
+        count: stageSpans[stage].length,
+      })),
+      byAssignee: groupDto(
+        group((l) => l.assignedToId),
+        (k) => (k ? (nameOf.get(k) ?? 'Alguien que ya no está') : 'Sin responsable'),
+      ),
+      byCampaign: groupDto(
+        group((l) => clean(l.utmCampaign)),
+        (k) => k ?? 'Sin campaña',
+      ),
+      discardReasons: discarded
+        .map((d) => ({
+          code: (d.discardReasonCode ?? 'other') as PlatformLeadDiscardReason,
+          count: d._count._all,
+        }))
+        .reduce<{ code: PlatformLeadDiscardReason; count: number }[]>((acc, d) => {
+          const found = acc.find((x) => x.code === d.code);
+          if (found) found.count += d.count;
+          else acc.push({ ...d });
+          return acc;
+        }, [])
+        .sort((a, b) => b.count - a.count),
+      previous: {
+        from: prevFrom.toISOString(),
+        leads: previous.length,
+        customers: prevCustomers,
+        conversionPct: pctOf(prevCustomers, previous.length),
+        mrr: mrrSum(previous),
+        medianFirstResponseHours: prevMedian === null ? null : round1(prevMedian),
+      },
+      valueByStage: (['new', 'contacted', 'interested', 'trial'] as const).map((stage) => ({
+        stage,
+        leads: valueLeads[stage],
+        value: round2(valueStages[stage]),
+      })),
     };
   }
 
-  async exportCsv(q: PlatformLeadsQuery, superAdminId: string): Promise<string> {
+  /** CSV de los leads del filtro (o solo de los elegidos, `ids`). */
+  async exportCsv(q: PlatformLeadsQuery, superAdminId: string, ids?: string[]): Promise<string> {
     const rows = await this.admin.platformLead.findMany({
-      where: this.listWhere(q, superAdminId),
+      where: ids?.length ? { id: { in: ids } } : this.listWhere(q, superAdminId),
       include: LEAD_INCLUDE,
       orderBy: { createdAt: 'desc' },
       take: 5000,
@@ -1895,6 +2757,9 @@ export class PlatformLeadsService {
       'Plan',
       'Primera respuesta',
       'Cliente desde',
+      'Puntuación',
+      'Cuota prevista al mes (sin IVA)',
+      'Motivo de descarte',
     ];
     const lines = items.map((l) =>
       [
@@ -1919,6 +2784,11 @@ export class PlatformLeadsService {
         l.planName ?? l.planSlug,
         date(l.firstResponseAt),
         date(l.customerAt),
+        String(l.score),
+        l.estimatedMonthly === null ? '' : l.estimatedMonthly.toFixed(2).replace('.', ','),
+        l.discardReasonCode
+          ? `${PLATFORM_LEAD_DISCARD_REASON_LABELS[l.discardReasonCode]}${l.discardReason ? ` — ${l.discardReason}` : ''}`
+          : '',
       ]
         .map(cell)
         .join(';'),

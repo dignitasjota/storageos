@@ -5253,6 +5253,7 @@ model SuperAdmin {
   platformLeadActivities  PlatformLeadActivity[]   @relation("PlatformLeadActivityAuthor")
   platformLeadFollowups   PlatformLeadFollowup[]   @relation("PlatformLeadFollowupAuthor")
   platformLeadFollowupsAssigned PlatformLeadFollowup[] @relation("PlatformLeadFollowupAssignee")
+  platformLeadSequencesStarted PlatformLeadSequenceEnrollment[] @relation("PlatformLeadSequenceStarter")
   legalVersions           PlatformLegalVersion[]   @relation("LegalVersionAuthor")
 }
 
@@ -6744,6 +6745,11 @@ model PlatformQuoteOffer {
   resolvedAt   DateTime? @map("resolved_at") @db.Timestamptz(6)
   /// Primera vez que abrió el enlace del correo.
   openedAt     DateTime? @map("opened_at") @db.Timestamptz(6)
+  /// Veces que ha abierto el enlace y la última.
+  openCount    Int       @default(0) @map("open_count")
+  lastOpenedAt DateTime? @map("last_opened_at") @db.Timestamptz(6)
+  /// Aviso al responsable la primera vez que la abre (una vez por propuesta).
+  openNotifiedAt DateTime? @map("open_notified_at") @db.Timestamptz(6)
   /// Hasta cuándo vale (null = sin fecha).
   expiresAt    DateTime? @map("expires_at") @db.Timestamptz(6)
   reminderSentAt DateTime? @map("reminder_sent_at") @db.Timestamptz(6)
@@ -8967,9 +8973,29 @@ model PlatformLead {
   /// Comercial que lo lleva.
   salesRepId           String?   @map("sales_rep_id") @db.Uuid
   salesAssignedAt      DateTime? @map("sales_assigned_at") @db.Timestamptz(6)
+  /// «No es un lead»: spam · supplier · support · existing_customer · merged · other
+  discardReasonCode    String?   @map("discard_reason_code")
+  discardReason        String?   @map("discard_reason")
+  /// Lead con el que se fusionó (este queda descartado).
+  mergedIntoId         String?   @map("merged_into_id") @db.Uuid
+  /// Parte variable de su dirección de respuesta (`p-<token>@<dominio>`).
+  replyToken           String?   @unique(map: "platform_leads_reply_token_key") @map("reply_token")
+  /// Reparto automático: cuándo se le dio responsable y hasta cuándo tiene para responder.
+  autoAssignedAt       DateTime? @map("auto_assigned_at") @db.Timestamptz(6)
+  responseDueAt        DateTime? @map("response_due_at") @db.Timestamptz(6)
+  /// Se pasó el plazo de primera respuesta y se reasignó (una sola vez).
+  reassignedAt         DateTime? @map("reassigned_at") @db.Timestamptz(6)
+  /// Aviso de «parado»: una vez por lead y fase.
+  staleNotifiedStatus  String?   @map("stale_notified_status")
+  staleNotifiedAt      DateTime? @map("stale_notified_at") @db.Timestamptz(6)
+  /// Sin correos automáticos de secuencia para este lead.
+  sequenceOptOut       Boolean   @default(false) @map("sequence_opt_out")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  mergedInto      PlatformLead?            @relation("PlatformLeadMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom      PlatformLead[]           @relation("PlatformLeadMerge")
+  sequenceEnrollments PlatformLeadSequenceEnrollment[]
   salesRep        SuperAdmin?              @relation("PlatformLeadSalesRep", fields: [salesRepId], references: [id], onDelete: SetNull)
   salesProfile    SalesAccountProfile?
   salesAssignments SalesAssignment[]
@@ -8994,12 +9020,15 @@ model PlatformLeadActivity {
   type         String
   subject      String?
   content      String
+  /// Adjuntos (imagen o PDF en el almacenamiento privado): [{ key, mimeType, filename }].
+  attachments  Json     @default("[]")
   occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   lead       PlatformLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
   superAdmin SuperAdmin?  @relation("PlatformLeadActivityAuthor", fields: [superAdminId], references: [id], onDelete: SetNull)
 
+  @@index([leadId, occurredAt(sort: Desc)], map: "platform_lead_activities_lead_idx")
   @@map("platform_lead_activities")
 }
 
@@ -9024,6 +9053,67 @@ model PlatformLeadFollowup {
   @@index([status, dueDate], map: "platform_lead_followups_status_idx")
   @@index([leadId], map: "platform_lead_followups_lead_idx")
   @@map("platform_lead_followups")
+}
+
+/// Ajustes de los leads del panel admin (un registro): reparto automático,
+/// plazo de primera respuesta, leads parados y secuencias.
+model PlatformLeadSettings {
+  id                     String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// off · round_robin · zone
+  assignMode             String   @default("off") @map("assign_mode")
+  roundRobinIds          String[] @default([]) @map("round_robin_ids") @db.Uuid
+  /// [{ match, superAdminId }]: ciudad o provincia → persona.
+  zoneRules              Json     @default("[]") @map("zone_rules")
+  zoneFallbackRoundRobin Boolean  @default(true) @map("zone_fallback_round_robin")
+  lastAssignedId         String?  @map("last_assigned_id") @db.Uuid
+  responseHours          Int      @default(4) @map("response_hours")
+  businessHours          Boolean  @default(false) @map("business_hours")
+  reassignEnabled        Boolean  @default(true) @map("reassign_enabled")
+  staleDays              Json     @default("{\"new\":1,\"contacted\":5,\"interested\":7,\"trial\":10}") @map("stale_days")
+  highValueMonthly       Decimal  @default(150) @map("high_value_monthly") @db.Decimal(10, 2)
+  sequenceAutoStart      Boolean  @default(true) @map("sequence_auto_start")
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_lead_settings")
+}
+
+/// Secuencia de correos a un lead que no contesta (pasos por días).
+model PlatformLeadSequence {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name        String
+  description String?
+  steps       Json     @default("[]")
+  isActive    Boolean  @default(true) @map("is_active")
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollments PlatformLeadSequenceEnrollment[]
+
+  @@map("platform_lead_sequences")
+}
+
+model PlatformLeadSequenceEnrollment {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  leadId      String    @map("lead_id") @db.Uuid
+  sequenceId  String    @map("sequence_id") @db.Uuid
+  /// active · done · stopped
+  status      String    @default("active")
+  stepIndex   Int       @default(0) @map("step_index")
+  nextRunAt   DateTime? @map("next_run_at") @db.Timestamptz(6)
+  lastSentAt  DateTime? @map("last_sent_at") @db.Timestamptz(6)
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
+  /// replied · stage · discarded · manual · no_email · finished
+  stopReason  String?   @map("stop_reason")
+  startedById String?   @map("started_by_id") @db.Uuid
+
+  lead      PlatformLead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  sequence  PlatformLeadSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  startedBy SuperAdmin?          @relation("PlatformLeadSequenceStarter", fields: [startedById], references: [id], onDelete: SetNull)
+
+  @@index([status, nextRunAt], map: "platform_lead_sequence_enrollments_due_idx")
+  @@map("platform_lead_sequence_enrollments")
 }
 
 /// Presupuesto enviado a un contacto (por correo o por WhatsApp).

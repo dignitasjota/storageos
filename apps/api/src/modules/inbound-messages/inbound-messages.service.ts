@@ -14,6 +14,7 @@ import {
 } from '@storageos/shared';
 
 import { claimAlert } from '../admin/alert-state';
+import { PlatformLeadsService } from '../admin/leads/platform-leads.service';
 import { SupportTicketsService } from '../admin/support-tickets.service';
 import { CustomerMessagesService } from '../customer-messages/customer-messages.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -45,6 +46,7 @@ export class InboundMessagesService {
     private readonly files: FilesService,
     private readonly config: ConfigService<Env, true>,
     private readonly notifications: NotificationsService,
+    private readonly platformLeads: PlatformLeadsService,
   ) {}
 
   /** Últimos 9 dígitos (número nacional español) para casar formatos variados. */
@@ -137,6 +139,8 @@ export class InboundMessagesService {
     const target = parseReplyAddress(input.to, domain);
     if (!target) return null;
     const body = stripQuotedReply(input.text).slice(0, 5000);
+    // Lead del panel admin: a su conversación (con sus adjuntos).
+    if (target.kind === 'p') return this.platformLeads.recordEmailReply(target.token, input);
     if (target.kind === 'l') return this.recordLeadReply(target.token, input, body);
     if (target.kind === 't') {
       const ticket = await this.admin.supportTicket.findUnique({

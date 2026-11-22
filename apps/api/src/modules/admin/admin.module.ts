@@ -80,6 +80,9 @@ import { ChatAlertsService } from './chat-alerts.service';
 import { FeatureExpiryCron } from './feature-expiry.cron';
 import { FeatureExpiryService } from './feature-expiry.service';
 import { ImpersonationService } from './impersonation.service';
+import { PlatformLeadsCoreModule } from './leads/core/platform-leads-core.module';
+import { PlatformLeadSettingsService } from './leads/platform-lead-settings.service';
+import { PlatformLeadToolsService } from './leads/platform-lead-tools.service';
 import { PlatformLeadsWatchService } from './leads/platform-leads-watch.service';
 import { PlatformLeadsController } from './leads/platform-leads.controller';
 import { PlatformLeadsService } from './leads/platform-leads.service';
@@ -185,6 +188,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     BillingModule,
     UsersModule,
     AiModule,
+    PlatformLeadsCoreModule,
   ],
   controllers: [
     AdminHealthInsightsController,
@@ -254,6 +258,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SalesCron,
     PlatformLeadsService,
     PlatformLeadsWatchService,
+    PlatformLeadSettingsService,
+    PlatformLeadToolsService,
     PlatformAlertLogService,
     PlatformLegalNoticeService,
     AdminTenantToolsService,
@@ -321,6 +327,12 @@ import { WeeklyDigestService } from './weekly-digest.service';
     PlatformEmailTemplatesService,
     PlatformNpsService,
   ],
-  exports: [SuperAdminService, SuperAdminAuditService, SupportTicketsService],
+  exports: [
+    SuperAdminService,
+    SuperAdminAuditService,
+    SupportTicketsService,
+    // El correo entrante deja las respuestas de los leads en su ficha.
+    PlatformLeadsService,
+  ],
 })
 export class AdminModule {}

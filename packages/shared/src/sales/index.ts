@@ -1007,6 +1007,8 @@ export interface SalesTemplateDto {
 export const SALES_TEMPLATE_VARIABLES: Record<string, string> = {
   nombre: 'Nombre de la persona de contacto',
   empresa: 'Nombre de la empresa',
+  trasteros: 'Trasteros que tiene (lo que nos dijo)',
+  ciudad: 'Su ciudad',
   comercial: 'Tu nombre',
   telefono_comercial: 'Tu teléfono',
   email_comercial: 'Tu email',

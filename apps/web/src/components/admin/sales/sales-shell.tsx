@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
+  UserPlus,
   Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -50,6 +51,7 @@ const SALES_NAV: SalesNavItem[] = [
   { href: '/admin/sales', label: 'Hoy', icon: CalendarCheck, exact: true },
   { href: '/admin/sales/appointments', label: 'Mis citas', icon: CalendarClock },
   { href: '/admin/sales/leads', label: 'Prospectos', icon: Target },
+  { href: '/admin/sales/capture', label: 'Alta rápida', icon: UserPlus },
   { href: '/admin/sales/clients', label: 'Clientes', icon: Building2 },
   { href: '/admin/sales/offers', label: 'Propuestas', icon: FileText },
   { href: '/admin/sales/opportunities', label: 'Qué ofrecer', icon: Sparkles },

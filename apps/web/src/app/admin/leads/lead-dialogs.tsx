@@ -9,6 +9,7 @@ import {
   type AdminQuoteDto,
   type AdminTenantsListResponseDto,
   type PlatformLeadDetailDto,
+  type PlatformLeadDuplicateDto,
   type PlatformLeadLostReason,
   type PlatformLeadSource,
 } from '@storageos/shared';
@@ -41,6 +42,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { adminApiFetch } from '@/lib/admin/api';
 import { useAdminAddons, useAdminQuote, useAdminSubscriptionPlans } from '@/lib/admin/hooks';
 import {
+  checkLeadDuplicates,
   useCreateLead,
   useCreateLeadTenant,
   useLinkLeadTenant,
@@ -130,7 +132,20 @@ export function NewLeadDialog({
     message: '',
   });
   const [existing, setExisting] = useState<string | null>(null);
+  const [dups, setDups] = useState<PlatformLeadDuplicateDto[]>([]);
   const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
+  // Al salir del email, el teléfono o la empresa: otros leads o cuentas parecidos (aviso).
+  const checkDups = () => {
+    if (!form.email && !form.phone && form.companyName.trim().length < 4) return;
+    void checkLeadDuplicates({
+      companyName: form.companyName,
+      contactName: form.contactName,
+      email: form.email,
+      phone: form.phone,
+    })
+      .then(setDups)
+      .catch(() => undefined);
+  };
   const valid = (form.companyName || form.contactName) && (form.email || form.phone);
 
   async function submit() {
@@ -160,6 +175,7 @@ export function NewLeadDialog({
           <Field id="nl-company" label="Empresa">
             <Input
               id="nl-company"
+              onBlur={checkDups}
               value={form.companyName}
               onChange={(e) => set('companyName')(e.target.value)}
               maxLength={160}
@@ -176,6 +192,7 @@ export function NewLeadDialog({
           <Field id="nl-email" label="Email">
             <Input
               id="nl-email"
+              onBlur={checkDups}
               type="email"
               value={form.email}
               onChange={(e) => set('email')(e.target.value)}
@@ -185,6 +202,7 @@ export function NewLeadDialog({
           <Field id="nl-phone" label="Teléfono">
             <Input
               id="nl-phone"
+              onBlur={checkDups}
               type="tel"
               value={form.phone}
               onChange={(e) => set('phone')(e.target.value)}
@@ -271,6 +289,26 @@ export function NewLeadDialog({
             />
           </Field>
         </div>
+        {dups.length > 0 && !existing && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            <p className="font-medium">Puede que ya esté:</p>
+            <ul className="mt-1 space-y-0.5">
+              {dups.map((d) => (
+                <li key={`${d.kind}-${d.id}`}>
+                  {d.kind === 'lead' ? 'Lead' : 'Cuenta'} «{d.name}» · {d.reason}{' '}
+                  {d.kind === 'lead' && (
+                    <button type="button" className="underline" onClick={() => onCreated(d.id)}>
+                      Abrirlo
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {!dups.some((d) => d.exact && d.kind === 'lead') && (
+              <p className="mt-1 text-xs">Puedes crearlo igualmente si es otro.</p>
+            )}
+          </div>
+        )}
         {existing && (
           <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
             Ya hay un lead con ese email o teléfono.{' '}

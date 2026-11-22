@@ -3101,3 +3101,13 @@ Migración `20270227100000_platform_leads_review` (se aplica sola): `platform_le
 - **Reasignar un lead mueve también la cartera del comercial** (decisión de Jota); si ya es cliente de un comercial, su cuenta no se toca.
 - **Cambian cifras de Resultados (a propósito)**: el embudo no cuenta como contactados a quien se registró solo (sale aparte), la primera respuesta solo mide a quien escribe solo, «Pagan al mes» va sin IVA y el periodo empieza el día 1 del mes.
 - Una prueba terminada solo pasa a «Perdido» a los 7 días, en solo lectura y sin cobros en marcha; un cliente que se da de baja pasa a «Cliente que se dio de baja».
+
+## 186. Leads del super admin: mejoras (2026-11-22)
+
+Migración `20270228100000_platform_leads_improvements` (se aplica sola): columnas nuevas en `platform_leads` (motivo de descarte, fusión, dirección de respuesta, reparto, parados, sin secuencia), `platform_lead_activities.attachments`, `platform_quote_offers.open_count/last_opened_at/open_notified_at` (las ya abiertas cuentan una vez y no vuelven a avisar) y tablas globales `platform_lead_settings`, `platform_lead_sequences` y `platform_lead_sequence_enrollments` (con `REVOKE` a `storageos_app`). Crea la secuencia por defecto «Si no contesta» (días 2, 5 y 10). Sin variables nuevas.
+
+- **Respuestas por correo al hilo**: usa `INBOUND_EMAIL_DOMAIN` (la misma de los contactos de los tenants). Sin ella, los correos a los leads salen como hasta ahora (al comercial o al email del formulario) y las respuestas no vuelven a la ficha.
+- **Secuencias automáticas**: activadas por defecto; empiezan solas con el primer correo o la propuesta de los leads abiertos y las manda el **worker** (tarea `platform-leads.sequences`, cada 15 minutos): redesplegar también el worker. Se pueden desactivar en Leads → Ajustes → «Correos automáticos».
+- **Reparto automático**: apagado por defecto (Leads → Ajustes → «Reparto»). Plazo de primera respuesta 4 h y reasignación una vez; leads parados con 1/5/7/10 días según la fase y «alto valor» desde 150 € al mes sin IVA. La reasignación y los avisos de parados van en la vigilancia de los leads del API (cada 15 minutos).
+- **Cambia «Hoy»**: sección nueva «Leads parados» (urgentes solo los de alto valor). La primera vez saldrán todos los parados de antes; se pueden apartar.
+- **Alta rápida**: `/admin/leads/capture` (y «Alta rápida» en el panel de los comerciales): conviene guardarla en la pantalla de inicio del móvil.
