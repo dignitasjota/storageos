@@ -7,16 +7,25 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 import {
+  PLATFORM_LEAD_BOARD_OPEN_LIMIT,
   PLATFORM_LEAD_LOST_REASON_LABELS,
   PLATFORM_LEAD_SOURCE_LABELS,
   PLATFORM_LEAD_STAGE_LABELS,
+  PLATFORM_LEAD_TRIAL_LOST_GRACE_DAYS,
   PLATFORM_LEAD_TRIAL_RECONTACT_DAYS,
   PLATFORM_LEAD_UNATTENDED_HOURS,
+  isRealIsoDay,
   platformLeadName,
   renderAdminEmail,
 } from '@storageos/shared';
 
+import { CSV_BOM, csvLineCell } from '../../../common/csv';
 import { todayInTimezone } from '../../../common/format';
+import {
+  currentMrrByTenant,
+  madridMonthIndex,
+  monthIndexStart,
+} from '../../../common/saas-metrics';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { EmailService } from '../../email/email.service';
 import { PlatformService } from '../../platform/platform.service';
@@ -60,17 +69,38 @@ const HOUR = 3_600_000;
 const MANUAL_ACTIVITY_TYPES = new Set(['note', 'call', 'demo', 'meeting', 'whatsapp']);
 /** Lo que cuenta como haberle respondido (y le pasa de «Nuevo» a «Contactado»). */
 const CONTACT_ACTIVITY_TYPES = new Set(['call', 'demo', 'meeting', 'whatsapp']);
-const STAGE_RANK: Record<string, number> = {
-  new: 0,
-  contacted: 1,
-  interested: 2,
-  trial: 3,
-  customer: 4,
-};
+/** Orígenes de quien escribe solo (no lo da de alta el equipo ni es un registro directo). */
+const INBOUND_SOURCES = new Set(['web_contact', 'demo', 'calculator']);
+/** Margen para una actividad anotada «ahora» con el reloj del navegador algo adelantado. */
+const FUTURE_MARGIN_MS = 5 * 60_000;
+/** Lo que se anota de un cambio de datos (nombres de campo, nunca valores). */
+const AUDITED_FIELDS = [
+  'companyName',
+  'contactName',
+  'email',
+  'phone',
+  'units',
+  'facilities',
+  'profile',
+  'currentSoftware',
+  'city',
+  'planSlug',
+  'source',
+  'assignedToId',
+] as const;
 
 const LEAD_INCLUDE = {
   assignedTo: { select: { fullName: true } },
-  tenant: { select: { id: true, name: true, slug: true } },
+  salesRep: { select: { fullName: true } },
+  tenant: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      deletedAt: true,
+      salesRep: { select: { id: true, fullName: true } },
+    },
+  },
   followups: {
     where: { status: 'pending' },
     orderBy: { dueDate: 'asc' },
@@ -105,6 +135,38 @@ const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 const madridToday = (now = new Date()) => isoDate(todayInTimezone('Europe/Madrid', now));
 const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
 const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+
+/**
+ * Fecha de un seguimiento o de «volver a contactar»: que exista en el
+ * calendario y no haya pasado (hoy, en hora de España, sí vale).
+ */
+function assertUpcomingDay(value: string, now = new Date()): void {
+  if (!isRealIsoDay(value)) {
+    throw new BadRequestException({ code: 'invalid_date', message: 'Esa fecha no existe' });
+  }
+  if (value < madridToday(now)) {
+    throw new BadRequestException({
+      code: 'date_in_past',
+      message: 'La fecha ya ha pasado: elige hoy o un día posterior',
+    });
+  }
+}
+
+/** Cuándo pasó una actividad anotada: no puede ser futura (con unos minutos de margen). */
+function activityDate(value: string | undefined, now = new Date()): Date {
+  if (!value) return now;
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) {
+    throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+  }
+  if (at.getTime() > now.getTime() + FUTURE_MARGIN_MS) {
+    throw new BadRequestException({
+      code: 'date_in_future',
+      message: 'La actividad no puede ser de una fecha futura',
+    });
+  }
+  return at.getTime() > now.getTime() ? now : at;
+}
 
 export function toLeadFollowupDto(r: FollowupRow): PlatformLeadFollowupDto {
   return {
@@ -146,7 +208,9 @@ export class PlatformLeadsService {
   // ------------------------------------------------------------- lectura
 
   private listWhere(q: PlatformLeadsQuery, superAdminId: string): Prisma.PlatformLeadWhereInput {
-    const where: Prisma.PlatformLeadWhereInput = { discardedAt: null };
+    const where: Prisma.PlatformLeadWhereInput = {
+      discardedAt: q.discarded ? { not: null } : null,
+    };
     if (q.source) where.source = q.source;
     if (q.assignedTo === 'me') where.assignedToId = superAdminId;
     else if (q.assignedTo === 'none') where.assignedToId = null;
@@ -168,12 +232,13 @@ export class PlatformLeadsService {
 
   async board(q: PlatformLeadsQuery, superAdminId: string): Promise<PlatformLeadBoardDto> {
     const where = this.listWhere(q, superAdminId);
+    if (q.discarded) return this.discardedBoard(where);
     const [open, customers, lost, groups] = await Promise.all([
       this.admin.platformLead.findMany({
         where: { ...where, status: { in: ['new', 'contacted', 'interested', 'trial'] } },
         include: LEAD_INCLUDE,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: 500,
+        take: PLATFORM_LEAD_BOARD_OPEN_LIMIT,
       }),
       this.admin.platformLead.findMany({
         where: { ...where, status: 'customer' },
@@ -200,12 +265,49 @@ export class PlatformLeadsService {
     for (const g of groups) {
       if (g.status in counts) counts[g.status as PlatformLeadStage] = g._count._all;
     }
-    return { items: await this.toDtos([...open, ...customers, ...lost]), counts };
+    const openTotal = counts.new + counts.contacted + counts.interested + counts.trial;
+    const hiddenOpen = Math.max(openTotal - open.length, 0);
+    return {
+      items: await this.toDtos([...open, ...customers, ...lost]),
+      counts,
+      truncated: hiddenOpen > 0,
+      hiddenOpen,
+    };
   }
 
+  /** Los marcados «No es un lead», del último al primero (para recuperarlos). */
+  private async discardedBoard(
+    where: Prisma.PlatformLeadWhereInput,
+  ): Promise<PlatformLeadBoardDto> {
+    const [rows, total, groups] = await Promise.all([
+      this.admin.platformLead.findMany({
+        where,
+        include: LEAD_INCLUDE,
+        orderBy: [{ discardedAt: 'desc' }, { id: 'desc' }],
+        take: PLATFORM_LEAD_BOARD_OPEN_LIMIT,
+      }),
+      this.admin.platformLead.count({ where }),
+      this.admin.platformLead.groupBy({ by: ['status'], where, _count: { _all: true } }),
+    ]);
+    const counts = {
+      new: 0,
+      contacted: 0,
+      interested: 0,
+      trial: 0,
+      customer: 0,
+      lost: 0,
+    } as Record<PlatformLeadStage, number>;
+    for (const g of groups) {
+      if (g.status in counts) counts[g.status as PlatformLeadStage] = g._count._all;
+    }
+    const hiddenOpen = Math.max(total - rows.length, 0);
+    return { items: await this.toDtos(rows), counts, truncated: hiddenOpen > 0, hiddenOpen };
+  }
+
+  /** La ficha (también la de un descartado, que la web abre en solo lectura). */
   async detail(id: string): Promise<PlatformLeadDetailDto> {
     const row = await this.admin.platformLead.findUnique({ where: { id }, include: LEAD_INCLUDE });
-    if (!row || row.discardedAt) throw this.notFound();
+    if (!row) throw this.notFound();
     const [[dto], activities, followups, offers] = await Promise.all([
       this.toDtos([row]),
       this.admin.platformLeadActivity.findMany({
@@ -297,7 +399,7 @@ export class PlatformLeadsService {
       message: r.message,
       assignedToId: r.assignedToId,
       assignedToName: r.assignedTo?.fullName ?? null,
-      tenant: r.tenant ?? null,
+      tenant: r.tenant ? { id: r.tenant.id, name: r.tenant.name, slug: r.tenant.slug } : null,
       existingTenant: !r.tenantId && r.email ? (ownerOf.get(r.email.toLowerCase()) ?? null) : null,
       utmSource: r.utmSource,
       utmMedium: r.utmMedium,
@@ -310,6 +412,15 @@ export class PlatformLeadsService {
       lostReasonCode: (r.lostReasonCode as PlatformLeadLostReason | null) ?? null,
       lostReason: r.lostReason,
       firstResponseAt: r.firstResponseAt?.toISOString() ?? null,
+      awaitingReplySince:
+        r.awaitingReplySince?.toISOString() ??
+        (r.status === 'new' && !r.firstResponseAt ? r.createdAt.toISOString() : null),
+      discardedAt: r.discardedAt?.toISOString() ?? null,
+      salesRepName: r.salesRep?.fullName ?? null,
+      accountKeptBy:
+        r.tenant?.salesRep && !r.tenant.deletedAt && r.tenant.salesRep.id !== r.assignedToId
+          ? { id: r.tenant.salesRep.id, name: r.tenant.salesRep.fullName }
+          : null,
       lastActivityAt: r.activities[0]?.occurredAt.toISOString() ?? null,
       nextFollowup: r.followups[0]
         ? {
@@ -383,10 +494,13 @@ export class PlatformLeadsService {
 
   // ------------------------------------------------------------ escritura
 
-  async create(input: CreatePlatformLeadInput, actor: LeadActor): Promise<PlatformLeadDetailDto> {
-    const email = clean(input.email)?.toLowerCase() ?? null;
-    const phone = clean(input.phone);
-    const dup = await this.findDuplicate(email, phone);
+  /** 409 `lead_exists` si otro lead (no descartado) tiene ese email o teléfono. */
+  private async assertNoDuplicate(
+    email: string | null,
+    phone: string | null,
+    exceptId?: string,
+  ): Promise<void> {
+    const dup = await this.findDuplicate(email, phone, exceptId);
     if (dup) {
       throw new ConflictException({
         code: 'lead_exists',
@@ -394,6 +508,30 @@ export class PlatformLeadsService {
         details: { leadId: dup.id },
       });
     }
+  }
+
+  private async record(
+    actor: LeadActor | null | undefined,
+    action: string,
+    leadId: string,
+    changes?: Record<string, unknown>,
+  ): Promise<void> {
+    if (!actor) return;
+    await this.audit.record({
+      superAdminId: actor.superAdminId,
+      action: `admin.platform_lead.${action}`,
+      targetType: 'platform_lead',
+      targetId: leadId,
+      ...(changes ? { changes } : {}),
+      ipAddress: actor.ipAddress ?? null,
+      userAgent: actor.userAgent ?? null,
+    });
+  }
+
+  async create(input: CreatePlatformLeadInput, actor: LeadActor): Promise<PlatformLeadDetailDto> {
+    const email = clean(input.email)?.toLowerCase() ?? null;
+    const phone = clean(input.phone);
+    await this.assertNoDuplicate(email, phone);
     const assignedToId = input.assignedToId === undefined ? actor.superAdminId : input.assignedToId;
     await this.assertAssignee(assignedToId);
     const lead = await this.admin.platformLead.create({
@@ -418,7 +556,7 @@ export class PlatformLeadsService {
     if (clean(input.message)) {
       await this.addActivity(lead.id, 'note', clean(input.message)!, actor.superAdminId);
     }
-    await this.assignSalesRep(lead.id, assignedToId ?? null, actor.superAdminId);
+    await this.applyPortfolio(lead.id, assignedToId ?? null, actor.superAdminId);
     await this.audit.record({
       superAdminId: actor.superAdminId,
       action: 'admin.platform_lead.created',
@@ -435,6 +573,7 @@ export class PlatformLeadsService {
     id: string,
     input: UpdatePlatformLeadInput,
     byId: string | null = null,
+    actor?: LeadActor,
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
     const email =
@@ -445,6 +584,12 @@ export class PlatformLeadsService {
         code: 'contact_required',
         message: 'Deja al menos un email o un teléfono',
       });
+    }
+    // Solo lo que cambia: un dato que ya estaba repetido no bloquea editar otro.
+    const emailChanged = input.email !== undefined && email !== lead.email;
+    const phoneChanged = input.phone !== undefined && digits(phone) !== digits(lead.phone);
+    if (emailChanged || phoneChanged) {
+      await this.assertNoDuplicate(emailChanged ? email : null, phoneChanged ? phone : null, id);
     }
     if (input.assignedToId !== undefined) await this.assertAssignee(input.assignedToId);
     const data: Prisma.PlatformLeadUncheckedUpdateInput = {};
@@ -465,28 +610,60 @@ export class PlatformLeadsService {
     if (input.source) data.source = input.source;
     if (input.assignedToId !== undefined) data.assignedToId = input.assignedToId;
     await this.admin.platformLead.update({ where: { id }, data });
-    if (input.assignedToId !== undefined) {
-      await this.assignSalesRep(id, input.assignedToId, byId);
+    const reassigned = input.assignedToId !== undefined && input.assignedToId !== lead.assignedToId;
+    if (reassigned) await this.applyPortfolio(id, input.assignedToId ?? null, byId);
+    const changed = AUDITED_FIELDS.filter((key) => {
+      if (input[key] === undefined) return false;
+      if (key === 'email') return emailChanged;
+      if (key === 'phone') return phoneChanged;
+      if (key === 'assignedToId') return reassigned;
+      if (key === 'source') return input.source !== lead.source;
+      return clean(input[key] as string | undefined) !== lead[key];
+    });
+    if (changed.length > 0) {
+      await this.record(actor ?? (byId ? { superAdminId: byId } : null), 'updated', id, {
+        fields: changed,
+      });
     }
     return this.detail(id);
   }
 
   /**
-   * Asignarlo a un comercial lo pone también en su cartera (su panel lista por
-   * comercial, no por quien lo lleva en el tablero) y le avisa.
+   * La cartera de comerciales sigue a quien lo lleva en el tablero: asignarlo a
+   * un comercial lo pone en su cartera (y le avisa); a otra persona o a nadie,
+   * lo saca de la del comercial que lo tenía. Si su cuenta ya es cliente de un
+   * comercial, la cuenta (y sus comisiones) no se mueve: solo cambia quién lo
+   * trabaja en el tablero (la ficha lo avisa con `accountKeptBy`).
    */
-  private async assignSalesRep(
+  private async applyPortfolio(
     leadId: string,
     assigneeId: string | null,
     byId: string | null,
   ): Promise<void> {
-    if (!assigneeId) return;
-    const rep = await this.admin.superAdmin.findFirst({
-      where: { id: assigneeId, role: 'sales', isActive: true },
-      select: { id: true },
+    const lead = await this.admin.platformLead.findUnique({
+      where: { id: leadId },
+      select: { salesRepId: true, tenant: { select: { salesRepId: true, deletedAt: true } } },
     });
-    if (!rep) return;
-    await this.assignment.assign({ leadId, repId: rep.id, source: 'manual', byId });
+    if (!lead) return;
+    const rep = assigneeId
+      ? await this.admin.superAdmin.findFirst({
+          where: { id: assigneeId, role: 'sales', isActive: true },
+          select: { id: true },
+        })
+      : null;
+    const accountRep = lead.tenant && !lead.tenant.deletedAt ? lead.tenant.salesRepId : null;
+    if (accountRep && accountRep !== rep?.id) return;
+    if (rep) {
+      await this.assignment.assign({ leadId, repId: rep.id, source: 'manual', byId });
+    } else if (lead.salesRepId) {
+      await this.assignment.assign({
+        leadId,
+        repId: null,
+        source: 'manual',
+        byId,
+        endedReason: 'unassigned',
+      });
+    }
   }
 
   /** Mover a mano entre Nuevo, Contactado e Interesado (también reabre un perdido). */
@@ -509,7 +686,11 @@ export class PlatformLeadsService {
       data: {
         status: input.status,
         ...(input.status !== 'new'
-          ? { contactedAt: lead.contactedAt ?? now, firstResponseAt: lead.firstResponseAt ?? now }
+          ? {
+              contactedAt: lead.contactedAt ?? now,
+              firstResponseAt: lead.firstResponseAt ?? now,
+              awaitingReplySince: null,
+            }
           : {}),
         ...(input.status === 'interested' ? { interestedAt: lead.interestedAt ?? now } : {}),
         ...(lead.status === 'lost' ? { lostAt: null, lostReasonCode: null, lostReason: null } : {}),
@@ -521,7 +702,23 @@ export class PlatformLeadsService {
       `${lead.status === 'lost' ? 'Reabierto' : 'Pasa'} a ${PLATFORM_LEAD_STAGE_LABELS[input.status]}`,
       actor.superAdminId,
     );
+    await this.record(actor, lead.status === 'lost' ? 'reopened' : 'moved', id, {
+      from: lead.status,
+      to: input.status,
+    });
     return this.detail(id);
+  }
+
+  /**
+   * Al perderse, lo que tenía pendiente ya no toca (el «volver a contactar»
+   * que se crea con la pérdida va después).
+   */
+  private async closePendingFollowups(leadId: string, now = new Date()): Promise<number> {
+    const { count } = await this.admin.platformLeadFollowup.updateMany({
+      where: { leadId, status: 'pending' },
+      data: { status: 'done', completedAt: now },
+    });
+    return count;
   }
 
   async lose(
@@ -536,22 +733,27 @@ export class PlatformLeadsService {
         message: 'Ya es cliente: si se da de baja, se gestiona desde su ficha de tenant',
       });
     }
+    const recontactOn = clean(input.recontactOn);
+    if (recontactOn) assertUpcomingDay(recontactOn);
+    const now = new Date();
     await this.admin.platformLead.update({
       where: { id },
       data: {
         status: 'lost',
-        lostAt: new Date(),
+        lostAt: now,
         lostReasonCode: input.reasonCode,
         lostReason: clean(input.reason),
+        awaitingReplySince: null,
       },
     });
+    const closed = await this.closePendingFollowups(id, now);
     await this.addActivity(
       id,
       'system',
       `Perdido: ${PLATFORM_LEAD_LOST_REASON_LABELS[input.reasonCode]}${clean(input.reason) ? ` — ${clean(input.reason)}` : ''}`,
       actor.superAdminId,
     );
-    if (clean(input.recontactOn)) {
+    if (recontactOn) {
       await this.admin.platformLeadFollowup.create({
         data: {
           leadId: id,
@@ -559,10 +761,16 @@ export class PlatformLeadsService {
           assignedToId: lead.assignedToId ?? actor.superAdminId,
           title: 'Volver a contactar',
           note: clean(input.reason),
-          dueDate: new Date(`${input.recontactOn}T00:00:00Z`),
+          dueDate: new Date(`${recontactOn}T00:00:00Z`),
         },
       });
     }
+    await this.record(actor, 'lost', id, {
+      from: lead.status,
+      reasonCode: input.reasonCode,
+      closedFollowups: closed,
+      recontact: !!recontactOn,
+    });
     return this.detail(id);
   }
 
@@ -576,6 +784,7 @@ export class PlatformLeadsService {
         data: { status: 'trial', lostAt: null, lostReasonCode: null, lostReason: null },
       });
       await this.addActivity(id, 'system', 'Reabierto', actor.superAdminId);
+      await this.record(actor, 'reopened', id, { from: 'lost', to: 'trial' });
       await this.syncFromTenants();
       return this.detail(id);
     }
@@ -587,12 +796,20 @@ export class PlatformLeadsService {
     await this.leadOrThrow(id);
     await this.assertNotSalesClient(id);
     await this.admin.platformLead.update({ where: { id }, data: { discardedAt: new Date() } });
-    await this.audit.record({
-      superAdminId: actor.superAdminId,
-      action: 'admin.platform_lead.discarded',
-      targetType: 'platform_lead',
-      targetId: id,
-    });
+    await this.record(actor, 'discarded', id);
+  }
+
+  /** Recupera un descartado: vuelve al tablero tal como estaba. */
+  async restore(id: string, actor: LeadActor): Promise<PlatformLeadDetailDto> {
+    const lead = await this.admin.platformLead.findUnique({ where: { id } });
+    if (!lead) throw this.notFound();
+    if (!lead.discardedAt) return this.detail(id);
+    // Mientras estaba fuera pudo entrar otro con el mismo email o teléfono.
+    await this.assertNoDuplicate(lead.email, lead.phone, id);
+    await this.admin.platformLead.update({ where: { id }, data: { discardedAt: null } });
+    await this.addActivity(id, 'system', 'Recuperado: vuelve a ser un lead', actor.superAdminId);
+    await this.record(actor, 'restored', id);
+    return this.detail(id);
   }
 
   async remove(id: string, actor: LeadActor): Promise<void> {
@@ -653,16 +870,37 @@ export class PlatformLeadsService {
     });
   }
 
-  /** Marca que ya se le ha respondido (y saca de «Nuevo»). */
-  private async markResponded(leadId: string, now = new Date()): Promise<void> {
-    await this.admin.platformLead.updateMany({
-      where: { id: leadId, firstResponseAt: null },
-      data: { firstResponseAt: now },
+  /**
+   * Marca que se le ha respondido (y saca de «Nuevo»), con la fecha en que se
+   * hizo (una llamada anotada más tarde cuenta desde cuando fue). Una respuesta
+   * anterior a su último mensaje no cierra la espera de ese mensaje.
+   */
+  private async markResponded(leadId: string, at = new Date()): Promise<void> {
+    const lead = await this.admin.platformLead.findUnique({
+      where: { id: leadId },
+      select: {
+        status: true,
+        createdAt: true,
+        firstResponseAt: true,
+        contactedAt: true,
+        awaitingReplySince: true,
+      },
     });
-    await this.admin.platformLead.updateMany({
-      where: { id: leadId, status: 'new' },
-      data: { status: 'contacted', contactedAt: now },
-    });
+    if (!lead) return;
+    // Nunca antes de que entrase (una nota de una llamada de antes de darlo de alta).
+    const when = at.getTime() < lead.createdAt.getTime() ? lead.createdAt : at;
+    const answersWait =
+      !lead.awaitingReplySince || lead.awaitingReplySince.getTime() <= when.getTime();
+    const data: Prisma.PlatformLeadUncheckedUpdateInput = {};
+    if (!lead.firstResponseAt) data.firstResponseAt = when;
+    if (answersWait && lead.awaitingReplySince) data.awaitingReplySince = null;
+    if (answersWait && lead.status === 'new') {
+      data.status = 'contacted';
+      data.contactedAt = lead.contactedAt ?? when;
+    }
+    if (Object.keys(data).length > 0) {
+      await this.admin.platformLead.update({ where: { id: leadId }, data });
+    }
   }
 
   async createActivity(
@@ -671,14 +909,17 @@ export class PlatformLeadsService {
     actor: LeadActor,
   ): Promise<PlatformLeadDetailDto> {
     await this.leadOrThrow(id);
-    await this.addActivity(id, input.type, input.content, actor.superAdminId, {
-      ...(input.occurredAt ? { occurredAt: new Date(input.occurredAt) } : {}),
-    });
-    if (CONTACT_ACTIVITY_TYPES.has(input.type)) await this.markResponded(id);
+    const at = activityDate(input.occurredAt);
+    await this.addActivity(id, input.type, input.content, actor.superAdminId, { occurredAt: at });
+    if (CONTACT_ACTIVITY_TYPES.has(input.type)) await this.markResponded(id, at);
     return this.detail(id);
   }
 
-  async deleteActivity(id: string, activityId: string): Promise<PlatformLeadDetailDto> {
+  async deleteActivity(
+    id: string,
+    activityId: string,
+    actor?: LeadActor,
+  ): Promise<PlatformLeadDetailDto> {
     const activity = await this.admin.platformLeadActivity.findFirst({
       where: { id: activityId, leadId: id },
       select: { type: true },
@@ -696,6 +937,7 @@ export class PlatformLeadsService {
       });
     }
     await this.admin.platformLeadActivity.delete({ where: { id: activityId } });
+    await this.record(actor, 'activity_deleted', id, { type: activity.type });
     return this.detail(id);
   }
 
@@ -712,7 +954,8 @@ export class PlatformLeadsService {
         ? (lead.assignedToId ?? actor.superAdminId)
         : input.assignedToId;
     await this.assertAssignee(assignedToId);
-    await this.admin.platformLeadFollowup.create({
+    assertUpcomingDay(input.dueDate);
+    const followup = await this.admin.platformLeadFollowup.create({
       data: {
         leadId: id,
         superAdminId: actor.superAdminId,
@@ -721,6 +964,10 @@ export class PlatformLeadsService {
         note: clean(input.note),
         dueDate: new Date(`${input.dueDate}T00:00:00Z`),
       },
+    });
+    await this.record(actor, 'followup_created', id, {
+      followupId: followup.id,
+      dueDate: input.dueDate,
     });
     return this.detail(id);
   }
@@ -749,6 +996,7 @@ export class PlatformLeadsService {
   async updateFollowup(
     followupId: string,
     input: UpdatePlatformLeadFollowupInput,
+    actor?: LeadActor,
   ): Promise<PlatformLeadFollowupDto> {
     const row = await this.admin.platformLeadFollowup.findUnique({ where: { id: followupId } });
     if (!row) {
@@ -758,6 +1006,7 @@ export class PlatformLeadsService {
       });
     }
     if (input.assignedToId !== undefined) await this.assertAssignee(input.assignedToId);
+    if (input.dueDate) assertUpcomingDay(input.dueDate);
     const updated = await this.admin.platformLeadFollowup.update({
       where: { id: followupId },
       data: {
@@ -769,19 +1018,28 @@ export class PlatformLeadsService {
       },
       include: FOLLOWUP_INCLUDE,
     });
+    await this.record(actor, 'followup_updated', row.leadId, {
+      followupId,
+      fields: Object.keys(input),
+    });
     return toLeadFollowupDto(updated);
   }
 
-  async deleteFollowup(followupId: string): Promise<void> {
+  async deleteFollowup(followupId: string, actor?: LeadActor): Promise<void> {
+    const row = await this.admin.platformLeadFollowup.findUnique({
+      where: { id: followupId },
+      select: { leadId: true },
+    });
     const { count } = await this.admin.platformLeadFollowup.deleteMany({
       where: { id: followupId },
     });
-    if (count === 0) {
+    if (count === 0 || !row) {
       throw new NotFoundException({
         code: 'followup_not_found',
         message: 'Seguimiento no encontrado',
       });
     }
+    await this.record(actor, 'followup_deleted', row.leadId, { followupId });
   }
 
   // --------------------------------------------------------------- correo
@@ -807,6 +1065,7 @@ export class PlatformLeadsService {
       subject: input.subject,
     });
     await this.markResponded(id);
+    await this.record(actor, 'email_sent', id, { to: to ? 'account_owner' : 'lead' });
     return this.detail(id);
   }
 
@@ -999,7 +1258,7 @@ export class PlatformLeadsService {
           message: 'Este lead no tiene email',
         });
       }
-      const { quote, registerUrl, trackedUrl } = await this.quotes.createLeadOffer(
+      const { quote, registerUrl, trackedUrl, offerId } = await this.quotes.createLeadOffer(
         { id, email: lead.email, companyName: lead.companyName, contactName: lead.contactName },
         input,
         actor.superAdminId,
@@ -1031,13 +1290,28 @@ export class PlatformLeadsService {
         '',
         sender?.signature ?? 'El equipo de TrasterOS',
       ].join('\n');
-      await this.deliver(
-        lead.email,
-        lead.contactName,
-        `Tu propuesta de TrasterOS: ${money(quote.total)} ${period}`,
-        body,
-        sender,
-      );
+      try {
+        await this.deliver(
+          lead.email,
+          lead.contactName,
+          `Tu propuesta de TrasterOS: ${money(quote.total)} ${period}`,
+          body,
+          sender,
+        );
+      } catch (err) {
+        // Sin correo no hay propuesta: no se queda una oferta que nadie ha recibido.
+        await this.admin.platformQuoteOffer.deleteMany({ where: { id: offerId } });
+        throw err;
+      }
+      await this.audit.record({
+        superAdminId: actor.superAdminId,
+        action: 'admin.platform_lead.quote_sent',
+        targetType: 'platform_lead',
+        targetId: id,
+        changes: { planId: input.planId, cycle: input.cycle, total: quote.total },
+        ipAddress: actor.ipAddress ?? null,
+        userAgent: actor.userAgent ?? null,
+      });
       if (input.followupDays > 0) {
         await this.admin.platformLeadFollowup.create({
           data: {
@@ -1097,7 +1371,9 @@ export class PlatformLeadsService {
           phone: lead.phone ?? clean(e.phone),
           units: lead.units ?? clean(e.units),
           profile: lead.profile ?? clean(e.profile),
-          // Un perdido que vuelve a escribir se atiende de nuevo.
+          // Un perdido que vuelve a escribir se atiende de nuevo: el aviso de
+          // «sin atender» y «Hoy» cuentan desde este mensaje (la primera
+          // respuesta de antes se queda como histórico).
           ...(lead.status === 'lost' && !lead.tenantId
             ? {
                 status: 'new',
@@ -1105,6 +1381,7 @@ export class PlatformLeadsService {
                 lostReasonCode: null,
                 lostReason: null,
                 unattendedNotifiedAt: null,
+                awaitingReplySince: now,
               }
             : {}),
         },
@@ -1224,39 +1501,123 @@ export class PlatformLeadsService {
     );
   }
 
+  /** Tenants con un cobro de la cuota en marcha: aún puede acabar pagando. */
+  private async tenantsWithChargeInFlight(tenantIds: string[]): Promise<Set<string>> {
+    if (tenantIds.length === 0) return new Set();
+    const [sepa, redsys, pending] = await Promise.all([
+      this.admin.platformSepaRemittanceItem.findMany({
+        where: {
+          tenantId: { in: tenantIds },
+          itemStatus: 'pending',
+          remittance: { status: { not: 'cancelled' } },
+        },
+        select: { tenantId: true },
+      }),
+      this.admin.platformRedsysOrder.findMany({
+        where: { tenantId: { in: tenantIds }, status: 'charging' },
+        select: { tenantId: true },
+      }),
+      this.admin.tenantSubscriptionPayment.findMany({
+        where: { tenantId: { in: tenantIds }, status: { in: ['pending', 'processing'] } },
+        select: { tenantId: true },
+      }),
+    ]);
+    return new Set([...sepa, ...redsys, ...pending].map((r) => r.tenantId));
+  }
+
   /**
-   * Pasa a «Cliente» a quien ya ha pagado y a «Perdido» (no contrató tras la
-   * prueba) a quien acabó la prueba sin pagar, con un seguimiento para volver a
-   * llamarle. Idempotente: cada cambio solo se aplica desde la fase anterior.
+   * Las fases que marca la cuenta, cada 15 minutos:
+   *  - «Cliente» a quien ya ha pagado (también al que se dio de baja y vuelve).
+   *  - «Perdido» (no contrató tras la prueba) a quien acabó la prueba sin
+   *    pagar: solo con la cuenta en solo lectura (o de baja), sin un cobro en
+   *    marcha y pasados unos días del fin de la prueba; con un seguimiento para
+   *    volver a llamarle.
+   *  - «Perdido» (cliente que se dio de baja) al cliente cuya cuenta se canceló,
+   *    se suspendió o se anonimizó.
+   * Idempotente: cada cambio solo se aplica desde la fase anterior.
    */
-  async syncFromTenants(now = new Date()): Promise<{ customers: number; lost: number }> {
+  async syncFromTenants(
+    now = new Date(),
+  ): Promise<{ customers: number; lost: number; churned: number }> {
     const candidates = await this.admin.platformLead.findMany({
       where: {
         discardedAt: null,
         tenantId: { not: null },
-        status: { in: ['new', 'contacted', 'interested', 'trial', 'lost'] },
+        status: { in: ['new', 'contacted', 'interested', 'trial', 'customer', 'lost'] },
       },
       select: {
         id: true,
         tenantId: true,
         status: true,
+        lostReasonCode: true,
         assignedToId: true,
         tenant: {
-          select: { trialEndedAt: true, deletedAt: true, status: true, billingExempt: true },
+          select: {
+            trialEndedAt: true,
+            deletedAt: true,
+            status: true,
+            billingExempt: true,
+            subscription: {
+              select: { status: true, plan: { select: { priceMonthly: true } } },
+            },
+          },
         },
       },
     });
     const paid = await this.firstPaidAt(candidates.map((c) => c.tenantId!));
+    const graceLimit = now.getTime() - PLATFORM_LEAD_TRIAL_LOST_GRACE_DAYS * DAY;
+    const trialEnded = candidates.filter((c) => {
+      const t = c.tenant;
+      return (
+        c.status === 'trial' &&
+        !paid.has(c.tenantId!) &&
+        t?.trialEndedAt &&
+        t.trialEndedAt.getTime() < graceLimit
+      );
+    });
+    const inFlight = await this.tenantsWithChargeInFlight(trialEnded.map((c) => c.tenantId!));
     let customers = 0;
     let lost = 0;
+    let churned = 0;
     for (const c of candidates) {
+      const t = c.tenant;
       const paidAt = paid.get(c.tenantId!);
+      const gone = !t || t.deletedAt !== null || t.status === 'cancelled';
+      const left = gone || t.status === 'suspended';
+
+      if (paidAt && left) {
+        // Era cliente y se ha dado de baja (o se le suspendió por impago).
+        if (c.status === 'lost') continue;
+        const { count } = await this.admin.platformLead.updateMany({
+          where: { id: c.id, status: c.status },
+          data: {
+            status: 'lost',
+            lostAt: now,
+            lostReasonCode: 'churned',
+            lostReason: null,
+            awaitingReplySince: null,
+          },
+        });
+        if (count !== 1) continue;
+        churned += 1;
+        await this.closePendingFollowups(c.id, now);
+        await this.addActivity(
+          c.id,
+          'system',
+          `Perdido: ${PLATFORM_LEAD_LOST_REASON_LABELS.churned}`,
+          null,
+        );
+        continue;
+      }
+
       if (paidAt) {
+        if (c.status === 'customer') continue;
+        const back = c.status === 'lost' && c.lostReasonCode === 'churned';
         const { count } = await this.admin.platformLead.updateMany({
           where: { id: c.id, status: c.status },
           data: {
             status: 'customer',
-            customerAt: paidAt,
+            ...(back ? {} : { customerAt: paidAt }),
             lostAt: null,
             lostReasonCode: null,
             lostReason: null,
@@ -1264,23 +1625,53 @@ export class PlatformLeadsService {
         });
         if (count === 1) {
           customers += 1;
-          await this.addActivity(c.id, 'system', 'Primer pago: ya es cliente', null);
+          await this.addActivity(
+            c.id,
+            'system',
+            back ? 'Vuelve a pagar: otra vez cliente' : 'Primer pago: ya es cliente',
+            null,
+          );
+          // El «volver a contactar» de la prueba sin contratar ya no toca.
+          await this.admin.platformLeadFollowup.updateMany({
+            where: {
+              leadId: c.id,
+              status: 'pending',
+              superAdminId: null,
+              title: { startsWith: 'Volver a contactar' },
+            },
+            data: { status: 'done', completedAt: now },
+          });
         }
         continue;
       }
-      const t = c.tenant;
+
       if (c.status !== 'trial' || !t || t.billingExempt) continue;
+      const sub = t.subscription;
+      // Sigue pudiendo pagar: suscripción activa o atrasada de un plan de pago.
+      const paying =
+        !!sub &&
+        (sub.status === 'active' || sub.status === 'past_due') &&
+        Number(sub.plan.priceMonthly) > 0;
       const trialOver =
-        (t.trialEndedAt && t.trialEndedAt.getTime() < now.getTime() - DAY) ||
-        t.deletedAt !== null ||
-        t.status === 'cancelled';
+        gone ||
+        (!!t.trialEndedAt &&
+          t.trialEndedAt.getTime() < graceLimit &&
+          !paying &&
+          !inFlight.has(c.tenantId!));
       if (!trialOver) continue;
       const { count } = await this.admin.platformLead.updateMany({
         where: { id: c.id, status: 'trial' },
-        data: { status: 'lost', lostAt: now, lostReasonCode: 'no_conversion', lostReason: null },
+        data: {
+          status: 'lost',
+          lostAt: now,
+          lostReasonCode: 'no_conversion',
+          lostReason: null,
+          awaitingReplySince: null,
+        },
       });
       if (count !== 1) continue;
       lost += 1;
+      await this.closePendingFollowups(c.id, now);
       await this.addActivity(
         c.id,
         'system',
@@ -1298,24 +1689,30 @@ export class PlatformLeadsService {
         },
       });
     }
-    return { customers, lost };
+    return { customers, lost, churned };
   }
 
   /**
-   * Leads nuevos de la última semana que llevan horas sin que nadie les
-   * responda: un aviso por lead (panel, móvil y, si está activado, chat).
+   * Leads nuevos que llevan horas esperando respuesta (de la última semana):
+   * un aviso por espera (panel, móvil y, si está activado, chat). La espera
+   * cuenta desde su último mensaje sin responder (un perdido que vuelve a
+   * escribir empieza de nuevo).
    */
   async unattended(now = new Date()): Promise<{ id: string; name: string; hours: number }[]> {
+    const window = {
+      lt: new Date(now.getTime() - PLATFORM_LEAD_UNATTENDED_HOURS * HOUR),
+      gte: new Date(now.getTime() - 7 * DAY),
+    };
     const rows = await this.admin.platformLead.findMany({
       where: {
         discardedAt: null,
         status: 'new',
-        firstResponseAt: null,
         unattendedNotifiedAt: null,
-        createdAt: {
-          lt: new Date(now.getTime() - PLATFORM_LEAD_UNATTENDED_HOURS * HOUR),
-          gte: new Date(now.getTime() - 7 * DAY),
-        },
+        OR: [
+          { awaitingReplySince: window },
+          // Los que se dan de alta sin marcar la espera (importaciones…).
+          { awaitingReplySince: null, firstResponseAt: null, createdAt: window },
+        ],
       },
       orderBy: { createdAt: 'asc' },
       take: 50,
@@ -1327,7 +1724,8 @@ export class PlatformLeadsService {
         data: { unattendedNotifiedAt: now },
       });
       if (count !== 1) continue;
-      const hours = Math.floor((now.getTime() - r.createdAt.getTime()) / HOUR);
+      const since = r.awaitingReplySince ?? r.createdAt;
+      const hours = Math.floor((now.getTime() - since.getTime()) / HOUR);
       const name = platformLeadName(r);
       claimed.push({ id: r.id, name, hours });
       await this.platform.notify({
@@ -1342,16 +1740,22 @@ export class PlatformLeadsService {
 
   // -------------------------------------------------------------- cifras
 
+  /**
+   * Resultados de los leads que entraron desde el día 1 del mes de hace N-1
+   * meses (hora de España). El embudo cuenta las fases por las que pasó cada
+   * uno de verdad (con su fecha); quien entró directamente en prueba (se
+   * registró solo o se le creó la cuenta) va aparte.
+   */
   async stats(months: number, now = new Date()): Promise<PlatformLeadStatsDto> {
     const m = Math.min(Math.max(Math.round(months) || 6, 1), 24);
-    const from = new Date(now);
-    from.setUTCMonth(from.getUTCMonth() - m);
+    const from = monthIndexStart(madridMonthIndex(now) - (m - 1));
     const leads = await this.admin.platformLead.findMany({
       where: { discardedAt: null, createdAt: { gte: from } },
       select: {
         status: true,
         source: true,
         tenantId: true,
+        createdById: true,
         contactedAt: true,
         interestedAt: true,
         trialAt: true,
@@ -1361,18 +1765,13 @@ export class PlatformLeadsService {
         createdAt: true,
       },
     });
-    const reached = (l: (typeof leads)[number]): number => {
-      let r = l.status === 'lost' ? 0 : (STAGE_RANK[l.status] ?? 0);
-      if (l.contactedAt) r = Math.max(r, 1);
-      if (l.interestedAt) r = Math.max(r, 2);
-      if (l.trialAt) r = Math.max(r, 3);
-      if (l.customerAt) r = Math.max(r, 4);
-      return r;
-    };
-    const customerTenants = leads
-      .filter((l) => l.status === 'customer' && l.tenantId)
-      .map((l) => l.tenantId!);
-    const mrrOf = await this.mrrByTenant(customerTenants);
+    // MRR sin IVA, con atrasados, anual/12 y descuento: el mismo de Métricas.
+    const mrrByTenant = await currentMrrByTenant(this.admin);
+    const mrrOf = (tenantId: string | null) =>
+      tenantId ? (mrrByTenant.get(tenantId)?.total ?? 0) : 0;
+    // Entró ya en prueba: su cuenta y su lead nacen a la vez (o la cuenta, antes).
+    const isDirect = (l: (typeof leads)[number]) =>
+      !!l.trialAt && l.trialAt.getTime() <= l.createdAt.getTime() + 60_000;
 
     const bySourceMap = new Map<
       string,
@@ -1381,27 +1780,46 @@ export class PlatformLeadsService {
     const reasons = new Map<string, number>();
     const responseHours: number[] = [];
     const daysToCustomer: number[] = [];
-    let lostCount = 0;
     const funnel = [0, 0, 0, 0, 0];
+    const direct = { leads: 0, customers: 0 };
+    let lostCount = 0;
+    let churned = 0;
     for (const l of leads) {
-      const r = reached(l);
-      for (let i = 0; i <= r; i += 1) funnel[i]! += 1;
+      const isCustomer = l.status === 'customer';
+      if (isDirect(l)) {
+        direct.leads += 1;
+        if (l.customerAt) direct.customers += 1;
+      } else {
+        funnel[0]! += 1;
+        if (l.contactedAt) funnel[1]! += 1;
+        if (l.interestedAt) funnel[2]! += 1;
+        if (l.trialAt) funnel[3]! += 1;
+        if (l.customerAt) funnel[4]! += 1;
+      }
       const s = bySourceMap.get(l.source) ?? { leads: 0, trials: 0, customers: 0, mrr: 0 };
       s.leads += 1;
-      if (r >= 3) s.trials += 1;
-      if (r >= 4) s.customers += 1;
-      if (l.status === 'customer' && l.tenantId) s.mrr += mrrOf.get(l.tenantId) ?? 0;
+      if (l.trialAt) s.trials += 1;
+      if (l.customerAt) s.customers += 1;
+      if (isCustomer) s.mrr += mrrOf(l.tenantId);
       bySourceMap.set(l.source, s);
       if (l.status === 'lost') {
-        lostCount += 1;
-        const code = l.lostReasonCode ?? 'other';
-        reasons.set(code, (reasons.get(code) ?? 0) + 1);
+        if (l.lostReasonCode === 'churned') {
+          churned += 1;
+        } else {
+          lostCount += 1;
+          const code = l.lostReasonCode ?? 'other';
+          reasons.set(code, (reasons.get(code) ?? 0) + 1);
+        }
       }
-      if (l.firstResponseAt && l.source !== 'signup') {
-        responseHours.push((l.firstResponseAt.getTime() - l.createdAt.getTime()) / HOUR);
+      // Primera respuesta: solo de quien escribió solo (no los que da de alta el
+      // equipo ni los registros, que no esperan a nadie).
+      if (l.firstResponseAt && !l.createdById && INBOUND_SOURCES.has(l.source)) {
+        responseHours.push(
+          Math.max(0, (l.firstResponseAt.getTime() - l.createdAt.getTime()) / HOUR),
+        );
       }
       if (l.customerAt) {
-        daysToCustomer.push((l.customerAt.getTime() - l.createdAt.getTime()) / DAY);
+        daysToCustomer.push(Math.max(0, (l.customerAt.getTime() - l.createdAt.getTime()) / DAY));
       }
     }
     responseHours.sort((a, b) => a - b);
@@ -1430,7 +1848,9 @@ export class PlatformLeadsService {
       funnel: (['new', 'contacted', 'interested', 'trial', 'customer'] as const).map(
         (stage, i) => ({ stage, reached: funnel[i]! }),
       ),
+      direct,
       lost: lostCount,
+      churned,
       bySource,
       lostReasons: [...reasons.entries()]
         .map(([code, count]) => ({ code: code as PlatformLeadLostReason, count }))
@@ -1443,32 +1863,6 @@ export class PlatformLeadsService {
     };
   }
 
-  /** Lo que paga al mes cada tenant que paga: plan + extras activos. */
-  private async mrrByTenant(tenantIds: string[]): Promise<Map<string, number>> {
-    const out = new Map<string, number>();
-    if (tenantIds.length === 0) return out;
-    const [subs, addons] = await Promise.all([
-      this.admin.tenantSubscription.findMany({
-        where: {
-          tenantId: { in: tenantIds },
-          status: 'active',
-          tenant: { deletedAt: null, billingExempt: false, status: { not: 'suspended' } },
-        },
-        select: { tenantId: true, plan: { select: { priceMonthly: true } } },
-      }),
-      this.admin.tenantSubscriptionAddon.findMany({
-        where: { tenantId: { in: tenantIds }, suspendedAt: null },
-        select: { tenantId: true, priceMonthly: true, quantity: true },
-      }),
-    ]);
-    for (const s of subs) out.set(s.tenantId, Number(s.plan.priceMonthly));
-    for (const a of addons) {
-      if (!out.has(a.tenantId)) continue;
-      out.set(a.tenantId, out.get(a.tenantId)! + Number(a.priceMonthly) * a.quantity);
-    }
-    return out;
-  }
-
   async exportCsv(q: PlatformLeadsQuery, superAdminId: string): Promise<string> {
     const rows = await this.admin.platformLead.findMany({
       where: this.listWhere(q, superAdminId),
@@ -1477,10 +1871,8 @@ export class PlatformLeadsService {
       take: 5000,
     });
     const items = await this.toDtos(rows);
-    const cell = (v: string | null | undefined) => {
-      const t = (v ?? '').replace(/\r?\n/g, ' ');
-      return /[";]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-    };
+    // Sin fórmulas: los datos los escribe quien rellena el formulario de la web.
+    const cell = csvLineCell;
     const date = (d: string | null) =>
       d ? new Date(d).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }) : '';
     const header = [
@@ -1531,7 +1923,7 @@ export class PlatformLeadsService {
         .map(cell)
         .join(';'),
     );
-    return `${String.fromCharCode(0xfeff)}${[header.join(';'), ...lines].join('\r\n')}`;
+    return `${CSV_BOM}${[header.join(';'), ...lines].join('\r\n')}`;
   }
 }
 

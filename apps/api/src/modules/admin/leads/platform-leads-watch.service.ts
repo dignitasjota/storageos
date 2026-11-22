@@ -62,9 +62,9 @@ export class PlatformLeadsWatchService {
   async watch(): Promise<void> {
     try {
       const moved = await this.leads.syncFromTenants();
-      if (moved.customers || moved.lost) {
+      if (moved.customers || moved.lost || moved.churned) {
         this.logger.log(
-          `[leads] ${moved.customers} pasan a cliente y ${moved.lost} a perdido (prueba sin contratar)`,
+          `[leads] ${moved.customers} pasan a cliente, ${moved.lost} a perdido (prueba sin contratar) y ${moved.churned} se dan de baja`,
         );
       }
       for (const u of await this.leads.unattended()) {

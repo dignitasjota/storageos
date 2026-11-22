@@ -717,6 +717,14 @@ export class SalesAccountsService {
       },
       this.actor(actor),
     );
+    // Perderlo cierra lo pendiente; el seguimiento que se pida ahora va después.
+    if (input.outcome === 'not_interested' && !lead.tenantId && lead.status !== 'lost') {
+      await this.leads.lose(
+        leadId,
+        { reasonCode: 'other', reason: input.note ?? 'No le interesa' },
+        this.actor(actor),
+      );
+    }
     const today = madridToday();
     // Lo que tocaba hasta hoy queda hecho.
     await this.admin.platformLeadFollowup.updateMany({
@@ -750,13 +758,6 @@ export class SalesAccountsService {
       (lead.status === 'new' || lead.status === 'contacted')
     ) {
       await this.leads.move(leadId, { status: 'interested' }, this.actor(actor));
-    }
-    if (input.outcome === 'not_interested' && !lead.tenantId && lead.status !== 'lost') {
-      await this.leads.lose(
-        leadId,
-        { reasonCode: 'other', reason: input.note ?? 'No le interesa' },
-        this.actor(actor),
-      );
     }
     await this.touchContact(leadId, repId, input.outcome);
     const temperature =

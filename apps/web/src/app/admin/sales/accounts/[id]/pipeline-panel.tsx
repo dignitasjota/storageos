@@ -3,7 +3,7 @@
 import {
   PLATFORM_LEAD_ACTIVITY_LABELS,
   PLATFORM_LEAD_LOST_REASON_LABELS,
-  PLATFORM_LEAD_LOST_REASONS,
+  PLATFORM_LEAD_MANUAL_LOST_REASONS,
   PLATFORM_LEAD_MANUAL_STAGES,
   PLATFORM_LEAD_STAGE_LABELS,
   SALES_CADENCE_CHANNEL_LABELS,
@@ -384,7 +384,7 @@ export function CadenceCard({ account }: { account: SalesAccountDto }) {
 
 function LoseDialog({ account, onClose }: { account: SalesAccountDto; onClose: () => void }) {
   const lose = useSalesLose(account.lead.id);
-  const [reasonCode, setReasonCode] = useState<PlatformLeadLostReason | ''>('');
+  const [reasonCode, setReasonCode] = useState<Exclude<PlatformLeadLostReason, 'churned'> | ''>('');
   const [reason, setReason] = useState('');
   const [recontactOn, setRecontactOn] = useState('');
 
@@ -412,13 +412,13 @@ function LoseDialog({ account, onClose }: { account: SalesAccountDto; onClose: (
           <Field label="Motivo">
             <Select
               value={reasonCode}
-              onValueChange={(v) => setReasonCode(v as PlatformLeadLostReason)}
+              onValueChange={(v) => setReasonCode(v as Exclude<PlatformLeadLostReason, 'churned'>)}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Elige el motivo" />
               </SelectTrigger>
               <SelectContent>
-                {PLATFORM_LEAD_LOST_REASONS.map((r) => (
+                {PLATFORM_LEAD_MANUAL_LOST_REASONS.map((r) => (
                   <SelectItem key={r} value={r}>
                     {PLATFORM_LEAD_LOST_REASON_LABELS[r]}
                   </SelectItem>

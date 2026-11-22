@@ -3,7 +3,7 @@
 import {
   CONTACT_PROFILE_OPTIONS,
   PLATFORM_LEAD_LOST_REASON_LABELS,
-  PLATFORM_LEAD_LOST_REASONS,
+  PLATFORM_LEAD_MANUAL_LOST_REASONS,
   PLATFORM_LEAD_MANUAL_SOURCES,
   PLATFORM_LEAD_SOURCE_LABELS,
   type AdminQuoteDto,
@@ -51,6 +51,7 @@ import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
 
 const NONE = '-';
+type ManualLostReason = Exclude<PlatformLeadLostReason, 'churned'>;
 const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 const errorText = (err: unknown, fallback: string) =>
   err instanceof ApiError ? err.body.message : fallback;
@@ -302,7 +303,7 @@ export function LoseLeadDialog({
   onClose: () => void;
 }) {
   const lose = useLoseLead();
-  const [reasonCode, setReasonCode] = useState<PlatformLeadLostReason>('no_response');
+  const [reasonCode, setReasonCode] = useState<ManualLostReason>('no_response');
   const [reason, setReason] = useState('');
   const [recontact, setRecontact] = useState(false);
   const [recontactOn, setRecontactOn] = useState<string | undefined>(() => {
@@ -340,15 +341,12 @@ export function LoseLeadDialog({
         </DialogHeader>
         <div className="space-y-3">
           <Field label="Motivo">
-            <Select
-              value={reasonCode}
-              onValueChange={(v) => setReasonCode(v as PlatformLeadLostReason)}
-            >
+            <Select value={reasonCode} onValueChange={(v) => setReasonCode(v as ManualLostReason)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PLATFORM_LEAD_LOST_REASONS.filter((r) => r !== 'no_conversion').map((r) => (
+                {PLATFORM_LEAD_MANUAL_LOST_REASONS.filter((r) => r !== 'no_conversion').map((r) => (
                   <SelectItem key={r} value={r}>
                     {PLATFORM_LEAD_LOST_REASON_LABELS[r]}
                   </SelectItem>

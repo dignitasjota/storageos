@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { ApiError } from '../auth/api';
+
 import { adminApiFetch, adminApiFetchBlob } from './api';
 
 import type {
@@ -27,6 +29,7 @@ function queryString(q: PlatformLeadsQuery): string {
   if (q.search) params.set('search', q.search);
   if (q.source) params.set('source', q.source);
   if (q.assignedTo) params.set('assignedTo', q.assignedTo);
+  if (q.discarded) params.set('discarded', '1');
   const s = params.toString();
   return s ? `?${s}` : '';
 }
@@ -45,6 +48,8 @@ export function useAdminLead(id: string | null) {
     queryKey: [...ROOT, 'detail', id] as const,
     queryFn: () => adminApiFetch<PlatformLeadDetailDto>(`/admin/leads/${id}`),
     enabled: !!id,
+    // Un lead borrado no va a volver: sin reintentos (la ficha lo dice al momento).
+    retry: (count, err) => !(err instanceof ApiError && err.statusCode === 404) && count < 2,
   });
 }
 
@@ -213,6 +218,13 @@ export function useDiscardLead() {
       adminApiFetch<void>(`/admin/leads/${id}/discard`, { method: 'POST' }),
     onSuccess: invalidate,
   });
+}
+
+/** Recupera un lead marcado «No es un lead». */
+export function useRestoreLead() {
+  return useLeadAction((id: string) =>
+    adminApiFetch<PlatformLeadDetailDto>(`/admin/leads/${id}/restore`, { method: 'POST' }),
+  );
 }
 
 export function useDeleteLead() {

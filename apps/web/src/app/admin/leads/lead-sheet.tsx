@@ -77,6 +77,7 @@ import {
   useLeadActivity,
   useMoveLead,
   useReopenLead,
+  useRestoreLead,
   useSendLeadEmail,
   useUpdateLead,
   useUpdateLeadFollowup,
@@ -117,29 +118,138 @@ export const STAGE_BADGE: Record<string, string> = {
   lost: 'bg-muted text-muted-foreground',
 };
 
+/** Título y descripción para lectores de pantalla mientras no hay ficha que enseñar. */
+function HiddenHeader({ title, description }: { title: string; description: string }) {
+  return (
+    <SheetHeader className="sr-only">
+      <SheetTitle>{title}</SheetTitle>
+      <SheetDescription>{description}</SheetDescription>
+    </SheetHeader>
+  );
+}
+
 /** Ficha de un lead (panel lateral): datos, conversación, actividad y seguimientos. */
 export function LeadSheet({ leadId, onClose }: { leadId: string | null; onClose: () => void }) {
   const q = useAdminLead(leadId);
   const lead = q.data;
+  const notFound = q.error instanceof ApiError && q.error.statusCode === 404;
   return (
     <Sheet open={!!leadId} onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
         {q.isError ? (
-          <div className="space-y-2 pt-8 text-sm">
-            <p>Este lead ya no existe (se borró o se marcó «No es un lead»).</p>
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Cerrar
-            </Button>
-          </div>
+          <>
+            <HiddenHeader
+              title={notFound ? 'Lead no encontrado' : 'No se ha podido cargar el lead'}
+              description={
+                notFound ? 'Este lead ya no existe.' : 'Ha fallado la carga de la ficha.'
+              }
+            />
+            <div role="alert" className="space-y-3 pt-8 text-sm">
+              {notFound ? (
+                <p>Este lead ya no existe: se borró.</p>
+              ) : (
+                <p>No se ha podido cargar el lead. Comprueba la conexión y vuelve a intentarlo.</p>
+              )}
+              <div className="flex gap-2">
+                {!notFound && (
+                  <Button size="sm" disabled={q.isFetching} onClick={() => void q.refetch()}>
+                    {q.isFetching && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+                    Reintentar
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={onClose}>
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          </>
         ) : !lead ? (
-          <div className="flex justify-center pt-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </div>
+          <>
+            <HiddenHeader title="Cargando el lead" description="Se está cargando su ficha." />
+            <div className="flex justify-center pt-12">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden />
+            </div>
+          </>
+        ) : lead.discardedAt ? (
+          <DiscardedBody lead={lead} />
         ) : (
           <LeadBody lead={lead} onClose={onClose} />
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** Un lead marcado «No es un lead»: se ve en solo lectura y se puede recuperar. */
+function DiscardedBody({ lead }: { lead: PlatformLeadDetailDto }) {
+  const restore = useRestoreLead();
+  const facts: [string, string | null][] = [
+    ['Empresa', lead.companyName],
+    ['Persona', lead.contactName],
+    ['Email', lead.email],
+    ['Teléfono', lead.phone],
+    ['Trasteros', lead.units],
+    ['Ciudad', lead.city],
+    ['Fase', PLATFORM_LEAD_STAGE_LABELS[lead.status]],
+    ['Lo llevaba', lead.assignedToName],
+  ];
+  return (
+    <div className="space-y-4">
+      <SheetHeader className="space-y-1 pr-6">
+        <SheetTitle className="flex flex-wrap items-center gap-2">
+          {lead.displayName}
+          <Badge variant="outline" className={`border-0 ${STAGE_BADGE.lost}`}>
+            Descartado
+          </Badge>
+        </SheetTitle>
+        <SheetDescription>
+          {PLATFORM_LEAD_SOURCE_LABELS[lead.source] ?? lead.source} · entró el {day(lead.createdAt)}
+        </SheetDescription>
+      </SheetHeader>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted p-3 text-sm">
+        <span>
+          Marcado «No es un lead» el {day(lead.discardedAt!)}. Se ve en solo lectura: no está en el
+          tablero ni en los resultados.
+        </span>
+        <Button
+          size="sm"
+          disabled={restore.isPending}
+          onClick={() =>
+            void restore
+              .mutateAsync(lead.id)
+              .then(() => toast.success('Vuelve a estar en el tablero.'))
+              .catch((err) => toast.error(errorText(err, 'No se ha podido recuperar.')))
+          }
+        >
+          {restore.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+          Recuperar
+        </Button>
+      </div>
+      <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
+        {facts
+          .filter(([, v]) => v)
+          .map(([label, v]) => (
+            <div key={label} className="flex gap-1.5">
+              <dt className="text-muted-foreground">{label}:</dt>
+              <dd className="min-w-0 break-words">{v}</dd>
+            </div>
+          ))}
+      </dl>
+      {lead.activities.length > 0 && (
+        <ul className="space-y-2" aria-label="Actividad">
+          {lead.activities.map((a) => (
+            <li key={a.id} className="rounded-md border p-3 text-sm">
+              <p className="text-xs text-muted-foreground">
+                {PLATFORM_LEAD_ACTIVITY_LABELS[a.type]} · {dateTime(a.occurredAt)}
+                {a.superAdminName ? ` · ${a.superAdminName}` : ''}
+              </p>
+              {a.subject && <p className="font-medium">{a.subject}</p>}
+              <p className="whitespace-pre-line break-words">{a.content}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -221,6 +331,13 @@ function LeadBody({ lead, onClose }: { lead: PlatformLeadDetailDto; onClose: () 
             Vincular
           </Button>
         </div>
+      )}
+      {lead.accountKeptBy && (
+        <p className="rounded-md border p-2 text-sm text-muted-foreground">
+          Su cuenta sigue siendo de {lead.accountKeptBy.name} (su comercial): quien lo lleve aquí no
+          cambia la cartera ni las comisiones. Para pasarle la cuenta a otro, hazlo desde
+          Comerciales.
+        </p>
       )}
       {lead.status === 'lost' && lead.lostReasonCode && (
         <p className="rounded-md bg-muted p-2 text-sm">
@@ -828,8 +945,9 @@ function FollowupsTab({ lead }: { lead: PlatformLeadDetailDto }) {
     }
   }
 
+  // Una semana más desde la fecha que tenía o, si ya pasó, desde hoy.
   const later = (dueDate: string) => {
-    const d = new Date(`${dueDate}T12:00:00`);
+    const d = new Date(`${dueDate < today ? today : dueDate}T12:00:00`);
     d.setDate(d.getDate() + 7);
     return localDateString(d);
   };
@@ -898,7 +1016,9 @@ function FollowupsTab({ lead }: { lead: PlatformLeadDetailDto }) {
                         variant="outline"
                         className="h-7"
                         onClick={() =>
-                          void update.mutateAsync({ id: f.id, input: { status: 'done' } })
+                          void update
+                            .mutateAsync({ id: f.id, input: { status: 'done' } })
+                            .catch((err) => toast.error(errorText(err, 'No se ha podido guardar.')))
                         }
                       >
                         <Check className="mr-1 size-3.5" /> Hecho
@@ -908,10 +1028,9 @@ function FollowupsTab({ lead }: { lead: PlatformLeadDetailDto }) {
                         variant="ghost"
                         className="h-7"
                         onClick={() =>
-                          void update.mutateAsync({
-                            id: f.id,
-                            input: { dueDate: later(f.dueDate) },
-                          })
+                          void update
+                            .mutateAsync({ id: f.id, input: { dueDate: later(f.dueDate) } })
+                            .catch((err) => toast.error(errorText(err, 'No se ha podido guardar.')))
                         }
                       >
                         +7 días

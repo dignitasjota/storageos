@@ -8957,6 +8957,10 @@ model PlatformLead {
   lostReason           String?   @map("lost_reason")
   firstResponseAt      DateTime? @map("first_response_at") @db.Timestamptz(6)
   unattendedNotifiedAt DateTime? @map("unattended_notified_at") @db.Timestamptz(6)
+  /// Desde cuándo espera respuesta un perdido que vuelve a escribir (empieza un
+  /// ciclo nuevo sin tocar `firstResponseAt`); null = desde su alta, si aún
+  /// nadie le ha respondido.
+  awaitingReplySince   DateTime? @map("awaiting_reply_since") @db.Timestamptz(6)
   /// «No es un lead»: sale del tablero y de las cifras.
   discardedAt          DateTime? @map("discarded_at") @db.Timestamptz(6)
   createdById          String?   @map("created_by_id") @db.Uuid

@@ -66,6 +66,7 @@ function query(raw: Record<string, string | undefined>) {
     ...(raw.search?.trim() ? { search: raw.search.trim() } : {}),
     ...(raw.source ? { source: raw.source } : {}),
     ...(raw.assignedTo ? { assignedTo: raw.assignedTo } : {}),
+    ...(raw.discarded === '1' || raw.discarded === 'true' ? { discarded: true } : {}),
   });
   return parsed.success ? parsed.data : {};
 }
@@ -80,15 +81,19 @@ function query(raw: Record<string, string | undefined>) {
 export class PlatformLeadsController {
   constructor(private readonly leads: PlatformLeadsService) {}
 
-  /** Tablero: las fases abiertas enteras; Cliente y Perdido, los últimos. */
+  /**
+   * Tablero: las fases abiertas (hasta 500, `truncated` si hay más); Cliente y
+   * Perdido, los últimos. `?discarded=1`: los marcados «No es un lead».
+   */
   @Get()
   board(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Query('search') search?: string,
     @Query('source') source?: string,
     @Query('assignedTo') assignedTo?: string,
+    @Query('discarded') discarded?: string,
   ): Promise<PlatformLeadBoardDto> {
-    return this.leads.board(query({ search, source, assignedTo }), admin.sub);
+    return this.leads.board(query({ search, source, assignedTo, discarded }), admin.sub);
   }
 
   @Get('stats')
@@ -103,8 +108,12 @@ export class PlatformLeadsController {
     @Query('search') search?: string,
     @Query('source') source?: string,
     @Query('assignedTo') assignedTo?: string,
+    @Query('discarded') discarded?: string,
   ): Promise<void> {
-    const csv = await this.leads.exportCsv(query({ search, source, assignedTo }), admin.sub);
+    const csv = await this.leads.exportCsv(
+      query({ search, source, assignedTo, discarded }),
+      admin.sub,
+    );
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="leads.csv"');
     res.send(csv);
@@ -121,16 +130,22 @@ export class PlatformLeadsController {
 
   @Patch('followups/:followupId')
   updateFollowup(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
     @Param('followupId', new ParseUUIDPipe()) followupId: string,
     @Body() body: UpdatePlatformLeadFollowupDto,
   ): Promise<PlatformLeadFollowupDto> {
-    return this.leads.updateFollowup(followupId, body);
+    return this.leads.updateFollowup(followupId, body, actor(admin, req));
   }
 
   @Delete('followups/:followupId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteFollowup(@Param('followupId', new ParseUUIDPipe()) followupId: string) {
-    await this.leads.deleteFollowup(followupId);
+  async deleteFollowup(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('followupId', new ParseUUIDPipe()) followupId: string,
+  ) {
+    await this.leads.deleteFollowup(followupId, actor(admin, req));
   }
 
   @Post()
@@ -153,8 +168,9 @@ export class PlatformLeadsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdatePlatformLeadDto,
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
   ): Promise<PlatformLeadDetailDto> {
-    return this.leads.update(id, body, admin.sub);
+    return this.leads.update(id, body, admin.sub, actor(admin, req));
   }
 
   @Post(':id/move')
@@ -200,6 +216,17 @@ export class PlatformLeadsController {
     await this.leads.discard(id, actor(admin, req));
   }
 
+  /** Recupera un lead marcado «No es un lead». */
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  restore(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PlatformLeadDetailDto> {
+    return this.leads.restore(id, actor(admin, req));
+  }
+
   @RequireSuperadmin()
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -225,10 +252,12 @@ export class PlatformLeadsController {
   @Delete(':id/activities/:activityId')
   @HttpCode(HttpStatus.OK)
   deleteActivity(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Param('activityId', new ParseUUIDPipe()) activityId: string,
   ): Promise<PlatformLeadDetailDto> {
-    return this.leads.deleteActivity(id, activityId);
+    return this.leads.deleteActivity(id, activityId, actor(admin, req));
   }
 
   @Post(':id/followups')

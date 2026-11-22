@@ -3092,3 +3092,12 @@ Migración `20270226100000_admin_health_adoption_usage_improvements` (se aplica 
 - **Almacenamiento**: la medición diaria (`storage-usage.daily`) guarda también la del mes; la previsión necesita al menos dos meses medidos.
 - **Ajustes** (Salud → «Ajustes» y Uso → «Ajustes», solo superadmin): pesos de los factores (deben sumar 100), puntos de caída y umbrales del consumo anómalo (3 veces la media de los 3 meses anteriores y por encima de 500 correos, 5 $ de IA o 1024 MB).
 - **Avisos de negocio**: dos tipos nuevos, `health_drop` y `usage_anomaly`, en el resumen semanal y por chat si los avisos de negocio están activos.
+
+## 185. Leads del super admin: arreglos (2026-11-22)
+
+Migración `20270227100000_platform_leads_review` (se aplica sola): `platform_leads.awaiting_reply_since`. Sin variables nuevas.
+
+- **CSV**: los textos que empiezan por `=`, `+`, `-` o `@` salen con `'` delante en todos los CSV del panel admin (leads, contacto, correos, facturas de suscripción, Negocio y Finanzas): una fórmula colada por el formulario de la web ya no se ejecuta en Excel.
+- **Reasignar un lead mueve también la cartera del comercial** (decisión de Jota); si ya es cliente de un comercial, su cuenta no se toca.
+- **Cambian cifras de Resultados (a propósito)**: el embudo no cuenta como contactados a quien se registró solo (sale aparte), la primera respuesta solo mide a quien escribe solo, «Pagan al mes» va sin IVA y el periodo empieza el día 1 del mes.
+- Una prueba terminada solo pasa a «Perdido» a los 7 días, en solo lectura y sin cobros en marcha; un cliente que se da de baja pasa a «Cliente que se dio de baja».

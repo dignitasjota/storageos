@@ -11,7 +11,15 @@ import {
   type PlatformLeadSource,
   type PlatformLeadStage,
 } from '@storageos/shared';
-import { AlertTriangle, BarChart3, CalendarClock, Download, Loader2, Plus } from 'lucide-react';
+import {
+  AlertTriangle,
+  Archive,
+  BarChart3,
+  CalendarClock,
+  Download,
+  Loader2,
+  Plus,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
@@ -40,6 +48,7 @@ import {
 } from '@/lib/admin/leads-hooks';
 import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
+import { plural } from '@/lib/format';
 
 const ALL = 'all';
 const MANUAL = new Set<PlatformLeadStage>(['new', 'contacted', 'interested']);
@@ -86,6 +95,7 @@ function LeadsBoard() {
   const [term, setTerm] = useState('');
   const [source, setSource] = useState<string>(ALL);
   const [assignedTo, setAssignedTo] = useState<string>(ALL);
+  const [discarded, setDiscarded] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [dragging, setDragging] = useState<PlatformLeadDto | null>(null);
   const [losing, setLosing] = useState<string | null>(null);
@@ -100,6 +110,7 @@ function LeadsBoard() {
     ...(term.length >= 2 ? { search: term } : {}),
     ...(source !== ALL ? { source: source as PlatformLeadSource } : {}),
     ...(assignedTo !== ALL ? { assignedTo } : {}),
+    ...(discarded ? { discarded: true } : {}),
   };
   const board = useAdminLeads(query);
 
@@ -160,6 +171,14 @@ function LeadsBoard() {
             </Link>
           </Button>
           <Button
+            variant={discarded ? 'secondary' : 'outline'}
+            aria-pressed={discarded}
+            onClick={() => setDiscarded((d) => !d)}
+          >
+            <Archive className="mr-1.5 size-4" aria-hidden />
+            {discarded ? 'Volver al tablero' : 'Descartados'}
+          </Button>
+          <Button
             variant="outline"
             onClick={() =>
               void downloadLeadsCsv(query).catch(() => toast.error('No se ha podido descargar.'))
@@ -213,12 +232,48 @@ function LeadsBoard() {
         </Select>
       </div>
 
+      {board.data?.truncated && (
+        <p
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            Hay {plural(board.data.hiddenOpen, 'lead más', 'leads más')} que no se ven aquí (se
+            enseñan los más recientes). Usa la búsqueda o los filtros para encontrarlos.
+          </span>
+        </p>
+      )}
+
       {board.isError ? (
         <AdminError onRetry={() => void board.refetch()} />
       ) : !board.data ? (
         <div className="flex justify-center py-12">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
+      ) : discarded ? (
+        <section aria-label="Descartados" className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Los marcados «No es un lead» (spam, soporte, proveedores…). No cuentan en el tablero ni
+            en los resultados; ábrelos para recuperarlos.
+          </p>
+          {items.length === 0 ? (
+            <p className="py-6 text-sm text-muted-foreground">No hay ninguno descartado.</p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((lead) => (
+                <LeadCard
+                  key={lead.id}
+                  lead={lead}
+                  today={today}
+                  onOpen={() => open(lead.id)}
+                  onDragStart={() => undefined}
+                  draggable={false}
+                />
+              ))}
+            </div>
+          )}
+        </section>
       ) : (
         <div className="-mx-4 flex snap-x gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
           {PLATFORM_LEAD_STAGES.map((stage) => {
@@ -292,27 +347,38 @@ function LeadCard({
   today,
   onOpen,
   onDragStart,
+  draggable = true,
 }: {
   lead: PlatformLeadDto;
   today: string;
   onOpen: () => void;
   onDragStart: () => void;
+  draggable?: boolean;
 }) {
   const followupLate = lead.nextFollowup && lead.nextFollowup.dueDate <= today;
   return (
     <button
       type="button"
-      draggable
+      draggable={draggable}
       onDragStart={onDragStart}
       onClick={onOpen}
       className="block w-full rounded-md border bg-card p-3 text-left text-sm shadow-sm transition-shadow hover:shadow-md md:cursor-grab"
     >
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 font-medium">{lead.displayName}</span>
-        {lead.status === 'new' && (
-          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${STAGE_BADGE.new}`}>
-            {ago(lead.createdAt)}
+        {lead.discardedAt ? (
+          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${STAGE_BADGE.lost}`}>
+            Descartado
           </span>
+        ) : (
+          lead.status === 'new' && (
+            <span
+              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${STAGE_BADGE.new}`}
+              title="Desde su último mensaje sin responder"
+            >
+              {ago(lead.awaitingReplySince ?? lead.createdAt)}
+            </span>
+          )
         )}
       </div>
       {lead.companyName && lead.contactName && (

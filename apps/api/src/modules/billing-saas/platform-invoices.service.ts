@@ -19,6 +19,7 @@ import {
 import StripeSDK from 'stripe';
 
 import { impersonationContext } from '../../common/async-context/impersonation-context';
+import { csvCell } from '../../common/csv';
 import { todayInTimezone, zonedDayStart, zonedNextDayStart } from '../../common/format';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { loadPuppeteer } from '../../common/puppeteer';
@@ -96,7 +97,6 @@ const eur = (n: number): string =>
 const esc = (s: string): string =>
   s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 /** Escapa un campo de texto para CSV: comillas si contiene `;`, `"` o salto de línea. */
-const csvCell = (v: string): string => (/[";\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 
 /**
  * Facturación del SaaS: TrasterOS emite facturas de suscripción a sus tenants.
