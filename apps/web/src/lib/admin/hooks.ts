@@ -119,6 +119,7 @@ import type {
   AssignAddonInput,
   SaasAddonDto,
   TenantBillingSummaryDto,
+  AdminTodayCountDto,
   AdminTodayDto,
   TenantLimitsDto,
   UpsertSaasAddonInput,
@@ -2730,10 +2731,21 @@ export function useLegalFill() {
 }
 
 // --- «Hoy» del super admin ---
+/** La bandeja «Hoy» entera, siempre fresca (la pide quien la está mirando). */
 export function useAdminToday() {
   return useQuery({
     queryKey: ['admin', 'today'],
-    queryFn: () => adminApiFetch<AdminTodayDto>('/admin/today'),
+    queryFn: () => adminApiFetch<AdminTodayDto>('/admin/today?fresh=1'),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Solo el número de urgentes, para el contador del menú (el servidor lo guarda 30 s). */
+export function useAdminTodayCount() {
+  return useQuery({
+    queryKey: ['admin', 'today', 'count'],
+    queryFn: () => adminApiFetch<AdminTodayCountDto>('/admin/today/count'),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
