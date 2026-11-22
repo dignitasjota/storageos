@@ -171,7 +171,10 @@ describe('Salud, Adopción y Uso del super admin: mejoras (e2e)', () => {
 
   it('actividad real: días y usuarios activos, sin escribir más de una vez al día', async () => {
     const owner = await payingTenant('hauact');
-    // El inicio de sesión del alta ya anota el día de hoy.
+    // El alta (verificar el email) no anota el día: no es haber entrado.
+    expect(await db.tenantActivityDay.count({ where: { tenantId: owner.tenantId } })).toBe(0);
+    // Volver a abrir el panel (renovar la sesión) sí lo anota.
+    await http().post('/auth/refresh').set('Cookie', owner.refreshCookie).expect(200);
     const today = await db.tenantActivityDay.findMany({ where: { tenantId: owner.tenantId } });
     expect(today).toHaveLength(1);
     // Volver a anotarlo el mismo día no añade nada.

@@ -568,7 +568,9 @@ export class AuthService {
       throw new InternalServerErrorException('Suscripcion no encontrada');
     }
 
-    return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta);
+    return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta, {
+      countsAsActivity: false,
+    });
   }
 
   async resendVerification(input: ResendVerificationInput): Promise<void> {
@@ -1018,9 +1020,11 @@ export class AuthService {
     subscription: TenantSubscription,
     planSlug: string,
     meta: RequestMeta,
+    /** La sesión que abre verificar el email (el alta) no cuenta como uso. */
+    options: { countsAsActivity?: boolean } = {},
   ): Promise<AuthFlowResult<AuthSuccessResponse>> {
     // Día de uso del panel (para la actividad del equipo en Salud).
-    await recordTeamActivityDay(this.admin, user);
+    if (options.countsAsActivity !== false) await recordTeamActivityDay(this.admin, user);
     const { refreshToken } = await this.sessions.createForLogin({
       tenantId: tenant.id,
       userId: user.id,
