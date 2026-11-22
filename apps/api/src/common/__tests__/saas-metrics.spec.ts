@@ -8,9 +8,11 @@ import {
   monthIndexStart,
   parseMonthsParam,
   payingAt,
+  sameInstantLastYear,
   subscriptionCycle,
   tenantMetricsState,
   tenantMrr,
+  tenantMrrDetail,
   trialOutcome,
   type PayerLifecycle,
 } from '../saas-metrics';
@@ -103,5 +105,31 @@ describe('saas-metrics', () => {
     expect(trialOutcome({ status: 'active' }, { ...payer, churnedAt: null })).toBe('converted');
     expect(trialOutcome({ status: 'active' }, undefined)).toBe('toFree');
     expect(trialOutcome({ status: 'trial' }, undefined)).toBe('inTrial');
+  });
+
+  it('desglose: descuento que se deja de ingresar y ciclo', () => {
+    const monthly = tenantMrrDetail(sub(30), {
+      addonsMonthly: 0,
+      discountRatio: 0.1,
+      pricing: withVat,
+    });
+    expect(monthly).toEqual({ plan: 90, addons: 0, total: 90, discount: 10, cycle: 'monthly' });
+    const yearly = tenantMrrDetail(sub(365), {
+      addonsMonthly: 0,
+      discountRatio: 0.5,
+      pricing: withVat,
+    });
+    expect(yearly.cycle).toBe('yearly');
+    expect(yearly.discount).toBeCloseTo(41.67, 2);
+  });
+
+  it('el mismo momento del año pasado, sin pasar del fin de mes', () => {
+    const now = new Date('2026-11-22T10:00:00Z');
+    expect(sameInstantLastYear(now).toISOString()).toBe('2025-11-22T10:00:00.000Z');
+    // 29 de febrero → como mucho el 1 de marzo del año anterior (fin del mes).
+    const leap = new Date('2028-02-29T12:00:00Z');
+    expect(sameInstantLastYear(leap).getTime()).toBeLessThanOrEqual(
+      new Date('2027-03-01T00:00:00+01:00').getTime(),
+    );
   });
 });

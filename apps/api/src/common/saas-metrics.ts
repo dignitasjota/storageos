@@ -153,6 +153,18 @@ export function monthIndexLabel(idx: number): string {
   return `${MONTHS_ES[idx % 12]} ${String(Math.floor(idx / 12) % 100).padStart(2, '0')}`;
 }
 
+/**
+ * El mismo momento del mes, un año antes (p. ej. el 22 de noviembre a las 10:00
+ * → el 22 de noviembre del año pasado a las 10:00, sin pasar del fin de mes).
+ */
+export function sameInstantLastYear(now: Date): Date {
+  const idx = madridMonthIndex(now);
+  const offset = now.getTime() - monthIndexStart(idx).getTime();
+  const start = monthIndexStart(idx - 12);
+  const end = monthIndexStart(idx - 11);
+  return new Date(Math.min(start.getTime() + offset, end.getTime()));
+}
+
 /** Lee `months` de la URL: un número (1-`max`) o el valor por defecto si no lo es. */
 export function parseMonthsParam(raw: string | undefined, fallback = 12, max = 24): number {
   const n = raw === undefined || raw === '' ? NaN : Number(raw);
@@ -247,6 +259,25 @@ export function tenantMrr(
   return { plan, addons, total: round2(plan + addons) };
 }
 
+export interface TenantMrrDetail extends TenantMrrBreakdown {
+  /** Lo que se deja de ingresar al mes por el descuento, sin IVA. */
+  discount: number;
+  cycle: 'monthly' | 'yearly';
+}
+
+/** `tenantMrr` con el descuento que se deja de ingresar y el ciclo de pago. */
+export function tenantMrrDetail(
+  sub: MrrSubscriptionInput,
+  opts: { addonsMonthly: number; discountRatio: number; pricing: PlatformPricing },
+): TenantMrrDetail {
+  const base = tenantMrr(sub, opts);
+  const cycle = subscriptionCycle(sub);
+  const list =
+    cycle === 'yearly' ? Number(sub.plan.priceYearly) / 12 : Number(sub.plan.priceMonthly);
+  const ratio = Math.min(Math.max(opts.discountRatio, 0), 1);
+  return { ...base, discount: round2(listPriceWithoutVat(list * ratio, opts.pricing)), cycle };
+}
+
 /** Datos para calcular el MRR de varios tenants con pocas consultas. */
 export interface MrrContext {
   pricing: PlatformPricing;
@@ -303,8 +334,8 @@ export function mrrFor(
   ctx: MrrContext,
   tenantId: string,
   sub: MrrSubscriptionInput,
-): TenantMrrBreakdown {
-  return tenantMrr(sub, {
+): TenantMrrDetail {
+  return tenantMrrDetail(sub, {
     addonsMonthly: ctx.addonsByTenant.get(tenantId) ?? 0,
     discountRatio: ctx.discountByTenant.get(tenantId) ?? 0,
     pricing: ctx.pricing,
@@ -320,7 +351,7 @@ export const MRR_SUBSCRIPTION_SELECT = {
   plan: { select: { slug: true, name: true, priceMonthly: true, priceYearly: true } },
 } satisfies Prisma.TenantSubscriptionSelect;
 
-export interface PayingTenantMrr extends TenantMrrBreakdown {
+export interface PayingTenantMrr extends TenantMrrDetail {
   tenantId: string;
   planSlug: string;
   planName: string;

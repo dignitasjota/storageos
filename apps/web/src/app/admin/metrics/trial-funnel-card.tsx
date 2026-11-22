@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 
+import { CsvButton } from '@/components/admin/metrics/csv-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTrialFunnel } from '@/lib/admin/business-hooks';
 import { formatPct, plural } from '@/lib/format';
@@ -16,7 +17,37 @@ export function TrialFunnelCard({ months }: { months: number }) {
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Embudo de pruebas</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base">Embudo de pruebas</CardTitle>
+          <CsvButton
+            filename="embudo-pruebas.csv"
+            disabled={!q.data}
+            rows={() => [
+              [
+                'Cohorte',
+                'Altas',
+                'Primer contrato',
+                'Pagan',
+                'Sin pagar',
+                'Pagaron y se fueron',
+                'En prueba',
+                'Conversión (%)',
+                'Días hasta pagar',
+              ],
+              ...(q.data?.cohorts ?? []).map((c) => [
+                c.cohort,
+                c.signups,
+                c.activated,
+                c.converted,
+                c.toFree,
+                c.churned,
+                c.inTrial,
+                c.conversionPct ?? '',
+                c.avgDaysToPay ?? '',
+              ]),
+            ]}
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           Tenants dados de alta cada mes: cuántos firmaron su primer contrato con un inquilino y en
           qué acabó su prueba. Pagan también los que tienen el pago atrasado.

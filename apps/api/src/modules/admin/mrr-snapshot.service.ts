@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { percentile, projectMrr } from '@storageos/shared';
 
 import {
   chargedWithoutVat,
@@ -6,6 +7,7 @@ import {
   dateMonthIndex,
   madridMonthIndex,
   monthIndexDate,
+  monthIndexKey,
   monthIndexLabel,
   netPaid,
 } from '../../common/saas-metrics';
@@ -13,6 +15,8 @@ import { platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type {
+  AdminForecastAccuracyDto,
+  AdminForecastScenarioDto,
   AdminMetricsMrrMovementMonthDto,
   AdminMetricsMrrMovementsDto,
   AdminMrrForecastDto,
@@ -24,6 +28,10 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /** Meses cerrados con datos que hacen falta para proyectar el crecimiento. */
 export const FORECAST_MIN_CLOSED_MONTHS = 3;
+/** Por debajo de estos meses cerrados, los escenarios se marcan como poco fiables. */
+export const FORECAST_RELIABLE_CLOSED_MONTHS = 6;
+/** Meses vista que se guardan cada mes para medir la precisión. */
+const FORECAST_SAVED_MONTHS = 6;
 
 /**
  * Snapshots mensuales de MRR + cálculo de los MRR movements.
@@ -76,7 +84,7 @@ export class MrrSnapshotService {
    * previo), no hace nada. Solo la primera consulta del mes dispara la captura.
    * El refresco intramensual (cambios de plan) lo hace el cron diario.
    */
-  private async ensureCurrentMonthSnapshot(now: Date): Promise<void> {
+  async ensureCurrentMonthSnapshot(now: Date): Promise<void> {
     const month = monthIndexDate(madridMonthIndex(now));
     const existing = await this.admin.mrrSnapshot.findFirst({
       where: { month },
@@ -307,14 +315,34 @@ export class MrrSnapshotService {
 
     const horizon = Math.min(Math.max(Math.trunc(horizonMonths) || 6, 1), 24);
     const nowIdx = madridMonthIndex(new Date());
-    const points: AdminMrrForecastPointDto[] = [];
-    let mrr = currentMrr;
-    for (let i = 1; i <= horizon; i++) {
-      if (!insufficientHistory) {
-        mrr = avgNrr !== null ? mrr * (avgNrr / 100) + avgNewMrr : mrr + avgNewMrr;
-      }
-      points.push({ label: monthIndexLabel(nowIdx + i), mrr: round2(Math.max(0, mrr)) });
-    }
+    const labels = Array.from({ length: horizon }, (_, i) => monthIndexLabel(nowIdx + i + 1));
+    /** Sin histórico suficiente se mantiene el MRR actual en todos los escenarios. */
+    const project = (newMrr: number, nrr: number | null): AdminMrrForecastPointDto[] => {
+      const values = insufficientHistory
+        ? labels.map(() => round2(Math.max(0, currentMrr)))
+        : projectMrr(currentMrr, horizon, newMrr, nrr);
+      return labels.map((label, i) => ({ label, mrr: values[i]! }));
+    };
+    const points = project(avgNewMrr, avgNrr);
+
+    // Escenarios: percentil 25 (prudente) y 75 (optimista) de las altas y del NRR
+    // de los meses cerrados; el esperado es la media (la previsión de siempre).
+    const newValues = closed.map((m) => m.newMrr + m.reactivation);
+    const pick = (values: number[], p: number) => {
+      const v = percentile(values, p);
+      return v === null ? null : round2(v);
+    };
+    const scenario = (
+      key: AdminForecastScenarioDto['key'],
+      label: string,
+      newMrr: number,
+      nrr: number | null,
+    ): AdminForecastScenarioDto => ({ key, label, newMrr, nrr, points: project(newMrr, nrr) });
+    const scenarios: AdminForecastScenarioDto[] = [
+      scenario('prudent', 'Prudente', pick(newValues, 0.25) ?? 0, pick(nrrs, 0.25)),
+      { key: 'expected', label: 'Esperado', newMrr: avgNewMrr, nrr: avgNrr, points },
+      scenario('optimistic', 'Optimista', pick(newValues, 0.75) ?? 0, pick(nrrs, 0.75)),
+    ];
 
     return {
       currency: 'EUR',
@@ -323,6 +351,89 @@ export class MrrSnapshotService {
       assumptions: { avgNewMrr, avgNrr, basedOnMonths },
       warmingUp: hist.warmingUp,
       insufficientHistory,
+      shortHistory: basedOnMonths < FORECAST_RELIABLE_CLOSED_MONTHS,
+      scenarios,
+      accuracy: await this.forecastAccuracy(nowIdx),
     };
+  }
+
+  /**
+   * Guarda la previsión del mes en curso (6 meses vista, los tres escenarios)
+   * para medir después su precisión. Una vez al mes: si ya hay previsión de
+   * este mes no hace nada. La llama el cron diario de snapshots (en el worker).
+   */
+  async saveMonthlyForecast(now = new Date()): Promise<boolean> {
+    const nowIdx = madridMonthIndex(now);
+    const madeMonth = monthIndexDate(nowIdx);
+    const existing = await this.admin.mrrForecast.findFirst({
+      where: { madeMonth },
+      select: { id: true },
+    });
+    if (existing) return false;
+    const forecast = await this.getForecast(12, FORECAST_SAVED_MONTHS);
+    const by = new Map(forecast.scenarios.map((sc) => [sc.key, sc.points]));
+    await this.admin.mrrForecast.createMany({
+      data: forecast.points.map((p, i) => ({
+        madeMonth,
+        targetMonth: monthIndexDate(nowIdx + i + 1),
+        monthsAhead: i + 1,
+        baseMrr: forecast.currentMrr,
+        prudent: by.get('prudent')?.[i]?.mrr ?? p.mrr,
+        expected: p.mrr,
+        optimistic: by.get('optimistic')?.[i]?.mrr ?? p.mrr,
+      })),
+      skipDuplicates: true,
+    });
+    this.logger.log(`Previsión de MRR de ${monthIndexLabel(nowIdx)} guardada`);
+    return true;
+  }
+
+  /**
+   * Precisión de las previsiones: para los últimos 6 meses cerrados, el MRR
+   * real al cierre frente a lo que se previó 1, 2 y 3 meses antes.
+   */
+  private async forecastAccuracy(nowIdx: number): Promise<AdminForecastAccuracyDto[]> {
+    const fromIdx = nowIdx - 6;
+    const [saved, snaps] = await Promise.all([
+      this.admin.mrrForecast.findMany({
+        where: {
+          targetMonth: { gte: monthIndexDate(fromIdx), lt: monthIndexDate(nowIdx) },
+          monthsAhead: { lte: 3 },
+        },
+        orderBy: [{ targetMonth: 'asc' }, { monthsAhead: 'asc' }],
+      }),
+      this.admin.mrrSnapshot.groupBy({
+        by: ['month'],
+        where: { month: { gte: monthIndexDate(fromIdx), lt: monthIndexDate(nowIdx) } },
+        _sum: { mrr: true },
+      }),
+    ]);
+    const actualBy = new Map(snaps.map((r) => [dateMonthIndex(r.month), Number(r._sum.mrr ?? 0)]));
+    const byTarget = new Map<number, AdminForecastAccuracyDto>();
+    for (const f of saved) {
+      const idx = dateMonthIndex(f.targetMonth);
+      const actual = round2(actualBy.get(idx) ?? 0);
+      const row = byTarget.get(idx) ?? {
+        label: monthIndexLabel(idx),
+        month: monthIndexKey(idx),
+        actual,
+        forecasts: [],
+      };
+      const expected = Number(f.expected);
+      const prudent = Number(f.prudent);
+      const optimistic = Number(f.optimistic);
+      row.forecasts.push({
+        monthsAhead: f.monthsAhead,
+        expected,
+        prudent,
+        optimistic,
+        errorPct: actual > 0 ? round2(((expected - actual) / actual) * 100) : null,
+        withinRange:
+          actual >= Math.min(prudent, optimistic) - 0.005 &&
+          actual <= Math.max(prudent, optimistic) + 0.005,
+      });
+      byTarget.set(idx, row);
+    }
+    return [...byTarget.values()];
   }
 }

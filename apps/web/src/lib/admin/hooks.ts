@@ -2839,10 +2839,11 @@ export function useRemindReceivable() {
   });
 }
 
-export function useAdminFinance(months = 12) {
+export function useAdminFinance(months = 12, vat: 'with' | 'without' = 'with') {
   return useQuery({
-    queryKey: ['admin', 'finance', months],
-    queryFn: () => adminApiFetch<AdminFinanceOverviewDto>(`/admin/finance?months=${months}`),
+    queryKey: ['admin', 'finance', months, vat],
+    queryFn: () =>
+      adminApiFetch<AdminFinanceOverviewDto>(`/admin/finance?months=${months}&vat=${vat}`),
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });

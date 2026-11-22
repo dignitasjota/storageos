@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { currentMonth } from '../../common/format';
 import {
+  chargedWithoutVat,
   COLLECTED_PAYMENT_STATUSES,
   currentMrrByTenant,
   financeSource,
@@ -12,6 +13,7 @@ import {
   monthIndexStart,
   netPaid,
   OWN_KEY_AI_FEATURES,
+  sameInstantLastYear,
 } from '../../common/saas-metrics';
 import { platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -27,6 +29,9 @@ import type {
 } from '@storageos/shared';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** Cobros sin factura y facturas sin cobro que se listan uno a uno. */
+const RECONCILIATION_LIST_LIMIT = 200;
 
 /** Devoluciones hechas en `[from, to)`: por su fecha (las antiguas sin fecha, por la del cobro). */
 function refundedBetweenWhere(from: Date, to?: Date): Prisma.TenantSubscriptionPaymentWhereInput {
@@ -99,7 +104,7 @@ export class AdminFinanceService {
    * Cobros pagados del periodo sin factura de suscripción y facturas del
    * periodo (sin las rectificativas ni las sustituidas) sin cobro asociado.
    */
-  private async reconciliation(from: Date): Promise<AdminFinanceReconciliationDto> {
+  async reconciliation(from: Date): Promise<AdminFinanceReconciliationDto> {
     const [payments, invoices] = await Promise.all([
       this.admin.tenantSubscriptionPayment.findMany({
         where: {
@@ -108,7 +113,15 @@ export class AdminFinanceService {
           invoice: null,
           tenant: { billingExempt: false },
         },
-        select: { amount: true },
+        select: {
+          id: true,
+          tenantId: true,
+          amount: true,
+          provider: true,
+          paidAt: true,
+          tenant: { select: { name: true } },
+        },
+        orderBy: { paidAt: 'desc' },
       }),
       this.admin.platformInvoice.findMany({
         where: {
@@ -117,7 +130,15 @@ export class AdminFinanceService {
           invoiceType: 'F1',
           status: { notIn: ['rectified', 'cancelled'] },
         },
-        select: { total: true },
+        select: {
+          id: true,
+          fullNumber: true,
+          tenantId: true,
+          tenantName: true,
+          total: true,
+          issuedAt: true,
+        },
+        orderBy: { issuedAt: 'desc' },
       }),
     ]);
     return {
@@ -129,17 +150,64 @@ export class AdminFinanceService {
         count: invoices.length,
         total: round2(invoices.reduce((s, i) => s + Number(i.total), 0)),
       },
+      payments: payments.slice(0, RECONCILIATION_LIST_LIMIT).map((p) => ({
+        id: p.id,
+        tenantId: p.tenantId,
+        tenantName: p.tenant.name,
+        amount: round2(Number(p.amount)),
+        provider: p.provider,
+        paidAt: (p.paidAt ?? new Date()).toISOString(),
+      })),
+      invoices: invoices.slice(0, RECONCILIATION_LIST_LIMIT).map((i) => ({
+        id: i.id,
+        fullNumber: i.fullNumber,
+        tenantId: i.tenantId,
+        tenantName: i.tenantName,
+        total: round2(Number(i.total)),
+        issuedAt: i.issuedAt.toISOString(),
+      })),
     };
   }
 
-  async getOverview(monthsArg = 12): Promise<AdminFinanceOverviewDto> {
+  /**
+   * `vatIncluded = false`: lo cobrado y devuelto se pasa a sin IVA (los cobros
+   * llevan siempre el IVA) y lo facturado se cuenta por su base imponible.
+   */
+  async getOverview(monthsArg = 12, vatIncluded = true): Promise<AdminFinanceOverviewDto> {
     const months = Math.min(Math.max(Math.trunc(monthsArg) || 12, 1), 24);
-    const nowIdx = madridMonthIndex(new Date());
+    const now = new Date();
+    const nowIdx = madridMonthIndex(now);
     const firstIdx = nowIdx - (months - 1);
     const from = monthIndexStart(firstIdx);
     const fromPrev = monthIndexStart(firstIdx - months);
+    const fromLastYear = monthIndexStart(firstIdx - 12);
+    const toLastYear = sameInstantLastYear(now);
 
-    const paying = await currentMrrByTenant(this.admin);
+    const [paying, pricing] = await Promise.all([
+      currentMrrByTenant(this.admin),
+      platformPricing(this.admin),
+    ]);
+    /** Importe con IVA de un cobro, o sin él si se pide. */
+    const v = (n: number) => (vatIncluded ? n : chargedWithoutVat(n, pricing));
+    const invoiceSum = (agg: { _sum: { total: unknown; baseAmount: unknown } }) =>
+      Number((vatIncluded ? agg._sum.total : agg._sum.baseAmount) ?? 0);
+    const [lastYearPayments, lastYearRefunds, lastYearInvoices] = await Promise.all([
+      this.admin.tenantSubscriptionPayment.findMany({
+        where: {
+          status: { in: [...COLLECTED_PAYMENT_STATUSES] },
+          paidAt: { gte: fromLastYear, lt: toLastYear },
+        },
+        select: { amount: true, refundedAmount: true },
+      }),
+      this.admin.tenantSubscriptionPayment.aggregate({
+        where: refundedBetweenWhere(fromLastYear, toLastYear),
+        _sum: { refundedAmount: true },
+      }),
+      this.admin.platformInvoice.aggregate({
+        where: { issuedAt: { gte: fromLastYear, lt: toLastYear }, status: { not: 'rectified' } },
+        _sum: { total: true, baseAmount: true },
+      }),
+    ]);
     const [
       payments,
       refunds,
@@ -168,7 +236,7 @@ export class AdminFinanceService {
       // sustitutiva; los abonos (importes negativos) restan solos.
       this.admin.platformInvoice.aggregate({
         where: { issuedAt: { gte: from }, status: { not: 'rectified' } },
-        _sum: { total: true },
+        _sum: { total: true, baseAmount: true },
       }),
       this.admin.tenantSubscriptionPayment.findMany({
         where: {
@@ -183,7 +251,7 @@ export class AdminFinanceService {
       }),
       this.admin.platformInvoice.aggregate({
         where: { issuedAt: { gte: fromPrev, lt: from }, status: { not: 'rectified' } },
-        _sum: { total: true },
+        _sum: { total: true, baseAmount: true },
       }),
       this.reconciliation(from),
       this.aiOverview([...paying.keys()]),
@@ -208,7 +276,7 @@ export class AdminFinanceService {
     let disputedTotal = 0;
     for (const p of payments) {
       if (!p.paidAt) continue;
-      const amount = netPaid(p);
+      const amount = v(netPaid(p));
       if (p.disputedAt) disputedTotal += amount;
       const source = financeSource(p.provider);
       bySource[source] += amount;
@@ -223,9 +291,10 @@ export class AdminFinanceService {
     for (const r of refunds) {
       const at = r.refundedAt ?? r.paidAt;
       if (!at) continue;
-      refundedTotal += Number(r.refundedAmount);
+      const refunded = v(Number(r.refundedAmount));
+      refundedTotal += refunded;
       const idx = madridMonthIndex(at);
-      if (refundMap.has(idx)) refundMap.set(idx, refundMap.get(idx)! + Number(r.refundedAmount));
+      if (refundMap.has(idx)) refundMap.set(idx, refundMap.get(idx)! + refunded);
     }
 
     const monthly: AdminFinanceMonthDto[] = [...monthMap.entries()].map(([idx, b]) => ({
@@ -253,17 +322,23 @@ export class AdminFinanceService {
         manual: round2(bySource.manual),
       },
       addonsMrr: round2(addonsMrr),
-      invoicedTotal: round2(Number(invoiceAgg._sum.total ?? 0)),
+      invoicedTotal: round2(invoiceSum(invoiceAgg)),
       reconciliation,
       byProvider: [...byProviderMap.entries()]
         .map(([provider, v]) => ({ provider, total: round2(v.total), count: v.count }))
         .sort((a, b) => b.total - a.total),
       monthly,
       previous: {
-        collectedTotal: round2(prevPayments.reduce((sum, p) => sum + netPaid(p), 0)),
-        refundedTotal: round2(Number(prevRefunds._sum.refundedAmount ?? 0)),
-        invoicedTotal: round2(Number(prevInvoices._sum.total ?? 0)),
+        collectedTotal: round2(prevPayments.reduce((sum, p) => sum + v(netPaid(p)), 0)),
+        refundedTotal: round2(v(Number(prevRefunds._sum.refundedAmount ?? 0))),
+        invoicedTotal: round2(invoiceSum(prevInvoices)),
       },
+      lastYear: {
+        collectedTotal: round2(lastYearPayments.reduce((sum, p) => sum + v(netPaid(p)), 0)),
+        refundedTotal: round2(v(Number(lastYearRefunds._sum.refundedAmount ?? 0))),
+        invoicedTotal: round2(invoiceSum(lastYearInvoices)),
+      },
+      vatIncluded,
       ai,
     };
   }

@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 
+import { CsvButton } from '@/components/admin/metrics/csv-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { churnReasonLabel } from '@/lib/admin/churn';
 import { useAdminChurnByReason } from '@/lib/admin/hooks';
@@ -15,7 +16,22 @@ export function ChurnByReasonCard({ months = 12 }: { months?: number }) {
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Churn por razón</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base">Churn por razón</CardTitle>
+          <CsvButton
+            filename="churn-por-razon.csv"
+            disabled={!q.data}
+            rows={() => [
+              ['Motivo', 'Bajas', 'Con motivo apuntado', 'MRR perdido sin IVA'],
+              ...(q.data?.slices ?? []).map((s) => [
+                churnReasonLabel(s.reason),
+                s.count,
+                s.captured,
+                s.lostMrr,
+              ]),
+            ]}
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           Bajas de clientes que pagaban en los últimos {months} meses, por motivo. El motivo se
           captura al suspender; las bajas sin motivo se infieren (impago / voluntaria). Una prueba

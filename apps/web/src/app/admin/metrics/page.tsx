@@ -16,18 +16,29 @@ import {
   YAxis,
 } from 'recharts';
 
+import { AnnotationsCard } from './annotations-card';
 import { BusinessAlertsCard } from './business-alerts-card';
 import { ChurnByReasonCard } from './churn-by-reason-card';
+import { ClientStatesCard } from './client-states-card';
+import { ConcentrationCard } from './concentration-card';
 import { GoalsCard } from './goals-card';
 import { LtvCard } from './ltv-card';
 import { MonthlyReportCard } from './monthly-report-card';
+import { MrrBreakdownCard } from './mrr-breakdown-card';
 import { MrrForecastCard } from './mrr-forecast-card';
 import { MrrMovementsCard } from './mrr-movements-card';
 import { PaymentRetriesCard } from './payment-retries-card';
 import { QuoteOffersCard } from './quote-offers-card';
 import { RetentionCohortsCard } from './retention-cohorts-card';
+import { RevenueSeriesCard } from './revenue-series-card';
 import { TrialFunnelCard } from './trial-funnel-card';
 
+import {
+  annotationLines,
+  monthLabelKey,
+  useAnnotationsByLabel,
+} from '@/components/admin/metrics/annotation-lines';
+import { BreakdownProvider, useOpenBreakdown } from '@/components/admin/metrics/breakdown-sheet';
 import { Delta, PeriodSelect } from '@/components/admin/period-select';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,8 +62,28 @@ const STATUS_META: {
 const PLAN_COLORS = ['#2563eb', '#16a34a', '#a855f7', '#f97316', '#06b6d4', '#eab308', '#ec4899'];
 
 export default function AdminMetricsPage() {
+  return (
+    <BreakdownProvider>
+      <MetricsContent />
+    </BreakdownProvider>
+  );
+}
+
+/** Qué cifra del desglose abre cada estado de «Tenants». */
+const STATE_BREAKDOWN: Record<(typeof STATUS_META)[number]['key'], string> = {
+  active: 'active',
+  pastDue: 'past_due',
+  trial: 'trial',
+  readOnly: 'read_only',
+  suspended: 'suspended',
+  cancelled: 'cancelled',
+};
+
+function MetricsContent() {
   const [months, setMonths] = useState(12);
   const metrics = useAdminMetrics(months);
+  const open = useOpenBreakdown();
+  const notes = useAnnotationsByLabel();
 
   if (metrics.isLoading) {
     return (
@@ -138,30 +169,57 @@ export default function AdminMetricsPage() {
       {/* El periodo elegido frente a los mismos meses justo antes */}
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">
-          Últimos {months} meses frente a los {months} anteriores
+          Últimos {months} meses frente a los {months} anteriores y a los mismos del año pasado
         </h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <MetricCard
             label="Altas"
             value={m.period.current.signups}
-            hint={<Delta current={m.period.current.signups} previous={m.period.previous.signups} />}
+            hint={
+              <>
+                <Delta current={m.period.current.signups} previous={m.period.previous.signups} />
+                <Delta
+                  current={m.period.current.signups}
+                  previous={m.period.lastYear.signups}
+                  against="lastYear"
+                />
+              </>
+            }
           />
           <MetricCard
             label="Bajas"
             value={m.period.current.cancellations}
             hint={
-              <Delta
-                current={m.period.current.cancellations}
-                previous={m.period.previous.cancellations}
-                invert
-              />
+              <>
+                <Delta
+                  current={m.period.current.cancellations}
+                  previous={m.period.previous.cancellations}
+                  invert
+                />
+                <Delta
+                  current={m.period.current.cancellations}
+                  previous={m.period.lastYear.cancellations}
+                  invert
+                  against="lastYear"
+                />
+              </>
             }
           />
           <MetricCard
             label="Cobrado neto (con IVA)"
             value={formatEur(m.period.current.collected)}
             hint={
-              <Delta current={m.period.current.collected} previous={m.period.previous.collected} />
+              <>
+                <Delta
+                  current={m.period.current.collected}
+                  previous={m.period.previous.collected}
+                />
+                <Delta
+                  current={m.period.current.collected}
+                  previous={m.period.lastYear.collected}
+                  against="lastYear"
+                />
+              </>
             }
           />
         </div>
@@ -172,21 +230,40 @@ export default function AdminMetricsPage() {
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Tenants</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
           <MetricCard label="Total" value={m.tenants.total} />
-          <MetricCard label="Activos" value={m.tenants.active} hint="al día" />
+          <MetricCard
+            label="Activos"
+            value={m.tenants.active}
+            hint="al día"
+            onClick={() => open({ metric: STATE_BREAKDOWN.active })}
+          />
           <MetricCard
             label="Pago atrasado"
             value={m.tenants.pastDue}
             hint="siguen en el MRR"
             accent={m.tenants.pastDue > 0 ? 'amber' : undefined}
+            onClick={() => open({ metric: STATE_BREAKDOWN.pastDue })}
           />
-          <MetricCard label="En prueba" value={m.tenants.trial} />
+          <MetricCard
+            label="En prueba"
+            value={m.tenants.trial}
+            onClick={() => open({ metric: STATE_BREAKDOWN.trial })}
+          />
           <MetricCard
             label="Solo lectura"
             value={m.tenants.readOnly}
             hint="prueba terminada sin pagar"
+            onClick={() => open({ metric: STATE_BREAKDOWN.readOnly })}
           />
-          <MetricCard label="Suspendidos" value={m.tenants.suspended} />
-          <MetricCard label="Cancelados" value={m.tenants.cancelled} />
+          <MetricCard
+            label="Suspendidos"
+            value={m.tenants.suspended}
+            onClick={() => open({ metric: STATE_BREAKDOWN.suspended })}
+          />
+          <MetricCard
+            label="Cancelados"
+            value={m.tenants.cancelled}
+            onClick={() => open({ metric: STATE_BREAKDOWN.cancelled })}
+          />
         </div>
       </section>
 
@@ -194,17 +271,59 @@ export default function AdminMetricsPage() {
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Negocio</h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <MetricCard label="MRR (sin IVA)" value={formatEur(m.mrr.total)} hint="plan + extras" />
+          <MetricCard
+            label="MRR (sin IVA)"
+            value={formatEur(m.mrr.total)}
+            hint={
+              <>
+                plan + extras
+                <Delta current={m.mrr.total} previous={m.lastYear.mrr} against="lastYear" />
+              </>
+            }
+            onClick={() => open({ metric: 'paying' })}
+          />
           <MetricCard
             label="Ingreso medio / tenant (sin IVA)"
             value={formatEur(m.averageRevenuePerTenant)}
-            hint={`${plural(m.payingTenants, 'tenant que paga', 'tenants que pagan')}`}
+            hint={
+              <>
+                {plural(m.payingTenants, 'tenant que paga', 'tenants que pagan')}
+                <Delta
+                  current={m.payingTenants}
+                  previous={m.lastYear.payingTenants}
+                  against="lastYear"
+                />
+              </>
+            }
+            onClick={() => open({ metric: 'paying' })}
           />
-          <MetricCard label="Altas este mes" value={m.signupsThisMonth} />
+          <MetricCard
+            label="Altas este mes"
+            value={m.signupsThisMonth}
+            hint={
+              <Delta
+                current={m.signupsThisMonth}
+                previous={m.lastYear.signupsThisMonth}
+                against="lastYear"
+              />
+            }
+            onClick={() => open({ metric: 'signups' })}
+          />
           <MetricCard
             label="Churn (mes)"
             value={formatPct(m.churnRatePercent)}
-            hint={`${plural(m.cancellationsThisMonth, 'baja', 'bajas')} de clientes que pagaban`}
+            hint={
+              <>
+                {plural(m.cancellationsThisMonth, 'baja', 'bajas')} de clientes que pagaban
+                <Delta
+                  current={m.cancellationsThisMonth}
+                  previous={m.lastYear.cancellationsThisMonth}
+                  invert
+                  against="lastYear"
+                />
+              </>
+            }
+            onClick={() => open({ metric: 'churned', month: currentMonthKey() })}
           />
           <MetricCard
             label="Trials por expirar"
@@ -231,6 +350,13 @@ export default function AdminMetricsPage() {
             value={trialConversion === null ? '—' : formatPct(trialConversion, 0)}
             hint="pasan a pagar un plan"
           />
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-3 [&>*]:min-w-0">
+        <MrrBreakdownCard b={m.mrrBreakdown} />
+        <div className="lg:col-span-2">
+          <ClientStatesCard months={months} />
         </div>
       </section>
 
@@ -281,7 +407,8 @@ export default function AdminMetricsPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Altas vs bajas de tenants</CardTitle>
               <p className="text-xs text-muted-foreground">
-                Bajas: clientes que pagaban. Una prueba que acaba sin pagar no cuenta.
+                Bajas: clientes que pagaban. Una prueba que acaba sin pagar no cuenta. Pulsa una
+                barra para ver los tenants.
               </p>
             </CardHeader>
             <CardContent>
@@ -315,12 +442,31 @@ export default function AdminMetricsPage() {
                     />
                     <Tooltip contentStyle={{ borderRadius: 8, fontSize: 13 }} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="signups" name="Altas" fill="#16a34a" radius={[3, 3, 0, 0]} />
+                    {annotationLines(
+                      notes,
+                      m.monthlyGrowth.map((g) => g.label),
+                    )}
+                    <Bar
+                      dataKey="signups"
+                      name="Altas"
+                      fill="#16a34a"
+                      radius={[3, 3, 0, 0]}
+                      className="cursor-pointer"
+                      onClick={(e: { payload?: { label?: string } }) => {
+                        const month = e.payload?.label ? monthLabelKey(e.payload.label) : null;
+                        if (month) open({ metric: 'signups', month });
+                      }}
+                    />
                     <Bar
                       dataKey="cancellations"
                       name="Bajas"
                       fill="#ef4444"
                       radius={[3, 3, 0, 0]}
+                      className="cursor-pointer"
+                      onClick={(e: { payload?: { label?: string } }) => {
+                        const month = e.payload?.label ? monthLabelKey(e.payload.label) : null;
+                        if (month) open({ metric: 'churned', month });
+                      }}
                     />
                   </BarChart>
                 </ResponsiveContainer>
@@ -366,6 +512,10 @@ export default function AdminMetricsPage() {
                       formatter={(v) => formatEur(Number(v) || 0)}
                       contentStyle={{ borderRadius: 8, fontSize: 13 }}
                     />
+                    {annotationLines(
+                      notes,
+                      m.monthlySaasRevenue.map((r) => r.label),
+                    )}
                     <Bar
                       dataKey="collected"
                       name="Cobrado neto"
@@ -380,8 +530,8 @@ export default function AdminMetricsPage() {
         </div>
       </section>
 
-      {/* MRR movements + previsión */}
-      <section className="min-w-0">
+      {/* Embudo de pruebas (las pruebas que pasan a pagar, aparte de la retención) */}
+      <section id="embudo-pruebas" className="min-w-0 scroll-mt-4">
         <TrialFunnelCard months={months} />
         <QuoteOffersCard />
       </section>
@@ -389,7 +539,11 @@ export default function AdminMetricsPage() {
         <MrrMovementsCard months={months} />
       </section>
       <section className="min-w-0">
+        <RevenueSeriesCard months={months} />
+      </section>
+      <section className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
         <MrrForecastCard />
+        <ConcentrationCard />
       </section>
 
       {/* Cohortes de retención + churn por razón */}
@@ -407,6 +561,10 @@ export default function AdminMetricsPage() {
       {/* LTV + cohortes de ingresos */}
       <section className="min-w-0">
         <LtvCard months={months} />
+      </section>
+
+      <section className="min-w-0">
+        <AnnotationsCard />
       </section>
 
       {/* Totales de plataforma */}
@@ -502,14 +660,17 @@ function MetricCard({
   value,
   hint,
   accent,
+  onClick,
 }: {
   label: string;
   value: number | string;
   hint?: ReactNode;
   accent?: 'amber';
+  /** Si se pasa, la tarjeta abre los tenants que forman la cifra. */
+  onClick?: () => void;
 }) {
-  return (
-    <Card className="min-w-0">
+  const body = (
+    <>
       <CardHeader className="pb-1">
         <CardTitle className="text-xs font-normal text-muted-foreground">{label}</CardTitle>
       </CardHeader>
@@ -523,6 +684,28 @@ function MetricCard({
         </div>
         {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
       </CardContent>
+    </>
+  );
+  if (!onClick) return <Card className="min-w-0">{body}</Card>;
+  return (
+    <Card className="min-w-0 transition-colors hover:bg-muted/40">
+      <button
+        type="button"
+        onClick={onClick}
+        className="block w-full text-left"
+        title="Ver los tenants"
+      >
+        {body}
+      </button>
     </Card>
   );
+}
+
+/** «AAAA-MM» del mes en curso en hora de España. */
+function currentMonthKey(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date());
 }

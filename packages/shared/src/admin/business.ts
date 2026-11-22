@@ -63,6 +63,8 @@ export interface AdminPeriodComparisonDto {
   current: AdminPeriodTotalsDto;
   /** Los mismos meses justo antes. */
   previous: AdminPeriodTotalsDto;
+  /** Los mismos meses del año pasado. */
+  lastYear: AdminPeriodTotalsDto;
 }
 
 // --- Previsión de cobros ---------------------------------------------------
@@ -101,6 +103,7 @@ export const UpdateBusinessGoalsSchema = z.object({
   signupsTargetMonthly: z.number().int().min(0).max(100_000).nullable().optional(),
   trialConversionTargetPct: z.number().int().min(0).max(100).nullable().optional(),
   targetDate: isoDate.optional(),
+  collectedTargetMonthly: z.number().min(0).max(100_000_000).nullable().optional(),
 });
 export type UpdateBusinessGoalsInput = z.infer<typeof UpdateBusinessGoalsSchema>;
 
@@ -116,12 +119,16 @@ export interface AdminBusinessGoalsDto {
   signupsTargetMonthly: number | null;
   trialConversionTargetPct: number | null;
   targetDate: string | null;
+  /** Objetivo de cobro mensual (con IVA). */
+  collectedTargetMonthly: number | null;
   progress: {
     mrr: AdminGoalProgressDto | null;
     /** Altas de este mes frente al objetivo mensual. */
     signups: AdminGoalProgressDto | null;
     /** Conversión de las pruebas de los últimos 3 meses. */
     trialConversion: AdminGoalProgressDto | null;
+    /** Cobrado neto (con IVA) de este mes frente al objetivo mensual. */
+    collected: AdminGoalProgressDto | null;
   };
   /** MRR que habría que sumar cada mes para llegar al objetivo en la fecha. */
   mrrNeededPerMonth: number | null;
@@ -136,6 +143,7 @@ export const UpdateBusinessAlertSettingsSchema = z.object({
   churnPct: z.number().int().min(1).max(100).optional(),
   aiCostUsdWeek: z.number().min(0).max(100_000).optional(),
   bigTenantMrr: z.number().min(0).max(1_000_000).optional(),
+  concentrationPct: z.number().int().min(1).max(100).optional(),
 });
 export type UpdateBusinessAlertSettingsInput = z.infer<typeof UpdateBusinessAlertSettingsSchema>;
 
@@ -145,9 +153,16 @@ export interface AdminBusinessAlertSettingsDto {
   churnPct: number;
   aiCostUsdWeek: number;
   bigTenantMrr: number;
+  /** Aviso si un cliente supera este % del MRR. */
+  concentrationPct: number;
 }
 
-export type AdminBusinessAlertKind = 'mrr_drop' | 'churn' | 'big_tenant_at_risk' | 'ai_cost';
+export type AdminBusinessAlertKind =
+  | 'mrr_drop'
+  | 'churn'
+  | 'big_tenant_at_risk'
+  | 'ai_cost'
+  | 'concentration';
 
 export interface AdminBusinessAlertDto {
   kind: AdminBusinessAlertKind;

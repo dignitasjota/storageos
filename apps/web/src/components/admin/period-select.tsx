@@ -39,22 +39,30 @@ export function Delta({
   current,
   previous,
   invert = false,
+  against = 'previous',
 }: {
   current: number;
-  previous: number;
+  previous: number | null;
   /** Si subir es malo (bajas). */
   invert?: boolean;
+  /** Con qué se compara: el periodo anterior o el mismo del año pasado. */
+  against?: 'previous' | 'lastYear';
 }) {
-  if (previous === 0) {
-    return <span className="text-xs text-muted-foreground">sin datos del periodo anterior</span>;
+  const what = against === 'lastYear' ? 'el año pasado' : 'el periodo anterior';
+  if (!previous) {
+    return (
+      <span className="block text-xs text-muted-foreground">
+        sin datos {against === 'lastYear' ? 'del año pasado' : 'del periodo anterior'}
+      </span>
+    );
   }
   const change = ((current - previous) / previous) * 100;
   const good = invert ? change <= 0 : change >= 0;
   return (
     <span
-      className={`text-xs ${good ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}
+      className={`block text-xs ${good ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400'}`}
     >
-      {change >= 0 ? '▲' : '▼'} {Math.abs(Math.round(change))} % frente al periodo anterior
+      {change >= 0 ? '▲' : '▼'} {Math.abs(Math.round(change))} % frente a {what}
     </span>
   );
 }

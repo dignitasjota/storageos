@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 
+import { CsvButton } from '@/components/admin/metrics/csv-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminLtv } from '@/lib/admin/hooks';
 import { formatEur, formatPct, plural } from '@/lib/format';
@@ -23,7 +24,25 @@ export function LtvCard({ months = 12 }: { months?: number }) {
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">LTV y cohortes de ingresos</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base">LTV y cohortes de ingresos</CardTitle>
+          <CsvButton
+            filename="ltv-cohortes.csv"
+            disabled={!q.data}
+            rows={() => [
+              ['Cohorte', 'Tenants', 'Ingreso acumulado con IVA', 'Por tenant'],
+              ...(q.data?.cohorts ?? []).map((c) => [
+                c.cohortMonth,
+                c.tenants,
+                c.revenue,
+                c.revenuePerTenant,
+              ]),
+              [],
+              ['Tenant', 'Pagado neto con IVA', 'Cobros'],
+              ...(q.data?.topTenants ?? []).map((t) => [t.name, t.totalPaid, t.paymentsCount]),
+            ]}
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           Valor de vida del cliente: el modelo (ARPA sin IVA entre el churn mensual del MRR) y lo ya
           cobrado (con IVA), e ingreso acumulado por mes de alta.

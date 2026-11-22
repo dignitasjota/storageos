@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Download, FileText, Loader2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import {
   Bar,
@@ -12,14 +12,34 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { toast } from 'sonner';
 
+import { AcquisitionCard } from './acquisition-card';
+import { CashMonthCard } from './cash-month-card';
 import { ForecastCard } from './forecast-card';
+import { MarginCard } from './margin-card';
+import { ReconciliationCard } from './reconciliation-card';
+import { VatQuarterlyCard } from './vat-quarterly-card';
+
+import type { AdminFinanceCsvKind } from '@storageos/shared';
 
 import { ApplicationFeeReport } from '@/components/admin/application-fee-report';
+import {
+  annotationLines,
+  useAnnotationsByLabel,
+} from '@/components/admin/metrics/annotation-lines';
 import { Delta, PeriodSelect } from '@/components/admin/period-select';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAdminFinance } from '@/lib/admin/hooks';
-import { formatCount, formatEur, formatEurShort, plural } from '@/lib/format';
+import { downloadFinanceCsv, downloadFinancePdf } from '@/lib/admin/metrics-insights-hooks';
+import { formatCount, formatEur, formatEurShort } from '@/lib/format';
 
 const PROVIDER_LABELS: Record<string, string> = {
   stripe: 'Stripe',
@@ -42,8 +62,25 @@ const SOURCES = [
 
 export default function AdminFinancePage() {
   const [months, setMonths] = useState(12);
-  const finance = useAdminFinance(months);
+  const [vat, setVat] = useState<'with' | 'without'>('with');
+  const finance = useAdminFinance(months, vat);
+  const notes = useAnnotationsByLabel();
   const d = finance.data;
+  const vatText = vat === 'with' ? 'con IVA' : 'sin IVA';
+  const [exporting, setExporting] = useState(false);
+
+  async function exportFile(run: () => Promise<void>) {
+    setExporting(true);
+    try {
+      await run();
+    } catch {
+      toast.error('No se pudo descargar.');
+    } finally {
+      setExporting(false);
+    }
+  }
+  const csv = (kind: AdminFinanceCsvKind) => () =>
+    void exportFile(() => downloadFinanceCsv(kind, { months, vat }));
 
   if (finance.isLoading) {
     return (
@@ -60,9 +97,6 @@ export default function AdminFinancePage() {
     );
   }
 
-  const { paymentsWithoutInvoice, invoicesWithoutPayment } = d.reconciliation;
-  const mismatches = paymentsWithoutInvoice.count + invoicesWithoutPayment.count;
-
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -70,30 +104,115 @@ export default function AdminFinancePage() {
           <h1 className="text-2xl font-semibold tracking-tight">Finanzas</h1>
           <p className="text-sm text-muted-foreground">
             Ingresos reales del SaaS por forma de cobro, descontado lo devuelto, reconciliación con
-            lo facturado y lo que se espera cobrar. Lo cobrado, devuelto y facturado va con IVA; el
-            MRR y la IA, sin IVA. Se actualiza cada minuto.
+            lo facturado, margen y lo que se espera cobrar. Lo cobrado, devuelto y facturado va{' '}
+            {vatText}; el MRR, el margen y la IA, sin IVA. Se actualiza cada minuto.
           </p>
         </div>
-        <PeriodSelect value={months} onChange={setMonths} />
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-md border p-0.5" role="group" aria-label="IVA">
+            {(
+              [
+                ['with', 'Con IVA'],
+                ['without', 'Sin IVA'],
+              ] as const
+            ).map(([key, label]) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={vat === key ? 'secondary' : 'ghost'}
+                className="h-8 px-3"
+                aria-pressed={vat === key}
+                onClick={() => setVat(key)}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <PeriodSelect value={months} onChange={setMonths} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={exporting}>
+                {exporting ? (
+                  <Loader2 className="mr-1 size-4 animate-spin" />
+                ) : (
+                  <Download className="mr-1 size-4" />
+                )}
+                Exportar
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={csv('monthly')}>CSV: serie mensual</DropdownMenuItem>
+              <DropdownMenuItem onSelect={csv('providers')}>
+                CSV: por método de pago
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={csv('margin')}>CSV: margen</DropdownMenuItem>
+              <DropdownMenuItem onSelect={csv('reconciliation')}>
+                CSV: cobros y facturas que no cuadran
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() =>
+                  void exportFile(() =>
+                    downloadFinanceCsv('vat', { months, vat, year: new Date().getFullYear() }),
+                  )
+                }
+              >
+                CSV: IVA trimestral de este año
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => void exportFile(() => downloadFinancePdf(months, vat))}
+              >
+                <FileText className="mr-2 size-4" /> Informe en PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi
-          label={`Cobrado neto, con IVA (${months} m)`}
+          label={`Cobrado neto, ${vatText} (${months} m)`}
           value={formatEur(d.collectedTotal)}
-          hint={<Delta current={d.collectedTotal} previous={d.previous.collectedTotal} />}
+          hint={
+            <>
+              <Delta current={d.collectedTotal} previous={d.previous.collectedTotal} />
+              <Delta
+                current={d.collectedTotal}
+                previous={d.lastYear.collectedTotal}
+                against="lastYear"
+              />
+            </>
+          }
         />
         <Kpi
-          label={`Devuelto en el periodo, con IVA (${months} m)`}
+          label={`Devuelto en el periodo, ${vatText} (${months} m)`}
           value={formatEur(d.refundedTotal)}
-          hint={<Delta current={d.refundedTotal} previous={d.previous.refundedTotal} invert />}
+          hint={
+            <>
+              <Delta current={d.refundedTotal} previous={d.previous.refundedTotal} invert />
+              <Delta
+                current={d.refundedTotal}
+                previous={d.lastYear.refundedTotal}
+                invert
+                against="lastYear"
+              />
+            </>
+          }
         />
-        <Kpi label="En contracargo (con IVA)" value={formatEur(d.disputedTotal)} />
+        <Kpi label={`En contracargo (${vatText})`} value={formatEur(d.disputedTotal)} />
         <Kpi label="MRR de los extras (sin IVA)" value={formatEur(d.addonsMrr)} />
         <Kpi
-          label={`Facturado neto, con IVA (${months} m)`}
+          label={`Facturado neto, ${vatText} (${months} m)`}
           value={formatEur(d.invoicedTotal)}
-          hint={<Delta current={d.invoicedTotal} previous={d.previous.invoicedTotal} />}
+          hint={
+            <>
+              <Delta current={d.invoicedTotal} previous={d.previous.invoicedTotal} />
+              <Delta
+                current={d.invoicedTotal}
+                previous={d.lastYear.invoicedTotal}
+                against="lastYear"
+              />
+            </>
+          }
         />
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -101,6 +220,8 @@ export default function AdminFinancePage() {
           <Kpi key={src.key} label={src.label} value={formatEur(d.bySource[src.key])} />
         ))}
       </div>
+
+      <CashMonthCard />
 
       <ApplicationFeeReport months={months} />
 
@@ -134,24 +255,14 @@ export default function AdminFinancePage() {
         </CardContent>
       </Card>
 
-      {mismatches > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-          ⚠ Cobros y facturas que no cuadran en el periodo:
-          {paymentsWithoutInvoice.count > 0 &&
-            ` ${plural(paymentsWithoutInvoice.count, 'cobro sin factura', 'cobros sin factura')} (${formatEur(paymentsWithoutInvoice.total)})`}
-          {paymentsWithoutInvoice.count > 0 && invoicesWithoutPayment.count > 0 && ' ·'}
-          {invoicesWithoutPayment.count > 0 &&
-            ` ${plural(invoicesWithoutPayment.count, 'factura sin cobro', 'facturas sin cobro')} (${formatEur(invoicesWithoutPayment.total)})`}
-          . Revísalos en Facturas emitidas.
-        </div>
-      )}
+      <ReconciliationCard r={d.reconciliation} />
 
       <ForecastCard />
 
       <Card className="min-w-0">
         <CardHeader>
           <CardTitle className="text-base">
-            Ingresos netos por mes y forma de cobro (con IVA)
+            Ingresos netos por mes y forma de cobro ({vatText})
           </CardTitle>
           <p className="text-xs text-muted-foreground">
             Cada cobro, en el mes en que se cobró y sin lo devuelto; lo devuelto, en el mes de la
@@ -171,6 +282,10 @@ export default function AdminFinancePage() {
                 <YAxis fontSize={11} width={52} tickFormatter={(v) => formatEurShort(Number(v))} />
                 <Tooltip formatter={(v) => formatEur(Number(v) || 0)} />
                 <Legend />
+                {annotationLines(
+                  notes,
+                  d.monthly.map((m) => m.month),
+                )}
                 {SOURCES.map((src) => (
                   <Bar
                     key={src.key}
@@ -197,7 +312,7 @@ export default function AdminFinancePage() {
 
       <Card className="min-w-0">
         <CardHeader>
-          <CardTitle className="text-base">Cobrado neto por método de pago (con IVA)</CardTitle>
+          <CardTitle className="text-base">Cobrado neto por método de pago ({vatText})</CardTitle>
         </CardHeader>
         <CardContent>
           {d.byProvider.length === 0 ? (
@@ -228,6 +343,12 @@ export default function AdminFinancePage() {
           )}
         </CardContent>
       </Card>
+
+      <MarginCard months={months} />
+      <section className="grid gap-4 xl:grid-cols-2 [&>*]:min-w-0">
+        <AcquisitionCard months={months} />
+        <VatQuarterlyCard />
+      </section>
     </div>
   );
 }

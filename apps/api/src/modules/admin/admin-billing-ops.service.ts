@@ -588,28 +588,20 @@ export class AdminBillingOpsService {
    * próxima fecha. Aparte, lo vencido sin cobrar, lo que ya va en una remesa
    * SEPA y las tarjetas de Redsys con el último cobro rechazado.
    */
-  async collectionsForecast(now = new Date()): Promise<AdminCollectionsForecastDto> {
-    const horizon = 90;
-    const to = new Date(now.getTime() + horizon * DAY);
-    const pricing = await platformPricing(this.admin);
-    const ranges = [
-      { label: 'Próximos 30 días', fromDays: 0, toDays: 30 },
-      { label: 'De 31 a 60 días', fromDays: 31, toDays: 60 },
-      { label: 'De 61 a 90 días', fromDays: 61, toDays: 90 },
-    ];
-    const buckets: AdminCollectionsForecastBucketDto[] = ranges.map((r) => ({
-      ...r,
-      byMethod: { stripe: 0, sepa: 0, redsys: 0, manual: 0 },
-      total: 0,
-      count: 0,
-    }));
+  /**
+   * Cargos previstos (con IVA) entre `now` y `to`: la cuota de cada suscripción
+   * activa en su fecha de renovación (y las siguientes) y los extras que se
+   * cobran aparte.
+   */
+  private async upcomingCharges(
+    now: Date,
+    to: Date,
+    pricing: PlatformPricing,
+  ): Promise<{ date: Date; method: AdminChargeMethod; amount: number }[]> {
+    const out: { date: Date; method: AdminChargeMethod; amount: number }[] = [];
     const add = (date: Date, method: AdminChargeMethod, amount: number) => {
       if (amount <= 0 || date < now || date > to) return;
-      const days = Math.floor((date.getTime() - now.getTime()) / DAY);
-      const b = buckets.find((x) => days >= x.fromDays && days <= x.toDays) ?? buckets[2]!;
-      b.byMethod[method] = round2(b.byMethod[method] + amount);
-      b.total = round2(b.total + amount);
-      b.count += 1;
+      out.push({ date, method, amount });
     };
     /** Repite un cargo cada `stepMonths` desde `first` hasta el horizonte. */
     const repeat = (first: Date, stepMonths: number, fn: (d: Date) => void) => {
@@ -621,7 +613,6 @@ export class AdminBillingOpsService {
         fn(d);
       }
     };
-
     const subs = await this.admin.tenantSubscription.findMany({
       where: {
         status: 'active',
@@ -639,6 +630,44 @@ export class AdminBillingOpsService {
         const first = new Date(c.date);
         if (first >= now) repeat(first, 1, (d) => add(d, 'manual', c.total));
       }
+    }
+    return out;
+  }
+
+  /** Lo que se espera cobrar (con IVA) entre `now` y `to`, y lo vencido sin cobrar. */
+  async expectedBetween(now: Date, to: Date): Promise<{ total: number; overdue: number }> {
+    const pricing = await platformPricing(this.admin);
+    const [charges, receivables] = await Promise.all([
+      this.upcomingCharges(now, to, pricing),
+      this.receivables(now),
+    ]);
+    return {
+      total: round2(charges.reduce((s, c) => s + c.amount, 0)),
+      overdue: receivables.total,
+    };
+  }
+
+  async collectionsForecast(now = new Date()): Promise<AdminCollectionsForecastDto> {
+    const horizon = 90;
+    const to = new Date(now.getTime() + horizon * DAY);
+    const pricing = await platformPricing(this.admin);
+    const ranges = [
+      { label: 'Próximos 30 días', fromDays: 0, toDays: 30 },
+      { label: 'De 31 a 60 días', fromDays: 31, toDays: 60 },
+      { label: 'De 61 a 90 días', fromDays: 61, toDays: 90 },
+    ];
+    const buckets: AdminCollectionsForecastBucketDto[] = ranges.map((r) => ({
+      ...r,
+      byMethod: { stripe: 0, sepa: 0, redsys: 0, manual: 0 },
+      total: 0,
+      count: 0,
+    }));
+    for (const c of await this.upcomingCharges(now, to, pricing)) {
+      const days = Math.floor((c.date.getTime() - now.getTime()) / DAY);
+      const b = buckets.find((x) => days >= x.fromDays && days <= x.toDays) ?? buckets[2]!;
+      b.byMethod[c.method] = round2(b.byMethod[c.method] + c.amount);
+      b.total = round2(b.total + c.amount);
+      b.count += 1;
     }
 
     const [receivables, sepaPending, cardIssues] = await Promise.all([

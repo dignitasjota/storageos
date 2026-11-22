@@ -1,5 +1,13 @@
 import type { AdminBusinessGoalsDto, AdminPeriodComparisonDto } from './business';
 import type { PlatformLeadFollowupDto, PlatformLeadSource } from './leads';
+import type {
+  AdminForecastAccuracyDto,
+  AdminForecastScenarioDto,
+  AdminLastYearDto,
+  AdminMrrBreakdownDto,
+  AdminReconciliationInvoiceDto,
+  AdminReconciliationPaymentDto,
+} from './metrics-insights';
 import type { SupportTicketWatcherDto } from './support';
 import type { EmailDnsRecordDto } from '../email-domains';
 import type { TenantFeature } from '../features';
@@ -552,6 +560,13 @@ export interface AdminRetentionCohortDto {
    * y para los meses de una cohorte sin altas.
    */
   retention: (number | null)[];
+  /** MRR inicial de la cohorte (el primer MRR de cada cliente), sin IVA. */
+  startMrr: number;
+  /**
+   * % del MRR inicial que se conserva a los N meses del primer pago de cada
+   * cliente (NRR por cohorte; puede pasar de 100). `null` sin datos.
+   */
+  revenueRetention: (number | null)[];
 }
 
 /** Matriz de cohortes de retención de tenants (por mes de alta). */
@@ -596,6 +611,10 @@ export interface AdminMetricsDto {
     total: number;
     currency: string;
   };
+  /** Desglose del MRR: plan mensual, anual repartido, extras y descuentos. */
+  mrrBreakdown: AdminMrrBreakdownDto;
+  /** Las mismas cifras del mismo mes del año pasado. */
+  lastYear: AdminLastYearDto;
   signupsThisMonth: number;
   /**
    * Bajas del mes de tenants que llegaron a pagar (cancelados o suspendidos,
@@ -1806,6 +1825,10 @@ export interface AdminFinanceOverviewDto {
   monthly: AdminFinanceMonthDto[];
   /** Los mismos meses justo antes, para comparar. */
   previous: { collectedTotal: number; refundedTotal: number; invoicedTotal: number };
+  /** Los mismos meses del año pasado. */
+  lastYear: { collectedTotal: number; refundedTotal: number; invoicedTotal: number };
+  /** true = importes con IVA; false = sin IVA (`vat=without`). */
+  vatIncluded: boolean;
   /** Asistente IA este mes: lo que pagan por él y lo que nos cuesta. */
   ai: AdminFinanceAiDto;
 }
@@ -1816,6 +1839,10 @@ export interface AdminFinanceReconciliationDto {
   paymentsWithoutInvoice: { count: number; total: number };
   /** Facturas del periodo sin un cobro asociado. */
   invoicesWithoutPayment: { count: number; total: number };
+  /** Los cobros sin factura, uno a uno (los 200 más recientes). */
+  payments: AdminReconciliationPaymentDto[];
+  /** Las facturas sin cobro, una a una (las 200 más recientes). */
+  invoices: AdminReconciliationInvoiceDto[];
 }
 
 export interface AdminFinanceAiDto {
@@ -1916,6 +1943,12 @@ export interface AdminMrrForecastDto {
    * previsión mantiene el MRR actual).
    */
   insufficientHistory: boolean;
+  /** Menos de 6 meses cerrados: los escenarios son poco fiables. */
+  shortHistory: boolean;
+  /** Prudente (percentil 25), esperado (la media, `points`) y optimista (percentil 75). */
+  scenarios: AdminForecastScenarioDto[];
+  /** Previsiones guardadas de hace 1-3 meses frente al MRR real. */
+  accuracy: AdminForecastAccuracyDto[];
 }
 
 /** Un tenant en el ranking de LTV realizado (Σ pagos de suscripción). */

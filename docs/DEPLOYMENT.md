@@ -3056,3 +3056,19 @@ Migración `20270223100000_mrr_snapshots_without_vat` (se aplica sola): pasa a s
 - **Pago atrasado**: sigue en el MRR hasta que se suspende la cuenta (ya no sale como baja y luego reactivación).
 - **«Devuelto»**: en el mes de la devolución.
 - Meses en hora de España; la previsión no proyecta con menos de 3 meses cerrados.
+
+## 182. Métricas y Finanzas del super admin: mejoras (2026-11-22)
+
+Migración `20270224100000_admin_metrics_finance_improvements` (se aplica sola): `mrr_forecasts`, `platform_finance_settings`, `platform_marketing_spend`, `platform_metric_annotations` (globales con REVOKE), `platform_alert_settings.alert_concentration_pct` (25) y `platform_business_goals.collected_target_monthly`. Sin variables nuevas.
+
+**Después de desplegar, revisar en Finanzas → Margen → «Costes»** las estimaciones (las pasarelas no guardan su comisión real):
+
+| Coste                      | Por defecto              |
+| -------------------------- | ------------------------ |
+| Stripe                     | 1,5 % + 0,25 € por cobro |
+| Redsys                     | 0,4 %                    |
+| Remesa SEPA                | 0,30 € por adeudo        |
+| Dólar → euro (coste de IA) | 0,92                     |
+| Cada correo enviado        | 0,001 €                  |
+
+El gasto de marketing de cada mes se apunta ahí mismo (cuenta para el coste de adquisición). La precisión de la previsión empieza a llenarse con el cron mensual del worker.
