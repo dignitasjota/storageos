@@ -204,6 +204,7 @@ export class ChatAlertsService {
       [t.domainsReady.length, 'dominios propios por activar'],
       [t.rgpdOverdue.length, 'tenants con solicitudes RGPD fuera de plazo'],
       [t.pastDue.length, 'tenants con pago pendiente'],
+      [t.paymentFailures.length, 'cobros de la suscripción rechazados'],
       [t.addonCharges.length, 'cobros de extras por registrar'],
       [t.manualRenewalsDue.length, 'renovaciones manuales por vencer'],
       [t.followupsDue.length, 'seguimientos para hoy'],
@@ -218,7 +219,7 @@ export class ChatAlertsService {
     ];
     const body = lines.filter(([n]) => n > 0).map(([n, label]) => `• ${n} ${label}`);
     return [
-      `TrasterOS · Hoy: ${t.urgentCount} cosa(s) urgente(s)`,
+      `TrasterOS · Hoy: ${t.urgentCount === 1 ? '1 cosa urgente' : `${t.urgentCount} cosas urgentes`}`,
       ...body,
       `${this.webBase}/admin/today`,
     ].join('\n');

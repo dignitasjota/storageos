@@ -14,6 +14,8 @@ import type {
   PlatformLeadSource,
   AdminTodayDomainDto,
   AdminTodayDoneDto,
+  AdminTodayInactiveDto,
+  AdminTodayPaymentFailureDto,
   AdminTodayNpsDto,
   AdminTodayWorkloadDto,
   CreateTodaySnoozeInput,
@@ -24,6 +26,10 @@ const DAY = 86_400_000;
 const ACTIVATION_DAYS = 7;
 /** Hasta qué nota se considera una respuesta NPS baja. */
 const NPS_NEGATIVE_MAX = 6;
+/** Cobros de la suscripción rechazados que salen en «Hoy» (horas hacia atrás). */
+const PAYMENT_FAILURE_HOURS = 48;
+/** Días sin que entre nadie del equipo para dar a un cliente por perdido. */
+const INACTIVE_DAYS = 14;
 /** Un tenant dado de baja o borrado ya no da trabajo a nadie. */
 const LIVE_TENANT = { deletedAt: null, status: { not: 'cancelled' as const } };
 
@@ -91,7 +97,7 @@ export class AdminTodayExtrasService {
     const rows = await this.admin.platformLead.findMany({
       where: { status: 'new', discardedAt: null },
       orderBy: { createdAt: 'asc' },
-      take: 50,
+      take: 100,
       select: {
         id: true,
         companyName: true,
@@ -267,6 +273,206 @@ export class AdminTodayExtrasService {
         lastLoginAt: loginBy.get(t.id)?.toISOString() ?? null,
       },
     }));
+  }
+
+  // ------------------------------------------------------------- el dinero
+
+  /**
+   * Lo que paga al mes cada tenant: el plan y los extras sin suspender (precio
+   * de lista, como el MRR de la lista de tenants).
+   */
+  async monthlyByTenant(tenantIds: string[]): Promise<Map<string, number>> {
+    const ids = [...new Set(tenantIds)];
+    if (ids.length === 0) return new Map();
+    const [subs, addons] = await Promise.all([
+      this.admin.tenantSubscription.findMany({
+        where: { tenantId: { in: ids } },
+        select: { tenantId: true, plan: { select: { priceMonthly: true } } },
+      }),
+      this.admin.tenantSubscriptionAddon.findMany({
+        where: { tenantId: { in: ids }, suspendedAt: null },
+        select: { tenantId: true, priceMonthly: true, quantity: true },
+      }),
+    ]);
+    const out = new Map<string, number>();
+    for (const s of subs) out.set(s.tenantId, Number(s.plan?.priceMonthly ?? 0));
+    for (const a of addons) {
+      out.set(a.tenantId, (out.get(a.tenantId) ?? 0) + Number(a.priceMonthly) * a.quantity);
+    }
+    for (const [id, v] of out) out.set(id, Math.round(v * 100) / 100);
+    return out;
+  }
+
+  /**
+   * Cobros de la suscripción rechazados en las últimas 48 h: cargos de Stripe,
+   * tarjeta de Redsys de la plataforma y adeudos SEPA devueltos. Uno por tenant
+   * (el último) y sin los que ya han pagado después. De más dinero a menos.
+   */
+  async paymentFailures(now = new Date()): Promise<AdminTodayPaymentFailureDto[]> {
+    const since = new Date(now.getTime() - PAYMENT_FAILURE_HOURS * 3_600_000);
+    const [payments, orders, bounces] = await Promise.all([
+      this.admin.tenantSubscriptionPayment.findMany({
+        where: { status: 'failed', recoveredAt: null, updatedAt: { gte: since } },
+        select: {
+          tenantId: true,
+          provider: true,
+          amount: true,
+          currency: true,
+          failedAttempts: true,
+          updatedAt: true,
+        },
+      }),
+      this.admin.platformRedsysOrder.findMany({
+        where: { status: 'failed', createdAt: { gte: since } },
+        select: {
+          tenantId: true,
+          amountCents: true,
+          dsResponse: true,
+          kind: true,
+          createdAt: true,
+        },
+      }),
+      this.admin.platformSepaRemittanceItem.findMany({
+        where: { itemStatus: 'bounced', bouncedAt: { gte: since } },
+        select: { tenantId: true, amount: true, bounceReason: true, bouncedAt: true },
+      }),
+    ]);
+    type Failure = Omit<
+      AdminTodayPaymentFailureDto,
+      'tenantName' | 'failures' | 'pastDue' | 'currency'
+    > & {
+      currency: string;
+      at: Date;
+    };
+    const all: Failure[] = [
+      ...payments.map((p) => ({
+        tenantId: p.tenantId,
+        source: (p.provider === 'stripe' ? 'stripe' : 'other') as Failure['source'],
+        amount: Number(p.amount),
+        currency: p.currency,
+        reason:
+          p.failedAttempts > 1
+            ? `Cargo rechazado (${p.failedAttempts} intentos)`
+            : 'Cargo rechazado',
+        failedAt: p.updatedAt.toISOString(),
+        at: p.updatedAt,
+      })),
+      ...orders.map((o) => ({
+        tenantId: o.tenantId,
+        source: 'redsys' as const,
+        amount: o.amountCents / 100,
+        currency: 'EUR',
+        reason: `${o.kind === 'auto' ? 'Tarjeta guardada rechazada' : 'Pago con tarjeta rechazado'}${
+          o.dsResponse ? ` (código ${o.dsResponse})` : ''
+        }`,
+        failedAt: o.createdAt.toISOString(),
+        at: o.createdAt,
+      })),
+      ...bounces.map((b) => {
+        const at = b.bouncedAt ?? now;
+        return {
+          tenantId: b.tenantId,
+          source: 'sepa' as const,
+          amount: b.amount / 100,
+          currency: 'EUR',
+          reason: b.bounceReason ? `Adeudo devuelto: ${b.bounceReason}` : 'Adeudo devuelto',
+          failedAt: at.toISOString(),
+          at,
+        };
+      }),
+    ];
+    if (all.length === 0) return [];
+    const ids = [...new Set(all.map((f) => f.tenantId))];
+    const [tenants, paid] = await Promise.all([
+      this.admin.tenant.findMany({
+        where: { id: { in: ids }, ...LIVE_TENANT, billingExempt: false },
+        select: { id: true, name: true, subscription: { select: { status: true } } },
+      }),
+      this.admin.tenantSubscriptionPayment.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, status: 'paid', paidAt: { gte: since } },
+        _max: { paidAt: true },
+      }),
+    ]);
+    const tenantBy = new Map(tenants.map((t) => [t.id, t]));
+    const paidBy = new Map(paid.map((p) => [p.tenantId, p._max.paidAt]));
+    const byTenant = new Map<string, { last: Failure; count: number }>();
+    for (const f of all) {
+      if (!tenantBy.has(f.tenantId)) continue;
+      // Ya ha pagado después del rechazo: no hay nada que hacer.
+      const paidAt = paidBy.get(f.tenantId);
+      if (paidAt && paidAt > f.at) continue;
+      const cur = byTenant.get(f.tenantId);
+      if (!cur) byTenant.set(f.tenantId, { last: f, count: 1 });
+      else {
+        cur.count += 1;
+        if (f.at > cur.last.at) cur.last = f;
+      }
+    }
+    return [...byTenant.values()]
+      .map(({ last, count }) => {
+        const t = tenantBy.get(last.tenantId)!;
+        return {
+          tenantId: last.tenantId,
+          tenantName: t.name,
+          source: last.source,
+          amount: Math.round(last.amount * 100) / 100,
+          currency: last.currency,
+          reason: last.reason,
+          failedAt: last.failedAt,
+          failures: count,
+          pastDue: t.subscription?.status === 'past_due',
+        };
+      })
+      .sort((a, b) => b.amount - a.amount || b.failedAt.localeCompare(a.failedAt));
+  }
+
+  /**
+   * Clientes de pago (suscripción activa de un plan con precio, sin exentos ni
+   * pruebas) en los que nadie del equipo entra desde hace 14 días: riesgo de
+   * baja. Los que más pagan, primero.
+   */
+  async inactivePaying(now = new Date()): Promise<AdminTodayInactiveDto[]> {
+    const cutoff = new Date(now.getTime() - INACTIVE_DAYS * DAY);
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        deletedAt: null,
+        billingExempt: false,
+        status: 'active',
+        subscription: { status: 'active', plan: { priceMonthly: { gt: 0 } } },
+      },
+      select: {
+        id: true,
+        name: true,
+        subscription: { select: { plan: { select: { name: true } } } },
+      },
+    });
+    if (tenants.length === 0) return [];
+    const logins = await this.admin.user.groupBy({
+      by: ['tenantId'],
+      where: { tenantId: { in: tenants.map((t) => t.id) }, isActive: true },
+      _max: { lastLoginAt: true },
+    });
+    const loginBy = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
+    const idle = tenants.filter((t) => {
+      const last = loginBy.get(t.id) ?? null;
+      return !last || last < cutoff;
+    });
+    if (idle.length === 0) return [];
+    const monthly = await this.monthlyByTenant(idle.map((t) => t.id));
+    return idle
+      .map((t) => {
+        const last = loginBy.get(t.id) ?? null;
+        return {
+          tenantId: t.id,
+          tenantName: t.name,
+          planName: t.subscription?.plan?.name ?? null,
+          monthly: monthly.get(t.id) ?? 0,
+          lastLoginAt: last?.toISOString() ?? null,
+          daysSinceLogin: last ? Math.floor((now.getTime() - last.getTime()) / DAY) : null,
+        };
+      })
+      .sort((a, b) => b.monthly - a.monthly || a.tenantName.localeCompare(b.tenantName));
   }
 
   // ----------------------------------------------------- reparto y lo cerrado

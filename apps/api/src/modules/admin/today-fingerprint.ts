@@ -44,6 +44,10 @@ export function todayFingerprintOf(kind: TodaySnoozeKind, item: object): TodayFi
       return { expired: num(i.daysLeft) <= 0 };
     case 'renewal':
       return { overdue: num(i.daysLeft) < 0 };
+    case 'payment_failure':
+      return { failedAt: str(i.failedAt) };
+    case 'inactive':
+      return { lastLoginAt: str(i.lastLoginAt) };
     default:
       return null;
   }
@@ -97,6 +101,13 @@ export function todayReappearReason(
     case 'renewal':
       return current.overdue === true && old.overdue !== true
         ? 'La renovación ya ha vencido'
+        : null;
+    case 'payment_failure':
+      return time(current.failedAt) > time(old.failedAt) ? 'Ha vuelto a fallar un cobro' : null;
+    case 'inactive':
+      // Entró después de apartarlo y lo ha vuelto a dejar.
+      return time(current.lastLoginAt) > time(old.lastLoginAt)
+        ? 'Volvió a entrar y lo ha vuelto a dejar'
         : null;
     default:
       return null;

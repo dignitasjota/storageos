@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { adminTodaySectionLabel, adminTodayUrgentCounts, pluralEs } from './today';
+import {
+  isTicketUrgent,
+  adminTodaySectionLabel,
+  adminTodayUrgentCounts,
+  adminTodayVisitSummary,
+  pluralEs,
+} from './today';
 
-import type { AdminTodayUrgencySource } from './today';
+import type { AdminTodayUrgencySource, AdminTodayVisitSnapshotItem } from './today';
 
 const empty: AdminTodayUrgencySource = {
   pendingApprovals: [],
@@ -13,6 +19,8 @@ const empty: AdminTodayUrgencySource = {
   openTickets: [],
   expiringOverrides: [],
   newLeads: [],
+  assignedLeads: [],
+  paymentFailures: [],
   leadFollowupsDue: [],
   domainsReady: [],
   rgpdOverdue: [],
@@ -55,10 +63,71 @@ describe('urgentes de «Hoy»', () => {
     expect(counts.total).toBe(1);
   });
 
+  it('un lead asignado sin atender solo es urgente en «Lo mío»', () => {
+    const d = { ...empty, assignedLeads: [lead('me')] };
+    expect(adminTodayUrgentCounts(d).total).toBe(0);
+    expect(adminTodayUrgentCounts(d, { mine: true }).total).toBe(1);
+  });
+
+  it('solo cuentan los tickets que vencen en menos de 2 h o ya vencieron', () => {
+    const ticket = (dueInHours: number) =>
+      ({ id: String(dueInHours), dueInHours }) as AdminTodayUrgencySource['openTickets'][number];
+    const counts = adminTodayUrgentCounts({
+      ...empty,
+      openTickets: [ticket(-3), ticket(1.5), ticket(10)],
+    });
+    expect(counts.business).toBe(2);
+  });
+
   it('pone nombre a las secciones y plural a los números', () => {
     expect(adminTodaySectionLabel('openTickets')).toBe('tickets de soporte');
     expect(adminTodaySectionLabel('otra')).toBe('otra');
     expect(pluralEs(1, 'acción urgente', 'acciones urgentes')).toBe('1 acción urgente');
     expect(pluralEs(29, 'acción urgente', 'acciones urgentes')).toBe('29 acciones urgentes');
+  });
+});
+
+describe('tickets urgentes', () => {
+  it('un ticket de prioridad urgente lo es siempre; el resto, por su plazo', () => {
+    expect(isTicketUrgent({ priority: 'urgent', dueInHours: 2 })).toBe(true);
+    expect(isTicketUrgent({ priority: 'high', dueInHours: 8 })).toBe(false);
+    expect(isTicketUrgent({ priority: 'high', dueInHours: 1.5 })).toBe(true);
+    expect(isTicketUrgent({ priority: 'normal', dueInHours: -3 })).toBe(true);
+  });
+});
+
+describe('resumen desde la última visita', () => {
+  const item = (key: string, reappeared = false): AdminTodayVisitSnapshotItem => ({
+    key,
+    section: 'openTickets',
+    label: key,
+    href: '/admin/today',
+    reappeared,
+  });
+  const now = new Date('2026-11-21T10:00:00Z');
+
+  it('separa lo nuevo, lo resuelto y lo que ha empeorado', () => {
+    const summary = adminTodayVisitSummary(
+      { seenAt: new Date('2026-11-21T06:00:00Z'), items: [item('a'), item('b'), item('c')] },
+      [item('a'), item('d'), item('e', true)],
+      new Set(['c']),
+      now,
+    );
+    expect(summary.show).toBe(true);
+    expect(summary.newItems.map((i) => i.key)).toEqual(['d']);
+    // «c» está apartado: no se da por resuelto.
+    expect(summary.resolvedItems.map((i) => i.key)).toEqual(['b']);
+    expect(summary.worseItems.map((i) => i.key)).toEqual(['e']);
+  });
+
+  it('no sale si la última visita fue hace menos de una hora o es la primera', () => {
+    const recent = adminTodayVisitSummary(
+      { seenAt: new Date('2026-11-21T09:30:00Z'), items: [] },
+      [item('a')],
+      new Set(),
+      now,
+    );
+    expect(recent.show).toBe(false);
+    expect(adminTodayVisitSummary(null, [item('a')], new Set(), now).show).toBe(false);
   });
 });

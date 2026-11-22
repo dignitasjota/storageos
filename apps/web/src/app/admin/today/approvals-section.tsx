@@ -53,7 +53,10 @@ export function ApprovalsSection({ items }: { items: AdminApprovalRequestDto[] }
         {items.map((r) => (
           <div
             key={r.id}
-            className="flex flex-col gap-2 rounded-md border p-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+            data-today-row=""
+            data-urgent="true"
+            tabIndex={0}
+            className="flex flex-col gap-2 rounded-md border p-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="min-w-0">
               <span className="font-medium">{APPROVAL_ACTION_LABELS[r.action]}</span>
