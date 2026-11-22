@@ -10,6 +10,7 @@ import {
   monthIndexKey,
   monthIndexStart,
 } from '../src/common/saas-metrics';
+import { AdminFinanceInsightsService } from '../src/modules/admin/admin-finance-insights.service';
 import { MrrSnapshotService } from '../src/modules/admin/mrr-snapshot.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -498,6 +499,16 @@ describe('Métricas y Finanzas del super admin: mejoras (e2e)', () => {
       expect(res.headers['content-type']).toContain('text/csv');
     }
     await http().get('/admin/finance/export.csv?kind=nada').set(auth).expect(400);
+    // La página del informe se comprueba de verdad; la impresión con el
+    // navegador se simula (la CI no tiene Chromium, como el resto de PDF).
+    const insights = app.get(AdminFinanceInsightsService);
+    const html = await insights.pdfHtml(3, true);
+    expect(html).toContain('Finanzas · últimos 3 meses');
+    expect(html).toContain('Margen (sin IVA)');
+    expect(html).toContain('IVA repercutido');
+    const print = jest
+      .spyOn(insights, 'printPdf')
+      .mockResolvedValue(Buffer.from('%PDF-1.4 prueba'));
     const pdf = await http()
       .get('/admin/finance/report.pdf?months=3')
       .set(auth)
@@ -510,6 +521,8 @@ describe('Métricas y Finanzas del super admin: mejoras (e2e)', () => {
     expect(pdf.status).toBe(200);
     expect(pdf.headers['content-type']).toContain('application/pdf');
     expect((pdf.body as Buffer).subarray(0, 4).toString()).toBe('%PDF');
+    expect(print).toHaveBeenCalledWith(expect.stringContaining('Finanzas · últimos 3 meses'));
+    print.mockRestore();
   }, 60_000);
 
   it('conciliación cobro a cobro, con y sin IVA, y el año pasado', async () => {

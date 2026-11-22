@@ -646,6 +646,11 @@ export class AdminFinanceInsightsService {
 
   /** Informe de Finanzas en PDF (periodo, IVA, margen y conciliación). */
   async pdf(months: number, vatIncluded: boolean): Promise<Buffer> {
+    return this.printPdf(await this.pdfHtml(months, vatIncluded));
+  }
+
+  /** La página del informe de Finanzas (lo que se imprime en el PDF). */
+  async pdfHtml(months: number, vatIncluded: boolean): Promise<string> {
     const year = Math.floor(madridMonthIndex(new Date()) / 12);
     const [o, m, vat] = await Promise.all([
       this.finance.getOverview(months, vatIncluded),
@@ -712,6 +717,11 @@ ${table(
 <h2>Conciliación</h2>
 <p>${o.reconciliation.paymentsWithoutInvoice.count} cobros sin factura (${escapeHtml(eur(o.reconciliation.paymentsWithoutInvoice.total))}) · ${o.reconciliation.invoicesWithoutPayment.count} facturas sin cobro (${escapeHtml(eur(o.reconciliation.invoicesWithoutPayment.total))}).</p>
 </body></html>`;
+    return html;
+  }
+
+  /** Imprime la página con el navegador sin cabeza (Puppeteer). */
+  async printPdf(html: string): Promise<Buffer> {
     const puppeteer = await loadPuppeteer();
     const browser = await puppeteer.launch({
       headless: true,
