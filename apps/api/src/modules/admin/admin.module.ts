@@ -31,11 +31,13 @@ import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
 import { AdminEmailLogController } from './admin-email-log.controller';
 import { AdminEmailSettingsController } from './admin-email-settings.controller';
+import { AdminFinanceInsightsService } from './admin-finance-insights.service';
 import { AdminFinanceController } from './admin-finance.controller';
 import { AdminFinanceService } from './admin-finance.service';
 import { AdminFollowupsController } from './admin-followups.controller';
 import { AdminImpersonationAuditController } from './admin-impersonation-audit.controller';
 import { AdminImpersonationAuditService } from './admin-impersonation-audit.service';
+import { AdminMetricsInsightsService } from './admin-metrics-insights.service';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
 import { AdminOpportunitiesController } from './admin-opportunities.controller';
@@ -293,6 +295,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminSupportService,
     AdminCommsService,
     AdminMetricsService,
+    AdminMetricsInsightsService,
+    AdminFinanceInsightsService,
     ImpersonationService,
     SuperAdminAuditService,
     SupportTicketsService,

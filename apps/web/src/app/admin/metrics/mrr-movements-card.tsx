@@ -14,20 +14,65 @@ import {
   YAxis,
 } from 'recharts';
 
+import {
+  annotationLines,
+  monthLabelKey,
+  useAnnotationsByLabel,
+} from '@/components/admin/metrics/annotation-lines';
+import { useOpenBreakdown } from '@/components/admin/metrics/breakdown-sheet';
+import { CsvButton } from '@/components/admin/metrics/csv-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMrrMovements } from '@/lib/admin/hooks';
 import { formatEur, formatPct } from '@/lib/format';
 
 export function MrrMovementsCard({ months = 12 }: { months?: number }) {
   const q = useAdminMrrMovements(months);
+  const notes = useAnnotationsByLabel();
+  const open = useOpenBreakdown();
+  /** Pulsar una barra abre los tenants de ese movimiento en ese mes. */
+  const drill = (kind: string) => (entry: { payload?: { label?: string } }) => {
+    const month = entry.payload?.label ? monthLabelKey(entry.payload.label) : undefined;
+    if (month) open({ metric: 'movement', kind, month });
+  };
 
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Movimientos de MRR</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base">Movimientos de MRR</CardTitle>
+          <CsvButton
+            filename="movimientos-mrr.csv"
+            disabled={!q.data}
+            rows={() => [
+              [
+                'Mes',
+                'Nuevo',
+                'Expansión',
+                'Reactivación',
+                'Contracción',
+                'Bajas',
+                'Net New',
+                'MRR al cierre',
+                'NRR (%)',
+              ],
+              ...(q.data?.months ?? []).map((m) => [
+                m.label,
+                m.newMrr,
+                m.expansion,
+                m.reactivation,
+                m.contraction,
+                m.churn,
+                m.net,
+                m.endingMrr,
+                m.nrr ?? '',
+              ]),
+            ]}
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           Nuevo, expansión y reactivación (suman) vs. contracción y baja (restan) por mes, sin IVA.
-          Línea = Net New MRR. El pago atrasado no cuenta como baja.
+          Línea = Net New MRR. El pago atrasado no cuenta como baja. Pulsa una barra para ver los
+          tenants.
         </p>
       </CardHeader>
       <CardContent>
@@ -90,11 +135,50 @@ export function MrrMovementsCard({ months = 12 }: { months?: number }) {
                         contentStyle={{ fontSize: 12 }}
                       />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Bar dataKey="new" name="Nuevo" stackId="m" fill="#16a34a" />
-                      <Bar dataKey="expansion" name="Expansión" stackId="m" fill="#4ade80" />
-                      <Bar dataKey="reactivation" name="Reactivación" stackId="m" fill="#0ea5e9" />
-                      <Bar dataKey="contraction" name="Contracción" stackId="m" fill="#f59e0b" />
-                      <Bar dataKey="churn" name="Baja" stackId="m" fill="#ef4444" />
+                      {annotationLines(
+                        notes,
+                        data.map((d) => d.label),
+                      )}
+                      <Bar
+                        dataKey="new"
+                        name="Nuevo"
+                        stackId="m"
+                        fill="#16a34a"
+                        className="cursor-pointer"
+                        onClick={drill('new')}
+                      />
+                      <Bar
+                        dataKey="expansion"
+                        name="Expansión"
+                        stackId="m"
+                        fill="#4ade80"
+                        className="cursor-pointer"
+                        onClick={drill('expansion')}
+                      />
+                      <Bar
+                        dataKey="reactivation"
+                        name="Reactivación"
+                        stackId="m"
+                        fill="#0ea5e9"
+                        className="cursor-pointer"
+                        onClick={drill('reactivation')}
+                      />
+                      <Bar
+                        dataKey="contraction"
+                        name="Contracción"
+                        stackId="m"
+                        fill="#f59e0b"
+                        className="cursor-pointer"
+                        onClick={drill('contraction')}
+                      />
+                      <Bar
+                        dataKey="churn"
+                        name="Baja"
+                        stackId="m"
+                        fill="#ef4444"
+                        className="cursor-pointer"
+                        onClick={drill('churn')}
+                      />
                       <Line
                         type="monotone"
                         dataKey="net"

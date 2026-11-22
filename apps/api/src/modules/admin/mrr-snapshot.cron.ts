@@ -24,6 +24,8 @@ export class MrrSnapshotCron {
   async run(): Promise<void> {
     await this.snapshots.captureMonth(new Date());
     await this.snapshots.backfillFromPayments(13);
+    // La previsión del mes se guarda una vez (para medir su precisión después).
+    await this.snapshots.saveMonthlyForecast();
     this.logger.log('Snapshot diario de MRR capturado');
   }
 }

@@ -28,7 +28,12 @@ export function GoalsCard() {
   const q = useBusinessGoals();
   const [editing, setEditing] = useState(false);
   const g = q.data;
-  const none = g && !g.progress.mrr && !g.progress.signups && !g.progress.trialConversion;
+  const none =
+    g &&
+    !g.progress.mrr &&
+    !g.progress.signups &&
+    !g.progress.trialConversion &&
+    !g.progress.collected;
 
   return (
     <Card className="min-w-0">
@@ -36,7 +41,8 @@ export function GoalsCard() {
         <div>
           <CardTitle className="text-base">Objetivos</CardTitle>
           <p className="text-xs text-muted-foreground">
-            MRR, altas al mes y conversión de pruebas que te propones. Salen también en «Hoy».
+            MRR, altas al mes, conversión de pruebas y cobro mensual que te propones. Salen también
+            en «Hoy».
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setEditing(true)} disabled={!g}>
@@ -80,6 +86,13 @@ export function GoalsCard() {
                 format={(n) => `${Math.round(n)} %`}
               />
             )}
+            {g.progress.collected && (
+              <GoalBar
+                label="Cobrado este mes (con IVA)"
+                progress={g.progress.collected}
+                format={formatEur}
+              />
+            )}
           </div>
         )}
       </CardContent>
@@ -103,6 +116,7 @@ function GoalsDialog({
   const [signups, setSignups] = useState(goals.signupsTargetMonthly?.toString() ?? '');
   const [conversion, setConversion] = useState(goals.trialConversionTargetPct?.toString() ?? '');
   const [date, setDate] = useState<string | undefined>(goals.targetDate ?? undefined);
+  const [collected, setCollected] = useState(goals.collectedTargetMonthly?.toString() ?? '');
 
   const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')));
 
@@ -113,6 +127,7 @@ function GoalsDialog({
         signupsTargetMonthly: num(signups),
         trialConversionTargetPct: num(conversion),
         targetDate: date ?? null,
+        collectedTargetMonthly: num(collected),
       });
       toast.success('Objetivos guardados.');
       onOpenChange(false);
@@ -166,6 +181,16 @@ function GoalsDialog({
               inputMode="numeric"
               value={conversion}
               onChange={(e) => setConversion(e.target.value)}
+              placeholder="Sin objetivo"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="goal-collected">Cobro al mes (€, con IVA)</Label>
+            <Input
+              id="goal-collected"
+              inputMode="decimal"
+              value={collected}
+              onChange={(e) => setCollected(e.target.value)}
               placeholder="Sin objetivo"
             />
           </div>

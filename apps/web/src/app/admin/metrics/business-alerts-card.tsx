@@ -101,6 +101,7 @@ function AlertSettingsForm({
     churnPct: String(settings.churnPct),
     aiCostUsdWeek: String(settings.aiCostUsdWeek),
     bigTenantMrr: String(settings.bigTenantMrr),
+    concentrationPct: String(settings.concentrationPct),
   });
   const n = (v: string) => Number(v.replace(',', '.'));
 
@@ -112,6 +113,7 @@ function AlertSettingsForm({
         churnPct: n(form.churnPct),
         aiCostUsdWeek: n(form.aiCostUsdWeek),
         bigTenantMrr: n(form.bigTenantMrr),
+        concentrationPct: n(form.concentrationPct),
       });
       toast.success('Umbrales guardados.');
       onDone();
@@ -148,6 +150,7 @@ function AlertSettingsForm({
         {field('churnPct', 'Churn del mes (%)')}
         {field('bigTenantMrr', 'Tenant grande desde (€/mes)')}
         {field('aiCostUsdWeek', 'Gasto de IA de un tenant en 7 días ($)')}
+        {field('concentrationPct', 'Un solo cliente pesa más de (% del MRR)')}
       </div>
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={onDone}>

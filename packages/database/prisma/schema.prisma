@@ -1089,6 +1089,8 @@ model PlatformBusinessGoals {
   signupsTargetMonthly     Int?      @map("signups_target_monthly")
   trialConversionTargetPct Int?      @map("trial_conversion_target_pct")
   targetDate               DateTime? @map("target_date") @db.Date
+  /// Objetivo de cobro mensual (con IVA).
+  collectedTargetMonthly   Decimal?  @map("collected_target_monthly") @db.Decimal(12, 2)
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_business_goals")
@@ -1126,6 +1128,73 @@ model MrrSnapshot {
   @@unique([tenantId, month])
   @@index([month])
   @@map("mrr_snapshots")
+}
+
+/// Previsión de MRR guardada cada mes (una fila por mes previsto), para medir
+/// después su precisión frente al MRR real. Global, REVOKE.
+model MrrForecast {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// Día 1 del mes en que se hizo.
+  madeMonth   DateTime @map("made_month") @db.Date
+  /// Día 1 del mes previsto.
+  targetMonth DateTime @map("target_month") @db.Date
+  monthsAhead Int      @map("months_ahead")
+  baseMrr     Decimal  @map("base_mrr") @db.Decimal(12, 2)
+  prudent     Decimal  @db.Decimal(12, 2)
+  expected    Decimal  @db.Decimal(12, 2)
+  optimistic  Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([madeMonth, targetMonth], map: "mrr_forecasts_made_target_key")
+  @@index([targetMonth], map: "mrr_forecasts_target_idx")
+  @@map("mrr_forecasts")
+}
+
+/// Costes estimados para el margen de Finanzas (un solo registro). Global, REVOKE.
+model PlatformFinanceSettings {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  stripeFeePct   Decimal  @default(1.5) @map("stripe_fee_pct") @db.Decimal(6, 3)
+  stripeFeeFixed Decimal  @default(0.25) @map("stripe_fee_fixed") @db.Decimal(8, 3)
+  redsysFeePct   Decimal  @default(0.4) @map("redsys_fee_pct") @db.Decimal(6, 3)
+  redsysFeeFixed Decimal  @default(0) @map("redsys_fee_fixed") @db.Decimal(8, 3)
+  sepaFeePct     Decimal  @default(0) @map("sepa_fee_pct") @db.Decimal(6, 3)
+  sepaFeeFixed   Decimal  @default(0.3) @map("sepa_fee_fixed") @db.Decimal(8, 3)
+  manualFeePct   Decimal  @default(0) @map("manual_fee_pct") @db.Decimal(6, 3)
+  manualFeeFixed Decimal  @default(0) @map("manual_fee_fixed") @db.Decimal(8, 3)
+  /// Euros por dólar, para pasar el coste de la IA a euros.
+  usdEurRate     Decimal  @default(0.92) @map("usd_eur_rate") @db.Decimal(8, 4)
+  /// Coste estimado de cada correo enviado (€).
+  emailCost      Decimal  @default(0.001) @map("email_cost") @db.Decimal(10, 5)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_finance_settings")
+}
+
+/// Gasto de marketing de la plataforma por mes (coste de adquisición). Global, REVOKE.
+model PlatformMarketingSpend {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// «AAAA-MM».
+  month     String   @unique(map: "platform_marketing_spend_month_key")
+  amount    Decimal  @default(0) @db.Decimal(12, 2)
+  note      String?
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_marketing_spend")
+}
+
+/// Anotaciones e hitos de los gráficos de Métricas y Finanzas. Global, REVOKE.
+model PlatformMetricAnnotation {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  date      DateTime @db.Date
+  text      String
+  authorId  String?  @map("author_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  author SuperAdmin? @relation("MetricAnnotationAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([date], map: "platform_metric_annotations_date_idx")
+  @@map("platform_metric_annotations")
 }
 
 /// Suscripción activa de cada tenant.
@@ -5163,6 +5232,7 @@ model SuperAdmin {
   tenantFollowups    TenantFollowup[]         @relation("TenantFollowupAuthor")
   followupsAssigned    TenantFollowup[]      @relation("TenantFollowupAssignee")
   savedViews           SuperAdminSavedView[]
+  metricAnnotations    PlatformMetricAnnotation[] @relation("MetricAnnotationAuthor")
 
   platformMessages      TenantPlatformMessage[]
   @@map("super_admins")
@@ -6866,6 +6936,8 @@ model PlatformAlertSettings {
   alertChurnPct             Int       @default(5) @map("alert_churn_pct")
   alertAiCostUsdWeek        Decimal   @default(20) @map("alert_ai_cost_usd_week") @db.Decimal(10, 2)
   alertBigTenantMrr         Decimal   @default(100) @map("alert_big_tenant_mrr") @db.Decimal(10, 2)
+  /// Aviso si un cliente supera este % del MRR.
+  alertConcentrationPct     Int       @default(25) @map("alert_concentration_pct")
   /// Hora (España) del aviso diario por email.
   dailyHour                 Int       @default(7) @map("daily_hour")
   /// Aviso por chat de cada mensaje del formulario de contacto.

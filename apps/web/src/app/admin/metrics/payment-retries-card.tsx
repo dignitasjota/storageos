@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 
+import { CsvButton } from '@/components/admin/metrics/csv-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminPaymentRetries } from '@/lib/admin/hooks';
 import { formatEur, formatPct } from '@/lib/format';
@@ -19,7 +20,22 @@ export function PaymentRetriesCard({ months = 12 }: { months?: number }) {
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Recuperación de cobros</CardTitle>
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base">Recuperación de cobros</CardTitle>
+          <CsvButton
+            filename="cobros-recuperados.csv"
+            disabled={!q.data}
+            rows={() => [
+              ['Forma de cobro', 'Fallidos', 'Recuperados'],
+              ...(q.data?.bySource ?? []).map((s) => [
+                SOURCE_LABELS[s.source],
+                s.totalFailed,
+                s.recovered,
+              ]),
+              ['Total', q.data?.totalFailed ?? 0, q.data?.recovered ?? 0],
+            ]}
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
           De los cobros de suscripción que fallaron al menos una vez (últimos {months} meses:
           Stripe, adeudos SEPA devueltos y cobros automáticos de Redsys), cuántos se acabaron

@@ -5,14 +5,17 @@ import {
   churnedBetween,
   COLLECTED_PAYMENT_STATUSES,
   currentMrrByTenant,
+  dateMonthIndex,
   isPayingSubscription,
   loadPayerLifecycles,
   madridMonthIndex,
+  monthIndexDate,
   monthIndexKey,
   monthIndexLabel,
   monthIndexStart,
   netPaid,
   payingAt,
+  sameInstantLastYear,
   tenantMetricsState,
   trialOutcome,
 } from '../../common/saas-metrics';
@@ -78,6 +81,11 @@ export class AdminMetricsService {
     const firstIdx = nowIdx - (span - 1);
     const from12 = monthIndexStart(firstIdx);
     const fromPrev = monthIndexStart(firstIdx - span);
+    // El mismo periodo del año pasado (hasta el mismo momento del mes).
+    const lastYearNow = sameInstantLastYear(now);
+    const fromLastYear = monthIndexStart(firstIdx - 12);
+    const fromRows = monthIndexStart(firstIdx - Math.max(span, 12));
+    const lastYearMonthStart = monthIndexStart(nowIdx - 12);
     const trialSoon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const [
@@ -96,6 +104,7 @@ export class AdminMetricsService {
       signupRows,
       revenueRows,
       trialsEnded,
+      lastYearSnapshots,
     ] = await Promise.all([
       // Las cuentas EXENTAS (billingExempt) quedan fuera de toda métrica de
       // negocio: no cuentan al MRR/ARPU/ingresos, ni a estados/crecimiento/trials.
@@ -137,7 +146,7 @@ export class AdminMetricsService {
       this.admin.contract.count(),
       this.admin.user.count(),
       this.admin.tenant.findMany({
-        where: { billingExempt: false, createdAt: { gte: fromPrev } },
+        where: { billingExempt: false, createdAt: { gte: fromRows } },
         select: { createdAt: true },
       }),
       // Ingresos netos: lo cobrado menos lo devuelto (reembolsos y contracargos
@@ -145,13 +154,17 @@ export class AdminMetricsService {
       this.admin.tenantSubscriptionPayment.findMany({
         where: {
           status: { in: [...COLLECTED_PAYMENT_STATUSES] },
-          paidAt: { gte: fromPrev },
+          paidAt: { gte: fromRows },
         },
         select: { paidAt: true, amount: true, refundedAmount: true },
       }),
       this.admin.tenant.findMany({
         where: { billingExempt: false, trialEndedAt: { gte: monthStart } },
         select: { id: true, status: true },
+      }),
+      this.admin.mrrSnapshot.findMany({
+        where: { month: monthIndexDate(nowIdx - 12), mrr: { gt: 0 } },
+        select: { mrr: true },
       }),
     ]);
 
@@ -259,6 +272,52 @@ export class AdminMetricsService {
       months: span,
       current: totals(from12, null),
       previous: totals(fromPrev, from12),
+      lastYear: totals(fromLastYear, lastYearNow),
+    };
+
+    // --- Desglose del MRR ---
+    const mrrBreakdown = {
+      total: 0,
+      planMonthly: 0,
+      planYearly: 0,
+      addons: 0,
+      discounts: 0,
+      monthlyTenants: 0,
+      yearlyTenants: 0,
+      discountedTenants: 0,
+    };
+    for (const p of paying.values()) {
+      if (p.cycle === 'yearly') {
+        mrrBreakdown.planYearly += p.plan;
+        mrrBreakdown.yearlyTenants += 1;
+      } else {
+        mrrBreakdown.planMonthly += p.plan;
+        mrrBreakdown.monthlyTenants += 1;
+      }
+      mrrBreakdown.addons += p.addons;
+      mrrBreakdown.discounts += p.discount;
+      if (p.discount > 0) mrrBreakdown.discountedTenants += 1;
+    }
+    mrrBreakdown.planMonthly = round2(mrrBreakdown.planMonthly);
+    mrrBreakdown.planYearly = round2(mrrBreakdown.planYearly);
+    mrrBreakdown.addons = round2(mrrBreakdown.addons);
+    mrrBreakdown.discounts = round2(mrrBreakdown.discounts);
+    mrrBreakdown.total = round2(
+      mrrBreakdown.planMonthly + mrrBreakdown.planYearly + mrrBreakdown.addons,
+    );
+
+    const lastYear = {
+      mrr:
+        lastYearSnapshots.length > 0
+          ? round2(lastYearSnapshots.reduce((sum, r) => sum + Number(r.mrr), 0))
+          : null,
+      payingTenants: lastYearSnapshots.length > 0 ? lastYearSnapshots.length : null,
+      signupsThisMonth: signupRows.filter(
+        (r) => r.createdAt >= lastYearMonthStart && r.createdAt < lastYearNow,
+      ).length,
+      cancellationsThisMonth: payers.filter((p) =>
+        churnedBetween(p, lastYearMonthStart, lastYearNow),
+      ).length,
     };
 
     // Churn del mes: bajas de clientes que pagaban / los que pagaban al empezar el mes.
@@ -271,6 +330,8 @@ export class AdminMetricsService {
     return {
       tenants,
       mrr: { total: round2(mrrTotal), currency: 'EUR' },
+      mrrBreakdown,
+      lastYear,
       signupsThisMonth,
       cancellationsThisMonth,
       churnRatePercent: round2(churnRatePercent),
@@ -308,10 +369,28 @@ export class AdminMetricsService {
 
     const records = payers
       .map((p) => ({
+        tenantId: p.tenantId,
         cohort: madridMonthIndex(p.createdAt),
         churn: p.churnedAt ? madridMonthIndex(p.churnedAt) : null,
       }))
       .filter((r) => r.cohort >= firstIdx);
+
+    // Retención en dinero: el MRR de cada cliente desde su primer mes pagando.
+    const snapshots =
+      records.length > 0
+        ? await this.admin.mrrSnapshot.findMany({
+            where: { tenantId: { in: records.map((r) => r.tenantId) }, mrr: { gt: 0 } },
+            select: { tenantId: true, month: true, mrr: true },
+          })
+        : [];
+    const mrrByTenant = new Map<string, Map<number, number>>();
+    for (const sn of snapshots) {
+      const m = mrrByTenant.get(sn.tenantId) ?? new Map<number, number>();
+      m.set(dateMonthIndex(sn.month), Number(sn.mrr));
+      mrrByTenant.set(sn.tenantId, m);
+    }
+    const firstPaying = new Map<string, number>();
+    for (const [tenantId, m] of mrrByTenant) firstPaying.set(tenantId, Math.min(...m.keys()));
 
     const maxOffset = nowIdx - firstIdx;
     const cohorts = [];
@@ -328,7 +407,32 @@ export class AdminMetricsService {
         const alive = members.filter((r) => r.churn === null || r.churn >= c + k).length;
         retention.push(round2((alive / size) * 100));
       }
-      cohorts.push({ cohort: monthIndexLabel(c), size, retention });
+      // NRR de la cohorte: a los k meses del primer pago de cada cliente.
+      let startMrr = 0;
+      const revenueRetention: (number | null)[] = [];
+      for (const r of members) {
+        const first = firstPaying.get(r.tenantId);
+        if (first !== undefined) startMrr += mrrByTenant.get(r.tenantId)!.get(first) ?? 0;
+      }
+      for (let k = 0; k <= maxOffset; k++) {
+        let base = 0;
+        let kept = 0;
+        for (const r of members) {
+          const first = firstPaying.get(r.tenantId);
+          if (first === undefined || first + k > nowIdx) continue;
+          const m = mrrByTenant.get(r.tenantId)!;
+          base += m.get(first) ?? 0;
+          kept += m.get(first + k) ?? 0;
+        }
+        revenueRetention.push(base > 0 ? round2((kept / base) * 100) : null);
+      }
+      cohorts.push({
+        cohort: monthIndexLabel(c),
+        size,
+        retention,
+        startMrr: round2(startMrr),
+        revenueRetention,
+      });
     }
     return { maxOffset, cohorts };
   }

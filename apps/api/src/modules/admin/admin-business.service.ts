@@ -6,6 +6,7 @@ import { loadPuppeteer } from '../../common/puppeteer';
 import {
   churnedBetween,
   COLLECTED_PAYMENT_STATUSES,
+  currentMrrByTenant,
   dateMonthIndex,
   isChurnedStatus,
   isPayingSubscription,
@@ -190,11 +191,23 @@ export class AdminBusinessService {
   // --- Objetivos -----------------------------------------------------------
 
   async getGoals(): Promise<AdminBusinessGoalsDto> {
-    const [row, overview, funnel] = await Promise.all([
+    const monthStart = monthIndexStart(madridMonthIndex(new Date()));
+    const [row, overview, funnel, collectedRows] = await Promise.all([
       this.admin.platformBusinessGoals.findFirst(),
       this.metrics.getOverview(),
       this.trialFunnel(3),
+      this.admin.tenantSubscriptionPayment.findMany({
+        where: {
+          status: { in: [...COLLECTED_PAYMENT_STATUSES] },
+          paidAt: { gte: monthStart },
+          tenant: { billingExempt: false },
+        },
+        select: { amount: true, refundedAmount: true },
+      }),
     ]);
+    const collectedTarget =
+      row?.collectedTargetMonthly != null ? Number(row.collectedTargetMonthly) : null;
+    const collectedThisMonth = round2(collectedRows.reduce((s, p) => s + netPaid(p), 0));
     const mrrTarget = row?.mrrTarget != null ? Number(row.mrrTarget) : null;
     const current = overview.mrr.total;
     let mrrNeededPerMonth: number | null = null;
@@ -211,7 +224,9 @@ export class AdminBusinessService {
       signupsTargetMonthly: row?.signupsTargetMonthly ?? null,
       trialConversionTargetPct: row?.trialConversionTargetPct ?? null,
       targetDate: row?.targetDate ? row.targetDate.toISOString().slice(0, 10) : null,
+      collectedTargetMonthly: collectedTarget,
       progress: {
+        collected: collectedTarget !== null ? pct(collectedThisMonth, collectedTarget) : null,
         mrr: mrrTarget !== null ? pct(current, mrrTarget) : null,
         signups:
           row?.signupsTargetMonthly != null
@@ -239,6 +254,9 @@ export class AdminBusinessService {
       ...(input.targetDate !== undefined
         ? { targetDate: input.targetDate ? new Date(`${input.targetDate}T00:00:00Z`) : null }
         : {}),
+      ...(input.collectedTargetMonthly !== undefined
+        ? { collectedTargetMonthly: input.collectedTargetMonthly }
+        : {}),
     };
     const row = await this.admin.platformBusinessGoals.findFirst({ select: { id: true } });
     if (row) await this.admin.platformBusinessGoals.update({ where: { id: row.id }, data });
@@ -262,6 +280,7 @@ export class AdminBusinessService {
       churnPct: r.alertChurnPct,
       aiCostUsdWeek: Number(r.alertAiCostUsdWeek),
       bigTenantMrr: Number(r.alertBigTenantMrr),
+      concentrationPct: r.alertConcentrationPct,
     };
   }
 
@@ -277,6 +296,9 @@ export class AdminBusinessService {
         ...(input.churnPct !== undefined ? { alertChurnPct: input.churnPct } : {}),
         ...(input.aiCostUsdWeek !== undefined ? { alertAiCostUsdWeek: input.aiCostUsdWeek } : {}),
         ...(input.bigTenantMrr !== undefined ? { alertBigTenantMrr: input.bigTenantMrr } : {}),
+        ...(input.concentrationPct !== undefined
+          ? { alertConcentrationPct: input.concentrationPct }
+          : {}),
       },
     });
     return this.businessAlerts();
@@ -291,7 +313,7 @@ export class AdminBusinessService {
     const settings = this.toAlertSettings(await this.alertSettingsRow());
     if (!settings.enabled) return { settings, alerts: [] };
 
-    const [movements, overview, health, usage, currentMrr] = await Promise.all([
+    const [movements, overview, health, usage, currentMrr, payingNow] = await Promise.all([
       this.mrr.getMovements(2),
       this.metrics.getOverview(),
       this.tenants.getTenantsHealth(),
@@ -300,6 +322,7 @@ export class AdminBusinessService {
         where: { month: monthIndexDate(madridMonthIndex(new Date())) },
         select: { tenantId: true, mrr: true },
       }),
+      currentMrrByTenant(this.admin),
     ]);
     const alerts: AdminBusinessAlertDto[] = [];
     // Un aviso por tenant y tipo, aunque el origen lo repita.
@@ -333,6 +356,31 @@ export class AdminBusinessService {
       });
     }
     const mrrBy = new Map(currentMrr.map((r) => [r.tenantId, Number(r.mrr)]));
+    // Concentración: un solo cliente pesa más del umbral en el MRR de ahora.
+    const totalMrr = [...payingNow.values()].reduce((sum, p) => sum + p.total, 0);
+    if (totalMrr > 0 && payingNow.size > 1) {
+      const big = [...payingNow.values()]
+        .map((p) => ({ ...p, share: (p.total / totalMrr) * 100 }))
+        .filter((p) => p.share > settings.concentrationPct)
+        .sort((a, b) => b.share - a.share);
+      const names =
+        big.length > 0
+          ? await this.admin.tenant.findMany({
+              where: { id: { in: big.map((b) => b.tenantId) } },
+              select: { id: true, name: true, slug: true },
+            })
+          : [];
+      const nameBy = new Map(names.map((n) => [n.id, n]));
+      for (const b of big) {
+        const t = nameBy.get(b.tenantId);
+        push({
+          kind: 'concentration',
+          title: `${t?.name ?? 'Un cliente'} (${t?.slug ?? '—'}) es el ${pctText(b.share)} del MRR`,
+          detail: `Aporta ${eur(b.total)} de ${eur(totalMrr)} al mes sin IVA (umbral ${settings.concentrationPct} %).`,
+          tenantId: b.tenantId,
+        });
+      }
+    }
     for (const h of health) {
       const mrr = mrrBy.get(h.tenantId) ?? 0;
       if (mrr < settings.bigTenantMrr || mrr <= 0) continue;
@@ -416,7 +464,9 @@ export class AdminBusinessService {
       status: tenant.status,
       planName: sub?.plan.name ?? null,
       paying,
-      mrr: paying ? mrr : { plan: 0, addons: 0, total: 0 },
+      mrr: paying
+        ? { plan: mrr.plan, addons: mrr.addons, total: mrr.total }
+        : { plan: 0, addons: 0, total: 0 },
       payments: {
         totalNet: round2(payments.reduce((s, p) => s + netPaid(p), 0)),
         refunded: round2(payments.reduce((s, p) => s + Number(p.refundedAmount), 0)),
