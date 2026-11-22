@@ -76,13 +76,18 @@ export type AdminTodayUrgencySource = Pick<
 /** Un ticket es urgente si su plazo de respuesta vence en menos de estas horas (o ya venció). */
 export const TICKET_URGENT_HOURS = 2;
 
+/** Un ticket con prioridad «urgente» lo es siempre; el resto, por su plazo. */
+export function isTicketUrgent(t: { priority: string; dueInHours: number }): boolean {
+  return t.priority === 'urgent' || t.dueInHours < TICKET_URGENT_HOURS;
+}
+
 /**
  * Urgentes de «Hoy» por pestaña. La misma cuenta en el servidor (cabecera y
  * contador del menú) y en la web (pestañas), para que siempre cuadren:
  * `business + ops = total`. Lo que tiene días por delante va a «Esta semana» y
  * no es urgente; un lead ya asignado tampoco, salvo en «Lo mío» de quien lo
- * tiene (`mine`). De los tickets abiertos, solo los que vencen en menos de 2 h
- * o ya están fuera de plazo.
+ * tiene (`mine`). De los tickets abiertos, los de prioridad urgente y los que
+ * vencen en menos de 2 h o ya están fuera de plazo.
  */
 export function adminTodayUrgentCounts(
   d: AdminTodayUrgencySource,
@@ -98,7 +103,7 @@ export function adminTodayUrgentCounts(
     d.pastDue.length +
     d.manualRenewalsDue.filter((r) => r.daysLeft <= 1).length +
     d.followupsDue.length +
-    d.openTickets.filter((t) => t.dueInHours < TICKET_URGENT_HOURS).length +
+    d.openTickets.filter(isTicketUrgent).length +
     d.expiringOverrides.filter((o) => o.daysLeft <= 1).length +
     d.newLeads.filter((l) => !l.assignedToId).length +
     (options.mine ? d.assignedLeads.length : 0) +

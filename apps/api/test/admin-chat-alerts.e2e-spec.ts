@@ -99,13 +99,13 @@ describe('Admin: avisos por chat (e2e)', () => {
     await http()
       .post('/support/tickets')
       .set({ Authorization: `Bearer ${owner.accessToken}` })
-      .send({ subject: 'Necesito ayuda', body: 'Hola', priority: 'high' })
+      .send({ subject: 'Necesito ayuda', body: 'Hola', priority: 'urgent' })
       .expect(201);
     chat.sentForTests.length = 0;
     const daily = await http().post('/admin/chat-alerts/daily/run').set(auth).expect(200);
     expect(daily.body.sent).toBe(true);
     const text = chat.sentForTests[0]?.text ?? '';
-    expect(text).toMatch(/TrasterOS · Hoy: \d+ cosa\(s\) urgente\(s\)/);
+    expect(text).toMatch(/TrasterOS · Hoy: (1 cosa urgente|\d+ cosas urgentes)/);
     expect(text).toMatch(/\d+ tickets sin responder/);
     expect(text).toContain('/admin/today');
 

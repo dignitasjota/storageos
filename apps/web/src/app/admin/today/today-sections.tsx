@@ -4,6 +4,7 @@ import {
   PLATFORM_LEAD_SOURCE_LABELS,
   pluralEs,
   TICKET_URGENT_HOURS,
+  isTicketUrgent,
   type AdminOpenTicketDto,
   type AdminTodayFailedJobDto,
   type AdminTodayInactiveDto,
@@ -83,7 +84,8 @@ export function ResponseTargets({
     <>
       Plazo de respuesta:{' '}
       {order.map((p) => `${PRIORITY_LABELS[p]} ${hoursText(targets[p])}`).join(' · ')}. Son urgentes
-      los que vencen en menos de {TICKET_URGENT_HOURS} h o ya están fuera de plazo.
+      los de prioridad urgente y los que vencen en menos de {TICKET_URGENT_HOURS} h o ya están fuera
+      de plazo.
     </>
   );
 }
@@ -129,7 +131,7 @@ export function TicketRow({ ticket: t }: { ticket: AdminOpenTicketDto }) {
     <RowShell
       snooze={{ kind: 'ticket', ref: t.id, label: t.subject }}
       assign={{ kind: 'ticket', ref: t.id }}
-      urgent={t.dueInHours < TICKET_URGENT_HOURS}
+      urgent={isTicketUrgent(t)}
       className="space-y-2"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  isTicketUrgent,
   adminTodaySectionLabel,
   adminTodayUrgentCounts,
   adminTodayVisitSummary,
@@ -83,6 +84,15 @@ describe('urgentes de «Hoy»', () => {
     expect(adminTodaySectionLabel('otra')).toBe('otra');
     expect(pluralEs(1, 'acción urgente', 'acciones urgentes')).toBe('1 acción urgente');
     expect(pluralEs(29, 'acción urgente', 'acciones urgentes')).toBe('29 acciones urgentes');
+  });
+});
+
+describe('tickets urgentes', () => {
+  it('un ticket de prioridad urgente lo es siempre; el resto, por su plazo', () => {
+    expect(isTicketUrgent({ priority: 'urgent', dueInHours: 2 })).toBe(true);
+    expect(isTicketUrgent({ priority: 'high', dueInHours: 8 })).toBe(false);
+    expect(isTicketUrgent({ priority: 'high', dueInHours: 1.5 })).toBe(true);
+    expect(isTicketUrgent({ priority: 'normal', dueInHours: -3 })).toBe(true);
   });
 });
 

@@ -219,7 +219,7 @@ export class ChatAlertsService {
     ];
     const body = lines.filter(([n]) => n > 0).map(([n, label]) => `• ${n} ${label}`);
     return [
-      `TrasterOS · Hoy: ${t.urgentCount} cosa(s) urgente(s)`,
+      `TrasterOS · Hoy: ${t.urgentCount === 1 ? '1 cosa urgente' : `${t.urgentCount} cosas urgentes`}`,
       ...body,
       `${this.webBase}/admin/today`,
     ].join('\n');
