@@ -26,6 +26,7 @@ import {
   type PlatformTenantRegisteredEvent,
 } from '../../common/platform-lead-events';
 import { verifyAgainstDummyHash } from '../../common/security/dummy-password';
+import { recordTeamActivityDay } from '../../common/team-activity';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { BUILTIN_TEMPLATES } from '../communications/builtin-templates';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -501,6 +502,8 @@ export class AuthService {
         });
       }
     }
+
+    await recordTeamActivityDay(this.admin, user);
 
     await this.audit.write({
       tenantId: result.tenantId,
@@ -1016,6 +1019,8 @@ export class AuthService {
     planSlug: string,
     meta: RequestMeta,
   ): Promise<AuthFlowResult<AuthSuccessResponse>> {
+    // Día de uso del panel (para la actividad del equipo en Salud).
+    await recordTeamActivityDay(this.admin, user);
     const { refreshToken } = await this.sessions.createForLogin({
       tenantId: tenant.id,
       userId: user.id,

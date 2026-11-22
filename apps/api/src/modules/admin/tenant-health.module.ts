@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 
+import { PlatformHealthSettingsService } from './health-settings.service';
 import { TenantHealthCron } from './tenant-health.cron';
 import { TenantHealthService } from './tenant-health.service';
 
@@ -10,7 +11,11 @@ import { TenantHealthService } from './tenant-health.service';
  * importen `AdminModule` (las páginas) y el worker (la foto diaria).
  */
 @Module({
-  providers: [TenantHealthService, ...(WORKERS_ENABLED_IN_API ? [TenantHealthCron] : [])],
-  exports: [TenantHealthService],
+  providers: [
+    TenantHealthService,
+    PlatformHealthSettingsService,
+    ...(WORKERS_ENABLED_IN_API ? [TenantHealthCron] : []),
+  ],
+  exports: [TenantHealthService, PlatformHealthSettingsService],
 })
 export class TenantHealthModule {}

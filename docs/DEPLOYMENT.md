@@ -3082,3 +3082,13 @@ Sin migración ni variables nuevas. Tarea nueva en el worker: `tenant-health.dai
 - **Salud**: por defecto solo clientes que pagan; pruebas (con su puntuación de activación), sin pagar y exentas en pestañas aparte. El último acceso cuenta el uso real de la sesión (la app instalada ya no parece inactiva) y la facturación mira si cada contrato factura dentro de su ciclo.
 - **Adopción**: uso en los últimos 90 días; el control de accesos solo con puertas o accesos reales; la cuota, sin IVA (0 en prueba, «pagaría X»); candidatos por llegar a un límite con margen y solo con planes públicos.
 - **Coste de IA**: con el precio de cada modelo (Opus 5.5 4/20 $, Sonnet 5.5 2/10 $, Haiku 5.5 0,10/0,50 $…); las variables `AI_COST_*` quedan de respaldo para modelos desconocidos.
+
+## 184. Salud, Adopción y Uso del super admin: mejoras (2026-11-22)
+
+Migración `20270226100000_admin_health_adoption_usage_improvements` (se aplica sola): `users.last_active_day`, tablas `tenant_activity_days`, `tenant_health_daily`, `platform_health_settings` (un registro con los pesos y umbrales por defecto) y `tenant_storage_usage_history` (copia la medición actual como la del mes en que se hizo). Todas globales del admin (`REVOKE` a `storageos_app`). Sin variables nuevas.
+
+- **Actividad del equipo**: desde este despliegue se anota cada día de uso del panel (al entrar o al renovar la sesión, una vez por usuario y día). La frecuencia (días activos en 30) solo entra en la puntuación cuando el tenant lleve un mes de registro: hasta entonces la salud no cambia.
+- **Foto diaria**: la tarea `tenant-health.daily-snapshot` (03:20, worker) guarda además la foto del día (historial de 90 días, mini gráfica de 8 semanas, se borra a los 400 días) y avisa al super admin cuando un cliente cae 15 puntos o más en una semana (aviso `health.drop`, una vez por caída en 7 días; también en los avisos de negocio).
+- **Almacenamiento**: la medición diaria (`storage-usage.daily`) guarda también la del mes; la previsión necesita al menos dos meses medidos.
+- **Ajustes** (Salud → «Ajustes» y Uso → «Ajustes», solo superadmin): pesos de los factores (deben sumar 100), puntos de caída y umbrales del consumo anómalo (3 veces la media de los 3 meses anteriores y por encima de 500 correos, 5 $ de IA o 1024 MB).
+- **Avisos de negocio**: dos tipos nuevos, `health_drop` y `usage_anomaly`, en el resumen semanal y por chat si los avisos de negocio están activos.

@@ -824,6 +824,9 @@ model Tenant {
   webChatConversations WebChatConversation[]
   webChatMessages      WebChatMessage[]
   storageUsage        TenantStorageUsage?
+  storageUsageHistory TenantStorageUsageHistory[]
+  activityDays        TenantActivityDay[]
+  healthDaily         TenantHealthDaily[]
   featureInterestEvents FeatureInterestEvent[]
   customerAuthorizedPersons CustomerAuthorizedPerson[]
   customerContacts          CustomerContact[]
@@ -866,6 +869,8 @@ model User {
   twoFactorLastStep               BigInt?   @map("two_factor_last_step")
   twoFactorEnrolledAt             DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt                     DateTime? @map("last_login_at") @db.Timestamptz(6)
+  /// Último día (hora de España) en que usó el panel; evita escribir más de una vez al día.
+  lastActiveDay                   DateTime? @map("last_active_day") @db.Date
   /// Avisos por correo al equipo que el usuario cambió ({tipo: bool}); el resto, por rol.
   emailNoticePrefs                Json      @default("{}") @map("email_notice_prefs")
   /// Resumen del día a medida: {hour, facilityIds, push}.
@@ -967,6 +972,7 @@ model User {
   webChatMessages WebChatMessage[]
   @@map("users")
   featureInterestEvents FeatureInterestEvent[]
+  activityDays          TenantActivityDay[]
   directNotifications Notification[] @relation("NotificationUser")
   authorizedPersonsCreated CustomerAuthorizedPerson[] @relation("AuthorizedPersonCreatedBy")
   documentRequestsMade     CustomerDocumentRequest[] @relation("DocumentRequestedBy")
@@ -7995,6 +8001,71 @@ model TenantStorageUsage {
 
   @@map("tenant_storage_usage")
 }
+/// Almacenamiento de cada tenant al cerrar cada mes (la medición diaria lo guarda).
+model TenantStorageUsageHistory {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  month      DateTime @db.Date
+  bytes      BigInt   @default(0)
+  objects    Int      @default(0)
+  byBucket   Json     @default("{}") @map("by_bucket")
+  measuredAt DateTime @default(now()) @map("measured_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, month])
+  @@index([month])
+  @@map("tenant_storage_usage_history")
+}
+
+/// Días en que cada usuario del equipo usó el panel (uno por usuario y día).
+model TenantActivityDay {
+  tenantId String   @map("tenant_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  day      DateTime @db.Date
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+  @@index([tenantId, day], map: "tenant_activity_days_tenant_day_idx")
+  @@map("tenant_activity_days")
+}
+
+/// Foto diaria de la salud de cada tenant (historial y aviso de caída).
+model TenantHealthDaily {
+  tenantId String   @map("tenant_id") @db.Uuid
+  day      DateTime @db.Date
+  score    Int
+  level    String
+  segment  String
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, day])
+  @@index([day])
+  @@map("tenant_health_daily")
+}
+
+/// Ajustes de Salud y Uso (un solo registro).
+model PlatformHealthSettings {
+  id                  String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  /// Pesos (enteros que suman 100) de los factores de salud de los clientes.
+  clientWeights       Json     @map("client_weights")
+  /// Pesos (enteros que suman 100) de la activación de las pruebas.
+  trialWeights        Json     @map("trial_weights")
+  /// Aviso cuando un cliente cae estos puntos frente a la foto de hace una semana.
+  dropAlertPoints     Int      @default(15) @map("drop_alert_points")
+  /// Consumo anómalo: más de N veces su media de los 3 meses anteriores…
+  anomalyMultiplier   Decimal  @default(3) @map("anomaly_multiplier") @db.Decimal(6, 2)
+  /// …y por encima de estos mínimos.
+  anomalyMinEmails    Int      @default(500) @map("anomaly_min_emails")
+  anomalyMinAiUsd     Decimal  @default(5) @map("anomaly_min_ai_usd") @db.Decimal(10, 2)
+  anomalyMinStorageMb Int      @default(1024) @map("anomaly_min_storage_mb")
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_health_settings")
+}
+
 
 /// Última ejecución y siguiente prevista de cada tarea programada (global).
 model CronHeartbeat {

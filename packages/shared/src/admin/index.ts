@@ -16,3 +16,4 @@ export * from './platform-blog';
 export * from './support';
 export * from './today';
 export * from './metrics-insights';
+export * from './health-insights';

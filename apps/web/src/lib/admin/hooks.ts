@@ -3238,6 +3238,7 @@ export function useProposeAddon(tenantId: string) {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'opportunities'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'adoption'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
       void qc.invalidateQueries({ queryKey: ['admin', 'followups'] });

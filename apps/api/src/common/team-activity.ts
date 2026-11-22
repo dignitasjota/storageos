@@ -1,3 +1,5 @@
+import { todayInTimezone } from './format';
+
 import type { PrismaAdminService } from '../modules/database/prisma-admin.service';
 
 /**
@@ -52,4 +54,75 @@ export async function lastTeamActivity(
   tenantId: string,
 ): Promise<Date | null> {
   return (await lastTeamActivityByTenant(admin, [tenantId])).get(tenantId) ?? null;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Anota que el usuario ha usado el panel hoy (hora de España): una fila por
+ * usuario y día en `tenant_activity_days`. Solo escribe la primera vez del día
+ * (`users.last_active_day`), así que renovar la sesión cada pocos minutos no
+ * cuesta nada. Nunca falla: si algo va mal, se pierde ese día y ya.
+ */
+export async function recordTeamActivityDay(
+  admin: PrismaAdminService,
+  user: { id: string; tenantId: string; lastActiveDay?: Date | null },
+  now = new Date(),
+): Promise<void> {
+  const day = todayInTimezone('Europe/Madrid', now);
+  if (user.lastActiveDay && user.lastActiveDay.getTime() === day.getTime()) return;
+  const key = day.toISOString().slice(0, 10);
+  try {
+    await admin.$executeRaw`
+      WITH u AS (
+        UPDATE users SET last_active_day = ${key}::date
+        WHERE id = ${user.id}::uuid AND last_active_day IS DISTINCT FROM ${key}::date
+        RETURNING id, tenant_id
+      )
+      INSERT INTO tenant_activity_days (tenant_id, user_id, day)
+      SELECT tenant_id, id, ${key}::date FROM u
+      ON CONFLICT DO NOTHING`;
+  } catch {
+    /* la actividad es informativa: no rompe el inicio de sesión */
+  }
+}
+
+export interface TeamActivityStats {
+  /** Días distintos con alguien del equipo en el panel (últimos 30). */
+  activeDays: number;
+  /** Usuarios distintos que entraron en esos 30 días. */
+  activeUsers: number;
+  /** Primer día registrado (para saber si ya hay un mes de historia). */
+  firstDay: Date;
+}
+
+/**
+ * Días y usuarios activos de los últimos 30 días por tenant (los que no tienen
+ * ningún día registrado no aparecen: aún no hay datos).
+ */
+export async function teamActivityStatsByTenant(
+  admin: PrismaAdminService,
+  tenantIds?: string[],
+  now = new Date(),
+): Promise<Map<string, TeamActivityStats>> {
+  if (tenantIds && tenantIds.length === 0) return new Map();
+  const today = todayInTimezone('Europe/Madrid', now);
+  const since = new Date(today.getTime() - 29 * DAY_MS);
+  const ids = tenantIds ?? null;
+  const rows = await admin.$queryRaw<
+    { tenant_id: string; days: bigint; users: bigint; first_day: Date }[]
+  >`
+    SELECT tenant_id::text AS tenant_id,
+           COUNT(DISTINCT day) FILTER (WHERE day >= ${since}::date) AS days,
+           COUNT(DISTINCT user_id) FILTER (WHERE day >= ${since}::date) AS users,
+           MIN(day) AS first_day
+    FROM tenant_activity_days
+    WHERE (${ids}::uuid[] IS NULL OR tenant_id = ANY(${ids}::uuid[]))
+    GROUP BY tenant_id`;
+  return new Map(
+    rows.map((r) => [
+      r.tenant_id,
+      { activeDays: Number(r.days), activeUsers: Number(r.users), firstDay: r.first_day },
+    ]),
+  );
 }

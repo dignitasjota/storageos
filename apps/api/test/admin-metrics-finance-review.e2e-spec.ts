@@ -360,8 +360,11 @@ describe('Métricas y Finanzas del super admin: revisión (e2e)', () => {
     expect(new Set(keys).size).toBe(keys.length);
     const titles = body.alerts.map((x: { title: string }) => x.title);
     expect(new Set(titles).size).toBe(titles.length);
+    // Un aviso de gasto de IA por tenant (con ese gasto también sale el de consumo
+    // anómalo de la IA, que es otro tipo de aviso).
     const mine = body.alerts.filter(
-      (x: { tenantId: string }) => x.tenantId === a.tenantId || x.tenantId === b.tenantId,
+      (x: { kind: string; tenantId: string }) =>
+        x.kind === 'ai_cost' && (x.tenantId === a.tenantId || x.tenantId === b.tenantId),
     );
     expect(mine).toHaveLength(2);
   });
