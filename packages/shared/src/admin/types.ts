@@ -485,9 +485,16 @@ export interface ImpersonationTokenDto {
 export interface AdminMetricsPlanSliceDto {
   planSlug: string;
   planName: string;
-  /** Nº de tenants con ese plan (cualquier estado de suscripción). */
+  /**
+   * Nº de tenants vivos con ese plan (sin suspendidos, cancelados, borrados ni
+   * los que quedaron en solo lectura tras una prueba sin pagar).
+   */
   count: number;
-  /** MRR aportado por los tenants activos de ese plan. */
+  /** De ellos, los que están en prueba. */
+  trial: number;
+  /** De ellos, los que pagan (suman al MRR). */
+  paying: number;
+  /** MRR (sin IVA) de la cuota del plan de los que pagan; los extras van aparte. */
   mrr: number;
 }
 
@@ -575,19 +582,28 @@ export interface AdminMetricsDto {
   tenants: {
     total: number;
     trial: number;
+    /** Activos y al día (también los de un plan gratuito). */
     active: number;
+    /** Activos con un pago atrasado (siguen en el MRR hasta que se suspenden). */
+    pastDue: number;
+    /** Prueba terminada sin pagar: cuenta en solo lectura (ni cliente ni baja). */
+    readOnly: number;
     suspended: number;
     cancelled: number;
   };
+  /** MRR sin IVA: cuota real (anual entre 12, con su descuento) + extras. */
   mrr: {
     total: number;
     currency: string;
   };
   signupsThisMonth: number;
-  /** Bajas del mes (cancelados o suspendidos, también los anonimizados). */
+  /**
+   * Bajas del mes de tenants que llegaron a pagar (cancelados o suspendidos,
+   * también los anonimizados, o en solo lectura tras dejar de pagar).
+   */
   cancellationsThisMonth: number;
   churnRatePercent: number;
-  /** MRR / tenants que pagan (suscripción activa y tenant activo o en prueba). */
+  /** MRR / tenants que pagan (sin IVA). */
   averageRevenuePerTenant: number;
   /** Tenants que pagan ahora (los que suman al MRR). */
   payingTenants: number;
@@ -596,9 +612,9 @@ export interface AdminMetricsDto {
     ended: number;
     /** Pagan un plan. */
     converted: number;
-    /** Pasaron al plan Free. */
+    /** Terminaron sin pagar (solo lectura, plan gratuito o suspendidos sin haber pagado). */
     toFree: number;
-    /** Cancelados o suspendidos. */
+    /** Pagaron y después se dieron de baja. */
     churned: number;
   };
   /** Trials que expiran en los próximos 7 días (alerta). */
@@ -1762,23 +1778,30 @@ export interface AdminFinanceMonthDto {
   redsys: number;
   /** Efectivo, transferencia, PayPal y otros apuntados a mano. */
   manual: number;
-  /** Neto del mes (cobrado − devuelto). */
+  /** Neto de los cobros del mes (cobrado − lo devuelto de esos cobros), con IVA. */
   total: number;
+  /** Devuelto en el mes (por la fecha de la devolución), con IVA. */
+  refunded: number;
 }
 export interface AdminFinanceOverviewDto {
   currency: string;
-  /** Cobrado neto en el periodo (cobrado − reembolsado y contracargos perdidos). */
+  /**
+   * Cobrado neto en el periodo, con IVA: lo cobrado en esos meses menos lo que
+   * se ha devuelto de esos cobros.
+   */
   collectedTotal: number;
-  /** Devuelto de los cobros del periodo (reembolsos y contracargos perdidos). */
+  /** Devuelto en el periodo (por la fecha de la devolución), con IVA. */
   refundedTotal: number;
   /** Importe de cobros con un contracargo abierto (aún no devuelto). */
   disputedTotal: number;
   /** Neto por forma de cobro. */
   bySource: Record<AdminFinanceSource, number>;
-  /** MRR actual de los add-ons (todos los tenants). */
+  /** MRR actual de los extras de los tenants que pagan, sin IVA. */
   addonsMrr: number;
-  /** Facturado neto (sin las sustituidas; los abonos restan), para reconciliar. */
+  /** Facturado neto con IVA (sin las sustituidas; los abonos restan). */
   invoicedTotal: number;
+  /** Cobros sin factura y facturas sin cobro del periodo. */
+  reconciliation: AdminFinanceReconciliationDto;
   byProvider: AdminFinanceProviderSliceDto[];
   monthly: AdminFinanceMonthDto[];
   /** Los mismos meses justo antes, para comparar. */
@@ -1787,8 +1810,16 @@ export interface AdminFinanceOverviewDto {
   ai: AdminFinanceAiDto;
 }
 
+/** Lo que no cuadra entre cobros y facturas del periodo. */
+export interface AdminFinanceReconciliationDto {
+  /** Cobros (pagados) del periodo sin factura de suscripción. */
+  paymentsWithoutInvoice: { count: number; total: number };
+  /** Facturas del periodo sin un cobro asociado. */
+  invoicesWithoutPayment: { count: number; total: number };
+}
+
 export interface AdminFinanceAiDto {
-  /** Al mes, por el extra del asistente y los de consultas (€). */
+  /** Al mes, sin IVA, por el extra del asistente y los de consultas de los tenants que pagan (€). */
   revenueMonthly: number;
   /** Coste estimado del mes en curso con la IA de la plataforma (USD). */
   costUsdThisMonth: number;
@@ -1840,7 +1871,7 @@ export interface AdminChurnReasonSliceDto {
   /** Código del motivo: capturado (price, competitor…) o inferido (voluntary, unknown). */
   reason: string;
   count: number;
-  /** MRR mensual perdido (Σ precio del plan de esos tenants), en la moneda de plataforma. */
+  /** MRR mensual perdido (sin IVA, el último MRR de esos tenants), en la moneda de plataforma. */
   lostMrr: number;
   /** Cuántos de estos tenants tenían el motivo CAPTURADO (el resto son inferidos). */
   captured: number;
@@ -1875,11 +1906,16 @@ export interface AdminMrrForecastDto {
     avgNewMrr: number;
     /** Net revenue retention medio (% de la base que se conserva/expande). */
     avgNrr: number | null;
-    /** Nº de meses de histórico con actividad usados para promediar. */
+    /** Nº de meses cerrados (sin el mes en curso) con datos usados para promediar. */
     basedOnMonths: number;
   };
   /** true si no hay histórico suficiente para proyectar. */
   warmingUp: boolean;
+  /**
+   * Menos de 3 meses cerrados con datos: no se proyecta crecimiento (la
+   * previsión mantiene el MRR actual).
+   */
+  insufficientHistory: boolean;
 }
 
 /** Un tenant en el ranking de LTV realizado (Σ pagos de suscripción). */
@@ -1916,15 +1952,17 @@ export interface AdminLtvDto {
   /** Nº de tenants con al menos un pago (cuentas pagadoras). */
   payingTenants: number;
   /**
-   * LTV medio (modelo) = `avgArpa × avgLifespanMonths`. Estimación prospectiva
-   * del valor de una cuenta a lo largo de su vida.
+   * LTV (modelo, sin IVA) = ARPA / churn mensual medio del MRR. `null` si no
+   * hay datos suficientes (menos de 3 meses cerrados o ninguna baja de MRR).
    */
-  avgLtv: number;
-  /** LTV realizado = Σ pagos / nº pagadores (valor ya cobrado por cuenta). */
+  avgLtv: number | null;
+  /** Churn mensual medio del MRR (%) usado en el modelo; null sin datos. */
+  avgMonthlyChurnPct: number | null;
+  /** LTV realizado = Σ pagos netos / nº pagadores (valor ya cobrado, con IVA). */
   realizedLtv: number;
   /** Vida media en meses (alta → baja, o → hoy si sigue activo), mín. 1. */
   avgLifespanMonths: number;
-  /** Ingreso medio mensual por cuenta pagadora (ARPA). */
+  /** Ingreso medio mensual por cuenta que paga ahora (ARPA = MRR / que pagan, sin IVA). */
   avgArpa: number;
   /** Top tenants por LTV realizado (Σ pagos), mayor primero. */
   topTenants: AdminLtvTopTenantDto[];

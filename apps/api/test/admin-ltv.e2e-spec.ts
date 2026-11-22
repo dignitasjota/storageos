@@ -85,7 +85,8 @@ describe('Admin LTV + cohortes de ingresos (e2e)', () => {
 
     // Estructura
     expect(m.currency).toBe('EUR');
-    expect(typeof m.avgLtv).toBe('number');
+    // El LTV del modelo necesita 3 meses cerrados con bajas de MRR; si no, null.
+    expect(m.avgLtv === null || typeof m.avgLtv === 'number').toBe(true);
     expect(typeof m.realizedLtv).toBe('number');
     expect(typeof m.avgArpa).toBe('number');
     expect(typeof m.avgLifespanMonths).toBe('number');

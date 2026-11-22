@@ -47,8 +47,18 @@ describe('Churn por razón (e2e)', () => {
 
   it('captura el motivo al suspender y lo agrega en el reporte; infiere el que falta', async () => {
     const bearer = { Authorization: `Bearer ${token}` };
-    const a = await registerVerifiedUser(app, 'churn-a'); // starter, 49 €/mes
+    const a = await registerVerifiedUser(app, 'churn-a'); // starter
     const b = await registerVerifiedUser(app, 'churn-b');
+    // Solo es baja quien llegó a pagar: una prueba sin pagar no cuenta.
+    await admin.tenantSubscriptionPayment.createMany({
+      data: [a, b].map((t) => ({
+        tenantId: t.tenantId,
+        provider: 'manual',
+        status: 'paid',
+        amount: 79,
+        paidAt: new Date(),
+      })),
+    });
 
     // A: baja con motivo capturado 'price'.
     const suspA = await request(app.getHttpServer())
@@ -80,7 +90,8 @@ describe('Churn por razón (e2e)', () => {
     expect(price).toBeTruthy();
     expect(price.count).toBeGreaterThanOrEqual(1);
     expect(price.captured).toBeGreaterThanOrEqual(1);
-    expect(price.lostMrr).toBeGreaterThanOrEqual(49); // starter
+    // Su último MRR (la cuota del plan, sin IVA).
+    expect(price.lostMrr).toBeGreaterThan(0);
 
     // B aparece como inferido (unknown), no como 'price'.
     const inferred = report.body.slices.find(

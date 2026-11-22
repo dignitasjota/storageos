@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { FEATURE_LABELS, type TenantFeature } from '@storageos/shared';
 
 import { currentMonth, zonedDayStart } from '../../common/format';
+import { currentMrrByTenant } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminBillingOpsService } from './admin-billing-ops.service';
@@ -294,7 +295,6 @@ export class AdminActivityService {
     const weekAgo = new Date(now.getTime() - 7 * DAY);
     const [
       paying,
-      addons,
       collected,
       collectedPrev,
       receivables,
@@ -304,20 +304,8 @@ export class AdminActivityService {
       newPrev,
       mrrPrev,
     ] = await Promise.all([
-      this.admin.tenantSubscription.findMany({
-        where: {
-          status: { in: ['active', 'past_due'] },
-          tenant: { deletedAt: null, billingExempt: false, status: 'active' },
-        },
-        select: { tenantId: true, status: true, plan: { select: { priceMonthly: true } } },
-      }),
-      this.admin.tenantSubscriptionAddon.findMany({
-        where: {
-          suspendedAt: null,
-          tenant: { deletedAt: null, billingExempt: false, status: 'active' },
-        },
-        select: { tenantId: true, priceMonthly: true, quantity: true },
-      }),
+      // MRR sin IVA, la misma definición que Métricas (`tenantMrr`).
+      currentMrrByTenant(this.admin),
       this.admin.tenantSubscriptionPayment.aggregate({
         where: { status: 'paid', paidAt: { gte: weekAgo } },
         _sum: { amount: true, refundedAmount: true },
@@ -343,17 +331,8 @@ export class AdminActivityService {
         _count: { _all: true },
       }),
     ]);
-    const addonsBy = new Map<string, number>();
-    for (const a of addons) {
-      addonsBy.set(
-        a.tenantId,
-        (addonsBy.get(a.tenantId) ?? 0) + Number(a.priceMonthly) * a.quantity,
-      );
-    }
-    const mrr = paying.reduce(
-      (s, p) => s + Number(p.plan.priceMonthly) + (addonsBy.get(p.tenantId) ?? 0),
-      0,
-    );
+    let mrr = 0;
+    for (const p of paying.values()) mrr += p.total;
     return {
       mrr: round2(mrr),
       collected7d: round2(

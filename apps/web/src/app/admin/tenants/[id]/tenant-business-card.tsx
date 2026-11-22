@@ -5,8 +5,9 @@ import { Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTenantBusiness } from '@/lib/admin/business-hooks';
+import { formatEur } from '@/lib/format';
 
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+const eur = formatEur;
 const usd = (n: number) =>
   `$${n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 function bytes(n: number): string {
@@ -41,7 +42,7 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi
-          label="Aporta al mes"
+          label="Aporta al mes (sin IVA)"
           value={eur(d.mrr.total)}
           hint={
             d.paying

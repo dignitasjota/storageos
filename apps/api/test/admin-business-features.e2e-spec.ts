@@ -58,6 +58,15 @@ describe('Negocio del super admin: funcionalidades (e2e)', () => {
     await cleanupTestTenants();
   });
 
+  /** Precio de lista sin IVA (el MRR de las métricas va sin IVA). */
+  async function withoutVat(listPrice: number): Promise<number> {
+    const s = await db.platformBillingSettings.findFirst();
+    const tax = Number(s?.taxRate ?? 21);
+    return (s?.pricesIncludeVat ?? true)
+      ? Math.round((listPrice / (1 + tax / 100)) * 100) / 100
+      : listPrice;
+  }
+
   /** Tenant que paga Starter por transferencia, con la cuota a 10 días. */
   async function payingTenant(suffix: string): Promise<string> {
     const owner = await registerVerifiedUser(app, suffix);
@@ -185,7 +194,7 @@ describe('Negocio del super admin: funcionalidades (e2e)', () => {
     const tenantId = await payingTenant('bizcard');
     const b = (await http().get(`/admin/business/tenants/${tenantId}`).set(auth).expect(200)).body;
     expect(b.paying).toBe(true);
-    expect(b.mrr.plan).toBe(79);
+    expect(b.mrr.plan).toBe(await withoutVat(79));
     expect(b.health.factors).toHaveLength(6);
     expect(b.mrrHistory).toHaveLength(12);
     await http()

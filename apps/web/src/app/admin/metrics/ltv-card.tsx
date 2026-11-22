@@ -4,8 +4,7 @@ import { Loader2 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminLtv } from '@/lib/admin/hooks';
-
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+import { formatEur, formatPct, plural } from '@/lib/format';
 
 /** Color de la celda de ingreso/tenant de una cohorte (más ingreso → más verde). */
 function cellStyle(value: number, max: number): { className: string } {
@@ -22,12 +21,12 @@ export function LtvCard({ months = 12 }: { months?: number }) {
   const q = useAdminLtv(months);
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">LTV y cohortes de ingresos</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Valor de vida del cliente (a partir de los pagos de suscripción) e ingreso acumulado por
-          mes de alta.
+          Valor de vida del cliente: el modelo (ARPA sin IVA entre el churn mensual del MRR) y lo ya
+          cobrado (con IVA), e ingreso acumulado por mes de alta.
         </p>
       </CardHeader>
       <CardContent>
@@ -43,20 +42,38 @@ export function LtvCard({ months = 12 }: { months?: number }) {
           <div className="space-y-5">
             {/* KPIs */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Kpi label="LTV medio" value={eur(q.data.avgLtv)} hint="modelo" />
-              <Kpi label="LTV realizado" value={eur(q.data.realizedLtv)} hint="ya cobrado" />
+              <Kpi
+                label="LTV (modelo, sin IVA)"
+                value={q.data.avgLtv === null ? '—' : formatEur(q.data.avgLtv)}
+                hint={
+                  q.data.avgMonthlyChurnPct === null
+                    ? 'sin datos suficientes'
+                    : `churn mensual ${formatPct(q.data.avgMonthlyChurnPct)}`
+                }
+              />
+              <Kpi
+                label="LTV realizado (con IVA)"
+                value={formatEur(q.data.realizedLtv)}
+                hint="ya cobrado"
+              />
               <Kpi
                 label="Vida media"
-                value={`${q.data.avgLifespanMonths.toFixed(1)} m`}
-                hint={`${q.data.payingTenants} cuentas`}
+                value={`${q.data.avgLifespanMonths.toFixed(1).replace('.', ',')} ${
+                  q.data.avgLifespanMonths === 1 ? 'mes' : 'meses'
+                }`}
+                hint={plural(q.data.payingTenants, 'cuenta', 'cuentas')}
               />
-              <Kpi label="ARPA" value={eur(q.data.avgArpa)} hint="ingreso/mes" />
+              <Kpi
+                label="ARPA (sin IVA)"
+                value={formatEur(q.data.avgArpa)}
+                hint="MRR / que pagan"
+              />
             </div>
 
             {/* Cohortes de ingresos */}
             <div>
               <h3 className="mb-2 text-xs font-medium text-muted-foreground">
-                Ingreso acumulado por cohorte de alta
+                Ingreso acumulado por cohorte de alta (con IVA)
               </h3>
               <div className="overflow-x-auto">
                 <table className="w-full border-separate border-spacing-1 text-xs">
@@ -84,11 +101,13 @@ export function LtvCard({ months = 12 }: { months?: number }) {
                             <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
                               {c.tenants}
                             </td>
-                            <td className="px-2 py-1 text-right tabular-nums">{eur(c.revenue)}</td>
+                            <td className="px-2 py-1 text-right tabular-nums">
+                              {formatEur(c.revenue)}
+                            </td>
                             <td
                               className={`rounded px-2 py-1 text-right tabular-nums ${s.className}`}
                             >
-                              {eur(c.revenuePerTenant)}
+                              {formatEur(c.revenuePerTenant)}
                             </td>
                           </tr>
                         );
@@ -113,9 +132,9 @@ export function LtvCard({ months = 12 }: { months?: number }) {
                     >
                       <span className="truncate">{t.name}</span>
                       <span className="shrink-0 tabular-nums">
-                        {eur(t.totalPaid)}{' '}
+                        {formatEur(t.totalPaid)}{' '}
                         <span className="text-xs text-muted-foreground">
-                          ({t.paymentsCount} pagos)
+                          ({plural(t.paymentsCount, 'pago', 'pagos')})
                         </span>
                       </span>
                     </li>

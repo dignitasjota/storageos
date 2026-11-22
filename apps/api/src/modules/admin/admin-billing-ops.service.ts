@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
+import { subscriptionCycle } from '../../common/saas-metrics';
 import { addMonthsUtc, periodsOwed, subscriptionDueDate } from '../billing-saas/platform-due';
 import {
   amountToCharge,
@@ -83,15 +84,9 @@ export class AdminBillingOpsService {
 
   // ------------------------------------------------------------- cargos
 
-  /**
-   * Ciclo de cobro. La remesa SEPA y el cobro automático de Redsys cobran
-   * siempre la cuota mensual, aunque el último periodo pagado fuera de un año
-   * (p. ej. un pago a mano de 12 meses antes de domiciliar).
-   */
+  /** Ciclo de cobro (la misma definición que el MRR: `subscriptionCycle`). */
   private cycleOf(sub: SubRow): 'monthly' | 'yearly' {
-    if (sub.billingMode === 'sepa' || sub.billingMode === 'redsys') return 'monthly';
-    const len = sub.currentPeriodEnd.getTime() - sub.currentPeriodStart.getTime();
-    return len > 200 * DAY ? 'yearly' : 'monthly';
+    return subscriptionCycle(sub);
   }
 
   /** Cuota del plan al final del periodo (con los extras que van con ella). */

@@ -24,6 +24,7 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { parseMonthsParam } from '../../common/saas-metrics';
 
 import { AdminAudit } from './admin-audit.decorator';
 import { AdminBusinessService } from './admin-business.service';
@@ -45,7 +46,7 @@ export class AdminBusinessController {
   /** Embudo de pruebas por mes de alta. */
   @Get('trial-funnel')
   trialFunnel(@Query('months') months?: string): Promise<AdminTrialFunnelDto> {
-    return this.business.trialFunnel(months ? Number(months) : 12);
+    return this.business.trialFunnel(parseMonthsParam(months, 12));
   }
 
   @Get('goals')

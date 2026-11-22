@@ -4,6 +4,7 @@ import { liveRefetchInterval } from '../realtime/store';
 
 import { adminApiFetch, adminApiFetchBlob } from './api';
 import { useAdminAuthStore } from './auth-store';
+import { LIVE_METRICS } from './live-metrics';
 
 import type {
   BlogCoverUploadResponseDto,
@@ -888,7 +889,7 @@ export function useAdminMetrics(months = 12) {
   return useQuery({
     queryKey: [...adminMetricsKey, 'overview', months] as const,
     queryFn: () => adminApiFetch<AdminMetricsDto>(`/admin/metrics?months=${months}`),
-    staleTime: 30_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -897,7 +898,7 @@ export function useAdminMrrMovements(months = 12) {
     queryKey: ['admin', 'metrics', 'mrr-movements', months] as const,
     queryFn: () =>
       adminApiFetch<AdminMetricsMrrMovementsDto>(`/admin/metrics/mrr-movements?months=${months}`),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -905,7 +906,7 @@ export function useAdminRetention(months = 12) {
   return useQuery({
     queryKey: ['admin', 'metrics', 'retention', months] as const,
     queryFn: () => adminApiFetch<AdminRetentionDto>(`/admin/metrics/retention?months=${months}`),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -913,7 +914,7 @@ export function useAdminLtv(months = 12) {
   return useQuery({
     queryKey: ['admin', 'metrics', 'ltv', months] as const,
     queryFn: () => adminApiFetch<AdminLtvDto>(`/admin/metrics/ltv?months=${months}`),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -922,7 +923,7 @@ export function useAdminChurnByReason(months = 12) {
     queryKey: ['admin', 'metrics', 'churn-by-reason', months] as const,
     queryFn: () =>
       adminApiFetch<AdminChurnByReasonDto>(`/admin/metrics/churn-by-reason?months=${months}`),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -933,7 +934,7 @@ export function useAdminPaymentRetries(months = 12) {
       adminApiFetch<AdminPaymentRetryAnalysisDto>(
         `/admin/metrics/payment-retries?months=${months}`,
       ),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -942,7 +943,7 @@ export function useAdminMrrForecast(months = 6) {
     queryKey: ['admin', 'metrics', 'mrr-forecast', months] as const,
     queryFn: () =>
       adminApiFetch<AdminMrrForecastDto>(`/admin/metrics/mrr-forecast?months=${months}`),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 

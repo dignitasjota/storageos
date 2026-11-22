@@ -33,23 +33,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMetrics } from '@/lib/admin/hooks';
 import { downloadCsv } from '@/lib/csv';
+import { formatEur, formatEurShort, formatPct, plural } from '@/lib/format';
 
 const STATUS_META: {
-  key: 'active' | 'trial' | 'suspended' | 'cancelled';
+  key: 'active' | 'pastDue' | 'trial' | 'readOnly' | 'suspended' | 'cancelled';
   label: string;
   color: string;
 }[] = [
   { key: 'active', label: 'Activos', color: '#16a34a' },
-  { key: 'trial', label: 'Trial', color: '#eab308' },
+  { key: 'pastDue', label: 'Pago atrasado', color: '#dc2626' },
+  { key: 'trial', label: 'En prueba', color: '#eab308' },
+  { key: 'readOnly', label: 'Solo lectura (prueba sin pagar)', color: '#a855f7' },
   { key: 'suspended', label: 'Suspendidos', color: '#f97316' },
   { key: 'cancelled', label: 'Cancelados', color: '#94a3b8' },
 ];
 
 const PLAN_COLORS = ['#2563eb', '#16a34a', '#a855f7', '#f97316', '#06b6d4', '#eab308', '#ec4899'];
-
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-const eurShort = (n: number) =>
-  n >= 1000 ? `${Math.round(n / 100) / 10}k €` : `${Math.round(n)} €`;
 
 export default function AdminMetricsPage() {
   const [months, setMonths] = useState(12);
@@ -85,8 +84,14 @@ export default function AdminMetricsPage() {
       label: p.planName || p.planSlug,
       value: p.count,
       mrr: p.mrr,
+      trial: p.trial,
+      paying: p.paying,
       color: PLAN_COLORS[i % PLAN_COLORS.length] ?? '#94a3b8',
     }));
+  const trials = m.trialsEndedThisMonth;
+  // Convierten las que pagaron (aunque después se dieran de baja).
+  const trialConversion =
+    trials.ended > 0 ? ((trials.converted + trials.churned) / trials.ended) * 100 : null;
 
   function exportCsv() {
     const byLabel = new Map<
@@ -101,21 +106,22 @@ export default function AdminMetricsPage() {
       e.collected = r.collected;
       byLabel.set(r.label, e);
     }
-    const rows: (string | number)[][] = [['Mes', 'Altas', 'Bajas', 'Cobrado (EUR)']];
+    const rows: (string | number)[][] = [['Mes', 'Altas', 'Bajas', 'Cobrado neto con IVA (EUR)']];
     for (const [label, v] of byLabel) rows.push([label, v.signups, v.cancellations, v.collected]);
     downloadCsv('metricas-mensuales.csv', rows);
   }
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Métricas</h1>
           <p className="text-sm text-muted-foreground">
-            Vista global de la plataforma. Se actualiza cada minuto.
+            Vista global de la plataforma. Se actualiza cada minuto. El MRR y el ARPU van sin IVA;
+            lo cobrado, con IVA.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <PeriodSelect value={months} onChange={setMonths} />
           <Button variant="outline" size="sm" onClick={exportCsv}>
             <Download className="mr-1 size-4" /> Exportar CSV
@@ -124,7 +130,7 @@ export default function AdminMetricsPage() {
       </div>
 
       {/* Objetivos y avisos */}
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
         <GoalsCard />
         <BusinessAlertsCard />
       </section>
@@ -152,8 +158,8 @@ export default function AdminMetricsPage() {
             }
           />
           <MetricCard
-            label="Cobrado neto"
-            value={eur(m.period.current.collected)}
+            label="Cobrado neto (con IVA)"
+            value={formatEur(m.period.current.collected)}
             hint={
               <Delta current={m.period.current.collected} previous={m.period.previous.collected} />
             }
@@ -164,10 +170,21 @@ export default function AdminMetricsPage() {
       {/* Tenants por estado */}
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Tenants</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
           <MetricCard label="Total" value={m.tenants.total} />
-          <MetricCard label="Activos" value={m.tenants.active} />
-          <MetricCard label="Trial" value={m.tenants.trial} />
+          <MetricCard label="Activos" value={m.tenants.active} hint="al día" />
+          <MetricCard
+            label="Pago atrasado"
+            value={m.tenants.pastDue}
+            hint="siguen en el MRR"
+            accent={m.tenants.pastDue > 0 ? 'amber' : undefined}
+          />
+          <MetricCard label="En prueba" value={m.tenants.trial} />
+          <MetricCard
+            label="Solo lectura"
+            value={m.tenants.readOnly}
+            hint="prueba terminada sin pagar"
+          />
           <MetricCard label="Suspendidos" value={m.tenants.suspended} />
           <MetricCard label="Cancelados" value={m.tenants.cancelled} />
         </div>
@@ -177,17 +194,17 @@ export default function AdminMetricsPage() {
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Negocio</h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <MetricCard label="MRR" value={eur(m.mrr.total)} hint="plan + extras" />
+          <MetricCard label="MRR (sin IVA)" value={formatEur(m.mrr.total)} hint="plan + extras" />
           <MetricCard
-            label="Ingreso medio / tenant"
-            value={eur(m.averageRevenuePerTenant)}
-            hint={`${m.payingTenants} que pagan`}
+            label="Ingreso medio / tenant (sin IVA)"
+            value={formatEur(m.averageRevenuePerTenant)}
+            hint={`${plural(m.payingTenants, 'tenant que paga', 'tenants que pagan')}`}
           />
           <MetricCard label="Altas este mes" value={m.signupsThisMonth} />
           <MetricCard
             label="Churn (mes)"
-            value={`${m.churnRatePercent.toFixed(1)}%`}
-            hint={`${m.cancellationsThisMonth} bajas (cancelados o suspendidos)`}
+            value={formatPct(m.churnRatePercent)}
+            hint={`${plural(m.cancellationsThisMonth, 'baja', 'bajas')} de clientes que pagaban`}
           />
           <MetricCard
             label="Trials por expirar"
@@ -204,18 +221,14 @@ export default function AdminMetricsPage() {
             label="Pruebas terminadas (mes)"
             value={m.trialsEndedThisMonth.ended}
             hint={
-              m.trialsEndedThisMonth.ended > 0
-                ? `${m.trialsEndedThisMonth.converted} pagan · ${m.trialsEndedThisMonth.toFree} sin pagar · ${m.trialsEndedThisMonth.churned} de baja`
+              trials.ended > 0
+                ? `${trials.converted} pagan · ${trials.toFree} sin pagar · ${plural(trials.churned, 'pagó y se fue', 'pagaron y se fueron')}`
                 : 'ninguna este mes'
             }
           />
           <MetricCard
             label="Conversión de pruebas (mes)"
-            value={
-              m.trialsEndedThisMonth.ended > 0
-                ? `${Math.round((m.trialsEndedThisMonth.converted / m.trialsEndedThisMonth.ended) * 100)}%`
-                : '—'
-            }
+            value={trialConversion === null ? '—' : formatPct(trialConversion, 0)}
             hint="pasan a pagar un plan"
           />
         </div>
@@ -224,7 +237,7 @@ export default function AdminMetricsPage() {
       {/* Distribuciones (tarta) */}
       <section>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">Distribución</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 [&>*]:min-w-0">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Tenants por estado</CardTitle>
@@ -236,9 +249,23 @@ export default function AdminMetricsPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Tenants por plan</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Solo los vivos. MRR de la cuota sin IVA (los extras van aparte).
+              </p>
             </CardHeader>
             <CardContent>
-              <DonutChart data={planPie} subtitle={(d) => (d.mrr ? eurShort(d.mrr) : undefined)} />
+              <DonutChart
+                data={planPie}
+                subtitle={(d) =>
+                  [
+                    d.trial ? `${d.trial} en prueba` : null,
+                    d.paying ? `${d.paying} ${d.paying === 1 ? 'paga' : 'pagan'}` : null,
+                    d.mrr ? formatEurShort(d.mrr) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || undefined
+                }
+              />
             </CardContent>
           </Card>
         </div>
@@ -249,10 +276,13 @@ export default function AdminMetricsPage() {
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">
           Evolución ({months} meses)
         </h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 [&>*]:min-w-0">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Altas vs bajas de tenants</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Bajas: clientes que pagaban. Una prueba que acaba sin pagar no cuenta.
+              </p>
             </CardHeader>
             <CardContent>
               <div className="h-64">
@@ -299,7 +329,9 @@ export default function AdminMetricsPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Ingresos de suscripción cobrados (netos)</CardTitle>
+              <CardTitle className="text-base">
+                Ingresos de suscripción cobrados (netos, con IVA)
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="h-64">
@@ -324,14 +356,14 @@ export default function AdminMetricsPage() {
                       axisLine={false}
                     />
                     <YAxis
-                      tickFormatter={eurShort}
+                      tickFormatter={formatEurShort}
                       tick={{ fontSize: 11 }}
                       tickLine={false}
                       axisLine={false}
                       width={52}
                     />
                     <Tooltip
-                      formatter={(v) => eur(Number(v) || 0)}
+                      formatter={(v) => formatEur(Number(v) || 0)}
                       contentStyle={{ borderRadius: 8, fontSize: 13 }}
                     />
                     <Bar
@@ -349,31 +381,31 @@ export default function AdminMetricsPage() {
       </section>
 
       {/* MRR movements + previsión */}
-      <section>
+      <section className="min-w-0">
         <TrialFunnelCard months={months} />
         <QuoteOffersCard />
       </section>
-      <section>
+      <section className="min-w-0">
         <MrrMovementsCard months={months} />
       </section>
-      <section>
+      <section className="min-w-0">
         <MrrForecastCard />
       </section>
 
       {/* Cohortes de retención + churn por razón */}
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
         <RetentionCohortsCard months={months} />
         <ChurnByReasonCard months={months} />
       </section>
 
       {/* Recuperación de cobros (retry analysis) */}
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2 [&>*]:min-w-0">
         <PaymentRetriesCard months={months} />
         <MonthlyReportCard />
       </section>
 
       {/* LTV + cohortes de ingresos */}
-      <section>
+      <section className="min-w-0">
         <LtvCard months={months} />
       </section>
 
@@ -394,7 +426,14 @@ export default function AdminMetricsPage() {
   );
 }
 
-type DonutDatum = { label: string; value: number; color: string; mrr?: number };
+type DonutDatum = {
+  label: string;
+  value: number;
+  color: string;
+  mrr?: number;
+  trial?: number;
+  paying?: number;
+};
 
 function DonutChart({
   data,
@@ -435,21 +474,20 @@ function DonutChart({
           </PieChart>
         </ResponsiveContainer>
       </div>
-      <ul className="w-full space-y-1.5 text-sm">
+      <ul className="w-full min-w-0 space-y-1.5 text-sm">
         {data.map((d) => {
           const sub = subtitle?.(d);
           return (
-            <li key={d.label} className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2">
+            <li key={d.label} className="flex items-start justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-2">
                 <span
                   className="inline-block size-2.5 rounded-sm"
                   style={{ backgroundColor: d.color }}
                 />
                 {d.label}
               </span>
-              <span className="tabular-nums text-muted-foreground">
-                {d.value} ({Math.round((d.value / total) * 100)}%)
-                {sub ? ` · ${sub}` : ''}
+              <span className="text-right tabular-nums text-muted-foreground">
+                {d.value} ({formatPct((d.value / total) * 100, 0)}){sub ? ` · ${sub}` : ''}
               </span>
             </li>
           );
@@ -471,7 +509,7 @@ function MetricCard({
   accent?: 'amber';
 }) {
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-1">
         <CardTitle className="text-xs font-normal text-muted-foreground">{label}</CardTitle>
       </CardHeader>

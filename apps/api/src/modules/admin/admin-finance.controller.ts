@@ -1,6 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 
 import { Public } from '../../common/decorators/public.decorator';
+import { parseMonthsParam } from '../../common/saas-metrics';
 
 import { AdminBillingOpsService } from './admin-billing-ops.service';
 import { AdminFinanceService } from './admin-finance.service';
@@ -20,7 +21,7 @@ export class AdminFinanceController {
 
   @Get()
   overview(@Query('months') months?: string): Promise<AdminFinanceOverviewDto> {
-    return this.service.getOverview(months ? Number(months) : 12);
+    return this.service.getOverview(parseMonthsParam(months, 12));
   }
 
   /** Lo que se espera cobrar en los próximos 30/60/90 días por forma de cobro. */

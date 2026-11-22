@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { loadMrrContext, mrrFor } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminTenantsService } from './admin-tenants.service';
@@ -20,7 +21,7 @@ export class AdminTenantsOverviewService {
   ) {}
 
   async overview(): Promise<AdminTenantOverviewDto[]> {
-    const [rows, addons, logins, followups, facilities, units, contracts, owners, health] =
+    const [rows, addons, logins, followups, facilities, units, contracts, owners, health, ctx] =
       await Promise.all([
         this.admin.tenant.findMany({
           where: { deletedAt: null },
@@ -40,8 +41,9 @@ export class AdminTenantsOverviewService {
               select: {
                 status: true,
                 billingMode: true,
+                currentPeriodStart: true,
                 currentPeriodEnd: true,
-                plan: { select: { slug: true, name: true, priceMonthly: true } },
+                plan: { select: { slug: true, name: true, priceMonthly: true, priceYearly: true } },
               },
             },
           },
@@ -85,6 +87,7 @@ export class AdminTenantsOverviewService {
           orderBy: { createdAt: 'asc' },
         }),
         this.tenants.getTenantsHealth(),
+        loadMrrContext(this.admin),
       ]);
 
     const addonsBy = new Map<string, typeof addons>();
@@ -106,10 +109,8 @@ export class AdminTenantsOverviewService {
     return rows.map((t) => {
       const sub = t.subscription;
       const tenantAddons = addonsBy.get(t.id) ?? [];
-      const addonsMonthly = tenantAddons
-        .filter((a) => !a.suspendedAt)
-        .reduce((sum, a) => sum + Number(a.priceMonthly) * a.quantity, 0);
-      const planMonthly = sub?.plan ? Number(sub.plan.priceMonthly) : 0;
+      // Lo que aporta al mes sin IVA: la misma cuenta que el MRR (`tenantMrr`).
+      const monthly = sub ? mrrFor(ctx, t.id, sub).total : 0;
       // En solo lectura (prueba o plan gratuito terminados sin pagar) no paga.
       const paying = !t.billingExempt && t.status === 'active' && !!sub && sub.status !== 'expired';
       const followup = followupBy.get(t.id);
@@ -129,10 +130,7 @@ export class AdminTenantsOverviewService {
         planName: sub?.plan?.name ?? null,
         subscriptionStatus: sub?.status ?? null,
         billingMode: sub?.billingMode ?? null,
-        monthly:
-          t.billingExempt || sub?.status === 'expired'
-            ? 0
-            : Math.round((planMonthly + addonsMonthly) * 100) / 100,
+        monthly: t.billingExempt || sub?.status === 'expired' ? 0 : monthly,
         addons: tenantAddons.map((a) => ({
           slug: a.addon.slug,
           name: a.addon.name,

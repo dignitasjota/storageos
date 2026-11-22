@@ -136,3 +136,12 @@ export function currentMonth(now = new Date()): { key: string; start: Date } {
     start: new Date(guess.getTime() - madridHour * 3_600_000),
   };
 }
+
+/**
+ * Instante en que empieza el mes `month` (1-12) de `year` en una zona horaria
+ * (por defecto Madrid). Admite meses fuera de rango (0 = diciembre del año
+ * anterior, 13 = enero del siguiente).
+ */
+export function zonedMonthStart(year: number, month: number, timeZone = 'Europe/Madrid'): Date {
+  return zonedDayStart(new Date(Date.UTC(year, month - 1, 1)).toISOString().slice(0, 10), timeZone);
+}

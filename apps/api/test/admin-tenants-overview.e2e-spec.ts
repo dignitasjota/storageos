@@ -86,7 +86,15 @@ describe('Admin: visión general de tenants y búsqueda (e2e)', () => {
       .expect(200);
     const row = res.body.find((r: { id: string }) => r.id === tenant.id);
     expect(row).toBeDefined();
-    expect(row.monthly).toBeCloseTo(Number(tenant.subscription!.plan.priceMonthly) + 20, 2);
+    // Lo que aporta al mes va sin IVA: cuota + extras, cada uno sin el IVA.
+    const settings = await adminClient.platformBillingSettings.findFirst();
+    const tax = Number(settings?.taxRate ?? 21);
+    const net = (n: number) =>
+      (settings?.pricesIncludeVat ?? true) ? Math.round((n / (1 + tax / 100)) * 100) / 100 : n;
+    expect(row.monthly).toBeCloseTo(
+      net(Number(tenant.subscription!.plan.priceMonthly)) + net(20),
+      2,
+    );
     expect(row.addons).toEqual([{ slug: 'e2e-ov-addon', name: 'Extra OV', suspended: false }]);
     expect(row.overdueSince).toBe(periodEnd.toISOString());
     expect(row.ownerPhone).toBe('+34600111222');
