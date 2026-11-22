@@ -109,7 +109,13 @@ export const SnoozeRiskSchema = z.object({
 export type SnoozeRiskInput = z.infer<typeof SnoozeRiskSchema>;
 
 /** Vista guardada de una lista del panel admin (por super admin). */
-export const AdminSavedViewPageEnum = z.enum(['tenants', 'announcements']);
+export const AdminSavedViewPageEnum = z.enum([
+  'tenants',
+  'announcements',
+  'health',
+  'adoption',
+  'usage',
+]);
 export const CreateAdminSavedViewSchema = z.object({
   page: AdminSavedViewPageEnum,
   name: z.string().trim().min(1).max(80),

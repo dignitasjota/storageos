@@ -45,7 +45,8 @@ const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', curren
 /**
  * Simulador de cuota: elige plan, extras, ciclo y cupón y ve el importe con
  * el IVA; si hay un tenant elegido, se le puede enviar como propuesta. Con
- * `?tenantId=` arranca con su plan y sus extras.
+ * `?tenantId=` arranca con su plan y sus extras; `&plan=<slug>` cambia el plan
+ * por el que se le quiere proponer.
  */
 export default function QuotePage() {
   return (
@@ -56,7 +57,10 @@ export default function QuotePage() {
 }
 
 function QuoteSimulator() {
-  const initialTenantId = useSearchParams().get('tenantId');
+  const params = useSearchParams();
+  const initialTenantId = params.get('tenantId');
+  // `?plan=<slug>` (desde los candidatos de Adopción) propone ese plan.
+  const initialPlanSlug = params.get('plan');
   const plans = useAdminSubscriptionPlans({ assignable: true });
   const catalog = useAdminAddons();
   const calc = useAdminQuote();
@@ -89,7 +93,7 @@ function QuoteSimulator() {
       !tenantLimits.data
     )
       return;
-    const slug = tenantDetail.data.subscription?.planSlug;
+    const slug = initialPlanSlug || tenantDetail.data.subscription?.planSlug;
     const plan = plans.data.find((p) => p.slug === slug);
     if (plan) setPlanId(plan.id);
     const next: Record<string, number> = {};
@@ -104,6 +108,7 @@ function QuoteSimulator() {
   }, [
     prefilled,
     initialTenantId,
+    initialPlanSlug,
     tenantDetail.data,
     plans.data,
     tenantSummary.data,

@@ -28,6 +28,7 @@ import { AdminMetricsService } from './admin-metrics.service';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminUsageService } from './admin-usage.service';
 import { MrrSnapshotService } from './mrr-snapshot.service';
+import { TenantHealthService } from './tenant-health.service';
 
 import type {
   AdminBusinessAlertDto,
@@ -89,6 +90,7 @@ export class AdminBusinessService {
     private readonly mrr: MrrSnapshotService,
     private readonly tenants: AdminTenantsService,
     private readonly usage: AdminUsageService,
+    private readonly healthDaily: TenantHealthService,
   ) {}
 
   // --- Embudo de pruebas ---------------------------------------------------
@@ -313,17 +315,20 @@ export class AdminBusinessService {
     const settings = this.toAlertSettings(await this.alertSettingsRow());
     if (!settings.enabled) return { settings, alerts: [] };
 
-    const [movements, overview, health, usage, currentMrr, payingNow] = await Promise.all([
-      this.mrr.getMovements(2),
-      this.metrics.getOverview(),
-      this.tenants.getTenantsHealth(),
-      this.usage.getUsage(7),
-      this.admin.mrrSnapshot.findMany({
-        where: { month: monthIndexDate(madridMonthIndex(new Date())) },
-        select: { tenantId: true, mrr: true },
-      }),
-      currentMrrByTenant(this.admin),
-    ]);
+    const [movements, overview, health, usage, currentMrr, payingNow, drops, anomalies] =
+      await Promise.all([
+        this.mrr.getMovements(2),
+        this.metrics.getOverview(),
+        this.tenants.getTenantsHealth(),
+        this.usage.getUsage(7),
+        this.admin.mrrSnapshot.findMany({
+          where: { month: monthIndexDate(madridMonthIndex(new Date())) },
+          select: { tenantId: true, mrr: true },
+        }),
+        currentMrrByTenant(this.admin),
+        this.healthDaily.drops(),
+        this.usage.anomalies(null),
+      ]);
     const alerts: AdminBusinessAlertDto[] = [];
     // Un aviso por tenant y tipo, aunque el origen lo repita.
     const seen = new Set<string>();
@@ -400,6 +405,31 @@ export class AdminBusinessService {
         detail: `${r.ai.calls} ${r.ai.calls === 1 ? 'llamada' : 'llamadas'} con la IA de la plataforma (umbral ${settings.aiCostUsdWeek} $).`,
         tenantId: r.tenantId,
       });
+    }
+    // Caídas de salud frente a la foto de hace una semana (ajustes de Salud).
+    for (const d of drops) {
+      push({
+        kind: 'health_drop',
+        title: `La salud de ${d.name} (${d.slug}) ha caído ${d.points} puntos`,
+        detail: `De ${d.from} a ${d.to} sobre 100 desde el ${d.referenceDay}.`,
+        tenantId: d.tenantId,
+      });
+    }
+    // Consumo anómalo (correos, IA o almacenamiento) frente a su media.
+    if (anomalies.size > 0) {
+      const names = await this.admin.tenant.findMany({
+        where: { id: { in: [...anomalies.keys()] }, deletedAt: null },
+        select: { id: true, name: true, slug: true },
+      });
+      for (const n of names) {
+        const list = anomalies.get(n.id) ?? [];
+        push({
+          kind: 'usage_anomaly',
+          title: `Consumo anómalo de ${n.name} (${n.slug})`,
+          detail: list.map((a) => a.detail).join(' · '),
+          tenantId: n.id,
+        });
+      }
     }
     return { settings, alerts };
   }

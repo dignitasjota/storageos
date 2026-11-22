@@ -26,6 +26,7 @@ import {
   type PlatformTenantRegisteredEvent,
 } from '../../common/platform-lead-events';
 import { verifyAgainstDummyHash } from '../../common/security/dummy-password';
+import { recordTeamActivityDay } from '../../common/team-activity';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { BUILTIN_TEMPLATES } from '../communications/builtin-templates';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -502,6 +503,8 @@ export class AuthService {
       }
     }
 
+    await recordTeamActivityDay(this.admin, user);
+
     await this.audit.write({
       tenantId: result.tenantId,
       userId: result.userId,
@@ -565,7 +568,9 @@ export class AuthService {
       throw new InternalServerErrorException('Suscripcion no encontrada');
     }
 
-    return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta);
+    return this.emitAuthSuccess(user, tenant, subscription, subscription.plan.slug, meta, {
+      countsAsActivity: false,
+    });
   }
 
   async resendVerification(input: ResendVerificationInput): Promise<void> {
@@ -1015,7 +1020,11 @@ export class AuthService {
     subscription: TenantSubscription,
     planSlug: string,
     meta: RequestMeta,
+    /** La sesión que abre verificar el email (el alta) no cuenta como uso. */
+    options: { countsAsActivity?: boolean } = {},
   ): Promise<AuthFlowResult<AuthSuccessResponse>> {
+    // Día de uso del panel (para la actividad del equipo en Salud).
+    if (options.countsAsActivity !== false) await recordTeamActivityDay(this.admin, user);
     const { refreshToken } = await this.sessions.createForLogin({
       tenantId: tenant.id,
       userId: user.id,

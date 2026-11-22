@@ -157,3 +157,37 @@ describe('límites y plan recomendado', () => {
     expect(pick(9)).toBe('starter');
   });
 });
+
+describe('mejoras de salud', () => {
+  it('la frecuencia solo cuenta con un mes de registro y hace media con lo reciente', () => {
+    const fresh = scoreHealth(input({ activeDays30: 1, activityTracked: false }), NOW);
+    expect(factor(fresh, 'engagement').score).toBe(100);
+    const tracked = scoreHealth(input({ activeDays30: 1, activityTracked: true }), NOW);
+    expect(factor(tracked, 'engagement').score).toBe(63);
+    const daily = scoreHealth(input({ activeDays30: 14, activityTracked: true }), NOW);
+    expect(factor(daily, 'engagement').score).toBe(100);
+  });
+
+  it('los pesos se pueden cambiar', () => {
+    const h = scoreHealth(input({ lastActivityAt: null }), NOW, {
+      client: { engagement: 100, billing: 0, subscription: 0, adoption: 0, portal: 0, support: 0 },
+      trial: { facility: 15, units: 15, customer: 15, contract: 25, invoice: 15, team: 15 },
+    });
+    expect(h.score).toBe(0);
+    expect(h.mainDrag?.key).toBe('engagement');
+    expect(h.mainDrag?.action.label).toBe('Escribir');
+  });
+
+  it('riesgo en clientes y probabilidad de pagar en pruebas', () => {
+    const client = scoreHealth(input({ lastActivityAt: null }), NOW);
+    expect(client.churnRisk).not.toBeNull();
+    expect(client.payProbability).toBeNull();
+    const trial = scoreHealth(
+      input({ status: 'trial', trialEndsAt: new Date(NOW + 2 * DAY), facilities: 0 }),
+      NOW,
+    );
+    expect(trial.churnRisk).toBeNull();
+    expect(trial.trialDaysLeft).toBe(2);
+    expect(trial.payProbability).toEqual(expect.any(Number));
+  });
+});

@@ -35,6 +35,8 @@ import { AdminFinanceInsightsService } from './admin-finance-insights.service';
 import { AdminFinanceController } from './admin-finance.controller';
 import { AdminFinanceService } from './admin-finance.service';
 import { AdminFollowupsController } from './admin-followups.controller';
+import { AdminHealthInsightsController } from './admin-health-insights.controller';
+import { AdminHealthInsightsService } from './admin-health-insights.service';
 import { AdminImpersonationAuditController } from './admin-impersonation-audit.controller';
 import { AdminImpersonationAuditService } from './admin-impersonation-audit.service';
 import { AdminMetricsInsightsService } from './admin-metrics-insights.service';
@@ -185,6 +187,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AiModule,
   ],
   controllers: [
+    AdminHealthInsightsController,
     SalesController,
     SalesTeamController,
     SalesPublicController,
@@ -258,6 +261,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminTenantsOverviewService,
     AdminBillingOpsService,
     AdminBusinessService,
+    AdminHealthInsightsService,
     AdminQuoteService,
     AdminActivityService,
     AdminOpportunitiesService,

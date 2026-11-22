@@ -215,6 +215,18 @@ export class AdminFinanceInsightsService {
    * aprobadas de ese mes. También por tenant (los 10 mejores y peores).
    */
   async margin(months: number): Promise<AdminMarginDto> {
+    return (await this.marginData(months)).dto;
+  }
+
+  /** Margen de cada tenant en los últimos `months` meses (todos, no solo los 10 primeros). */
+  async tenantMargins(months: number): Promise<Map<string, AdminTenantMarginDto>> {
+    const { perTenant } = await this.marginData(months);
+    return new Map(perTenant.map((t) => [t.tenantId, t]));
+  }
+
+  private async marginData(
+    months: number,
+  ): Promise<{ dto: AdminMarginDto; perTenant: AdminTenantMarginDto[] }> {
     const nowIdx = madridMonthIndex(new Date());
     const firstIdx = nowIdx - (months - 1);
     const from = monthIndexStart(firstIdx);
@@ -380,14 +392,17 @@ export class AdminFinanceInsightsService {
     });
     const sorted = [...perTenant].sort((a, b) => b.margin - a.margin);
     return {
-      months,
-      settings,
-      monthly,
-      totals: finish(sum),
-      grossMarginPct,
-      emailsSent,
-      topTenants: sorted.slice(0, 10),
-      worstTenants: [...sorted].reverse().slice(0, 10),
+      perTenant,
+      dto: {
+        months,
+        settings,
+        monthly,
+        totals: finish(sum),
+        grossMarginPct,
+        emailsSent,
+        topTenants: sorted.slice(0, 10),
+        worstTenants: [...sorted].reverse().slice(0, 10),
+      },
     };
   }
 

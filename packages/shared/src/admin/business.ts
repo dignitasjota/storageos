@@ -162,7 +162,9 @@ export type AdminBusinessAlertKind =
   | 'churn'
   | 'big_tenant_at_risk'
   | 'ai_cost'
-  | 'concentration';
+  | 'concentration'
+  | 'health_drop'
+  | 'usage_anomaly';
 
 export interface AdminBusinessAlertDto {
   kind: AdminBusinessAlertKind;

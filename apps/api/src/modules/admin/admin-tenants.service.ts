@@ -34,6 +34,7 @@ import { amountToCharge, platformPricing } from '../billing-saas/platform-pricin
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { FilesService } from '../files/files.service';
 
+import { INTENSITY_UNITS, loadFeatureIntensity } from './adoption-intensity';
 import { ADOPTION_SIGNALS, adoptionLimits, pickRecommendedPlan } from './adoption-rules';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 import { TenantHealthService } from './tenant-health.service';
@@ -634,6 +635,9 @@ export class AdminTenantsService {
           customDomainVerifiedAt: true,
           portalLogoKey: true,
           portalBrandColor: true,
+          tags: true,
+          salesRepId: true,
+          salesRep: { select: { fullName: true } },
           subscription: {
             select: {
               status: true,
@@ -764,7 +768,16 @@ export class AdminTenantsService {
         where: { ...scope, suspendedAt: null },
         select: {
           tenantId: true,
-          addon: { select: { grantsUnits: true, grantsFacilities: true, grantsUsers: true } },
+          priceMonthly: true,
+          addon: {
+            select: {
+              grantsUnits: true,
+              grantsFacilities: true,
+              grantsUsers: true,
+              feature: true,
+              name: true,
+            },
+          },
           quantity: true,
         },
       }),
@@ -820,10 +833,28 @@ export class AdminTenantsService {
       list.push({ feature: o.feature as TenantFeature, enabled: o.enabled });
       overridesByTenant.set(o.tenantId, list);
     }
-    const mrrCtx = await loadMrrContext(
-      this.admin,
-      tenants.map((t) => t.id),
-    );
+    const [mrrCtx, intensity] = await Promise.all([
+      loadMrrContext(
+        this.admin,
+        tenants.map((t) => t.id),
+      ),
+      loadFeatureIntensity(this.admin, tenantId ? [tenantId] : null, now),
+    ]);
+    // Extras con función que paga cada tenant (para «paga y no usa»).
+    const paidFeatureAddons = new Map<
+      string,
+      { feature: TenantFeature; addonName: string; monthly: number }[]
+    >();
+    for (const a of addonRows) {
+      if (!a.addon.feature) continue;
+      const list = paidFeatureAddons.get(a.tenantId) ?? [];
+      list.push({
+        feature: a.addon.feature as TenantFeature,
+        addonName: a.addon.name,
+        monthly: Number(a.priceMonthly) * a.quantity,
+      });
+      paidFeatureAddons.set(a.tenantId, list);
+    }
 
     /** Funciones que el tenant usa de verdad (`ADOPTION_SIGNALS`). */
     const usedFeaturesOf = (
@@ -884,13 +915,31 @@ export class AdminTenantsService {
       const maxFacilities = plus(plan?.maxFacilities ?? null, extra.facilities);
       const maxUsers = plus(plan?.maxUsers ?? null, extra.users);
 
-      const features = TenantFeatures.map((ft) => ({
-        feature: ft,
-        label: FEATURE_LABELS[ft],
-        inPlan: inPlan.includes(ft),
-        viaOverride: !inPlan.includes(ft) && effective.includes(ft),
-        used: used.has(ft),
-      }));
+      const paidAddons = paidFeatureAddons.get(t.id) ?? [];
+      const tenantIntensity = intensity.get(t.id) ?? {};
+      const features = TenantFeatures.map((ft) => {
+        const unit = INTENSITY_UNITS[ft];
+        const i = tenantIntensity[ft];
+        return {
+          feature: ft,
+          label: FEATURE_LABELS[ft],
+          inPlan: inPlan.includes(ft),
+          viaOverride: !inPlan.includes(ft) && effective.includes(ft),
+          used: used.has(ft),
+          uses30: unit ? (i?.d30 ?? 0) : null,
+          uses90: unit ? (i?.d90 ?? 0) : null,
+          paidAddon: paidAddons.some((a) => a.feature === ft),
+        };
+      });
+      // Extras que paga y no usa (riesgo de que los dé de baja).
+      const paidUnused = paidAddons
+        .filter((a) => !used.has(a.feature))
+        .map((a) => ({
+          feature: a.feature,
+          label: FEATURE_LABELS[a.feature] ?? a.feature,
+          addonName: a.addonName,
+          monthly: netList(a.monthly),
+        }));
       // Fuera de plan = la usa sin tenerla contratada de ninguna forma.
       const usesFeatureOutsidePlan = [...used].some((ft) => !effective.includes(ft));
       const limits = adoptionLimits(
@@ -940,6 +989,12 @@ export class AdminTenantsService {
         isCandidate,
         recommendedPlanSlug: isCandidate ? (recommended?.slug ?? null) : null,
         recommendedPlanName: isCandidate ? (recommended?.name ?? null) : null,
+        status: t.status,
+        tags: t.tags,
+        salesRepId: t.salesRepId,
+        salesRepName: t.salesRep?.fullName ?? null,
+        paidUnused,
+        paidUnusedMonthly: round2(paidUnused.reduce((a, x) => a + x.monthly, 0)),
       };
     });
 
@@ -953,6 +1008,13 @@ export class AdminTenantsService {
         const f = t.features.find((x) => x.feature === ft);
         return f?.inPlan || f?.viaOverride;
       }).length,
+      uses30Total: INTENSITY_UNITS[ft]
+        ? tenantDtos.reduce(
+            (a, t) => a + (t.features.find((x) => x.feature === ft)?.uses30 ?? 0),
+            0,
+          )
+        : null,
+      intensityUnit: INTENSITY_UNITS[ft] ?? null,
     }));
 
     // Candidatos primero, luego por nombre.
@@ -966,6 +1028,7 @@ export class AdminTenantsService {
       featureAdoption,
       candidateCount: tenantDtos.filter((t) => t.isCandidate).length,
       nearLimitCount: tenantDtos.filter((t) => t.nearLimit).length,
+      paidUnusedCount: tenantDtos.filter((t) => t.paidUnused.length > 0).length,
     };
   }
 

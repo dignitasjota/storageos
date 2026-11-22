@@ -1,3 +1,13 @@
+import {
+  churnRiskOf,
+  DEFAULT_HEALTH_CLIENT_WEIGHTS,
+  DEFAULT_HEALTH_TRIAL_WEIGHTS,
+  mainDragOf,
+  payProbabilityOf,
+  type HealthClientWeights,
+  type HealthTrialWeights,
+} from '@storageos/shared';
+
 import { tenantMetricsState } from '../../common/saas-metrics';
 
 import type {
@@ -14,7 +24,9 @@ import type {
  *
  * **Salud de cliente** (clientes que pagan, activos sin pagar y exentas):
  *  - Actividad del equipo (30 %): días desde el último uso del panel (inicio
- *    de sesión o sesión renovada).
+ *    de sesión o sesión renovada). Cuando ya hay un mes de registro diario,
+ *    la mitad pasa a ser la frecuencia: días con alguien en el panel en los
+ *    últimos 30 (12 o más = 100).
  *  - Facturación al día (20 %): contratos activos cuya última factura cubre su
  *    ciclo (mensual: emitida en 35 días o con el periodo pagado vigente; con
  *    prepago, el periodo que pagó). Sin contratos que deban facturar, no cuenta.
@@ -24,7 +36,9 @@ import type {
  *  - Área de clientes (10 %): inquilinos con contrato que han entrado en 90
  *    días. Si el tenant nunca ha dado acceso a ningún inquilino, no cuenta.
  *  - Soporte (5 %): tickets abiertos sin responder en más de 48 h.
- * Los pesos de los factores que no cuentan se reparten entre los demás.
+ * Los pesos de los factores que no cuentan se reparten entre los demás. Los
+ * pesos se configuran en el panel (`platform_health_settings`); los de arriba
+ * son los de por defecto.
  *
  * **Activación de una prueba**: local creado (15 %), trasteros (15 %), primer
  * inquilino (15 %), primer contrato firmado (25 %), primera factura emitida
@@ -64,7 +78,34 @@ export interface HealthSignalsInput {
   signedContracts: number;
   issuedInvoices: number;
   previousScore: number | null;
+  // --- Datos extra (opcionales: sin ellos no cambia la puntuación) ---
+  planSlug?: string | null;
+  tags?: string[];
+  salesRepId?: string | null;
+  salesRepName?: string | null;
+  /** Lo que paga al mes sin IVA (0 si no paga). */
+  mrr?: number;
+  /** En prueba: lo que pagaría (null si no). */
+  wouldPay?: number | null;
+  /** Días y usuarios con actividad en los últimos 30 días (null = sin registro). */
+  activeDays30?: number | null;
+  activeUsers30?: number | null;
+  /** Ya hay al menos 30 días de registro diario (si no, la frecuencia no cuenta). */
+  activityTracked?: boolean;
+  totalUsers?: number;
+  /** Puntuaciones de las últimas semanas (la más antigua primero). */
+  sparkline?: number[];
 }
+
+export interface HealthWeights {
+  client: HealthClientWeights;
+  trial: HealthTrialWeights;
+}
+
+export const DEFAULT_HEALTH_WEIGHTS: HealthWeights = {
+  client: DEFAULT_HEALTH_CLIENT_WEIGHTS,
+  trial: DEFAULT_HEALTH_TRIAL_WEIGHTS,
+};
 
 export function healthSegment(s: {
   status: string;
@@ -118,11 +159,36 @@ function activityFactor(last: Date | null, now: number): { daysSince: number; te
   return { daysSince, text };
 }
 
-export function scoreHealth(s: HealthSignalsInput, now = Date.now()): AdminTenantHealthDto {
+/** Frecuencia de uso: días con alguien del equipo en el panel (de 30). */
+export function frequencyScore(activeDays: number): number {
+  return activeDays >= 12
+    ? 100
+    : activeDays >= 6
+      ? 80
+      : activeDays >= 3
+        ? 50
+        : activeDays >= 1
+          ? 25
+          : 0;
+}
+
+export function scoreHealth(
+  s: HealthSignalsInput,
+  now = Date.now(),
+  weights: HealthWeights = DEFAULT_HEALTH_WEIGHTS,
+): AdminTenantHealthDto {
   const segment = healthSegment(s);
-  const factors = segment === 'trial' ? activationFactors(s, now) : clientFactors(s, segment, now);
+  const factors =
+    segment === 'trial'
+      ? activationFactors(s, now, weights.trial)
+      : clientFactors(s, segment, now, weights.client);
   const score = weighted(factors);
   const previous = s.previousScore;
+  const trend = previous !== null ? score - previous : null;
+  const trialDaysLeft =
+    segment === 'trial' && s.trialEndsAt ? Math.ceil((s.trialEndsAt.getTime() - now) / DAY) : null;
+  const pay =
+    segment === 'trial' ? payProbabilityOf(score, trialDaysLeft, s.signedContracts > 0) : null;
   return {
     tenantId: s.id,
     name: s.name,
@@ -136,7 +202,22 @@ export function scoreHealth(s: HealthSignalsInput, now = Date.now()): AdminTenan
     level: healthLevel(score),
     factors,
     lastActivityAt: s.lastActivityAt?.toISOString() ?? null,
-    trend: previous !== null ? score - previous : null,
+    trend,
+    planSlug: s.planSlug ?? null,
+    tags: s.tags ?? [],
+    salesRepId: s.salesRepId ?? null,
+    salesRepName: s.salesRepName ?? null,
+    mrr: s.mrr ?? 0,
+    wouldPay: s.wouldPay ?? null,
+    activeDays30: s.activeDays30 ?? null,
+    activeUsers30: s.activeUsers30 ?? null,
+    totalUsers: s.totalUsers ?? 0,
+    churnRisk: segment === 'trial' ? null : churnRiskOf(score, trend),
+    payProbability: pay?.pct ?? null,
+    payProbabilityLevel: pay?.level ?? null,
+    trialDaysLeft,
+    mainDrag: mainDragOf(factors),
+    sparkline: s.sparkline ?? [],
   };
 }
 
@@ -144,10 +225,11 @@ function clientFactors(
   s: HealthSignalsInput,
   segment: AdminHealthSegment,
   now: number,
+  w: HealthClientWeights,
 ): AdminTenantHealthFactorDto[] {
-  // 1) Actividad del equipo.
+  // 1) Actividad del equipo: lo reciente y, con un mes de registro, la frecuencia.
   const act = activityFactor(s.lastActivityAt, now);
-  const engagement =
+  const recency =
     act.daysSince <= 7
       ? 100
       : act.daysSince <= 14
@@ -157,6 +239,18 @@ function clientFactors(
           : act.daysSince <= 90
             ? 20
             : 0;
+  const withFrequency =
+    !!s.activityTracked && s.activeDays30 !== null && s.activeDays30 !== undefined;
+  const engagement = withFrequency
+    ? Math.round((recency + frequencyScore(s.activeDays30 ?? 0)) / 2)
+    : recency;
+  const usersText =
+    s.activeUsers30 !== null && s.activeUsers30 !== undefined && s.totalUsers
+      ? ` · ${s.activeUsers30} de ${count(s.totalUsers, 'usuario', 'usuarios')}`
+      : '';
+  const engagementDetail = withFrequency
+    ? `${act.text} · ${count(s.activeDays30 ?? 0, 'día activo', 'días activos')} de 30${usersText}`
+    : act.text;
 
   // 2) Facturación al día: lo emitido frente a lo que tocaba emitir.
   const billingCounted = s.billingExpected > 0;
@@ -229,23 +323,34 @@ function clientFactors(
       : `${count(s.staleTickets, 'ticket', 'tickets')} sin responder en más de 48 h`;
 
   return [
-    factor('engagement', 'Actividad del equipo', engagement, 0.3, act.text),
-    factor('billing', 'Facturación al día', billing, 0.2, billingDetail, billingCounted),
+    factor('engagement', 'Actividad del equipo', engagement, w.engagement / 100, engagementDetail),
+    factor(
+      'billing',
+      'Facturación al día',
+      billing,
+      w.billing / 100,
+      billingDetail,
+      billingCounted,
+    ),
     factor(
       'subscription',
       'Suscripción',
       subscription,
-      0.2,
+      w.subscription / 100,
       segment === 'exempt' ? 'Cuenta exenta: no paga, no cuenta' : subDetail,
       segment !== 'exempt',
     ),
-    factor('adoption', 'Adopción', adoption, 0.15, adoptionDetail),
-    factor('portal', 'Área de clientes', portal, 0.1, portalDetail, portalCounted),
-    factor('support', 'Soporte', support, 0.05, supportDetail),
+    factor('adoption', 'Adopción', adoption, w.adoption / 100, adoptionDetail),
+    factor('portal', 'Área de clientes', portal, w.portal / 100, portalDetail, portalCounted),
+    factor('support', 'Soporte', support, w.support / 100, supportDetail),
   ];
 }
 
-function activationFactors(s: HealthSignalsInput, now: number): AdminTenantHealthFactorDto[] {
+function activationFactors(
+  s: HealthSignalsInput,
+  now: number,
+  w: HealthTrialWeights,
+): AdminTenantHealthFactorDto[] {
   const act = activityFactor(s.lastActivityAt, now);
   const team = act.daysSince <= 3 ? 100 : act.daysSince <= 7 ? 70 : act.daysSince <= 14 ? 40 : 0;
   const units = s.units >= 5 ? 100 : s.units >= 1 ? 60 : 0;
@@ -254,21 +359,21 @@ function activationFactors(s: HealthSignalsInput, now: number): AdminTenantHealt
       'facility',
       'Local creado',
       s.facilities > 0 ? 100 : 0,
-      0.15,
+      w.facility / 100,
       s.facilities > 0 ? count(s.facilities, 'local', 'locales') : 'Aún sin locales',
     ),
     factor(
       'units',
       'Trasteros dados de alta',
       units,
-      0.15,
+      w.units / 100,
       s.units > 0 ? count(s.units, 'trastero', 'trasteros') : 'Aún sin trasteros',
     ),
     factor(
       'customer',
       'Primer inquilino',
       s.customersTotal > 0 ? 100 : 0,
-      0.15,
+      w.customer / 100,
       s.customersTotal > 0
         ? count(s.customersTotal, 'inquilino', 'inquilinos')
         : 'Aún sin inquilinos',
@@ -277,7 +382,7 @@ function activationFactors(s: HealthSignalsInput, now: number): AdminTenantHealt
       'contract',
       'Primer contrato firmado',
       s.signedContracts > 0 ? 100 : 0,
-      0.25,
+      w.contract / 100,
       s.signedContracts > 0
         ? count(s.signedContracts, 'contrato firmado', 'contratos firmados')
         : 'Aún sin contratos firmados',
@@ -286,11 +391,11 @@ function activationFactors(s: HealthSignalsInput, now: number): AdminTenantHealt
       'invoice',
       'Primera factura emitida',
       s.issuedInvoices > 0 ? 100 : 0,
-      0.15,
+      w.invoice / 100,
       s.issuedInvoices > 0
         ? count(s.issuedInvoices, 'factura emitida', 'facturas emitidas')
         : 'Aún sin facturas',
     ),
-    factor('team', 'Equipo entrando', team, 0.15, act.text),
+    factor('team', 'Equipo entrando', team, w.team / 100, act.text),
   ];
 }

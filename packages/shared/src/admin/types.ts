@@ -1,4 +1,9 @@
 import type { AdminBusinessGoalsDto, AdminPeriodComparisonDto } from './business';
+import type {
+  TenantChurnRiskLevel,
+  HealthMainDragDto,
+  PayProbabilityLevel,
+} from './health-insights';
 import type { PlatformLeadFollowupDto, PlatformLeadSource } from './leads';
 import type {
   AdminForecastAccuracyDto,
@@ -334,6 +339,34 @@ export interface AdminTenantHealthDto {
   lastActivityAt: string | null;
   /** Diferencia con la foto del mes pasado (null si no hay foto de ese mes). */
   trend: number | null;
+  planSlug: string | null;
+  tags: string[];
+  /** Comercial asignado (null si ninguno). */
+  salesRepId: string | null;
+  salesRepName: string | null;
+  /** Lo que paga al mes sin IVA (0 si no paga). */
+  mrr: number;
+  /** En prueba: lo que pagaría al mes sin IVA con su plan (null si no). */
+  wouldPay: number | null;
+  /**
+   * Días distintos con alguien del equipo en el panel en los últimos 30 días y
+   * usuarios distintos que entraron (de `totalUsers` activos). null = aún no hay
+   * registro diario de este tenant.
+   */
+  activeDays30: number | null;
+  activeUsers30: number | null;
+  totalUsers: number;
+  /** Clientes: riesgo de baja (según la puntuación y la tendencia). */
+  churnRisk: TenantChurnRiskLevel | null;
+  /** Pruebas: probabilidad de pagar (0-100) y su nivel. */
+  payProbability: number | null;
+  payProbabilityLevel: PayProbabilityLevel | null;
+  /** Pruebas: días que le quedan (negativo si ya venció). */
+  trialDaysLeft: number | null;
+  /** El factor que más le resta y qué hacer. */
+  mainDrag: HealthMainDragDto | null;
+  /** Puntuación de las últimas 8 semanas (foto diaria, una por semana; la más antigua primero). */
+  sparkline: number[];
 }
 
 /** Salud de un grupo de tenants (`GET /admin/tenants/health?segment=`). */
@@ -345,6 +378,8 @@ export interface AdminTenantsHealthDto {
   tenants: AdminTenantHealthDto[];
   /** Última foto diaria guardada (null si la tarea aún no ha corrido). */
   snapshotAt: string | null;
+  /** MRR (sin IVA) de los del grupo en riesgo y dormidos. */
+  mrrAtRisk: { atRisk: number; dormant: number; total: number };
 }
 
 /** Estado de una feature premium para un tenant (incluida en plan vs usada). */
@@ -357,6 +392,14 @@ export interface AdminTenantAdoptionFeatureDto {
   viaOverride: boolean;
   /** La usa de verdad (hay datos/config). */
   used: boolean;
+  /**
+   * Intensidad: cuántas veces la usó en 30 y en 90 días (consultas de IA,
+   * remesas, entradas, recordatorios…). null = se mide por configuración activa.
+   */
+  uses30: number | null;
+  uses90: number | null;
+  /** La paga como extra contratado. */
+  paidAddon: boolean;
 }
 
 /** Uso vs límite de un recurso (units/facilities/users); `max` null = ilimitado. */
@@ -401,6 +444,14 @@ export interface AdminTenantAdoptionDto {
   isCandidate: boolean;
   recommendedPlanSlug: string | null;
   recommendedPlanName: string | null;
+  status: string;
+  tags: string[];
+  salesRepId: string | null;
+  salesRepName: string | null;
+  /** Extras que paga y no usa (riesgo de que los dé de baja). */
+  paidUnused: { feature: TenantFeature; label: string; addonName: string; monthly: number }[];
+  /** Suma de lo que paga al mes sin IVA por esos extras. */
+  paidUnusedMonthly: number;
 }
 
 /** Cuántos tenants usan cada feature premium (adopción global). */
@@ -412,6 +463,10 @@ export interface AdminFeatureAdoptionDto {
   tenantsUsing: number;
   /** Tenants cuyo plan la incluye. */
   tenantsWithAccess: number;
+  /** Usos de todos los tenants en 30 días (null = se mide por configuración). */
+  uses30Total: number | null;
+  /** Qué se cuenta en la intensidad («consultas», «remesas»…). */
+  intensityUnit: string | null;
 }
 
 /** Vista de adopción/upsell del panel super admin. */
@@ -424,6 +479,8 @@ export interface AdminAdoptionDto {
   candidateCount: number;
   /** Nº de tenants cerca de algún límite (80 % o más sin topar). */
   nearLimitCount: number;
+  /** Nº de tenants que pagan algún extra sin usarlo. */
+  paidUnusedCount: number;
 }
 
 /** Un usuario (staff) de un tenant, visto desde el panel super admin. */
@@ -2275,7 +2332,26 @@ export interface AdminTenantUsageRowDto {
     bytes: number;
     objects: number;
     measuredAt: string | null;
+    /** Bytes por tipo de fichero (bucket). */
+    byBucket: Record<string, number>;
   };
+  planSlug: string | null;
+  planName: string | null;
+  status: string;
+  tags: string[];
+  salesRepId: string | null;
+  salesRepName: string | null;
+  /** Mensajes de WhatsApp (enviados y recibidos) en el periodo. */
+  whatsapp: { messages: number };
+  /** Coste de la IA por modelo en el periodo (solo con la IA de la plataforma). */
+  aiByModel: { model: string; calls: number; costUsd: number }[];
+  /**
+   * Margen del tenant en los meses del periodo (cobrado sin IVA menos los costes
+   * estimados de Finanzas). null si no ha pagado nada en ese tiempo.
+   */
+  margin: { revenue: number; costs: number; margin: number; marginPct: number | null } | null;
+  /** Consumo anómalo frente a su media de los 3 meses anteriores. */
+  anomalies: { kind: 'emails' | 'ai' | 'storage'; detail: string }[];
 }
 
 export interface AdminUsageDto {
@@ -2306,6 +2382,10 @@ export interface AdminUsageDto {
   };
   /** Última medición del almacenamiento (null si nunca se ha medido). */
   storageMeasuredAt: string | null;
+  /** Tenants con algún consumo anómalo. */
+  anomalyCount: number;
+  /** Meses que cubre el margen de cada tenant. */
+  marginMonths: number;
 }
 
 /** Respuesta guardada del soporte. Admite {empresa} y {nombre}. */

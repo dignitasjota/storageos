@@ -1,9 +1,10 @@
 'use client';
 
-import { CalendarPlus, Mail, Tags, X } from 'lucide-react';
+import { CalendarCheck, CalendarPlus, Download, Mail, Tags, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useBulkFollowups } from '@/lib/admin/health-insights-hooks';
 import { useAdminBroadcast, useBulkTags, useExtendTrialsBatch } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
@@ -26,9 +28,14 @@ const splitTags = (v: string) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
+/** Fecha «AAAA-MM-DD» dentro de `days` días. */
+const inDays = (days: number) =>
+  new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+
 /**
- * Barra de acciones sobre los tenants seleccionados: etiquetar (también el
- * rol soporte), ampliar la prueba y enviar un correo (solo super admin).
+ * Barra de acciones sobre los tenants seleccionados: etiquetar y crear
+ * seguimientos (también el rol soporte), ampliar la prueba y enviar un correo
+ * (solo super admin) y, si la página lo pasa, exportar la selección.
  */
 export function TenantsBulkBar({
   selected,
@@ -36,6 +43,8 @@ export function TenantsBulkBar({
   suspendedCount = 0,
   cancelledCount = 0,
   onClear,
+  onExport,
+  showTrial = true,
 }: {
   selected: string[];
   /** Cuántos de los seleccionados están en prueba. */
@@ -44,9 +53,17 @@ export function TenantsBulkBar({
   suspendedCount?: number;
   cancelledCount?: number;
   onClear: () => void;
+  /** Exportar la selección (CSV). */
+  onExport?: () => void;
+  /** Mostrar «Ampliar prueba» (no tiene sentido en listas sin pruebas). */
+  showTrial?: boolean;
 }) {
   const canEdit = useIsSuperadmin();
-  const [open, setOpen] = useState<'tags' | 'trial' | 'email' | null>(null);
+  const [open, setOpen] = useState<'tags' | 'trial' | 'email' | 'followups' | null>(null);
+  const [fuTitle, setFuTitle] = useState('');
+  const [fuNote, setFuNote] = useState('');
+  const [fuDue, setFuDue] = useState(inDays(3));
+  const followups = useBulkFollowups();
   const [add, setAdd] = useState('');
   const [remove, setRemove] = useState('');
   const [days, setDays] = useState(14);
@@ -107,6 +124,25 @@ export function TenantsBulkBar({
     }
   }
 
+  async function onFollowups() {
+    try {
+      const r = await followups.mutateAsync({
+        tenantIds: selected,
+        title: fuTitle.trim(),
+        dueDate: fuDue,
+        ...(fuNote.trim() ? { note: fuNote.trim() } : {}),
+      });
+      toast.success(
+        `${r.created === 1 ? 'Seguimiento creado' : `${r.created} seguimientos creados`}.${r.skipped ? ` ${r.skipped} no existen.` : ''}`,
+      );
+      setOpen(null);
+      setFuTitle('');
+      setFuNote('');
+    } catch (err) {
+      fail(err);
+    }
+  }
+
   if (n === 0) return null;
 
   return (
@@ -116,17 +152,27 @@ export function TenantsBulkBar({
         <Button size="sm" variant="outline" onClick={() => setOpen('tags')}>
           <Tags className="mr-1.5 size-4" /> Etiquetar
         </Button>
+        <Button size="sm" variant="outline" onClick={() => setOpen('followups')}>
+          <CalendarCheck className="mr-1.5 size-4" /> Crear seguimientos
+        </Button>
+        {onExport && (
+          <Button size="sm" variant="outline" onClick={onExport}>
+            <Download className="mr-1.5 size-4" /> Exportar selección
+          </Button>
+        )}
         {canEdit && (
           <>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setOpen('trial')}
-              disabled={trialCount === 0}
-              title={trialCount === 0 ? 'Ninguno está en prueba' : undefined}
-            >
-              <CalendarPlus className="mr-1.5 size-4" /> Ampliar prueba
-            </Button>
+            {showTrial && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setOpen('trial')}
+                disabled={trialCount === 0}
+                title={trialCount === 0 ? 'Ninguno está en prueba' : undefined}
+              >
+                <CalendarPlus className="mr-1.5 size-4" /> Ampliar prueba
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={() => setOpen('email')}>
               <Mail className="mr-1.5 size-4" /> Enviar correo
             </Button>
@@ -167,6 +213,54 @@ export function TenantsBulkBar({
               disabled={tags.isPending || splitTags(add).length + splitTags(remove).length === 0}
             >
               Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={open === 'followups'} onOpenChange={(v) => !v && setOpen(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Seguimiento en {n} tenant(s)</DialogTitle>
+            <DialogDescription>
+              Se crea el mismo seguimiento en cada uno; «Hoy» lo recordará ese día.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-fu-title">Qué hacer</Label>
+              <Input
+                id="bulk-fu-title"
+                value={fuTitle}
+                onChange={(e) => setFuTitle(e.target.value)}
+                placeholder="p. ej. Llamar para revisar su uso"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Para el</Label>
+              <DateSelect value={fuDue} onChange={(v) => setFuDue(v ?? '')} future />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bulk-fu-note">Nota (opcional)</Label>
+              <Textarea
+                id="bulk-fu-note"
+                rows={3}
+                value={fuNote}
+                onChange={(e) => setFuNote(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void onFollowups()}
+              disabled={
+                followups.isPending || !fuTitle.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(fuDue)
+              }
+            >
+              Crear
             </Button>
           </DialogFooter>
         </DialogContent>
