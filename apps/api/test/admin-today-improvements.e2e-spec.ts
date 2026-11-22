@@ -445,7 +445,14 @@ describe('Mejoras de «Hoy» del panel admin (e2e)', () => {
       (t: { tenantId: string }) => t.tenantId === owner.tenantId,
     );
     expect(row).toMatchObject({ daysSinceLogin: 20 });
-    expect(row.monthly).toBeGreaterThanOrEqual(Number(plan.priceMonthly));
+    // La cuota va sin IVA (la misma cuenta que el MRR).
+    const settings = await db.platformBillingSettings.findFirst();
+    const tax = Number(settings?.taxRate ?? 21);
+    const planNet =
+      (settings?.pricesIncludeVat ?? true)
+        ? Math.round((Number(plan.priceMonthly) / (1 + tax / 100)) * 100) / 100
+        : Number(plan.priceMonthly);
+    expect(row.monthly).toBeGreaterThanOrEqual(planNet);
     expect(body.urgentCount).toBe(before.urgentCount);
     expect(body.moneyAtRisk.inactive).toBeGreaterThanOrEqual(row.monthly);
 

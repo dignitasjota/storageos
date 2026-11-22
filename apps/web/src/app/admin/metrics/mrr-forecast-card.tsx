@@ -13,13 +13,7 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMrrForecast } from '@/lib/admin/hooks';
-
-const eur = (n: number) =>
-  new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-    maximumFractionDigits: 0,
-  }).format(n);
+import { formatEur, formatEurShort, formatPct, plural } from '@/lib/format';
 
 export function MrrForecastCard() {
   const q = useAdminMrrForecast(6);
@@ -30,11 +24,12 @@ export function MrrForecastCard() {
   const projectedEnd = d && d.points.length > 0 ? d.points[d.points.length - 1]!.mrr : 0;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Previsión de MRR</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Proyección a 6 meses según la retención neta (NRR) y las altas medias del histórico.
+          Proyección a 6 meses (sin IVA) según la retención neta (NRR) y las altas medias de los
+          meses cerrados.
         </p>
       </CardHeader>
       <CardContent>
@@ -49,14 +44,21 @@ export function MrrForecastCard() {
           </p>
         ) : (
           <div className="space-y-3">
+            {d.insufficientHistory && (
+              <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+                Poco histórico: hay{' '}
+                {plural(d.assumptions.basedOnMonths, 'mes cerrado', 'meses cerrados')} con datos y
+                hacen falta 3. Mientras tanto la previsión mantiene el MRR actual.
+              </p>
+            )}
             <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
               <div>
-                <span className="text-2xl font-semibold">{eur(d.currentMrr)}</span>
+                <span className="text-2xl font-semibold">{formatEur(d.currentMrr)}</span>
                 <span className="ml-1 text-xs text-muted-foreground">MRR actual</span>
               </div>
               <div>
                 <span className="text-2xl font-semibold text-blue-600 dark:text-blue-400">
-                  {eur(projectedEnd)}
+                  {formatEur(projectedEnd)}
                 </span>
                 <span className="ml-1 text-xs text-muted-foreground">previsto en 6 meses</span>
               </div>
@@ -76,8 +78,12 @@ export function MrrForecastCard() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} width={48} tickFormatter={(v) => eur(Number(v))} />
-                  <Tooltip formatter={(v) => eur(Number(v))} labelClassName="text-xs" />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    width={52}
+                    tickFormatter={(v) => formatEurShort(Number(v))}
+                  />
+                  <Tooltip formatter={(v) => formatEur(Number(v))} labelClassName="text-xs" />
                   <Area
                     type="monotone"
                     dataKey="mrr"
@@ -91,9 +97,9 @@ export function MrrForecastCard() {
             </div>
             <p className="text-xs text-muted-foreground">
               Supuestos: NRR medio{' '}
-              {d.assumptions.avgNrr !== null ? `${d.assumptions.avgNrr}%` : '—'} · altas medias{' '}
-              {eur(d.assumptions.avgNewMrr)}/mes · sobre {d.assumptions.basedOnMonths} meses de
-              histórico.
+              {d.assumptions.avgNrr !== null ? formatPct(d.assumptions.avgNrr) : '—'} · altas medias{' '}
+              {formatEur(d.assumptions.avgNewMrr)}/mes · sobre{' '}
+              {plural(d.assumptions.basedOnMonths, 'mes cerrado', 'meses cerrados')}.
             </p>
           </div>
         )}

@@ -22,7 +22,7 @@ export function BusinessAlertsCard() {
   const d = q.data;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
         <div>
           <CardTitle className="text-base">Avisos de negocio</CardTitle>

@@ -21,8 +21,11 @@ function escapeHtml(value: string): string {
 }
 
 /** Formatea un importe en euros (divisa del SaaS). */
+/** «3.427,5 €»: con separador de miles también en las cifras de 4 dígitos. */
 function euro(n: number): string {
-  return `${n.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`;
+  const [int, dec] = Math.abs(n).toFixed(2).split('.') as [string, string];
+  const decimals = dec === '00' ? '' : `,${dec.replace(/0$/, '')}`;
+  return `${n < 0 ? '-' : ''}${int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${decimals} €`;
 }
 
 /**
@@ -75,7 +78,7 @@ export class WeeklyDigestService {
     if (emailOn && settings.alertEmail) {
       await this.alerts.emailAdmins({
         kind: 'weekly',
-        subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} · ${overview.tenants.active} activos`,
+        subject: `[TrasterOS] Resumen semanal: MRR ${euro(overview.mrr.total)} sin IVA · ${overview.payingTenants} que pagan`,
         html,
         text,
       });
@@ -103,12 +106,14 @@ export class WeeklyDigestService {
 
     // KPIs principales (label, valor).
     const kpis: [string, string][] = [
-      ['MRR', euro(overview.mrr.total)],
+      ['MRR (sin IVA)', euro(overview.mrr.total)],
       ['Net New MRR (último mes)', `${netNew >= 0 ? '+' : ''}${euro(netNew)}`],
       ['MRR perdido por bajas', euro(churn)],
       ['NRR', nrr],
-      ['ARPU', euro(overview.averageRevenuePerTenant)],
-      ['Tenants activos', String(overview.tenants.active)],
+      ['ARPU (sin IVA)', euro(overview.averageRevenuePerTenant)],
+      ['Tenants que pagan', String(overview.payingTenants)],
+      ['Con el pago atrasado', String(overview.tenants.pastDue)],
+      ['Pruebas terminadas sin pagar (solo lectura)', String(overview.tenants.readOnly)],
       ['Nuevos tenants (este mes)', String(overview.signupsThisMonth)],
       ['Bajas (este mes)', String(overview.cancellationsThisMonth)],
       ['Trials en curso', String(overview.tenants.trial)],

@@ -3043,3 +3043,16 @@ Migración `20270222100000_admin_today_improvements` (se aplica sola): `admin_re
 - **Acciones en lote** (apartar, asignarme, recordar el pago), **atajos de teclado** (`j`/`k`, `Intro`, `a`, `m`, `?`) y botón «Siguiente».
 - Orden por importancia en todas las listas.
 - Un ticket con prioridad «urgente» cuenta siempre como urgente, aunque acabe de abrirse.
+
+## 181. Métricas y Finanzas del super admin: arreglos (2026-11-22)
+
+Migración `20270223100000_mrr_snapshots_without_vat` (se aplica sola): pasa a sin IVA las fotos mensuales de MRR ya guardadas, para que el primer mes no salga como una caída. Sin variables nuevas.
+
+**Cambian cifras que ya se veían (a propósito):**
+
+- **MRR, ingreso medio, cuotas de «Hoy» y de la lista de tenants**: sin IVA, con la cuota anual repartida entre 12 y con el descuento del último pago. Bajan respecto a antes (79 € → 65,29 €).
+- **Activos**: ya no cuentan las cuentas en solo lectura (prueba terminada sin pagar) ni las de pago atrasado, que salen aparte.
+- **Bajas, churn, retención y churn por razón**: solo de quien llegó a pagar. Una prueba que no pagó no es baja.
+- **Pago atrasado**: sigue en el MRR hasta que se suspende la cuenta (ya no sale como baja y luego reactivación).
+- **«Devuelto»**: en el mes de la devolución.
+- Meses en hora de España; la previsión no proyecta con menos de 3 meses cerrados.

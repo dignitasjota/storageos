@@ -2,16 +2,24 @@ import { Injectable } from '@nestjs/common';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
 import {
-  aliveAtWhere,
-  churnDate,
-  churnedBetweenWhere,
-  CHURNED_STATUSES,
-  isLiveTenantStatus,
+  churnedBetween,
+  COLLECTED_PAYMENT_STATUSES,
+  currentMrrByTenant,
+  isPayingSubscription,
+  loadPayerLifecycles,
+  madridMonthIndex,
+  monthIndexKey,
+  monthIndexLabel,
+  monthIndexStart,
   netPaid,
+  payingAt,
+  tenantMetricsState,
+  trialOutcome,
 } from '../../common/saas-metrics';
 import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
-import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+
+import { MrrSnapshotService } from './mrr-snapshot.service';
 
 import type {
   AdminChurnByReasonDto,
@@ -21,57 +29,24 @@ import type {
   AdminRetentionDto,
 } from '@storageos/shared';
 
-type TenantStatusKey = 'trial' | 'active' | 'suspended' | 'cancelled';
-
-const MONTHS_ES = [
-  'ene',
-  'feb',
-  'mar',
-  'abr',
-  'may',
-  'jun',
-  'jul',
-  'ago',
-  'sep',
-  'oct',
-  'nov',
-  'dic',
-];
-
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-function startOfMonthUtc(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
-}
-
-function monthKey(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function addMonthsUtc(d: Date, n: number): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1));
-}
-
-/** Meses transcurridos de `a` a `b` (ambos primeros de mes UTC). */
-function monthDiff(a: Date, b: Date): number {
-  return (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
-}
-
-function monthLabel(d: Date): string {
-  return `${MONTHS_ES[d.getUTCMonth()]} ${String(d.getUTCFullYear() % 100).padStart(2, '0')}`;
-}
+/** Normaliza el nº de meses de una petición (1-24). */
+const spanOf = (months: number, fallback = 12): number =>
+  Math.min(Math.max(Math.trunc(months) || fallback, 1), 24);
 
 /**
  * Métricas globales del SaaS para el dashboard del super admin: estado de los
- * tenants, MRR real (cuotas mensuales de las suscripciones activas), ARPU,
- * crecimiento e ingresos por mes, distribución por plan, totales de plataforma
- * y un par de alertas operativas (trials que expiran, tickets abiertos).
+ * tenants, MRR (sin IVA, `tenantMrr`), ARPU, crecimiento e ingresos por mes,
+ * distribución por plan, totales de plataforma y un par de alertas operativas.
+ * Los meses se cortan en hora de España. Las definiciones (quién paga, quién es
+ * baja, qué es solo lectura) están en `common/saas-metrics.ts`.
  */
 @Injectable()
 export class AdminMetricsService {
   constructor(
     private readonly admin: PrismaAdminService,
-    private readonly addons: SaasAddonsService,
+    private readonly mrr: MrrSnapshotService,
   ) {}
 
   /** Caché de 60 s de las agregaciones cross-tenant (el panel re-consulta a menudo). */
@@ -81,44 +56,35 @@ export class AdminMetricsService {
 
   /** `months` = tamaño de las series y del periodo que se compara (1-24). */
   getOverview(months = 12): Promise<AdminMetricsDto> {
-    const span = Math.min(Math.max(Math.trunc(months) || 12, 1), 24);
+    const span = spanOf(months);
     return this.overviewCache.get(`overview:${span}`, () => this.computeOverview(span));
   }
 
   getRetention(months: number): Promise<AdminRetentionDto> {
-    return this.retentionCache.get(String(months), () => this.computeRetention(months));
+    const span = spanOf(months);
+    return this.retentionCache.get(String(span), () => this.computeRetention(span));
   }
 
   getLtv(months: number): Promise<AdminLtvDto> {
-    return this.ltvCache.get(String(months), () => this.computeLtv(months));
+    const span = spanOf(months);
+    return this.ltvCache.get(String(span), () => this.computeLtv(span));
   }
 
   private async computeOverview(span: number): Promise<AdminMetricsDto> {
     const now = new Date();
-    const monthStart = startOfMonthUtc(now);
-
-    // Ventana de `span` meses (UTC) para las series mensuales, y la misma
-    // ventana justo antes para comparar.
-    const baseY = now.getUTCFullYear();
-    const baseM = now.getUTCMonth();
-    const months = Array.from({ length: span }, (_, idx) => {
-      const d = new Date(Date.UTC(baseY, baseM - (span - 1 - idx), 1));
-      const year = d.getUTCFullYear();
-      const month = d.getUTCMonth() + 1;
-      return {
-        key: `${year}-${String(month).padStart(2, '0')}`,
-        label: `${MONTHS_ES[month - 1]} ${String(year % 100).padStart(2, '0')}`,
-      };
-    });
-    const from12 = new Date(Date.UTC(baseY, baseM - (span - 1), 1));
-    const fromPrev = new Date(Date.UTC(baseY, baseM - (2 * span - 1), 1));
+    const nowIdx = madridMonthIndex(now);
+    const monthStart = monthIndexStart(nowIdx);
+    // Ventana de `span` meses para las series y la misma ventana justo antes.
+    const firstIdx = nowIdx - (span - 1);
+    const from12 = monthIndexStart(firstIdx);
+    const fromPrev = monthIndexStart(firstIdx - span);
     const trialSoon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
 
     const [
-      statusGroups,
+      tenantRows,
       signupsThisMonth,
-      cancellationsThisMonth,
-      totalAtMonthStart,
+      payers,
+      paying,
       subscriptions,
       trialsExpiringSoon,
       openSupportTickets,
@@ -128,31 +94,27 @@ export class AdminMetricsService {
       contracts,
       users,
       signupRows,
-      cancelRows,
       revenueRows,
+      trialsEnded,
     ] = await Promise.all([
       // Las cuentas EXENTAS (billingExempt) quedan fuera de toda métrica de
       // negocio: no cuentan al MRR/ARPU/ingresos, ni a estados/crecimiento/trials.
-      this.admin.tenant.groupBy({
-        by: ['status'],
+      this.admin.tenant.findMany({
         where: { deletedAt: null, billingExempt: false },
-        _count: { _all: true },
+        select: { status: true, subscription: { select: { status: true } } },
       }),
       this.admin.tenant.count({
         where: { billingExempt: false, createdAt: { gte: monthStart } },
       }),
-      // Bajas: cancelados o suspendidos por su fecha de baja, también los
-      // anonimizados (borrados), igual que «Churn por razón».
-      this.admin.tenant.count({ where: churnedBetweenWhere(monthStart) }),
-      // Base del churn: los que estaban vivos al empezar el mes.
-      this.admin.tenant.count({ where: aliveAtWhere(monthStart) }),
+      loadPayerLifecycles(this.admin, now),
+      currentMrrByTenant(this.admin),
       this.admin.tenantSubscription.findMany({
         where: { tenant: { deletedAt: null, billingExempt: false } },
         select: {
           tenantId: true,
           status: true,
           tenant: { select: { status: true } },
-          plan: { select: { slug: true, name: true, priceMonthly: true } },
+          plan: { select: { slug: true, name: true } },
         },
       }),
       this.admin.tenant.count({
@@ -178,111 +140,115 @@ export class AdminMetricsService {
         where: { billingExempt: false, createdAt: { gte: fromPrev } },
         select: { createdAt: true },
       }),
-      this.admin.tenant.findMany({
-        where: churnedBetweenWhere(fromPrev),
-        select: { canceledAt: true, updatedAt: true },
-      }),
       // Ingresos netos: lo cobrado menos lo devuelto (reembolsos y contracargos
       // perdidos); los reembolsados del todo quedan en `refunded`.
       this.admin.tenantSubscriptionPayment.findMany({
         where: {
-          status: { in: ['paid', 'partially_refunded', 'refunded'] },
+          status: { in: [...COLLECTED_PAYMENT_STATUSES] },
           paidAt: { gte: fromPrev },
         },
         select: { paidAt: true, amount: true, refundedAmount: true },
       }),
+      this.admin.tenant.findMany({
+        where: { billingExempt: false, trialEndedAt: { gte: monthStart } },
+        select: { id: true, status: true },
+      }),
     ]);
 
-    const trialsEnded = await this.admin.tenant.findMany({
-      where: { billingExempt: false, trialEndedAt: { gte: monthStart } },
-      select: {
-        status: true,
-        subscription: { select: { status: true, plan: { select: { priceMonthly: true } } } },
-      },
-    });
+    // --- Pruebas terminadas este mes ---
+    const payerBy = new Map(payers.map((p) => [p.tenantId, p]));
     const trialsEndedThisMonth = { ended: trialsEnded.length, converted: 0, toFree: 0, churned: 0 };
     for (const t of trialsEnded) {
-      if ((CHURNED_STATUSES as readonly string[]).includes(t.status)) {
-        trialsEndedThisMonth.churned += 1;
-      } else if (
-        t.subscription?.status === 'active' &&
-        Number(t.subscription.plan.priceMonthly) > 0
-      ) {
-        trialsEndedThisMonth.converted += 1;
-      } else {
-        trialsEndedThisMonth.toFree += 1;
-      }
+      const outcome = trialOutcome(t, payerBy.get(t.id));
+      if (outcome !== 'inTrial') trialsEndedThisMonth[outcome] += 1;
     }
 
-    // --- Tenants por estado ---
-    const tenants = { total: 0, trial: 0, active: 0, suspended: 0, cancelled: 0 };
-    for (const row of statusGroups) {
-      const key = row.status as TenantStatusKey;
-      tenants[key] = row._count._all;
-      tenants.total += row._count._all;
+    // --- Tenants por estado (la prueba sin pagar va aparte, en solo lectura) ---
+    const tenants = {
+      total: 0,
+      trial: 0,
+      active: 0,
+      pastDue: 0,
+      readOnly: 0,
+      suspended: 0,
+      cancelled: 0,
+    };
+    const STATE_KEY = {
+      trial: 'trial',
+      active: 'active',
+      past_due: 'pastDue',
+      read_only: 'readOnly',
+      suspended: 'suspended',
+      cancelled: 'cancelled',
+    } as const;
+    for (const t of tenantRows) {
+      tenants[STATE_KEY[tenantMetricsState(t.status, t.subscription?.status)]] += 1;
+      tenants.total += 1;
     }
 
-    // --- MRR (cuotas de suscripciones activas) + distribución por plan ---
+    // --- MRR (sin IVA) + distribución por plan de los tenants vivos ---
+    let mrrTotal = 0;
+    for (const p of paying.values()) mrrTotal += p.total;
+    const payingTenants = paying.size;
     const planMap = new Map<
       string,
-      { planSlug: string; planName: string; count: number; mrr: number }
+      {
+        planSlug: string;
+        planName: string;
+        count: number;
+        trial: number;
+        paying: number;
+        mrr: number;
+      }
     >();
-    let mrrTotal = 0;
-    // Add-ons facturables: se suman al MRR total y al ARPU (no a la distribución
-    // por plan, porque no pertenecen a ningún plan).
-    const addonsByTenant = await this.addons.addonsMonthlyByTenant();
-    let addonsMrr = 0;
-    let payingTenants = 0;
     for (const s of subscriptions) {
-      const slug = s.plan.slug;
-      const entry = planMap.get(slug) ?? {
-        planSlug: slug,
+      const state = tenantMetricsState(s.tenant.status, s.status);
+      // Solo los vivos: ni suspendidos, ni cancelados, ni en solo lectura.
+      if (state === 'suspended' || state === 'cancelled' || state === 'read_only') continue;
+      const entry = planMap.get(s.plan.slug) ?? {
+        planSlug: s.plan.slug,
         planName: s.plan.name,
         count: 0,
+        trial: 0,
+        paying: 0,
         mrr: 0,
       };
       entry.count += 1;
-      // Solo pagan las suscripciones activas de tenants vivos: suspender a mano
-      // no toca la suscripción.
-      if (s.status === 'active' && isLiveTenantStatus(s.tenant.status)) {
-        const monthly = Number(s.plan.priceMonthly);
-        if (monthly > 0) payingTenants += 1;
-        entry.mrr += monthly;
-        mrrTotal += monthly;
-        addonsMrr += addonsByTenant.get(s.tenantId) ?? 0;
+      if (state === 'trial') entry.trial += 1;
+      const p = paying.get(s.tenantId);
+      if (p && isPayingSubscription(s, s.tenant)) {
+        entry.paying += 1;
+        entry.mrr += p.plan;
       }
-      planMap.set(slug, entry);
+      planMap.set(s.plan.slug, entry);
     }
-    mrrTotal += addonsMrr;
     const tenantsByPlan = [...planMap.values()]
       .map((p) => ({ ...p, mrr: round2(p.mrr) }))
       .sort((a, b) => b.count - a.count);
 
-    // --- Series mensuales ---
-    const signupsByKey = new Map<string, number>();
+    // --- Series mensuales (meses en hora de España) ---
+    const signupsByIdx = new Map<number, number>();
     for (const r of signupRows) {
-      const k = monthKey(r.createdAt);
-      signupsByKey.set(k, (signupsByKey.get(k) ?? 0) + 1);
+      const k = madridMonthIndex(r.createdAt);
+      signupsByIdx.set(k, (signupsByIdx.get(k) ?? 0) + 1);
     }
-    const cancelsByKey = new Map<string, number>();
-    for (const r of cancelRows) {
-      const k = monthKey(churnDate(r));
-      cancelsByKey.set(k, (cancelsByKey.get(k) ?? 0) + 1);
+    const cancelsByIdx = new Map<number, number>();
+    for (const p of payers) {
+      if (!churnedBetween(p, fromPrev)) continue;
+      const k = madridMonthIndex(p.churnedAt!);
+      cancelsByIdx.set(k, (cancelsByIdx.get(k) ?? 0) + 1);
     }
-    const revenueByKey = new Map<string, number>();
+    const revenueByIdx = new Map<number, number>();
     for (const r of revenueRows) {
       if (!r.paidAt) continue;
-      const k = monthKey(r.paidAt);
-      revenueByKey.set(k, (revenueByKey.get(k) ?? 0) + netPaid(r));
+      const k = madridMonthIndex(r.paidAt);
+      revenueByIdx.set(k, (revenueByIdx.get(k) ?? 0) + netPaid(r));
     }
 
     // Totales del periodo y del anterior (las filas empiezan en `fromPrev`).
     const totals = (from: Date, to: Date | null) => ({
       signups: signupRows.filter((r) => r.createdAt >= from && (!to || r.createdAt < to)).length,
-      cancellations: cancelRows.filter((r) => {
-        const d = churnDate(r);
-        return d >= from && (!to || d < to);
-      }).length,
+      cancellations: payers.filter((p) => churnedBetween(p, from, to ?? undefined)).length,
       collected: round2(
         revenueRows
           .filter((r) => r.paidAt && r.paidAt >= from && (!to || r.paidAt < to))
@@ -295,9 +261,13 @@ export class AdminMetricsService {
       previous: totals(fromPrev, from12),
     };
 
+    // Churn del mes: bajas de clientes que pagaban / los que pagaban al empezar el mes.
+    const cancellationsThisMonth = payers.filter((p) => churnedBetween(p, monthStart)).length;
+    const baseAtMonthStart = payers.filter((p) => payingAt(p, monthStart)).length;
     const churnRatePercent =
-      totalAtMonthStart > 0 ? (cancellationsThisMonth / totalAtMonthStart) * 100 : 0;
+      baseAtMonthStart > 0 ? (cancellationsThisMonth / baseAtMonthStart) * 100 : 0;
 
+    const monthsIdx = Array.from({ length: span }, (_, i) => firstIdx + i);
     return {
       tenants,
       mrr: { total: round2(mrrTotal), currency: 'EUR' },
@@ -311,117 +281,89 @@ export class AdminMetricsService {
       openSupportTickets,
       platform: { facilities, units, customers, contracts, users },
       tenantsByPlan,
-      monthlyGrowth: months.map((m) => ({
-        label: m.label,
-        signups: signupsByKey.get(m.key) ?? 0,
-        cancellations: cancelsByKey.get(m.key) ?? 0,
+      monthlyGrowth: monthsIdx.map((idx) => ({
+        label: monthIndexLabel(idx),
+        signups: signupsByIdx.get(idx) ?? 0,
+        cancellations: cancelsByIdx.get(idx) ?? 0,
       })),
-      monthlySaasRevenue: months.map((m) => ({
-        label: m.label,
-        collected: round2(revenueByKey.get(m.key) ?? 0),
+      monthlySaasRevenue: monthsIdx.map((idx) => ({
+        label: monthIndexLabel(idx),
+        collected: round2(revenueByIdx.get(idx) ?? 0),
       })),
       period,
     };
   }
 
   /**
-   * Matriz de cohortes de retención: agrupa los tenants por su mes de alta y,
-   * para cada offset de mes, calcula el % que seguía vivo. "Vivo" = no
-   * `cancelled`/`suspended`; la fecha de baja es `canceledAt` (o `updatedAt` en
-   * las bajas antiguas). Cuenta también a los anonimizados. M0 es 100% por
-   * construcción; una cohorte sin altas no tiene porcentaje.
+   * Matriz de cohortes de retención: los tenants que llegaron a pagar, por su
+   * mes de alta, y el % que seguía con nosotros en cada mes. Una prueba que
+   * acabó sin pagar no entra (no es cliente ni baja); quien pagó y luego quedó
+   * en solo lectura cuenta como baja. M0 es 100 % por construcción; una cohorte
+   * sin clientes no tiene porcentaje.
    */
-  private async computeRetention(months: number): Promise<AdminRetentionDto> {
-    const span = Math.min(Math.max(months, 1), 24);
-    const nowMonth = startOfMonthUtc(new Date());
-    const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
+  private async computeRetention(span: number): Promise<AdminRetentionDto> {
+    const nowIdx = madridMonthIndex(new Date());
+    const firstIdx = nowIdx - (span - 1);
+    const payers = await loadPayerLifecycles(this.admin);
 
-    const tenants = await this.admin.tenant.findMany({
-      where: { billingExempt: false, createdAt: { gte: firstCohort } },
-      select: { createdAt: true, status: true, updatedAt: true, canceledAt: true },
-    });
+    const records = payers
+      .map((p) => ({
+        cohort: madridMonthIndex(p.createdAt),
+        churn: p.churnedAt ? madridMonthIndex(p.churnedAt) : null,
+      }))
+      .filter((r) => r.cohort >= firstIdx);
 
-    // Por tenant: mes de alta + mes de baja (null si sigue vivo).
-    const records = tenants.map((t) => {
-      const cohortMonth = startOfMonthUtc(t.createdAt);
-      const churned = (CHURNED_STATUSES as readonly string[]).includes(t.status);
-      return { cohortMonth, churnMonth: churned ? startOfMonthUtc(churnDate(t)) : null };
-    });
-
-    const maxOffset = monthDiff(firstCohort, nowMonth);
+    const maxOffset = nowIdx - firstIdx;
     const cohorts = [];
-    for (let i = 0; i < span; i++) {
-      const c = addMonthsUtc(firstCohort, i);
-      const members = records.filter((r) => r.cohortMonth.getTime() === c.getTime());
+    for (let c = firstIdx; c <= nowIdx; c++) {
+      const members = records.filter((r) => r.cohort === c);
       const size = members.length;
-      const maxK = monthDiff(c, nowMonth); // offsets con datos para esta cohorte
+      const maxK = nowIdx - c;
       const retention: (number | null)[] = [];
       for (let k = 0; k <= maxOffset; k++) {
-        if (k > maxK) {
+        if (k > maxK || size === 0) {
           retention.push(null);
           continue;
         }
-        if (size === 0) {
-          retention.push(null);
-          continue;
-        }
-        const target = addMonthsUtc(c, k);
-        const alive = members.filter(
-          (r) => r.churnMonth === null || r.churnMonth.getTime() >= target.getTime(),
-        ).length;
+        const alive = members.filter((r) => r.churn === null || r.churn >= c + k).length;
         retention.push(round2((alive / size) * 100));
       }
-      cohorts.push({ cohort: monthLabel(c), size, retention });
+      cohorts.push({ cohort: monthIndexLabel(c), size, retention });
     }
-
     return { maxOffset, cohorts };
   }
 
   /**
-   * Churn de tenants agrupado por motivo en la ventana de N meses. El motivo es
-   * el `churnReason` CAPTURADO al suspender/cancelar; si falta (bajas antiguas o
-   * automáticas), se INFIERE: `nonpayment` si la suscripción quedó `past_due`,
-   * `voluntary` si estaba marcada para cancelar a fin de periodo, `unknown` si
-   * no. `lostMrr` = Σ del precio mensual del plan de esos tenants.
+   * Bajas de clientes que pagaban, agrupadas por motivo, en la ventana de N
+   * meses. El motivo es el `churnReason` CAPTURADO al suspender/cancelar; si
+   * falta se INFIERE: `nonpayment` si la suscripción quedó `past_due` o en solo
+   * lectura, `voluntary` si estaba marcada para cancelar a fin de periodo,
+   * `unknown` si no. `lostMrr` = su último MRR conocido (sin IVA).
    */
   async getChurnByReason(months: number): Promise<AdminChurnByReasonDto> {
-    const span = Math.min(Math.max(months, 1), 24);
-    const windowStart = addMonthsUtc(startOfMonthUtc(new Date()), -(span - 1));
-
-    const tenants = await this.admin.tenant.findMany({
-      // Misma definición de baja que el KPI de Métricas (anonimizados incluidos).
-      where: churnedBetweenWhere(windowStart),
-      select: {
-        churnReason: true,
-        subscription: {
-          select: {
-            status: true,
-            cancelAtPeriodEnd: true,
-            plan: { select: { priceMonthly: true } },
-          },
-        },
-      },
-    });
+    const span = spanOf(months);
+    const windowStart = monthIndexStart(madridMonthIndex(new Date()) - (span - 1));
+    const payers = (await loadPayerLifecycles(this.admin)).filter((p) =>
+      churnedBetween(p, windowStart),
+    );
 
     const acc = new Map<string, { count: number; lostMrr: number; captured: number }>();
-    let totalChurned = 0;
     let lostMrr = 0;
-    for (const t of tenants) {
+    for (const t of payers) {
       const captured = Boolean(t.churnReason);
       let reason = t.churnReason;
       if (!reason) {
-        if (t.subscription?.status === 'past_due') reason = 'nonpayment';
-        else if (t.subscription?.cancelAtPeriodEnd) reason = 'voluntary';
+        if (t.subscription?.status === 'past_due' || t.subscription?.status === 'expired') {
+          reason = 'nonpayment';
+        } else if (t.subscription?.cancelAtPeriodEnd) reason = 'voluntary';
         else reason = 'unknown';
       }
-      const mrr = t.subscription?.plan ? Number(t.subscription.plan.priceMonthly) : 0;
       const slice = acc.get(reason) ?? { count: 0, lostMrr: 0, captured: 0 };
       slice.count += 1;
-      slice.lostMrr += mrr;
+      slice.lostMrr += t.lastMrr;
       if (captured) slice.captured += 1;
       acc.set(reason, slice);
-      totalChurned += 1;
-      lostMrr += mrr;
+      lostMrr += t.lastMrr;
     }
 
     const slices = [...acc.entries()]
@@ -433,37 +375,37 @@ export class AdminMetricsService {
       }))
       .sort((a, b) => b.count - a.count);
 
-    return { months: span, totalChurned, lostMrr: round2(lostMrr), slices };
+    return { months: span, totalChurned: payers.length, lostMrr: round2(lostMrr), slices };
   }
 
   /**
    * LTV (valor de vida del cliente) + cohortes de ingresos del SaaS.
    *
-   * Fórmula (pragmática, basada en los pagos `paid` de suscripción):
-   *  - Por cada tenant pagador (≥1 pago): `totalPaid` (Σ pagos), `lifespanMonths`
-   *    = meses entre el alta y su baja (aprox. por `updatedAt` de suspended/
-   *    cancelled, mismo criterio que `getRetention`) o hasta hoy si sigue vivo,
-   *    con mínimo 1; `arpa_i` = `totalPaid / lifespanMonths`.
-   *  - `avgArpa` = media de `arpa_i`; `avgLifespanMonths` = media de `lifespan_i`.
-   *  - `avgLtv` (modelo) = `avgArpa × avgLifespanMonths` (estimación prospectiva).
-   *  - `realizedLtv` = Σ `totalPaid` / nº pagadores (valor ya cobrado por cuenta).
+   *  - LTV realizado = Σ pagos netos (con IVA) / nº de tenants con algún pago.
+   *  - Vida media = meses entre el alta y la baja (o hoy), mínimo 1.
+   *  - LTV (modelo, sin IVA) = ARPA / churn mensual medio del MRR. ARPA = MRR /
+   *    tenants que pagan ahora; churn mensual = MRR perdido por bajas / MRR al
+   *    empezar el mes, de media en los meses cerrados con datos. Con menos de 3
+   *    meses o sin ninguna baja de MRR no se calcula (`null`).
    *
-   * Cohortes de ingresos: por mes de alta (`createdAt`, últimos N meses), el
-   * ingreso ACUMULADO (Σ pagos de esos tenants) y el nº de tenants de la cohorte.
+   * Cohortes de ingresos: por mes de alta (últimos N meses), el ingreso
+   * ACUMULADO (Σ pagos netos de esos tenants) y el nº de tenants de la cohorte.
    */
-  private async computeLtv(months: number): Promise<AdminLtvDto> {
-    const span = Math.min(Math.max(months, 1), 24);
-    const nowMonth = startOfMonthUtc(new Date());
-    const firstCohort = addMonthsUtc(nowMonth, -(span - 1));
+  private async computeLtv(span: number): Promise<AdminLtvDto> {
+    const nowIdx = madridMonthIndex(new Date());
+    const firstIdx = nowIdx - (span - 1);
 
-    // Agregado por tenant de sus pagos `paid` (una sola agregación en BD).
-    const payGroups = await this.admin.tenantSubscriptionPayment.groupBy({
-      by: ['tenantId'],
-      where: { status: { in: ['paid', 'partially_refunded', 'refunded'] } },
-      _sum: { amount: true, refundedAmount: true },
-      _count: { _all: true },
-      _min: { paidAt: true },
-    });
+    const [payGroups, paying, movements] = await Promise.all([
+      this.admin.tenantSubscriptionPayment.groupBy({
+        by: ['tenantId'],
+        where: { status: { in: [...COLLECTED_PAYMENT_STATUSES] } },
+        _sum: { amount: true, refundedAmount: true },
+        _count: { _all: true },
+        _min: { paidAt: true },
+      }),
+      currentMrrByTenant(this.admin),
+      this.mrr.getMovements(12),
+    ]);
 
     const totalByTenant = new Map<string, number>();
     const countByTenant = new Map<string, number>();
@@ -479,76 +421,70 @@ export class AdminMetricsService {
     }
     const payerIds = [...totalByTenant.keys()];
 
-    // Datos de los tenants pagadores (nombre + vida útil).
+    const lifecycles = await loadPayerLifecycles(this.admin);
+    const lifeBy = new Map(lifecycles.map((p) => [p.tenantId, p]));
     const payerTenants =
       payerIds.length > 0
         ? await this.admin.tenant.findMany({
-            where: { id: { in: payerIds } },
-            select: {
-              id: true,
-              name: true,
-              createdAt: true,
-              status: true,
-              updatedAt: true,
-              canceledAt: true,
-            },
+            where: { id: { in: payerIds }, billingExempt: false },
+            select: { id: true, name: true, createdAt: true },
           })
         : [];
 
     const now = new Date();
     let sumTotal = 0;
-    let sumArpa = 0;
     let sumLifespan = 0;
     for (const t of payerTenants) {
-      const totalPaid = totalByTenant.get(t.id) ?? 0;
-      const churned = (CHURNED_STATUSES as readonly string[]).includes(t.status);
-      const end = churned ? churnDate(t) : now;
-      const lifespanMonths = Math.max(
-        monthDiff(startOfMonthUtc(t.createdAt), startOfMonthUtc(end)),
-        1,
-      );
-      sumTotal += totalPaid;
+      const end = lifeBy.get(t.id)?.churnedAt ?? now;
+      const lifespanMonths = Math.max(madridMonthIndex(end) - madridMonthIndex(t.createdAt), 1);
+      sumTotal += totalByTenant.get(t.id) ?? 0;
       sumLifespan += lifespanMonths;
-      sumArpa += totalPaid / lifespanMonths;
     }
-    const payingTenants = payerTenants.length;
-    const avgArpa = payingTenants > 0 ? sumArpa / payingTenants : 0;
-    const avgLifespanMonths = payingTenants > 0 ? sumLifespan / payingTenants : 0;
-    const realizedLtv = payingTenants > 0 ? sumTotal / payingTenants : 0;
-    const avgLtv = avgArpa * avgLifespanMonths;
+    const payingTenantsCount = payerTenants.length;
+    const avgLifespanMonths = payingTenantsCount > 0 ? sumLifespan / payingTenantsCount : 0;
+    const realizedLtv = payingTenantsCount > 0 ? sumTotal / payingTenantsCount : 0;
+
+    let mrrTotal = 0;
+    for (const p of paying.values()) mrrTotal += p.total;
+    const avgArpa = paying.size > 0 ? mrrTotal / paying.size : 0;
+    const closed = this.mrr.closedMonthsWithData(movements.months).filter((m) => m.baseMrr > 0);
+    const churnRates = closed.map((m) => m.churn / m.baseMrr);
+    const avgChurn =
+      churnRates.length > 0 ? churnRates.reduce((s, r) => s + r, 0) / churnRates.length : 0;
+    const enoughHistory = closed.length >= 3 && avgChurn > 0;
+    const avgLtv = enoughHistory ? avgArpa / avgChurn : null;
 
     // Top 10 por LTV realizado (Σ pagos).
     const nameById = new Map(payerTenants.map((t) => [t.id, t.name]));
-    const topTenants = payerIds
-      .map((id) => ({
-        tenantId: id,
-        name: nameById.get(id) ?? '—',
-        totalPaid: round2(totalByTenant.get(id) ?? 0),
-        paymentsCount: countByTenant.get(id) ?? 0,
-        firstPaidAt: firstPaidByTenant.get(id)?.toISOString() ?? null,
+    const topTenants = payerTenants
+      .map((t) => ({
+        tenantId: t.id,
+        name: nameById.get(t.id) ?? '—',
+        totalPaid: round2(totalByTenant.get(t.id) ?? 0),
+        paymentsCount: countByTenant.get(t.id) ?? 0,
+        firstPaidAt: firstPaidByTenant.get(t.id)?.toISOString() ?? null,
       }))
       .sort((a, b) => b.totalPaid - a.totalPaid)
       .slice(0, 10);
 
     // Cohortes de ingresos por mes de alta (últimos `span` meses).
     const cohortTenants = await this.admin.tenant.findMany({
-      where: { billingExempt: false, createdAt: { gte: firstCohort } },
+      where: { billingExempt: false, createdAt: { gte: monthIndexStart(firstIdx) } },
       select: { id: true, createdAt: true },
     });
     const cohortAcc = new Map<string, { tenants: number; revenue: number }>();
     for (const t of cohortTenants) {
-      const key = monthKey(startOfMonthUtc(t.createdAt));
+      const key = monthIndexKey(madridMonthIndex(t.createdAt));
       const slice = cohortAcc.get(key) ?? { tenants: 0, revenue: 0 };
       slice.tenants += 1;
       slice.revenue += totalByTenant.get(t.id) ?? 0;
       cohortAcc.set(key, slice);
     }
     const cohorts = [];
-    for (let i = 0; i < span; i++) {
-      const c = addMonthsUtc(firstCohort, i);
-      const slice = cohortAcc.get(monthKey(c)) ?? { tenants: 0, revenue: 0 };
+    for (let idx = firstIdx; idx <= nowIdx; idx++) {
+      const slice = cohortAcc.get(monthIndexKey(idx)) ?? { tenants: 0, revenue: 0 };
       cohorts.push({
-        cohortMonth: monthLabel(c),
+        cohortMonth: monthIndexLabel(idx),
         tenants: slice.tenants,
         revenue: round2(slice.revenue),
         revenuePerTenant: slice.tenants > 0 ? round2(slice.revenue / slice.tenants) : 0,
@@ -557,8 +493,9 @@ export class AdminMetricsService {
 
     return {
       currency: 'EUR',
-      payingTenants,
-      avgLtv: round2(avgLtv),
+      payingTenants: payingTenantsCount,
+      avgLtv: avgLtv === null ? null : round2(avgLtv),
+      avgMonthlyChurnPct: enoughHistory ? round2(avgChurn * 100) : null,
       realizedLtv: round2(realizedLtv),
       avgLifespanMonths: round2(avgLifespanMonths),
       avgArpa: round2(avgArpa),
@@ -576,8 +513,8 @@ export class AdminMetricsService {
    * Un episodio SEPA o Redsys está recuperado si el tenant pagó después.
    */
   async getPaymentRetryAnalysis(months: number): Promise<AdminPaymentRetryAnalysisDto> {
-    const span = Math.min(Math.max(months, 1), 24);
-    const windowStart = addMonthsUtc(startOfMonthUtc(new Date()), -(span - 1));
+    const span = spanOf(months);
+    const windowStart = monthIndexStart(madridMonthIndex(new Date()) - (span - 1));
 
     const [stripeRows, sepaRows, redsysRows] = await Promise.all([
       this.admin.tenantSubscriptionPayment.findMany({

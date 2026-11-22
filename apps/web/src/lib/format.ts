@@ -3,12 +3,32 @@
  * igual en todas las pantallas («1.234,50 €», «01/09/2026»).
  */
 
-const EUR = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+/**
+ * Agrupa los miles con punto también en las cifras de 4 dígitos («3.427»): el
+ * formato español de `Intl` no los agrupa por debajo de 10.000.
+ */
+function groupThousands(int: string): string {
+  return int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
 
 /** Importe en euros con coma decimal y separador de miles: «1.234,50 €». */
 export function formatEur(n: number | string | null | undefined): string {
-  const v = typeof n === 'string' ? Number(n) : n;
-  return EUR.format(v == null || Number.isNaN(v) ? 0 : v);
+  const raw = typeof n === 'string' ? Number(n) : n;
+  const v = raw == null || Number.isNaN(raw) ? 0 : raw;
+  const [int, dec] = Math.abs(v).toFixed(2).split('.') as [string, string];
+  const negative = v < 0 && (int !== '0' || dec !== '00');
+  return `${negative ? '-' : ''}${groupThousands(int)},${dec} €`;
+}
+
+/** Porcentaje con coma decimal: «12,5 %». */
+export function formatPct(n: number | null | undefined, decimals = 1): string {
+  const v = n == null || Number.isNaN(n) ? 0 : n;
+  return `${v.toFixed(decimals).replace('.', ',')} %`;
+}
+
+/** «1 mes», «3 meses»: el número con su palabra en singular o plural. */
+export function plural(n: number, one: string, many: string): string {
+  return `${groupThousands(String(n))} ${n === 1 ? one : many}`;
 }
 
 /** Precio con IVA (redondeado al céntimo) a partir del precio sin IVA y el tipo. */
@@ -66,10 +86,9 @@ export function formatDateTime(d: string | Date | null | undefined): string {
 /** Número con coma decimal: «4,50». */
 export function formatNumber(n: number | null | undefined, decimals = 2): string {
   if (n == null || Number.isNaN(n)) return '—';
-  return n.toLocaleString('es-ES', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+  const [int, dec] = Math.abs(n).toFixed(decimals).split('.') as [string, string | undefined];
+  const negative = n < 0 && /[1-9]/.test(`${int}${dec ?? ''}`);
+  return `${negative ? '-' : ''}${groupThousands(int)}${dec ? `,${dec}` : ''}`;
 }
 
 /** Recuento sin decimales: «1.250». */

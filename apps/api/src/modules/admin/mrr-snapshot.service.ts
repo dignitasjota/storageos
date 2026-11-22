@@ -1,6 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
+import {
+  chargedWithoutVat,
+  currentMrrByTenant,
+  dateMonthIndex,
+  madridMonthIndex,
+  monthIndexDate,
+  monthIndexLabel,
+  netPaid,
+} from '../../common/saas-metrics';
+import { platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type {
@@ -10,40 +19,11 @@ import type {
   AdminMrrForecastPointDto,
 } from '@storageos/shared';
 
-const MONTHS_ES = [
-  'ene',
-  'feb',
-  'mar',
-  'abr',
-  'may',
-  'jun',
-  'jul',
-  'ago',
-  'sep',
-  'oct',
-  'nov',
-  'dic',
-];
-
-/** Primer día del mes (UTC) de una fecha. */
-function startOfMonthUtc(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-}
-
-function addMonthsUtc(d: Date, n: number): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + n, 1));
-}
-
-/** Clave estable de un mes: "YYYY-MM" (a partir de su primer día UTC). */
-function monthKey(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-function monthLabel(d: Date): string {
-  return `${MONTHS_ES[d.getUTCMonth()]} ${String(d.getUTCFullYear()).slice(2)}`;
-}
-
+const DAY = 86_400_000;
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** Meses cerrados con datos que hacen falta para proyectar el crecimiento. */
+export const FORECAST_MIN_CLOSED_MONTHS = 3;
 
 /**
  * Snapshots mensuales de MRR + cálculo de los MRR movements.
@@ -60,42 +40,32 @@ export class MrrSnapshotService {
   constructor(private readonly admin: PrismaAdminService) {}
 
   /**
-   * Asegura el snapshot de un mes a partir del **estado actual** de las
-   * suscripciones: 1 fila por tenant que paga (suscripción `active` y tenant
-   * vivo), con MRR = cuota del plan + extras activos (igual que la tarjeta MRR de
-   * Métricas). En el mes en curso, quien ha dejado de pagar sale del snapshot.
-   * Idempotente (upsert por tenant+mes).
+   * Asegura el snapshot de un mes (en hora de España) a partir del **estado
+   * actual**: 1 fila por tenant que paga (suscripción activa o atrasada, tenant
+   * activo y cuota > 0) con su MRR sin IVA (`tenantMrr`: cuota real con su
+   * descuento, la anual entre 12, + extras). En el mes en curso, quien ha dejado
+   * de pagar sale del snapshot. Idempotente (upsert por tenant+mes).
    */
-  async captureMonth(monthStart: Date): Promise<void> {
-    const month = startOfMonthUtc(monthStart);
-    const [subs, addons] = await Promise.all([
-      this.admin.tenantSubscription.findMany({
-        where: PAYING_SUBSCRIPTION_WHERE,
-        select: { tenantId: true, plan: { select: { slug: true, priceMonthly: true } } },
-      }),
-      this.admin.tenantSubscriptionAddon.findMany({
-        where: { suspendedAt: null },
-        select: { tenantId: true, priceMonthly: true, quantity: true },
-      }),
-    ]);
-    const addonsByTenant = new Map<string, number>();
-    for (const a of addons) {
-      addonsByTenant.set(
-        a.tenantId,
-        (addonsByTenant.get(a.tenantId) ?? 0) + Number(a.priceMonthly) * a.quantity,
-      );
-    }
-    for (const s of subs) {
-      const mrr = round2(Number(s.plan.priceMonthly) + (addonsByTenant.get(s.tenantId) ?? 0));
+  async captureMonth(at: Date): Promise<void> {
+    const idx = madridMonthIndex(at);
+    const month = monthIndexDate(idx);
+    const paying = await currentMrrByTenant(this.admin);
+    for (const p of paying.values()) {
       await this.admin.mrrSnapshot.upsert({
-        where: { tenantId_month: { tenantId: s.tenantId, month } },
-        create: { tenantId: s.tenantId, month, planSlug: s.plan.slug, status: 'active', mrr },
-        update: { planSlug: s.plan.slug, status: 'active', mrr },
+        where: { tenantId_month: { tenantId: p.tenantId, month } },
+        create: {
+          tenantId: p.tenantId,
+          month,
+          planSlug: p.planSlug,
+          status: p.subscriptionStatus,
+          mrr: p.total,
+        },
+        update: { planSlug: p.planSlug, status: p.subscriptionStatus, mrr: p.total },
       });
     }
-    if (month.getTime() === startOfMonthUtc(new Date()).getTime()) {
+    if (idx === madridMonthIndex(new Date())) {
       await this.admin.mrrSnapshot.deleteMany({
-        where: { month, tenantId: { notIn: subs.map((s) => s.tenantId) } },
+        where: { month, tenantId: { notIn: [...paying.keys()] } },
       });
     }
   }
@@ -107,7 +77,7 @@ export class MrrSnapshotService {
    * El refresco intramensual (cambios de plan) lo hace el cron diario.
    */
   private async ensureCurrentMonthSnapshot(now: Date): Promise<void> {
-    const month = startOfMonthUtc(now);
+    const month = monthIndexDate(madridMonthIndex(now));
     const existing = await this.admin.mrrSnapshot.findFirst({
       where: { month },
       select: { id: true },
@@ -116,60 +86,78 @@ export class MrrSnapshotService {
   }
 
   /**
-   * Backfill best-effort de los meses pasados desde el historial de pagos SaaS:
-   * cada pago (planSlug + periodStart..periodEnd) implica MRR `active` en los
-   * meses que cubre. Solo CREA snapshots que falten (no pisa los ya capturados
-   * del estado real). Permite mostrar movimientos sin esperar meses, cuando hay
-   * pagos registrados.
+   * Backfill best-effort de los meses pasados desde el historial de pagos:
+   * cada pago del plan reparte su importe neto (cobrado − devuelto, sin IVA)
+   * entre los meses que cubre (`periodStart..periodEnd`), así que ya lleva el
+   * descuento, el ciclo anual y los extras que se cobran con la cuota (SEPA,
+   * Redsys, Stripe). Los cobros sueltos de un extra («Add-on: …») suman al mes
+   * en que se cobraron. Limitación: un extra que se cobra por Stripe en una
+   * factura aparte, o uno que no se ha cobrado todavía, no aparece. Cuenta los
+   * pagos `paid` y `partially_refunded` (los devueltos del todo no). Solo CREA
+   * snapshots que falten (no pisa los capturados del estado real).
    */
   async backfillFromPayments(monthsBack: number): Promise<number> {
-    const now = new Date();
-    const from = addMonthsUtc(startOfMonthUtc(now), -monthsBack);
+    const nowIdx = madridMonthIndex(new Date());
+    const fromIdx = nowIdx - monthsBack;
 
-    const [plans, payments, existing] = await Promise.all([
-      this.admin.subscriptionPlan.findMany({ select: { slug: true, priceMonthly: true } }),
+    const [pricing, payments, existing] = await Promise.all([
+      platformPricing(this.admin),
       this.admin.tenantSubscriptionPayment.findMany({
-        where: { status: 'paid', planSlug: { not: null }, periodStart: { not: null } },
-        select: { tenantId: true, planSlug: true, periodStart: true, periodEnd: true },
+        where: {
+          status: { in: ['paid', 'partially_refunded'] },
+          planSlug: { not: null },
+          periodStart: { not: null },
+          tenant: { billingExempt: false },
+        },
+        select: {
+          tenantId: true,
+          planSlug: true,
+          amount: true,
+          refundedAmount: true,
+          description: true,
+          paidAt: true,
+          periodStart: true,
+          periodEnd: true,
+        },
       }),
       this.admin.mrrSnapshot.findMany({ select: { tenantId: true, month: true } }),
     ]);
-    const priceBySlug = new Map(plans.map((p) => [p.slug, Number(p.priceMonthly)]));
-    const seen = new Set(existing.map((e) => `${e.tenantId}:${monthKey(e.month)}`));
+    const seen = new Set(existing.map((e) => `${e.tenantId}:${dateMonthIndex(e.month)}`));
 
-    const toCreate: {
-      tenantId: string;
-      month: Date;
-      planSlug: string;
-      status: string;
-      mrr: number;
-    }[] = [];
+    // tenant:mes -> MRR sin IVA y plan.
+    const acc = new Map<string, { tenantId: string; idx: number; planSlug: string; mrr: number }>();
+    const add = (tenantId: string, idx: number, planSlug: string, amount: number) => {
+      // El mes en curso sale del estado real (captureMonth), no de los pagos.
+      if (idx < fromIdx || idx >= nowIdx) return;
+      const k = `${tenantId}:${idx}`;
+      if (seen.has(k)) return;
+      const e = acc.get(k) ?? { tenantId, idx, planSlug, mrr: 0 };
+      e.mrr += amount;
+      acc.set(k, e);
+    };
     for (const p of payments) {
       if (!p.planSlug || !p.periodStart) continue;
-      const price = priceBySlug.get(p.planSlug);
-      if (price === undefined) continue;
-      const end = p.periodEnd ?? p.periodStart;
-      // Meses cubiertos por el periodo del pago (acota a la ventana).
-      let m = startOfMonthUtc(p.periodStart);
-      const endMonth = startOfMonthUtc(end);
-      while (m <= endMonth) {
-        // El mes en curso sale del estado real (captureMonth), no de los pagos.
-        if (m >= from && m < startOfMonthUtc(now)) {
-          const k = `${p.tenantId}:${monthKey(m)}`;
-          if (!seen.has(k)) {
-            seen.add(k);
-            toCreate.push({
-              tenantId: p.tenantId,
-              month: m,
-              planSlug: p.planSlug,
-              status: 'active',
-              mrr: price,
-            });
-          }
-        }
-        m = addMonthsUtc(m, 1);
+      const net = chargedWithoutVat(netPaid(p), pricing);
+      if (net <= 0) continue;
+      if (p.description?.startsWith('Add-on:')) {
+        add(p.tenantId, madridMonthIndex(p.paidAt ?? p.periodStart), p.planSlug, net);
+        continue;
       }
+      const end = p.periodEnd ?? p.periodStart;
+      const months = Math.max(
+        1,
+        Math.round((end.getTime() - p.periodStart.getTime()) / (30.44 * DAY)),
+      );
+      const first = madridMonthIndex(p.periodStart);
+      for (let i = 0; i < months; i++) add(p.tenantId, first + i, p.planSlug, net / months);
     }
+    const toCreate = [...acc.values()].map((e) => ({
+      tenantId: e.tenantId,
+      month: monthIndexDate(e.idx),
+      planSlug: e.planSlug,
+      status: 'active',
+      mrr: round2(e.mrr),
+    }));
     // Un solo INSERT en lote en vez de N creates en bucle.
     if (toCreate.length > 0) {
       await this.admin.mrrSnapshot.createMany({ data: toCreate, skipDuplicates: true });
@@ -179,45 +167,48 @@ export class MrrSnapshotService {
   }
 
   /**
-   * MRR movements de los últimos `months` meses. Asegura el snapshot del mes en
-   * curso + backfill, luego compara cada mes con el anterior por tenant.
+   * MRR movements de los últimos `months` meses (en hora de España; el último
+   * es el mes en curso). Compara cada mes con el anterior por tenant. Un tenant
+   * con el pago atrasado sigue en el snapshot, así que no sale como baja ni
+   * como reactivación al pagar.
    */
   async getMovements(months: number): Promise<AdminMetricsMrrMovementsDto> {
-    const span = Math.min(Math.max(months, 1), 24);
+    const span = Math.min(Math.max(Math.trunc(months) || 12, 1), 24);
     const now = new Date();
-    // Rendimiento: antes cada GET hacía captureMonth (1 upsert por suscripción,
-    // ~500 escrituras) + backfillFromPayments (full-scan + creates en bucle), y
-    // la página Métricas lo dispara DOS veces (movements + forecast lo reusa).
-    // Ahora el backfill/refresco lo hace el cron (diario) y aquí solo aseguramos
-    // que EXISTE el snapshot del mes en curso (una vez por mes; guard barato).
     await this.ensureCurrentMonthSnapshot(now);
 
-    // Necesitamos un mes extra (el anterior al primero) para el primer delta.
-    const firstMonth = addMonthsUtc(startOfMonthUtc(now), -span);
-    const rows = await this.admin.mrrSnapshot.findMany({
-      where: { month: { gte: firstMonth } },
-      select: { tenantId: true, month: true, mrr: true },
-      orderBy: { month: 'asc' },
-    });
+    // Un mes extra (el anterior al primero) para el primer delta.
+    const nowIdx = madridMonthIndex(now);
+    const firstIdx = nowIdx - span;
+    const [rows, seenBefore] = await Promise.all([
+      this.admin.mrrSnapshot.findMany({
+        where: { month: { gte: monthIndexDate(firstIdx) } },
+        select: { tenantId: true, month: true, mrr: true },
+        orderBy: { month: 'asc' },
+      }),
+      // Quien tuvo MRR antes de la ventana vuelve como reactivación, no como nuevo.
+      this.admin.mrrSnapshot.findMany({
+        where: { month: { lt: monthIndexDate(firstIdx) }, mrr: { gt: 0 } },
+        select: { tenantId: true },
+        distinct: ['tenantId'],
+      }),
+    ]);
 
-    // month -> (tenantId -> mrr)
-    const byMonth = new Map<string, Map<string, number>>();
+    const byMonth = new Map<number, Map<string, number>>();
     for (const r of rows) {
-      const k = monthKey(r.month);
+      const k = dateMonthIndex(r.month);
       if (!byMonth.has(k)) byMonth.set(k, new Map());
       byMonth.get(k)!.set(r.tenantId, Number(r.mrr));
     }
 
-    const monthsList = Array.from({ length: span + 1 }, (_, i) => addMonthsUtc(firstMonth, i));
-    const everSeen = new Set<string>();
+    const everSeen = new Set(seenBefore.map((s) => s.tenantId));
     const result: AdminMetricsMrrMovementMonthDto[] = [];
 
-    // El primer mes solo siembra `everSeen` (no tiene mes anterior con datos).
-    let prev = byMonth.get(monthKey(monthsList[0]!)) ?? new Map<string, number>();
-    for (const t of prev.keys()) everSeen.add(t);
+    let prev = byMonth.get(firstIdx) ?? new Map<string, number>();
+    for (const [t, v] of prev) if (v > 0) everSeen.add(t);
 
-    for (let i = 1; i < monthsList.length; i++) {
-      const cur = byMonth.get(monthKey(monthsList[i]!)) ?? new Map<string, number>();
+    for (let idx = firstIdx + 1; idx <= nowIdx; idx++) {
+      const cur = byMonth.get(idx) ?? new Map<string, number>();
       let newMrr = 0;
       let expansion = 0;
       let reactivation = 0;
@@ -250,7 +241,7 @@ export class MrrSnapshotService {
       const nrr =
         baseMrr > 0 ? round2(((baseMrr - churn - contraction + expansion) / baseMrr) * 100) : null;
       result.push({
-        label: monthLabel(monthsList[i]!),
+        label: monthIndexLabel(idx),
         newMrr: round2(newMrr),
         expansion: round2(expansion),
         reactivation: round2(reactivation),
@@ -265,47 +256,64 @@ export class MrrSnapshotService {
 
     // "warmingUp": no hay ningún movimiento en ningún mes (faltan snapshots).
     const warmingUp = result.every(
-      (m) => m.newMrr === 0 && m.expansion === 0 && m.churn === 0 && m.contraction === 0,
+      (m) =>
+        m.newMrr === 0 &&
+        m.expansion === 0 &&
+        m.churn === 0 &&
+        m.contraction === 0 &&
+        m.reactivation === 0,
     );
     return { currency: 'EUR', months: result, warmingUp };
   }
 
   /**
+   * Meses cerrados (sin el mes en curso, que está a medias) con datos: los que
+   * tenían MRR al empezar o al acabar. Los usan la previsión y el LTV.
+   */
+  closedMonthsWithData(
+    months: AdminMetricsMrrMovementMonthDto[],
+  ): (AdminMetricsMrrMovementMonthDto & { baseMrr: number })[] {
+    const out: (AdminMetricsMrrMovementMonthDto & { baseMrr: number })[] = [];
+    for (let i = 0; i < months.length - 1; i++) {
+      const m = months[i]!;
+      const baseMrr = i > 0 ? months[i - 1]!.endingMrr : round2(m.endingMrr - m.net);
+      if (baseMrr > 0 || m.endingMrr > 0) out.push({ ...m, baseMrr });
+    }
+    return out;
+  }
+
+  /**
    * Previsión de MRR: proyecta `horizonMonths` a partir del histórico de
-   * movimientos. La base existente evoluciona según el NRR medio (retención +
-   * expansión − contracción − churn) y se le suman las altas nuevas medias
-   * (new + reactivación). Modelo simple y transparente (expone los supuestos).
+   * movimientos. La base evoluciona según el NRR medio y se le suman las altas
+   * nuevas medias (new + reactivación). Promedia TODOS los meses cerrados con
+   * datos (también los que no tuvieron movimiento) y deja fuera el mes en
+   * curso. Con menos de 3 meses cerrados no proyecta crecimiento: mantiene el
+   * MRR actual y avisa (`insufficientHistory`).
    */
   async getForecast(historyMonths = 12, horizonMonths = 6): Promise<AdminMrrForecastDto> {
     const hist = await this.getMovements(historyMonths);
     const months = hist.months;
     const currentMrr = months.length > 0 ? months[months.length - 1]!.endingMrr : 0;
 
-    // Solo los meses con actividad promedian las altas nuevas.
-    const active = months.filter(
-      (m) =>
-        m.newMrr !== 0 ||
-        m.expansion !== 0 ||
-        m.churn !== 0 ||
-        m.contraction !== 0 ||
-        m.reactivation !== 0,
-    );
-    const basedOnMonths = active.length;
+    const closed = this.closedMonthsWithData(months);
+    const basedOnMonths = closed.length;
+    const insufficientHistory = basedOnMonths < FORECAST_MIN_CLOSED_MONTHS;
     const avgNewMrr =
       basedOnMonths > 0
-        ? round2(active.reduce((s, m) => s + m.newMrr + m.reactivation, 0) / basedOnMonths)
+        ? round2(closed.reduce((s, m) => s + m.newMrr + m.reactivation, 0) / basedOnMonths)
         : 0;
-    const nrrs = months.map((m) => m.nrr).filter((n): n is number => n !== null);
+    const nrrs = closed.map((m) => m.nrr).filter((n): n is number => n !== null);
     const avgNrr = nrrs.length > 0 ? round2(nrrs.reduce((s, n) => s + n, 0) / nrrs.length) : null;
 
-    const horizon = Math.min(Math.max(horizonMonths, 1), 24);
-    const now = new Date();
-    const nowMonth = startOfMonthUtc(now);
+    const horizon = Math.min(Math.max(Math.trunc(horizonMonths) || 6, 1), 24);
+    const nowIdx = madridMonthIndex(new Date());
     const points: AdminMrrForecastPointDto[] = [];
     let mrr = currentMrr;
     for (let i = 1; i <= horizon; i++) {
-      mrr = avgNrr !== null ? mrr * (avgNrr / 100) + avgNewMrr : mrr + avgNewMrr;
-      points.push({ label: monthLabel(addMonthsUtc(nowMonth, i)), mrr: round2(Math.max(0, mrr)) });
+      if (!insufficientHistory) {
+        mrr = avgNrr !== null ? mrr * (avgNrr / 100) + avgNewMrr : mrr + avgNewMrr;
+      }
+      points.push({ label: monthIndexLabel(nowIdx + i), mrr: round2(Math.max(0, mrr)) });
     }
 
     return {
@@ -314,6 +322,7 @@ export class MrrSnapshotService {
       points,
       assumptions: { avgNewMrr, avgNrr, basedOnMonths },
       warmingUp: hist.warmingUp,
+      insufficientHistory,
     };
   }
 }

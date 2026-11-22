@@ -48,6 +48,15 @@ describe('Negocio del super admin: revisión (e2e)', () => {
     await cleanupTestTenants();
   });
 
+  /** Precio de lista sin IVA (el MRR de las métricas va sin IVA). */
+  async function withoutVat(listPrice: number): Promise<number> {
+    const s = await db.platformBillingSettings.findFirst();
+    const tax = Number(s?.taxRate ?? 21);
+    return (s?.pricesIncludeVat ?? true)
+      ? Math.round((listPrice / (1 + tax / 100)) * 100) / 100
+      : listPrice;
+  }
+
   /** Tenant que paga el plan Starter. */
   async function payingTenant(suffix: string): Promise<string> {
     const owner = await registerVerifiedUser(app, suffix);
@@ -66,7 +75,7 @@ describe('Negocio del super admin: revisión (e2e)', () => {
     const before = await metrics();
     const tenantId = await payingTenant('bizmrr');
     const withTenant = await metrics();
-    expect(withTenant.mrr.total).toBeCloseTo(before.mrr.total + 79, 2);
+    expect(withTenant.mrr.total).toBeCloseTo(before.mrr.total + (await withoutVat(79)), 2);
     expect(withTenant.payingTenants).toBe(before.payingTenants + 1);
 
     // La fecha de salida de la prueba la pone el disparador al pasar a activo.

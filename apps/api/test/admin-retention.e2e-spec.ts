@@ -72,7 +72,17 @@ describe('Admin retention cohorts (e2e)', () => {
   });
 
   it('estructura + M0 = 100% para la cohorte del mes actual', async () => {
-    await registerVerifiedUser(app, 'admin-ret');
+    const owner = await registerVerifiedUser(app, 'admin-ret');
+    // La retención solo cuenta a los que han llegado a pagar.
+    await adminClient.tenantSubscriptionPayment.create({
+      data: {
+        tenantId: owner.tenantId,
+        provider: 'manual',
+        status: 'paid',
+        amount: 79,
+        paidAt: new Date(),
+      },
+    });
 
     const res = await request(app.getHttpServer())
       .get('/admin/metrics/retention')
@@ -97,6 +107,16 @@ describe('Admin retention cohorts (e2e)', () => {
     await adminClient.$executeRaw`
       UPDATE tenants SET created_at = ${created}, updated_at = ${churned}, status = 'cancelled'
       WHERE id = ${owner.tenantId}::uuid`;
+    // Llegó a pagar (si no, sería una prueba sin pagar: ni cliente ni baja).
+    await adminClient.tenantSubscriptionPayment.create({
+      data: {
+        tenantId: owner.tenantId,
+        provider: 'manual',
+        status: 'paid',
+        amount: 79,
+        paidAt: created,
+      },
+    });
 
     const res = await request(app.getHttpServer())
       .get('/admin/metrics/retention?months=4')

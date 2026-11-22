@@ -7,8 +7,7 @@ import type { AdminChargeMethod } from '@storageos/shared';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCollectionsForecast } from '@/lib/admin/business-hooks';
-
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+import { formatEur, plural } from '@/lib/format';
 
 const METHODS: { key: AdminChargeMethod; label: string; color: string }[] = [
   { key: 'stripe', label: 'Stripe', color: '#2a78d6' },
@@ -23,7 +22,7 @@ export function ForecastCard() {
   const d = q.data;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Previsión de cobros</CardTitle>
         <p className="text-xs text-muted-foreground">
@@ -42,8 +41,10 @@ export function ForecastCard() {
               {d.buckets.map((b) => (
                 <div key={b.label} className="rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">{b.label}</p>
-                  <p className="mt-1 text-lg font-semibold tabular-nums">{eur(b.total)}</p>
-                  <p className="text-xs text-muted-foreground">{b.count} cargo(s)</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums">{formatEur(b.total)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {plural(b.count, 'cargo', 'cargos')}
+                  </p>
                   <ul className="mt-2 space-y-0.5 text-xs">
                     {METHODS.filter((m) => b.byMethod[m.key] > 0).map((m) => (
                       <li key={m.key} className="flex items-center justify-between gap-2">
@@ -54,7 +55,7 @@ export function ForecastCard() {
                           />
                           {m.label}
                         </span>
-                        <span className="tabular-nums">{eur(b.byMethod[m.key])}</span>
+                        <span className="tabular-nums">{formatEur(b.byMethod[m.key])}</span>
                       </li>
                     ))}
                   </ul>
@@ -67,15 +68,17 @@ export function ForecastCard() {
                 <p
                   className={`font-semibold tabular-nums ${d.overdue.total > 0 ? 'text-red-700 dark:text-red-400' : ''}`}
                 >
-                  {eur(d.overdue.total)}
+                  {formatEur(d.overdue.total)}
                 </p>
-                <p className="text-xs text-muted-foreground">{d.overdue.count} cobro(s)</p>
+                <p className="text-xs text-muted-foreground">
+                  {plural(d.overdue.count, 'cobro', 'cobros')}
+                </p>
               </Link>
               <div className="rounded-lg border p-3">
                 <p className="text-xs text-muted-foreground">En una remesa SEPA</p>
-                <p className="font-semibold tabular-nums">{eur(d.inSepaRemittance.total)}</p>
+                <p className="font-semibold tabular-nums">{formatEur(d.inSepaRemittance.total)}</p>
                 <p className="text-xs text-muted-foreground">
-                  {d.inSepaRemittance.count} adeudo(s) por confirmar
+                  {plural(d.inSepaRemittance.count, 'adeudo', 'adeudos')} por confirmar
                 </p>
               </div>
               <div className="rounded-lg border p-3">

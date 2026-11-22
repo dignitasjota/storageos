@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useQuoteOffers } from '@/lib/admin/hooks';
+import { formatPct } from '@/lib/format';
 
 /** Conversión de las propuestas de cuota enviadas desde el simulador. */
 export function QuoteOffersCard() {
@@ -12,7 +13,7 @@ export function QuoteOffersCard() {
   if (!s || s.sent === 0) return null;
   const pending = s.sent - s.accepted - s.rejected;
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Propuestas de cuota</CardTitle>
         <p className="text-xs text-muted-foreground">
@@ -27,7 +28,7 @@ export function QuoteOffersCard() {
           ['Enviadas', String(s.sent)],
           ['Aceptadas', String(s.accepted)],
           ['Sin respuesta', String(pending)],
-          ['Conversión', s.conversionPct == null ? '—' : `${s.conversionPct} %`],
+          ['Conversión', s.conversionPct == null ? '—' : formatPct(s.conversionPct)],
         ].map(([label, value]) => (
           <div key={label}>
             <p className="text-xs text-muted-foreground">{label}</p>

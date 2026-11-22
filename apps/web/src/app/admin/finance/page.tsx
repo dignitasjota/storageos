@@ -19,8 +19,7 @@ import { ApplicationFeeReport } from '@/components/admin/application-fee-report'
 import { Delta, PeriodSelect } from '@/components/admin/period-select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminFinance } from '@/lib/admin/hooks';
-
-const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
+import { formatCount, formatEur, formatEurShort, plural } from '@/lib/format';
 
 const PROVIDER_LABELS: Record<string, string> = {
   stripe: 'Stripe',
@@ -61,16 +60,18 @@ export default function AdminFinancePage() {
     );
   }
 
-  const reconciled = Math.abs(d.collectedTotal - d.invoicedTotal) < 0.01;
+  const { paymentsWithoutInvoice, invoicesWithoutPayment } = d.reconciliation;
+  const mismatches = paymentsWithoutInvoice.count + invoicesWithoutPayment.count;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Finanzas</h1>
           <p className="text-sm text-muted-foreground">
             Ingresos reales del SaaS por forma de cobro, descontado lo devuelto, reconciliación con
-            lo facturado y lo que se espera cobrar.
+            lo facturado y lo que se espera cobrar. Lo cobrado, devuelto y facturado va con IVA; el
+            MRR y la IA, sin IVA. Se actualiza cada minuto.
           </p>
         </div>
         <PeriodSelect value={months} onChange={setMonths} />
@@ -78,77 +79,84 @@ export default function AdminFinancePage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi
-          label={`Cobrado neto (${months} m)`}
-          value={eur(d.collectedTotal)}
+          label={`Cobrado neto, con IVA (${months} m)`}
+          value={formatEur(d.collectedTotal)}
           hint={<Delta current={d.collectedTotal} previous={d.previous.collectedTotal} />}
         />
         <Kpi
-          label={`Devuelto (${months} m)`}
-          value={eur(d.refundedTotal)}
+          label={`Devuelto en el periodo, con IVA (${months} m)`}
+          value={formatEur(d.refundedTotal)}
           hint={<Delta current={d.refundedTotal} previous={d.previous.refundedTotal} invert />}
         />
-        <Kpi label="En contracargo" value={eur(d.disputedTotal)} />
-        <Kpi label="MRR add-ons" value={eur(d.addonsMrr)} />
+        <Kpi label="En contracargo (con IVA)" value={formatEur(d.disputedTotal)} />
+        <Kpi label="MRR de los extras (sin IVA)" value={formatEur(d.addonsMrr)} />
         <Kpi
-          label={`Facturado neto (${months} m)`}
-          value={eur(d.invoicedTotal)}
+          label={`Facturado neto, con IVA (${months} m)`}
+          value={formatEur(d.invoicedTotal)}
           hint={<Delta current={d.invoicedTotal} previous={d.previous.invoicedTotal} />}
         />
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {SOURCES.map((src) => (
-          <Kpi key={src.key} label={src.label} value={eur(d.bySource[src.key])} />
+          <Kpi key={src.key} label={src.label} value={formatEur(d.bySource[src.key])} />
         ))}
       </div>
 
       <ApplicationFeeReport months={months} />
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle className="text-base">Asistente IA este mes</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Kpi
-            label="Pagan al mes por la IA"
-            value={eur(d.ai.revenueMonthly)}
+            label="Pagan al mes por la IA (sin IVA)"
+            value={formatEur(d.ai.revenueMonthly)}
             hint={
               <span className="text-xs text-muted-foreground">
-                Extras del asistente y de consultas
+                Extras del asistente y de consultas de los tenants que pagan
               </span>
             }
           />
           <Kpi
             label="Coste estimado (USD)"
-            value={d.ai.costUsdThisMonth.toLocaleString('es-ES', {
-              style: 'currency',
-              currency: 'USD',
-            })}
+            value={`${d.ai.costUsdThisMonth.toFixed(2).replace('.', ',')} $`}
             hint={<span className="text-xs text-muted-foreground">Con la IA de TrasterOS</span>}
           />
           <Kpi
             label="Consultas con la IA de TrasterOS"
-            value={d.ai.queriesThisMonth.toLocaleString('es-ES')}
+            value={formatCount(d.ai.queriesThisMonth)}
           />
           <Kpi
             label="Consultas con la clave de cada tenant"
-            value={d.ai.ownKeyQueriesThisMonth.toLocaleString('es-ES')}
+            value={formatCount(d.ai.ownKeyQueriesThisMonth)}
           />
         </CardContent>
       </Card>
 
-      {!reconciled && (
+      {mismatches > 0 && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
-          ⚠ El cobrado neto ({eur(d.collectedTotal)}) y el facturado neto ({eur(d.invoicedTotal)})
-          no cuadran. Puede ser normal (pagos sin factura emitida, o facturas de periodos
-          distintos), pero revísalo.
+          ⚠ Cobros y facturas que no cuadran en el periodo:
+          {paymentsWithoutInvoice.count > 0 &&
+            ` ${plural(paymentsWithoutInvoice.count, 'cobro sin factura', 'cobros sin factura')} (${formatEur(paymentsWithoutInvoice.total)})`}
+          {paymentsWithoutInvoice.count > 0 && invoicesWithoutPayment.count > 0 && ' ·'}
+          {invoicesWithoutPayment.count > 0 &&
+            ` ${plural(invoicesWithoutPayment.count, 'factura sin cobro', 'facturas sin cobro')} (${formatEur(invoicesWithoutPayment.total)})`}
+          . Revísalos en Facturas emitidas.
         </div>
       )}
 
       <ForecastCard />
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
-          <CardTitle className="text-base">Ingresos netos por mes y forma de cobro</CardTitle>
+          <CardTitle className="text-base">
+            Ingresos netos por mes y forma de cobro (con IVA)
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Cada cobro, en el mes en que se cobró y sin lo devuelto; lo devuelto, en el mes de la
+            devolución.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="h-72 w-full">
@@ -160,8 +168,8 @@ export default function AdminFinancePage() {
               <BarChart data={d.monthly}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis dataKey="month" fontSize={11} />
-                <YAxis fontSize={11} />
-                <Tooltip formatter={(v) => eur(Number(v) || 0)} />
+                <YAxis fontSize={11} width={52} tickFormatter={(v) => formatEurShort(Number(v))} />
+                <Tooltip formatter={(v) => formatEur(Number(v) || 0)} />
                 <Legend />
                 {SOURCES.map((src) => (
                   <Bar
@@ -174,15 +182,22 @@ export default function AdminFinancePage() {
                     strokeWidth={1}
                   />
                 ))}
+                <Bar
+                  dataKey="refunded"
+                  name="Devuelto"
+                  fill="#dc2626"
+                  stroke="hsl(var(--background))"
+                  strokeWidth={1}
+                />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
-          <CardTitle className="text-base">Cobrado neto por método de pago</CardTitle>
+          <CardTitle className="text-base">Cobrado neto por método de pago (con IVA)</CardTitle>
         </CardHeader>
         <CardContent>
           {d.byProvider.length === 0 ? (
@@ -202,7 +217,9 @@ export default function AdminFinancePage() {
                     <tr key={p.provider} className="border-t">
                       <td className="p-2">{PROVIDER_LABELS[p.provider] ?? p.provider}</td>
                       <td className="p-2 text-right tabular-nums">{p.count}</td>
-                      <td className="p-2 text-right tabular-nums font-medium">{eur(p.total)}</td>
+                      <td className="p-2 text-right tabular-nums font-medium">
+                        {formatEur(p.total)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -217,7 +234,7 @@ export default function AdminFinancePage() {
 
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: ReactNode }) {
   return (
-    <div className="rounded-lg border p-3">
+    <div className="min-w-0 rounded-lg border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
       {hint && <div className="mt-0.5">{hint}</div>}

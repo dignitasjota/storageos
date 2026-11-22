@@ -3,6 +3,7 @@ import { Prisma } from '@storageos/database';
 import { platformLeadName } from '@storageos/shared';
 
 import { todayInTimezone, zonedDayStart } from '../../common/format';
+import { loadMrrContext, mrrFor, MRR_SUBSCRIPTION_SELECT } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { TodayFingerprint } from './today-fingerprint';
@@ -284,22 +285,17 @@ export class AdminTodayExtrasService {
   async monthlyByTenant(tenantIds: string[]): Promise<Map<string, number>> {
     const ids = [...new Set(tenantIds)];
     if (ids.length === 0) return new Map();
-    const [subs, addons] = await Promise.all([
+    // Cuota al mes sin IVA (la anual entre 12, con su descuento, + extras): la
+    // misma cuenta que el MRR (`tenantMrr`). En una prueba, lo que pagaría.
+    const [subs, ctx] = await Promise.all([
       this.admin.tenantSubscription.findMany({
         where: { tenantId: { in: ids } },
-        select: { tenantId: true, plan: { select: { priceMonthly: true } } },
+        select: MRR_SUBSCRIPTION_SELECT,
       }),
-      this.admin.tenantSubscriptionAddon.findMany({
-        where: { tenantId: { in: ids }, suspendedAt: null },
-        select: { tenantId: true, priceMonthly: true, quantity: true },
-      }),
+      loadMrrContext(this.admin, ids),
     ]);
     const out = new Map<string, number>();
-    for (const s of subs) out.set(s.tenantId, Number(s.plan?.priceMonthly ?? 0));
-    for (const a of addons) {
-      out.set(a.tenantId, (out.get(a.tenantId) ?? 0) + Number(a.priceMonthly) * a.quantity);
-    }
-    for (const [id, v] of out) out.set(id, Math.round(v * 100) / 100);
+    for (const s of subs) out.set(s.tenantId, mrrFor(ctx, s.tenantId, s).total);
     return out;
   }
 

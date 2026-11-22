@@ -4,8 +4,9 @@ import { Loader2 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTrialFunnel } from '@/lib/admin/business-hooks';
+import { formatPct, plural } from '@/lib/format';
 
-const pctText = (n: number | null) => (n === null ? '—' : `${Math.round(n)} %`);
+const pctText = (n: number | null) => (n === null ? '—' : formatPct(n, 0));
 
 /** Embudo de pruebas: altas → primer contrato → pagan, por mes de alta. */
 export function TrialFunnelCard({ months }: { months: number }) {
@@ -13,12 +14,12 @@ export function TrialFunnelCard({ months }: { months: number }) {
   const d = q.data;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Embudo de pruebas</CardTitle>
         <p className="text-xs text-muted-foreground">
           Tenants dados de alta cada mes: cuántos firmaron su primer contrato con un inquilino y en
-          qué acabó su prueba.
+          qué acabó su prueba. Pagan también los que tienen el pago atrasado.
         </p>
       </CardHeader>
       <CardContent>
@@ -35,7 +36,7 @@ export function TrialFunnelCard({ months }: { months: number }) {
               <Kpi
                 label="Firman su primer contrato"
                 value={pctText(d.activationPct)}
-                hint={`${d.totals.activated} tenants`}
+                hint={plural(d.totals.activated, 'tenant', 'tenants')}
               />
               <Kpi
                 label="Pasan a pagar"
@@ -54,7 +55,7 @@ export function TrialFunnelCard({ months }: { months: number }) {
                 [
                   ['Pagan un plan', d.totals.converted],
                   ['Sin pagar', d.totals.toFree],
-                  ['Se dieron de baja', d.totals.churned],
+                  ['Pagaron y se dieron de baja', d.totals.churned],
                   ['Siguen en prueba', d.totals.inTrial],
                 ] as const
               ).map(([label, n]) => (

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { adminApiFetch, adminApiFetchBlob } from './api';
+import { LIVE_METRICS } from './live-metrics';
 
 import type {
   AdminBusinessAlertsDto,
@@ -19,7 +20,7 @@ export function useTrialFunnel(months = 12) {
     queryKey: ['admin', 'business', 'trial-funnel', months] as const,
     queryFn: () =>
       adminApiFetch<AdminTrialFunnelDto>(`/admin/business/trial-funnel?months=${months}`),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -27,7 +28,7 @@ export function useBusinessGoals() {
   return useQuery({
     queryKey: ['admin', 'business', 'goals'] as const,
     queryFn: () => adminApiFetch<AdminBusinessGoalsDto>('/admin/business/goals'),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -50,7 +51,7 @@ export function useBusinessAlerts() {
   return useQuery({
     queryKey: ['admin', 'business', 'alerts'] as const,
     queryFn: () => adminApiFetch<AdminBusinessAlertsDto>('/admin/business/alerts'),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 
@@ -79,7 +80,7 @@ export function useCollectionsForecast() {
   return useQuery({
     queryKey: ['admin', 'finance', 'forecast'] as const,
     queryFn: () => adminApiFetch<AdminCollectionsForecastDto>('/admin/finance/forecast'),
-    staleTime: 60_000,
+    ...LIVE_METRICS,
   });
 }
 

@@ -4,13 +4,7 @@ import { Loader2 } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminPaymentRetries } from '@/lib/admin/hooks';
-
-const eur = (n: number) =>
-  new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'EUR',
-    maximumFractionDigits: 0,
-  }).format(n);
+import { formatEur, formatPct } from '@/lib/format';
 
 const SOURCE_LABELS: Record<'stripe' | 'sepa' | 'redsys', string> = {
   stripe: 'Stripe',
@@ -23,7 +17,7 @@ export function PaymentRetriesCard({ months = 12 }: { months?: number }) {
   const d = q.data;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Recuperación de cobros</CardTitle>
         <p className="text-xs text-muted-foreground">
@@ -44,7 +38,7 @@ export function PaymentRetriesCard({ months = 12 }: { months?: number }) {
         ) : (
           <div className="space-y-4">
             <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-semibold">{d.recoveryRatePercent.toFixed(0)}%</span>
+              <span className="text-3xl font-semibold">{formatPct(d.recoveryRatePercent, 0)}</span>
               <span className="text-sm text-muted-foreground">
                 recuperados ({d.recovered}/{d.totalFailed})
               </span>
@@ -64,13 +58,13 @@ export function PaymentRetriesCard({ months = 12 }: { months?: number }) {
               <div>
                 <dt className="text-xs text-muted-foreground">Recuperado</dt>
                 <dd className="font-medium text-green-600 dark:text-green-400">
-                  {eur(d.amountRecovered)}
+                  {formatEur(d.amountRecovered)}
                 </dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">En riesgo</dt>
                 <dd className="font-medium text-red-600 dark:text-red-400">
-                  {eur(d.amountAtRisk)}
+                  {formatEur(d.amountAtRisk)}
                 </dd>
               </div>
               <div>
@@ -79,7 +73,7 @@ export function PaymentRetriesCard({ months = 12 }: { months?: number }) {
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Intentos medios</dt>
-                <dd className="font-medium">{d.avgAttempts.toFixed(1)}</dd>
+                <dd className="font-medium">{d.avgAttempts.toFixed(1).replace('.', ',')}</dd>
               </div>
             </dl>
             <ul className="space-y-1 text-xs text-muted-foreground">

@@ -301,7 +301,7 @@ export default function AdminTodayPage() {
           : r.daysLeft === 0
             ? 'Vence hoy'
             : `Vence en ${r.daysLeft} d`,
-        r.monthly ? `${eur(r.monthly)}/mes` : null,
+        r.monthly ? `${eur(r.monthly)}/mes sin IVA` : null,
       ]
         .filter(Boolean)
         .join(' · ')}
@@ -1007,7 +1007,7 @@ function TrialRow({ tenant, urgent = false }: { tenant: AdminAtRiskTenantDto; ur
       name={tenant.name}
       detail={[
         tenant.since ? `Termina ${fmtDate(tenant.since)}` : 'Prueba',
-        tenant.monthly ? `${eur(tenant.monthly)}/mes` : null,
+        tenant.monthly ? `${eur(tenant.monthly)}/mes sin IVA` : null,
         usage,
       ]
         .filter(Boolean)
@@ -1258,9 +1258,9 @@ function delta(current: number, previous: number | null): string | null {
 function moneyBreakdown(m: AdminTodayMoneyAtRiskDto): string {
   return [
     m.pastDue > 0 ? `Deuda vencida ${eur(m.pastDue)}` : null,
-    m.trialsEnding > 0 ? `Pruebas que terminan ${eur(m.trialsEnding)}` : null,
+    m.trialsEnding > 0 ? `Pruebas que terminan ${eur(m.trialsEnding)}/mes sin IVA` : null,
     m.addonCharges > 0 ? `Extras por cobrar ${eur(m.addonCharges)}` : null,
-    m.inactive > 0 ? `Clientes que no entran ${eur(m.inactive)}/mes` : null,
+    m.inactive > 0 ? `Clientes que no entran ${eur(m.inactive)}/mes sin IVA` : null,
   ]
     .filter(Boolean)
     .join(' · ');

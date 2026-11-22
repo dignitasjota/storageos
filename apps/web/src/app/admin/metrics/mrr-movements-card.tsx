@@ -16,21 +16,18 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminMrrMovements } from '@/lib/admin/hooks';
-
-function eur(n: number): string {
-  return `${n >= 0 ? '' : '−'}${Math.abs(n).toLocaleString('es-ES', { maximumFractionDigits: 0 })} €`;
-}
+import { formatEur, formatPct } from '@/lib/format';
 
 export function MrrMovementsCard({ months = 12 }: { months?: number }) {
   const q = useAdminMrrMovements(months);
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Movimientos de MRR</CardTitle>
         <p className="text-xs text-muted-foreground">
-          Nuevo, expansión y reactivación (suman) vs. contracción y baja (restan) por mes. Línea =
-          Net New MRR.
+          Nuevo, expansión y reactivación (suman) vs. contracción y baja (restan) por mes, sin IVA.
+          Línea = Net New MRR. El pago atrasado no cuenta como baja.
         </p>
       </CardHeader>
       <CardContent>
@@ -59,13 +56,21 @@ export function MrrMovementsCard({ months = 12 }: { months?: number }) {
               <div className="space-y-3">
                 {last && (
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <Kpi label="Net New (último mes)" value={eur(last.net)} />
+                    <Kpi label="Net New (último mes)" value={formatEur(last.net)} />
                     <Kpi
                       label="NRR (último mes)"
-                      value={last.nrr !== null ? `${last.nrr.toFixed(0)} %` : '—'}
+                      value={last.nrr !== null ? formatPct(last.nrr, 0) : '—'}
                     />
-                    <Kpi label="Expansión" value={eur(last.expansion)} accent="text-green-600" />
-                    <Kpi label="Baja (churn)" value={eur(-last.churn)} accent="text-red-600" />
+                    <Kpi
+                      label="Expansión"
+                      value={formatEur(last.expansion)}
+                      accent="text-green-600"
+                    />
+                    <Kpi
+                      label="Baja (churn)"
+                      value={formatEur(-last.churn)}
+                      accent="text-red-600"
+                    />
                   </div>
                 )}
                 <div className="h-72 w-full">
@@ -80,7 +85,7 @@ export function MrrMovementsCard({ months = 12 }: { months?: number }) {
                       <YAxis tick={{ fontSize: 11 }} />
                       <ReferenceLine y={0} stroke="currentColor" className="text-border" />
                       <Tooltip
-                        formatter={(value, name) => `${String(name)}: ${eur(Number(value))}`}
+                        formatter={(value, name) => `${String(name)}: ${formatEur(Number(value))}`}
                         labelClassName="text-xs"
                         contentStyle={{ fontSize: 12 }}
                       />

@@ -151,7 +151,7 @@ export function TicketRow({ ticket: t }: { ticket: AdminOpenTicketDto }) {
             {t.tenantName}
           </Link>
           {t.monthly ? (
-            <span className="text-xs text-muted-foreground"> · {eur(t.monthly)}/mes</span>
+            <span className="text-xs text-muted-foreground"> · {eur(t.monthly)}/mes sin IVA</span>
           ) : null}
           {(t.priority === 'urgent' || t.priority === 'high') && (
             <span className="ml-1 text-xs font-medium text-red-500">
@@ -401,7 +401,7 @@ export function InactiveRow({ tenant: t }: { tenant: AdminTodayInactiveDto }) {
         name={t.tenantName}
         detail={[
           t.planName,
-          `${eur(t.monthly)}/mes`,
+          `${eur(t.monthly)}/mes sin IVA`,
           t.lastLoginAt
             ? `sin entrar desde el ${fmtDate(t.lastLoginAt)} (${t.daysSinceLogin} d)`
             : 'nadie ha entrado nunca',

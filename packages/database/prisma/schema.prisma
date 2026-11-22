@@ -1113,11 +1113,11 @@ model TenantHealthSnapshot {
 model MrrSnapshot {
   id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
-  /// Primer día del mes (UTC) que representa el snapshot.
+  /// Día 1 del mes (en hora de España) que representa el snapshot.
   month     DateTime @db.Date
   planSlug  String   @map("plan_slug")
   status    String
-  /// MRR mensual normalizado (priceMonthly del plan en ese mes).
+  /// MRR del mes sin IVA (cuota real con su descuento, la anual entre 12, + extras).
   mrr       Decimal  @db.Decimal(12, 2)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 

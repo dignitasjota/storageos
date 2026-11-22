@@ -21,9 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useBusinessGoals, useUpdateBusinessGoals } from '@/lib/admin/business-hooks';
 import { ApiError } from '@/lib/auth/api';
-
-const eur = (n: number) =>
-  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+import { formatEur } from '@/lib/format';
 
 /** Objetivos del negocio con su progreso. */
 export function GoalsCard() {
@@ -33,7 +31,7 @@ export function GoalsCard() {
   const none = g && !g.progress.mrr && !g.progress.signups && !g.progress.trialConversion;
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="flex flex-row items-start justify-between gap-2 pb-2">
         <div>
           <CardTitle className="text-base">Objetivos</CardTitle>
@@ -56,12 +54,12 @@ export function GoalsCard() {
           <div className="space-y-4">
             {g.progress.mrr && (
               <GoalBar
-                label="MRR"
+                label="MRR (sin IVA)"
                 progress={g.progress.mrr}
-                format={eur}
+                format={formatEur}
                 hint={
                   g.mrrNeededPerMonth !== null && g.targetDate
-                    ? `Faltan ${eur(g.mrrNeededPerMonth)} al mes para llegar el ${new Date(g.targetDate).toLocaleDateString('es-ES')}`
+                    ? `Faltan ${formatEur(g.mrrNeededPerMonth)} al mes para llegar el ${new Date(g.targetDate).toLocaleDateString('es-ES')}`
                     : g.targetDate
                       ? `Para el ${new Date(g.targetDate).toLocaleDateString('es-ES')}`
                       : undefined
@@ -131,7 +129,7 @@ function GoalsDialog({
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
-            <Label htmlFor="goal-mrr">MRR objetivo (€/mes)</Label>
+            <Label htmlFor="goal-mrr">MRR objetivo (€/mes, sin IVA)</Label>
             <Input
               id="goal-mrr"
               inputMode="decimal"

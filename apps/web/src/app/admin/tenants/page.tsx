@@ -92,7 +92,7 @@ const HEALTH: Record<string, { label: string; className: string }> = {
 /** Columnas opcionales (las fijas son tenant y estado). */
 const COLUMNS = [
   { key: 'plan', label: 'Plan y cobro' },
-  { key: 'monthly', label: 'Aporta/mes' },
+  { key: 'monthly', label: 'Aporta/mes (sin IVA)' },
   { key: 'addons', label: 'Extras' },
   { key: 'nextCharge', label: 'Próximo cobro / deuda' },
   { key: 'health', label: 'Salud' },
@@ -399,7 +399,7 @@ export default function AdminTenantsPage() {
         'Plan',
         'Modo de cobro',
         'Exenta',
-        'Aporta/mes',
+        'Aporta/mes (sin IVA)',
         'Extras',
         'Próximo cobro',
         'Debe desde',
@@ -687,7 +687,7 @@ export default function AdminTenantsPage() {
                   {show('plan') && <th className="px-3 py-2 font-medium">Plan y cobro</th>}
                   {show('monthly') && (
                     <SortHead
-                      label="Aporta/mes"
+                      label="Aporta/mes (sin IVA)"
                       k="monthly"
                       sort={sort}
                       onSort={toggleSort}
@@ -785,7 +785,7 @@ function TenantCard({
               </dd>
             </div>
             <div className="text-right">
-              <dt className="text-muted-foreground">Aporta/mes</dt>
+              <dt className="text-muted-foreground">Aporta/mes (sin IVA)</dt>
               <dd className="font-medium tabular-nums">{t.billingExempt ? '—' : eur(t.monthly)}</dd>
             </div>
             <div>

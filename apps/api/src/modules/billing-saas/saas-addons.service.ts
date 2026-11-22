@@ -20,7 +20,6 @@ import {
 } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
-import { PAYING_SUBSCRIPTION_WHERE } from '../../common/saas-metrics';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { StripeGateway } from '../payments/stripe.gateway';
@@ -413,38 +412,6 @@ export class SaasAddonsService {
       select: { priceMonthly: true, quantity: true },
     });
     return round2(addons.reduce((s, a) => s + num(a.priceMonthly) * a.quantity, 0));
-  }
-
-  /** MRR mensual de los add-ons de TODOS los tenants (para el MRR global). */
-  async addonsMonthlyByTenant(): Promise<Map<string, number>> {
-    const rows = await this.admin.tenantSubscriptionAddon.findMany({
-      where: { suspendedAt: null },
-      select: { tenantId: true, priceMonthly: true, quantity: true },
-    });
-    const map = new Map<string, number>();
-    for (const r of rows) {
-      map.set(r.tenantId, (map.get(r.tenantId) ?? 0) + num(r.priceMonthly) * r.quantity);
-    }
-    return map;
-  }
-
-  /**
-   * MRR de add-ons contando SOLO los tenants que pagan (suscripción `active` y
-   * tenant vivo: suspender a mano no toca la suscripción) — la
-   * definición única del MRR de add-ons. La usan `admin-metrics` y
-   * `admin-finance` para que las dos páginas muestren el mismo número (antes
-   * finanzas sumaba TODOS los add-ons, incluidos los de tenants no activos).
-   */
-  async addonsMrrForActiveTenants(): Promise<number> {
-    const byTenant = await this.addonsMonthlyByTenant();
-    if (byTenant.size === 0) return 0;
-    const active = await this.admin.tenantSubscription.findMany({
-      where: { ...PAYING_SUBSCRIPTION_WHERE, tenantId: { in: [...byTenant.keys()] } },
-      select: { tenantId: true },
-    });
-    let sum = 0;
-    for (const s of active) sum += byTenant.get(s.tenantId) ?? 0;
-    return Math.round(sum * 100) / 100;
   }
 
   // ---- trasteros de más (plan Basic) ----
