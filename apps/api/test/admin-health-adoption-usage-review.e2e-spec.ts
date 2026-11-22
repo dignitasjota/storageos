@@ -102,10 +102,11 @@ describe('Salud, Adopción y Uso del super admin: revisión (e2e)', () => {
     const owner = await payingTenant('hrsession');
     const old = new Date(Date.now() - 60 * DAY);
     await db.user.update({ where: { id: owner.userId }, data: { lastLoginAt: old } });
-    await db.session.updateMany({
-      where: { userId: owner.userId },
-      data: { lastUsedAt: new Date() },
-    });
+    // La sesión del alta sola no cuenta: hace falta volver a abrir el panel
+    // (renovar el token), que crea una sesión enlazada a la anterior.
+    await db.session.updateMany({ where: { userId: owner.userId }, data: { lastUsedAt: old } });
+    expect(factor(await health(owner.tenantId), 'engagement').score).toBe(20);
+    await http().post('/auth/refresh').set('Cookie', owner.refreshCookie).expect(200);
 
     const h = await health(owner.tenantId);
     expect(factor(h, 'engagement').score).toBe(100);
@@ -139,8 +140,14 @@ describe('Salud, Adopción y Uso del super admin: revisión (e2e)', () => {
       (x) => x.tenantId === trial.tenantId,
     )!;
     expect(t.kind).toBe('activation');
-    expect(factor(t, 'team').score).toBe(100);
+    // Recién registrado: la sesión del alta no cuenta como «equipo entrando».
+    expect(factor(t, 'team').score).toBe(0);
     expect(factor(t, 'contract').score).toBe(0);
+    await http().post('/auth/refresh').set('Cookie', trial.refreshCookie).expect(200);
+    const again = (await http().get('/admin/tenants/health?segment=trial').set(auth).expect(200))
+      .body as { tenants: { tenantId: string; factors: Factor[] }[] };
+    const t2 = again.tenants.find((x) => x.tenantId === trial.tenantId)!;
+    expect(factor(t2, 'team').score).toBe(100);
     expect(list.counts.trial).toBeGreaterThanOrEqual(1);
 
     // Una cuenta exenta no ensucia la lista de clientes.

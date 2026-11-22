@@ -55,6 +55,15 @@ describe('Gestión de trials (e2e)', () => {
     expect(mine).toBeTruthy();
     expect(typeof mine.daysLeft).toBe('number');
     expect(mine.neverUsed).toBe(true);
+    // Volver a abrir el panel (renovar la sesión) ya cuenta como haber entrado.
+    await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', owner.refreshCookie)
+      .expect(200);
+    const after = await request(app.getHttpServer())
+      .get('/admin/tenants/trials')
+      .set({ Authorization: `Bearer ${adminToken}` });
+    expect(after.body.find((t: { id: string }) => t.id === tenant!.id).neverUsed).toBe(false);
   });
 
   it('sin token → 401', async () => {

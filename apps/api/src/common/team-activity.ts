@@ -9,6 +9,11 @@ import type { PrismaAdminService } from '../modules/database/prisma-admin.servic
  * Solo con `last_login_at` un equipo que entra a diario con la sesión abierta
  * (la app instalada dura 90 días) aparecía como «sin entrar» semanas.
  *
+ * Cada renovación del token crea una sesión nueva enlazada a la anterior
+ * (`rotated_from_id`), así que solo esas cuentan como uso: la sesión que se
+ * abre sola al registrarse no es «haber entrado» (si no, nadie saldría nunca
+ * como «nunca entró»). Los inicios de sesión ya cuentan por `last_login_at`.
+ *
  * Sin `tenantIds` mira todos los tenants. Los que no tienen ninguna señal no
  * aparecen en el mapa (= nunca han entrado).
  */
@@ -26,7 +31,7 @@ export async function lastTeamActivityByTenant(
     }),
     admin.session.groupBy({
       by: ['tenantId'],
-      where: { ...scope, user: { isActive: true } },
+      where: { ...scope, user: { isActive: true }, rotatedFromId: { not: null } },
       _max: { lastUsedAt: true },
     }),
   ]);
