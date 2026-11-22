@@ -2479,8 +2479,13 @@ export interface AdminTenantOverviewDto {
   subscriptionStatus: string | null;
   /** 'manual' | 'stripe' | 'sepa'. */
   billingMode: string | null;
-  /** Lo que aporta al mes: plan + extras activos (0 si es exenta). */
+  /**
+   * Lo que aporta al mes sin IVA (plan + extras, como el MRR). 0 si no paga:
+   * en prueba, exenta, solo lectura, suspendida o cancelada.
+   */
   monthly: number;
+  /** En prueba: lo que pagaría al mes sin IVA al acabarla; null en el resto. */
+  wouldPay: number | null;
   addons: AdminOverviewAddonDto[];
   /** Próximo cobro (fin del periodo pagado); null si es exenta, está en prueba o no tiene suscripción. */
   nextChargeAt: string | null;
