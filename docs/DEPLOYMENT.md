@@ -3042,3 +3042,4 @@ Migración `20270222100000_admin_today_improvements` (se aplica sola): `admin_re
 - **Colas**: los fallos de 24 h con reintentar y marcar revisado (solo superadmin).
 - **Acciones en lote** (apartar, asignarme, recordar el pago), **atajos de teclado** (`j`/`k`, `Intro`, `a`, `m`, `?`) y botón «Siguiente».
 - Orden por importancia en todas las listas.
+- Un ticket con prioridad «urgente» cuenta siempre como urgente, aunque acabe de abrirse.

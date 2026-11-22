@@ -610,3 +610,27 @@ Las direcciones «bonitas» (`/reservar/<centro>`, `/precios`, `/contacto`, `/<l
 - **Ocupación de la competencia** solo con inventarios completos y comprobados en 180 días; la del total conocido sale aparte como estimada.
 - **Search Console**: se guardan los totales de cada día y por dispositivo además de las búsquedas, para cuadrar con el panel de Google y comparar con el año pasado. Un fallo pasajero de Google no cambia el estado a «sin acceso»; la descarga diaria repasa desde la última buena.
 - **IA para leer tarifas** (`CompetitorsMarketService.aiParse`): propone, nunca guarda; el usuario revisa y aplica.
+
+## Informes y asistente IA programados (2026-11-19)
+
+- `report_schedules` y `ai_scheduled_questions` se reclaman por `next_run_at` desde un cron del worker; cada ejecución avanza la fecha antes de generar, para no repetir entre réplicas. Los informes respetan el alcance por local de quien los creó (`report_runs.facility_scope`).
+
+## Configuración, Novedades, Cómo funciona y Soporte (2026-11-20/21, #995–#998)
+
+- **Acceso a cada página del panel**: `lib/navigation/route-access.ts` (`routeRequirements`, `useRouteAccess`) dice qué permiso y función pide cada ruta; el menú, el buscador y la ayuda lo usan. Al añadir una sección con permiso o función hay que darla de alta ahí.
+- **Guías de ayuda**: viven en `packages/shared/src/help/` y el super admin las cambia o añade desde `/admin/help-topics` (`platform_help_topics` guarda solo lo cambiado); cada página enlaza sus guías (`lib/help/route-guides.ts`).
+- **Soporte**: antes de abrir un ticket se intenta responder con el asistente (`ai_answer`); el estado del servicio (`platform_service_status`) se enseña a todos los tenants.
+
+## Trasteros cedidos (2026-11-21, #999–#1001)
+
+- Función `unit_cession` fuera de todos los planes: solo por override del super admin. Solo el propietario (403 `owner_only`).
+- Un trastero cedido (`ceded`) no factura ni entra en cifras de ocupación o ingresos (cuenta como fuera de servicio). No se libera solo al vencer: avisa al propietario y hay que cambiarlo a mano.
+- Código de acceso sin inquilino (`metadata.source = 'unit_cession'`), nunca enviado por correo, salta el toque de queda.
+- Un mismo candado por trastero (`pg_advisory_xact_lock(hashtext(tenant), hashtext(unit))`) en cesión, reservas, alta de contrato y reserva online, para que no se pisen.
+
+## «Hoy» del super admin (2026-11-21/22, #1002–#1003)
+
+- `getToday` reúne unas 30 consultas, cada una envuelta en `safe()` (si una falla, sale en `failedSections` y el resto carga) y se guarda 30 s en memoria; el contador del menú (`GET /admin/today/count`) y el aviso inmediato usan esa copia, la página pide datos frescos.
+- **Urgencia en un solo sitio**: `adminTodayUrgentCounts` (shared) la usan el servidor y las pestañas, para que siempre cuadren.
+- **Apartados con huella** (`today-fingerprint.ts`): si el aviso empeora, vuelve con el motivo.
+- **Aviso inmediato** sin repetirse por lo mismo: el identificador lleva el estado (`claimAlert`, `alertSentWithin`, `markAlertSent`).

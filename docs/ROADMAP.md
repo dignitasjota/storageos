@@ -1225,3 +1225,27 @@ La factura del primer pago y su fianza se pagan juntas en el enlace de la firma,
 
 - **Revisión**: tu ocupación como en Analítica y la de la competencia solo con inventario completo, cualquier comprobación cuenta como revisión, precios mayores que 0, alcance por local; en Posiciones en Google, totales de Google por día, sin comparar con un periodo incompleto, fallos pasajeros que no ocultan los datos e informe a quien lo pide.
 - **Mejoras**: tu precio frente al mercado, precio comparable y por m², evolución de cada competidor, promociones con fin e histórico, plazo de revisión, «Sin cambios», pegar una tabla, leer su web con IA, avisos de subidas y agotados, características y CSV; en Posiciones en Google, semanas, año pasado, marca, dispositivos, búsquedas que sigues, detalle, de Google a reservas, páginas con pocos clics, buscar y exportar, destinatarios del informe y aviso de caídas.
+
+### Demo comercial con datos ✅ (2026-11-19)
+
+- Cuenta de demostración con datos de todo tipo, área de clientes y web pública de ejemplo; revisión y mejoras de la demo.
+
+### Informes y asistente IA: revisión y mejoras ✅ (2026-11-19)
+
+- Informes con el alcance por local de quien los pide, informes programados por correo y preguntas programadas al asistente.
+
+### Configuración del panel del tenant: revisión y mejoras ✅ (2026-11-20, #995–#996)
+
+- Arreglos de las 28 páginas por rol y mejoras: invitar con rol a medida y locales, avisos de cambios sin guardar, FAQ en inglés, blog programado, redirecciones de direcciones antiguas y respuesta de los correos a la dirección del negocio. La CI de e2e pasa a 14 tandas.
+
+### Novedades, Cómo funciona y Soporte ✅ (2026-11-21, #997–#998)
+
+- Novedades por plan y rol, reacciones, resumen mensual y prueba de extras desde la novedad; guías editables desde el panel admin con ayuda contextual en cada página; soporte con categorías, desde qué página se abre, respuesta del asistente antes de abrir el ticket, seguidores, reabrir, cambiar prioridad, estado del servicio y tiempos de respuesta.
+
+### Trasteros cedidos ✅ (2026-11-21, #999–#1001)
+
+- Prestar un trastero sin contrato, cobro ni factura (feature `unit_cession`, apagada por defecto; el super admin la activa por negocio en «Funciones premium»). Solo el propietario. Estado `ceded`, código de acceso propio, avisos antes de vencer y al vencer (sin liberar el trastero), cesiones sin fecha de fin con revisión periódica y pasar a contrato.
+
+### «Hoy» del super admin: revisión y mejoras ✅ (2026-11-21/22, #1002–#1003)
+
+- Lo apartado vuelve si empeora, secciones que fallan por separado, números que cuadran, € en riesgo, resumen desde la última visita, cobros de la suscripción rechazados, clientes que dejaron de entrar, plazos de respuesta de tickets (uno de prioridad urgente cuenta siempre), fallos de colas con reintentar, acciones en lote y atajos de teclado.

@@ -1351,3 +1351,61 @@ Todas las tablas nuevas son de la plataforma (sin tenant ni RLS, con `REVOKE` a 
 - `tenant_search_console.brand_terms` (palabras de la marca), `report_recipient_ids` (quién recibe el informe; vacío = los propietarios) y `last_drop_alert_at` (aviso de caída, uno por semana).
 - **`seo_tracked_keywords`** (RLS, única por negocio y búsqueda sin mayúsculas): búsquedas que se siguen con su `target_position`.
 - **`search_console_devices`** (RLS, única por negocio, día y dispositivo): totales por día de `MOBILE`, `DESKTOP` y `TABLET`.
+
+### Informes: alcance por local (`20270212100000_report_run_scope`)
+
+- `report_runs.facility_scoped` y `facility_scope` (UUID[]): el informe se generó para quien solo ve unos locales y solo lleva los suyos.
+
+### Informes programados (`20270213100000_report_schedules`)
+
+- **`report_schedules`** (RLS): informe (`generator_code`, `format`, `params`), frecuencia (`frequency`, `weekday`, `day_of_month`, `hour`), destinatarios, `next_run_at`, último envío (`last_run_at`, `last_run_id`, `last_error`) y quién lo creó.
+
+### Preguntas programadas al asistente IA (`20270213110000_ai_scheduled_questions`)
+
+- **`ai_scheduled_questions`** (RLS): pregunta de un usuario que el asistente responde cada día o semana a una hora, con la última conversación que generó y el último error.
+
+### Una sola serie por defecto (`20270214100000_invoice_series_single_default`)
+
+- Deja una sola `invoice_series.is_default` por negocio y emisor (propietario o el propio negocio) e índice único parcial `invoice_series_single_default`.
+
+### Configuración del panel del tenant (`20270215100000_settings_improvements`)
+
+- `invitations.tenant_role_id` y `facility_ids`: el rol a medida y los locales con los que entra el invitado.
+- `data_subject_requests.received_at` y `rejection_reason`.
+- `faq_entries.question_en` / `answer_en` (versión en inglés de la web).
+- `blog_posts.publish_at` (publicación programada).
+- `tenants.dunning_whatsapp_reminders` y `email_reply_to` (dirección a la que responden los inquilinos).
+- **`web_slug_redirects`** (RLS): direcciones antiguas de entradas del blog y landings de promoción (`kind`, `old_slug`, `target_id`) que redirigen a la nueva.
+
+### Soporte: motivo de cierre (`20270216110000_support_ticket_closed_reason`)
+
+- `support_tickets.closed_reason` (cerrado por el tenant, por el equipo o solo por falta de respuesta).
+
+### Novedades (`20270217100000_product_updates_improvements`)
+
+- `product_updates.target_plans` / `target_roles` (vacío = para todos).
+- `users.product_updates_digest_month`: último resumen mensual de novedades enviado.
+- **`product_update_reactions`** (RLS): «me sirve» / «no me sirve» por usuario y novedad.
+- **`tenant_addon_trials`** (RLS): pruebas de extras, del super admin o pedidas por el propio tenant (`source`), una por negocio y extra.
+
+### Guías de «Cómo funciona» (`20270217110000_help_topics`)
+
+- **`platform_help_topics`** (global, `REVOKE`): cambios del super admin sobre las guías que vienen en el código (`topic_id`) y guías nuevas: grupo, título, resumen, pasos, enlaces, palabras clave, función de pago, imagen, vídeo, orden, publicada y oculta.
+
+### Soporte (`20270217120000_support_improvements`)
+
+- `support_tickets.page_url`, `user_agent`, `screen_size` (desde dónde se abrió) y `ai_answer` (lo que respondió el asistente antes de abrirlo).
+- **`support_ticket_watchers`** (RLS): compañeros que siguen un ticket.
+- **`platform_service_status`** y **`platform_service_incidents`** (globales, `REVOKE`): estado del servicio que se enseña a los tenants (`ok`, `degraded`, `incident`) y su historial.
+
+### Trasteros cedidos (`20270218100000_unit_status_ceded`, `20270218110000_unit_cessions`, `20270220100000_unit_cessions_improvements`)
+
+- Valor `ceded` en `unit_status`: el trastero no se alquila ni se reserva y cuenta como fuera de servicio en las cifras.
+- **`unit_cessions`** (RLS): trastero prestado sin contrato, cobro ni factura. Persona (`holder_name`, `holder_phone`) o inquilino enlazado (`customer_id`, no lo ve en su área de clientes), `starts_on`, `ends_on` (null = sin fecha de fin, con `review_every_months` 1/3/6/12 para recordar revisarla), notas, código de acceso (`access_credential_id`), estado anterior del trastero, aviso previo (`notice_days`: 0, 3, 7, 15 o 30), `snoozed_until`, avisos enviados, cierre (`ended_at`, `ended_by_user_id`, `ended_unit_status`, `ended_reason`). Una viva por trastero (`unit_cessions_live_unit_key`).
+- Índice `access_logs_credential_id_occurred_at_idx` (últimos accesos de cada código).
+
+### «Hoy» del super admin (`20270221100000_admin_today_snooze_fingerprint`, `20270222100000_admin_today_improvements`)
+
+- `admin_today_snoozes.fingerprint` (jsonb): cómo estaba el aviso al apartarlo; si empeora, vuelve a salir.
+- **`admin_reviewed_jobs`** (global, `REVOKE`, PK `queue` + `job_id`): trabajos de cola fallidos marcados como revisados (dejan de contar; si vuelven a fallar, salen otra vez). Se borran a los 30 días.
+- **`admin_today_visits`** (global, `REVOKE`, PK `super_admin_id`): última vez que cada super admin vio «Hoy» y la foto de lo que había, para el resumen «Desde tu última visita».
