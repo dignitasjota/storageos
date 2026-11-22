@@ -103,6 +103,7 @@ function buildService(opts: { tx: TxMock; tenantFindUnique: jest.Mock }): {
       deleteByPrefix: jest.fn().mockResolvedValue(0),
     } as never,
     {} as never,
+    {} as never,
   );
   return { service, audit, superAudit };
 }

@@ -136,6 +136,7 @@ import { SystemWatchCron } from './system-watch.cron';
 import { SystemWatchService } from './system-watch.service';
 import { TenantDataExportController } from './tenant-data-export.controller';
 import { TenantDataExportService } from './tenant-data-export.service';
+import { TenantHealthModule } from './tenant-health.module';
 import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.controller';
 import { TenantLifecycleEmailsCron } from './tenant-lifecycle-emails.cron';
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
@@ -174,6 +175,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     BillingSaasModule,
     EmailModule,
     MrrModule,
+    TenantHealthModule,
     UsageModule,
     AccountingModule,
     NotificationsModule,

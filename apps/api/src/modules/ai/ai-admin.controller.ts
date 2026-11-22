@@ -23,6 +23,7 @@ import {
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 
+import { aiCostUsd } from '../../common/ai-pricing';
 import { Public } from '../../common/decorators/public.decorator';
 import { currentMonth } from '../../common/format';
 import { OWN_KEY_AI_FEATURES } from '../../common/saas-metrics';
@@ -74,7 +75,8 @@ export class AiAdminController {
       createdAt: { gte: month.start },
     };
     const [tokens, queries, ownKeyQueries, byTenant] = await Promise.all([
-      this.admin.aiUsageEvent.aggregate({
+      this.admin.aiUsageEvent.groupBy({
+        by: ['model'],
         where: { ...platformCalls, countsAsQuery: false },
         _sum: { inputTokens: true, outputTokens: true },
       }),
@@ -85,31 +87,36 @@ export class AiAdminController {
         where: { countsAsQuery: true, ownKey: true, createdAt: { gte: month.start } },
       }),
       this.admin.aiUsageEvent.groupBy({
-        by: ['tenantId'],
+        by: ['tenantId', 'model'],
         where: { ...platformCalls, countsAsQuery: false },
         _sum: { inputTokens: true, outputTokens: true },
         _count: { _all: true },
       }),
     ]);
-    const inPrice = this.config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true });
-    const outPrice = this.config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true });
-    const cost = (i: number, o: number) => (i * inPrice + o * outPrice) / 1_000_000;
-    const input = tokens._sum.inputTokens ?? 0;
-    const output = tokens._sum.outputTokens ?? 0;
-    const costUsd = cost(input, output);
+    // Coste con el precio de cada modelo (`ai-pricing.ts`).
+    const fallback = {
+      inputPerMTokUsd: this.config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true }),
+      outputPerMTokUsd: this.config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true }),
+    };
+    const input = tokens.reduce((n, t) => n + (t._sum.inputTokens ?? 0), 0);
+    const output = tokens.reduce((n, t) => n + (t._sum.outputTokens ?? 0), 0);
+    const costUsd = tokens.reduce(
+      (n, t) => n + aiCostUsd(t.model, t._sum.inputTokens ?? 0, t._sum.outputTokens ?? 0, fallback),
+      0,
+    );
     const now = Date.now();
     const elapsedDays = Math.max((now - month.start.getTime()) / 86_400_000, 1);
     const next = new Date(month.start);
     next.setUTCMonth(next.getUTCMonth() + 1);
     const monthDays = (next.getTime() - month.start.getTime()) / 86_400_000;
-    const top = byTenant
-      .map((t) => ({
-        tenantId: t.tenantId,
-        queries: t._count._all,
-        costUsd: cost(t._sum.inputTokens ?? 0, t._sum.outputTokens ?? 0),
-      }))
-      .sort((a, b) => b.costUsd - a.costUsd)
-      .slice(0, 5);
+    const perTenant = new Map<string, { tenantId: string; queries: number; costUsd: number }>();
+    for (const t of byTenant) {
+      const e = perTenant.get(t.tenantId) ?? { tenantId: t.tenantId, queries: 0, costUsd: 0 };
+      e.queries += t._count._all;
+      e.costUsd += aiCostUsd(t.model, t._sum.inputTokens ?? 0, t._sum.outputTokens ?? 0, fallback);
+      perTenant.set(t.tenantId, e);
+    }
+    const top = [...perTenant.values()].sort((a, b) => b.costUsd - a.costUsd).slice(0, 5);
     const names = await this.admin.tenant.findMany({
       where: { id: { in: top.map((t) => t.tenantId) } },
       select: { id: true, name: true },

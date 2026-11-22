@@ -4,7 +4,7 @@ import { Public } from '../../common/decorators/public.decorator';
 
 import { AdminAudit } from './admin-audit.decorator';
 import { AdminOpsHealthService } from './admin-ops-health.service';
-import { AdminUsageService } from './admin-usage.service';
+import { AdminUsageService, parseUsageDays } from './admin-usage.service';
 import { AdminGuard } from './admin.guard';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 import { StorageUsageService } from './storage-usage.service';
@@ -25,7 +25,7 @@ export class AdminOpsHealthController {
   /** Correo, IA y almacenamiento por tenant en los últimos `days` días. */
   @Get('usage')
   getUsage(@Query('days') days?: string): Promise<AdminUsageDto> {
-    return this.usage.getUsage(days ? Number(days) : 30);
+    return this.usage.getUsage(parseUsageDays(days));
   }
 
   /** Vuelve a medir el almacenamiento de todos los tenants. */

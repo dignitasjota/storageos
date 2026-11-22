@@ -434,8 +434,8 @@ export class AdminBusinessService {
         orderBy: { paidAt: 'asc' },
       }),
       this.tenants.getTenantHealth(tenantId),
-      this.usage.getUsage(30),
-      this.tenants.getAdoption(),
+      this.usage.getUsageForTenant(tenantId, 30),
+      this.tenants.getAdoptionForTenant(tenantId),
       this.admin.mrrSnapshot.findMany({
         where: { tenantId, month: { gte: monthIndexDate(sinceIdx) } },
         select: { month: true, mrr: true },
@@ -452,8 +452,8 @@ export class AdminBusinessService {
     const end =
       payer?.churnedAt ?? (churned ? (tenant.canceledAt ?? tenant.updatedAt) : new Date());
     const lifespanMonths = Math.max(1, madridMonthIndex(end) - madridMonthIndex(tenant.createdAt));
-    const u = usage.rows.find((r) => r.tenantId === tenantId);
-    const a = adoption.tenants.find((t) => t.tenantId === tenantId);
+    const u = usage;
+    const a = adoption;
     const snapBy = new Map(snapshots.map((s) => [dateMonthIndex(s.month), Number(s.mrr)]));
     const paidDates = payments.map((p) => p.paidAt).filter((d): d is Date => d !== null);
 

@@ -198,12 +198,13 @@ describe('Negocio del super admin: revisión (e2e)', () => {
     await db.tenantFeatureOverride.create({
       data: { tenantId, feature: 'ai_assistant', enabled: true, source: 'addon' },
     });
-    await db.aiConversation.create({
-      data: { tenantId, userId: (await db.user.findFirstOrThrow({ where: { tenantId } })).id },
+    await db.aiUsageEvent.create({
+      data: { tenantId, feature: 'chat', model: 'x', countsAsQuery: true },
     });
     const body = (await http().get('/admin/tenants/adoption').set(auth).expect(200)).body;
     const row = body.tenants.find((t: { tenantId: string }) => t.tenantId === tenantId);
-    expect(row.monthlyPaid).toBeCloseTo(91, 2);
+    // Lo que aporta al mes sin IVA, como el MRR (antes, el precio de lista con IVA).
+    expect(row.monthlyPaid).toBeCloseTo(await withoutVat(91), 2);
     expect(row.usesFeatureOutsidePlan).toBe(false);
     expect(row.isCandidate).toBe(false);
   });
@@ -250,13 +251,15 @@ describe('Negocio del super admin: revisión (e2e)', () => {
     expect(redsysAfter.recovered).toBe(redsysBefore.recovered + 1);
   });
 
-  it('Salud: una prueba sin fecha de fin no sale como vencida', async () => {
+  it('Salud: una prueba sin fecha de fin se mide por su activación', async () => {
     const owner = await registerVerifiedUser(app, 'bizhealth');
     await db.tenant.update({ where: { id: owner.tenantId }, data: { trialEndsAt: null } });
     const h = (await http().get(`/admin/tenants/${owner.tenantId}/health`).set(auth).expect(200))
       .body;
-    const sub = h.factors.find((f: { key: string }) => f.key === 'subscription');
-    expect(sub.detail).toBe('En prueba, sin fecha de fin');
-    expect(sub.score).toBe(70);
+    // Las pruebas ya no tienen factor de suscripción: llevan su activación.
+    expect(h.kind).toBe('activation');
+    expect(h.segment).toBe('trial');
+    expect(h.trialEndsAt).toBeNull();
+    expect(h.factors.find((f: { key: string }) => f.key === 'subscription')).toBeUndefined();
   });
 });

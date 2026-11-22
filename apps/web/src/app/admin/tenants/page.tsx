@@ -400,6 +400,7 @@ export default function AdminTenantsPage() {
         'Modo de cobro',
         'Exenta',
         'Aporta/mes (sin IVA)',
+        'Pagaría/mes en prueba (sin IVA)',
         'Extras',
         'Próximo cobro',
         'Debe desde',
@@ -425,6 +426,7 @@ export default function AdminTenantsPage() {
         t.billingMode ? (MODE_LABEL[t.billingMode] ?? t.billingMode) : '',
         t.billingExempt ? 'Sí' : 'No',
         t.monthly.toFixed(2).replace('.', ','),
+        t.wouldPay !== null ? t.wouldPay.toFixed(2).replace('.', ',') : '',
         t.addons.map((a) => (a.suspended ? `${a.name} (suspendido)` : a.name)).join(', '),
         day(t.nextChargeAt),
         t.overdueSince ? day(t.overdueSince) : '',
@@ -786,7 +788,9 @@ function TenantCard({
             </div>
             <div className="text-right">
               <dt className="text-muted-foreground">Aporta/mes (sin IVA)</dt>
-              <dd className="font-medium tabular-nums">{t.billingExempt ? '—' : eur(t.monthly)}</dd>
+              <dd className="font-medium tabular-nums">
+                <MonthlyValue t={t} />
+              </dd>
             </div>
             <div>
               <dt className="text-muted-foreground">
@@ -904,13 +908,15 @@ function TenantRow({
       {show('monthly') && (
         <td
           className={`px-3 py-2 text-right align-top tabular-nums ${
-            t.status === 'active' ? 'font-medium' : 'text-muted-foreground'
+            t.monthly > 0 ? 'font-medium' : 'text-muted-foreground'
           }`}
           title={
-            t.status === 'active' ? undefined : 'No cobra todavía (prueba, suspendida o cancelada)'
+            t.monthly > 0 || t.billingExempt
+              ? undefined
+              : 'No aporta: en prueba, sin pagar, suspendida o cancelada'
           }
         >
-          {t.billingExempt ? '—' : eur(t.monthly)}
+          <MonthlyValue t={t} />
         </td>
       )}
       {show('addons') && (
@@ -1084,4 +1090,20 @@ function Toggle({
       {label}
     </button>
   );
+}
+
+/** Lo que aporta al mes (sin IVA); en prueba, 0 y lo que pagaría al acabarla. */
+function MonthlyValue({ t }: { t: AdminTenantOverviewDto }) {
+  if (t.billingExempt) return <>—</>;
+  if (t.wouldPay !== null) {
+    return (
+      <span className="block">
+        {eur(0)}
+        <span className="block text-xs font-normal text-muted-foreground">
+          pagaría {eur(t.wouldPay)}
+        </span>
+      </span>
+    );
+  }
+  return <>{eur(t.monthly)}</>;
 }

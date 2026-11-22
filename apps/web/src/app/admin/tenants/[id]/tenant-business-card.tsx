@@ -5,7 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTenantBusiness } from '@/lib/admin/business-hooks';
-import { formatEur } from '@/lib/format';
+import { formatEur, plural } from '@/lib/format';
 
 const eur = formatEur;
 const usd = (n: number) =>
@@ -53,7 +53,7 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
         <Kpi
           label="Cobrado neto"
           value={eur(d.payments.totalNet)}
-          hint={`${d.payments.count} pago(s)${d.payments.refunded > 0 ? ` · devuelto ${eur(d.payments.refunded)}` : ''}`}
+          hint={`${plural(d.payments.count, 'pago', 'pagos')}${d.payments.refunded > 0 ? ` · devuelto ${eur(d.payments.refunded)}` : ''}`}
         />
         <Kpi
           label="Con nosotros"
@@ -61,7 +61,7 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
           hint={d.planName ?? 'Sin plan'}
         />
         <Kpi
-          label="Salud"
+          label={d.health.kind === 'activation' ? 'Activación' : 'Salud'}
           value={`${d.health.score}/100`}
           hint={`${LEVEL_LABEL[d.health.level] ?? d.health.level}${
             d.health.trend !== null
@@ -94,7 +94,9 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Salud</CardTitle>
+            <CardTitle className="text-base">
+              {d.health.kind === 'activation' ? 'Activación de la prueba' : 'Salud'}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm">
@@ -102,11 +104,15 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
                 <li key={f.key} className="space-y-1">
                   <div className="flex justify-between gap-2">
                     <span>{f.label}</span>
-                    <span className="tabular-nums text-muted-foreground">{f.score}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {f.counted ? f.score : 'no cuenta'}
+                    </span>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full bg-primary" style={{ width: `${f.score}%` }} />
-                  </div>
+                  {f.counted && (
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full bg-primary" style={{ width: `${f.score}%` }} />
+                    </div>
+                  )}
                   <p className="text-xs text-muted-foreground">{f.detail}</p>
                 </li>
               ))}
@@ -136,7 +142,8 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
                 <div>
                   <dt className="text-xs text-muted-foreground">IA</dt>
                   <dd className="tabular-nums">
-                    {d.usage30d.aiCalls} llamadas · {usd(d.usage30d.aiCostUsd)}
+                    {plural(d.usage30d.aiCalls, 'llamada', 'llamadas')} ·{' '}
+                    {usd(d.usage30d.aiCostUsd)}
                   </dd>
                 </div>
                 <div>

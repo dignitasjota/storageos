@@ -95,6 +95,7 @@ describe('Admin: visión general de tenants y búsqueda (e2e)', () => {
       net(Number(tenant.subscription!.plan.priceMonthly)) + net(20),
       2,
     );
+    expect(row.wouldPay).toBeNull();
     expect(row.addons).toEqual([{ slug: 'e2e-ov-addon', name: 'Extra OV', suspended: false }]);
     expect(row.overdueSince).toBe(periodEnd.toISOString());
     expect(row.ownerPhone).toBe('+34600111222');
@@ -103,6 +104,30 @@ describe('Admin: visión general de tenants y búsqueda (e2e)', () => {
     await request(app.getHttpServer()).get('/admin/tenants-overview').expect(401);
     await adminClient.tenantSubscriptionAddon.deleteMany({ where: { addonId: addon.id } });
     await adminClient.subscriptionAddon.delete({ where: { id: addon.id } });
+  });
+
+  it('en prueba no aporta nada: cuota 0 y aparte lo que pagaría', async () => {
+    const owner = await registerVerifiedUser(app, 'adminovtrial');
+    const tenant = await adminClient.tenant.findUniqueOrThrow({
+      where: { slug: owner.slug },
+      include: { subscription: { include: { plan: true } } },
+    });
+    expect(tenant.status).toBe('trial');
+    const res = await request(app.getHttpServer())
+      .get('/admin/tenants-overview')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const row = res.body.find((r: { id: string }) => r.id === tenant.id);
+    const settings = await adminClient.platformBillingSettings.findFirst();
+    const tax = Number(settings?.taxRate ?? 21);
+    const price = Number(tenant.subscription!.plan.priceMonthly);
+    const net =
+      (settings?.pricesIncludeVat ?? true)
+        ? Math.round((price / (1 + tax / 100)) * 100) / 100
+        : price;
+    expect(row.monthly).toBe(0);
+    expect(row.wouldPay).toBeCloseTo(net, 2);
+    expect(row.nextChargeAt).toBeNull();
   });
 
   it('la búsqueda encuentra tenants por email de un usuario y tickets por asunto', async () => {

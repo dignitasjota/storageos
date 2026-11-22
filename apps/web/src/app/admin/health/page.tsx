@@ -4,7 +4,11 @@ import { ArrowRight, Download, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
-import type { AdminTenantHealthDto, AdminTenantHealthLevel } from '@storageos/shared';
+import type {
+  AdminHealthSegment,
+  AdminTenantHealthDto,
+  AdminTenantHealthLevel,
+} from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +16,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAdminTenantsHealth } from '@/lib/admin/hooks';
+import { useLoadMore } from '@/lib/admin/use-load-more';
 import { downloadCsv } from '@/lib/csv';
+import { plural } from '@/lib/format';
 
 const LEVELS: {
   key: AdminTenantHealthLevel;
@@ -48,29 +54,56 @@ const LEVELS: {
 
 const LEVEL_BY_KEY = new Map(LEVELS.map((l) => [l.key, l]));
 
+const SEGMENTS: { key: AdminHealthSegment; label: string; help: string }[] = [
+  {
+    key: 'paying',
+    label: 'Clientes',
+    help: 'Clientes que pagan (al día o con el pago atrasado). Puntuación de 0 a 100 según la actividad del equipo, si factura al día, la suscripción, la adopción, el área de clientes de sus inquilinos y el soporte. Lo que no aplica (sin contratos que facturar, sin área de clientes) no cuenta y su peso se reparte.',
+  },
+  {
+    key: 'trial',
+    label: 'Pruebas',
+    help: 'Pruebas en curso con su activación: local creado (15 %), trasteros (15 %), primer inquilino (15 %), primer contrato firmado (25 %), primera factura (15 %) y equipo entrando (15 %).',
+  },
+  {
+    key: 'unpaid',
+    label: 'Sin pagar',
+    help: 'Activos que no pagan: plan gratis, prueba terminada en solo lectura o suscripción cancelada.',
+  },
+  {
+    key: 'exempt',
+    label: 'Exentas',
+    help: 'Cuentas exentas de facturación (las nuestras, demos, socios). No cuenta la suscripción.',
+  },
+];
+
 function fmtDate(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString('es-ES') : 'nunca';
 }
 
 export default function AdminHealthPage() {
-  const health = useAdminTenantsHealth();
+  const [segment, setSegment] = useState<AdminHealthSegment>('paying');
+  const health = useAdminTenantsHealth(segment);
   const [levelFilter, setLevelFilter] = useState<AdminTenantHealthLevel | null>(null);
   const [q, setQ] = useState('');
 
-  const all = useMemo(() => health.data ?? [], [health.data]);
+  const all = useMemo(() => health.data?.tenants ?? [], [health.data]);
+  const seg = SEGMENTS.find((s) => s.key === segment) ?? SEGMENTS[0]!;
+  const isActivation = segment === 'trial';
+
   function exportCsv() {
     const factorKeys = all[0]?.factors.map((f) => f.label) ?? [];
-    downloadCsv('salud-tenants.csv', [
+    downloadCsv(`salud-${seg.label.toLowerCase().replace(/\s+/g, '-')}.csv`, [
       [
         'Tenant',
-        'Slug',
+        'Identificador',
         'Estado',
         'Plan',
-        'Score',
+        isActivation ? 'Activación' : 'Puntuación',
         'Nivel',
         'Cambio en el mes',
         ...factorKeys,
-        'Última actividad',
+        'Último acceso',
       ],
       ...all.map((t) => [
         t.name,
@@ -78,13 +111,14 @@ export default function AdminHealthPage() {
         t.status,
         t.planName ?? '',
         t.score,
-        t.level,
+        LEVEL_BY_KEY.get(t.level)?.label ?? t.level,
         t.trend ?? '',
-        ...t.factors.map((f) => f.score),
+        ...t.factors.map((f) => (f.counted ? f.score : 'no cuenta')),
         t.lastActivityAt ? new Date(t.lastActivityAt).toLocaleDateString('es-ES') : '',
       ]),
     ]);
   }
+
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
     for (const t of all) m[t.level] = (m[t.level] ?? 0) + 1;
@@ -95,83 +129,126 @@ export default function AdminHealthPage() {
     const needle = q.trim().toLowerCase();
     return all
       .filter((t) => !levelFilter || t.level === levelFilter)
-      .filter((t) => !needle || t.name.toLowerCase().includes(needle) || t.slug.includes(needle));
+      .filter(
+        (t) =>
+          !needle || t.name.toLowerCase().includes(needle) || t.slug.toLowerCase().includes(needle),
+      );
   }, [all, levelFilter, q]);
+  const page = useLoadMore(items, 25, `${segment}|${levelFilter}|${q}`);
+
+  function changeSegment(next: AdminHealthSegment) {
+    setSegment(next);
+    setLevelFilter(null);
+  }
 
   if (health.isError) {
     return <AdminError onRetry={() => void health.refetch()} />;
   }
-  if (health.isLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
+    <div className="min-w-0 space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Salud de tenants</h1>
-          <p className="text-sm text-muted-foreground">
-            Score 0-100 por tenant (actividad del equipo, facturación, suscripción, adopción, uso
-            del área de clientes por sus inquilinos y soporte) y cómo ha cambiado este mes.
-            Ordenados de más urgente a más sano.
-          </p>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight">Salud de los tenants</h1>
+          <p className="text-sm text-muted-foreground">{seg.help}</p>
         </div>
         <Button variant="outline" size="sm" onClick={exportCsv} disabled={all.length === 0}>
           <Download className="mr-1.5 size-4" /> Exportar CSV
         </Button>
       </div>
 
-      {/* Resumen por nivel (clicable para filtrar). */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {LEVELS.map((l) => {
-          const active = levelFilter === l.key;
+      {/* Grupos: clientes, pruebas, sin pagar y exentas. */}
+      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Grupo de tenants">
+        {SEGMENTS.map((s) => {
+          const active = s.key === segment;
+          const n = health.data?.counts[s.key];
           return (
-            <button
-              key={l.key}
-              type="button"
-              onClick={() => setLevelFilter(active ? null : l.key)}
-              className={`rounded-lg border px-4 py-3 text-left transition ${
-                active ? 'border-primary ring-1 ring-primary' : 'hover:bg-muted/50'
-              }`}
+            <Button
+              key={s.key}
+              role="tab"
+              aria-selected={active}
+              variant={active ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => changeSegment(s.key)}
             >
-              <div className="text-2xl font-bold">{counts[l.key] ?? 0}</div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className={`inline-block size-2 rounded-full ${l.bar}`} />
-                {l.label}
-              </div>
-            </button>
+              {s.label}
+              {n !== undefined ? ` · ${n}` : ''}
+            </Button>
           );
         })}
       </div>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle className="text-base">
-            {levelFilter ? LEVEL_BY_KEY.get(levelFilter)?.label : 'Todos'} · {items.length}
-          </CardTitle>
-          <Input
-            placeholder="Buscar tenant…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="max-w-xs"
-          />
-        </CardHeader>
-        <CardContent>
-          {items.length === 0 ? (
-            <p className="py-4 text-sm text-muted-foreground">Sin tenants para este filtro.</p>
-          ) : (
-            <ul className="divide-y">
-              {items.map((t) => (
-                <HealthRow key={t.tenantId} t={t} />
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+      {health.isLoading || !health.data ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          {/* Resumen por nivel (clicable para filtrar). */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {LEVELS.map((l) => {
+              const active = levelFilter === l.key;
+              return (
+                <button
+                  key={l.key}
+                  type="button"
+                  onClick={() => setLevelFilter(active ? null : l.key)}
+                  className={`min-w-0 rounded-lg border px-4 py-3 text-left transition ${
+                    active ? 'border-primary ring-1 ring-primary' : 'hover:bg-muted/50'
+                  }`}
+                >
+                  <div className="text-2xl font-bold">{counts[l.key] ?? 0}</div>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span className={`inline-block size-2 shrink-0 rounded-full ${l.bar}`} />
+                    {l.label}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <Card className="min-w-0">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-base">
+                {levelFilter ? LEVEL_BY_KEY.get(levelFilter)?.label : 'Todos'} ·{' '}
+                {plural(items.length, 'tenant', 'tenants')}
+              </CardTitle>
+              <Input
+                placeholder="Buscar tenant…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="w-full sm:max-w-xs"
+              />
+            </CardHeader>
+            <CardContent>
+              {items.length === 0 ? (
+                <p className="py-4 text-sm text-muted-foreground">Sin tenants para este filtro.</p>
+              ) : (
+                <>
+                  <ul className="divide-y">
+                    {page.visible.map((t) => (
+                      <HealthRow key={t.tenantId} t={t} />
+                    ))}
+                  </ul>
+                  {page.hasMore && (
+                    <div className="pt-3 text-center">
+                      <Button variant="outline" size="sm" onClick={page.loadMore}>
+                        Cargar más ({plural(page.remaining, 'queda', 'quedan')})
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+              {health.data.snapshotAt && (
+                <p className="pt-3 text-xs text-muted-foreground">
+                  La tendencia compara con la foto del mes pasado (se guarda cada noche; la última,
+                  el {fmtDate(health.data.snapshotAt)}).
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }
@@ -180,7 +257,7 @@ function HealthRow({ t }: { t: AdminTenantHealthDto }) {
   const level = LEVEL_BY_KEY.get(t.level);
   return (
     <li className="flex flex-wrap items-center gap-4 py-3">
-      {/* Score + barra. */}
+      {/* Puntuación + barra. */}
       <div className="w-24 shrink-0">
         <div className="flex items-baseline gap-1">
           <span className="text-2xl font-bold tabular-nums">{t.score}</span>
@@ -201,19 +278,29 @@ function HealthRow({ t }: { t: AdminTenantHealthDto }) {
 
       {/* Identidad + factores. */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{t.name}</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="min-w-0 break-words font-medium">{t.name}</span>
           <span className="text-xs text-muted-foreground">/{t.slug}</span>
           <Badge className={`${level?.badge} border-0`}>{level?.label}</Badge>
           {t.planName && <span className="text-xs text-muted-foreground">· {t.planName}</span>}
+          {t.trialEndsAt && (
+            <span className="text-xs text-muted-foreground">
+              · prueba hasta el {fmtDate(t.trialEndsAt)}
+            </span>
+          )}
         </div>
         <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
           {t.factors.map((f) => (
-            <span key={f.key}>
-              <span className="font-medium tabular-nums">{f.score}</span> {f.label.toLowerCase()}
+            <span key={f.key} title={f.detail}>
+              {f.counted ? (
+                <span className="font-medium tabular-nums">{f.score}</span>
+              ) : (
+                <span className="italic">no cuenta</span>
+              )}{' '}
+              {f.label.toLowerCase()}
             </span>
           ))}
-          <span>· últ. acceso {fmtDate(t.lastActivityAt)}</span>
+          <span>· último acceso {fmtDate(t.lastActivityAt)}</span>
         </div>
       </div>
 

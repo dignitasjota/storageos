@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import { loadMrrContext, mrrFor } from '../../common/saas-metrics';
+import { isPayingSubscription, loadMrrContext, mrrFor } from '../../common/saas-metrics';
+import { lastTeamActivityByTenant } from '../../common/team-activity';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminTenantsService } from './admin-tenants.service';
@@ -59,12 +60,9 @@ export class AdminTenantsOverviewService {
             addon: { select: { slug: true, name: true } },
           },
         }),
-        // Solo usuarios activos: un ex-empleado que entró ayer no tapa a un equipo que no entra.
-        this.admin.user.groupBy({
-          by: ['tenantId'],
-          where: { isActive: true },
-          _max: { lastLoginAt: true },
-        }),
+        // Último uso real del equipo (solo usuarios activos: un ex-empleado que
+        // entró ayer no tapa a un equipo que no entra).
+        lastTeamActivityByTenant(this.admin),
         this.admin.tenantFollowup.findMany({
           where: { status: 'pending' },
           select: { tenantId: true, title: true, dueDate: true },
@@ -96,7 +94,7 @@ export class AdminTenantsOverviewService {
       list.push(a);
       addonsBy.set(a.tenantId, list);
     }
-    const loginBy = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt ?? null]));
+    const loginBy = logins;
     const followupBy = new Map<string, { title: string; dueDate: Date }>();
     for (const f of followups) if (!followupBy.has(f.tenantId)) followupBy.set(f.tenantId, f);
     const facilitiesBy = new Map(facilities.map((f) => [f.tenantId, f._count._all]));
@@ -109,8 +107,13 @@ export class AdminTenantsOverviewService {
     return rows.map((t) => {
       const sub = t.subscription;
       const tenantAddons = addonsBy.get(t.id) ?? [];
-      // Lo que aporta al mes sin IVA: la misma cuenta que el MRR (`tenantMrr`).
-      const monthly = sub ? mrrFor(ctx, t.id, sub).total : 0;
+      // Lo que aporta al mes sin IVA: la misma cuenta que el MRR (`tenantMrr`) y
+      // el mismo criterio que Adopción y Salud: solo si paga de verdad. En prueba
+      // aporta 0 y se enseña aparte lo que pagaría.
+      const mrr = sub ? mrrFor(ctx, t.id, sub).total : 0;
+      const contributes = isPayingSubscription(sub, t) && mrr > 0;
+      const monthly = contributes ? mrr : 0;
+      const wouldPay = t.status === 'trial' && !t.billingExempt && mrr > 0 ? mrr : null;
       // En solo lectura (prueba o plan gratuito terminados sin pagar) no paga.
       const paying = !t.billingExempt && t.status === 'active' && !!sub && sub.status !== 'expired';
       const followup = followupBy.get(t.id);
@@ -130,7 +133,8 @@ export class AdminTenantsOverviewService {
         planName: sub?.plan?.name ?? null,
         subscriptionStatus: sub?.status ?? null,
         billingMode: sub?.billingMode ?? null,
-        monthly: t.billingExempt || sub?.status === 'expired' ? 0 : monthly,
+        monthly,
+        wouldPay,
         addons: tenantAddons.map((a) => ({
           slug: a.addon.slug,
           name: a.addon.name,

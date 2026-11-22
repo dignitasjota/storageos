@@ -145,7 +145,9 @@ import type {
   PlatformSendersDto,
   UnusedBrevoDomainDto,
   EmailSuppressionDto,
+  AdminHealthSegment,
   AdminTenantHealthDto,
+  AdminTenantsHealthDto,
   TenantFeature,
   AdminBroadcastInput,
   AdminBroadcastResultDto,
@@ -1422,10 +1424,11 @@ export function useAdminOpenTicketsCount() {
   });
 }
 
-export function useAdminTenantsHealth() {
+/** Salud de un grupo de tenants (`paying` por defecto; las pruebas, con su activación). */
+export function useAdminTenantsHealth(segment: AdminHealthSegment = 'paying') {
   return useQuery({
-    queryKey: ['admin', 'tenants', 'health'] as const,
-    queryFn: () => adminApiFetch<AdminTenantHealthDto[]>('/admin/tenants/health'),
+    queryKey: ['admin', 'tenants', 'health', segment] as const,
+    queryFn: () => adminApiFetch<AdminTenantsHealthDto>(`/admin/tenants/health?segment=${segment}`),
     refetchInterval: 300_000,
     refetchIntervalInBackground: false,
   });

@@ -49,6 +49,7 @@ import {
   type UpdateSalesProfileInput,
 } from '@storageos/shared';
 
+import { lastTeamActivity, lastTeamActivityByTenant } from '../../../common/team-activity';
 import { AI_PROVIDER, type AiProvider } from '../../ai/ai-provider';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { normalizeHeader, parseRaw } from '../../imports/import-engine';
@@ -564,10 +565,7 @@ export class SalesAccountsService {
       this.admin.contract.count({
         where: { tenantId, deletedAt: null, status: { in: ['active', 'ending'] } },
       }),
-      this.admin.user.aggregate({
-        where: { tenantId, isActive: true },
-        _max: { lastLoginAt: true },
-      }),
+      lastTeamActivity(this.admin, tenantId),
       this.tenants.getOnboarding(tenantId).catch(() => null),
       this.tenants.getTenantHealth(tenantId).catch(() => null),
       this.admin.featureInterestEvent.groupBy({
@@ -625,7 +623,7 @@ export class SalesAccountsService {
           }
         : { completed: 0, total: 0, pending: [] },
       health: health ? { score: health.score, level: health.level } : null,
-      lastLoginAt: lastLogin._max.lastLoginAt?.toISOString() ?? null,
+      lastLoginAt: lastLogin?.toISOString() ?? null,
       featureInterest: interest
         .map((i) => ({
           feature: i.feature,
@@ -997,11 +995,7 @@ export class SalesAccountsService {
           where: { tenantId: { in: ids }, deletedAt: null, status: { in: ['active', 'ending'] } },
           _count: { _all: true },
         }),
-        this.admin.user.groupBy({
-          by: ['tenantId'],
-          where: { tenantId: { in: ids }, isActive: true },
-          _max: { lastLoginAt: true },
-        }),
+        lastTeamActivityByTenant(this.admin, ids),
         this.tenants.getTenantsHealth().catch(() => []),
         Promise.all(ids.map(async (id) => [id, await this.limits.resolveLimits(id)] as const)),
       ]);
@@ -1012,7 +1006,7 @@ export class SalesAccountsService {
     const leadOf = new Map(leadIds.map((l) => [l.tenantId!, l.id]));
     const unitsOf = new Map(units.map((u) => [u.tenantId, u._count._all]));
     const contractsOf = new Map(contracts.map((c) => [c.tenantId, c._count._all]));
-    const loginOf = new Map(logins.map((l) => [l.tenantId, l._max.lastLoginAt]));
+    const loginOf = logins;
     const healthOf = new Map(health.map((h) => [h.tenantId, h]));
     const limitOf = new Map(effectiveLimits);
     let rows: SalesClientRowDto[] = tenants.map((t) => {

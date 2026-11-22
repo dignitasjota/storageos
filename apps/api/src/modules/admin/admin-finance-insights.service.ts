@@ -19,6 +19,7 @@ import {
   type UpdateMarketingSpendInput,
 } from '@storageos/shared';
 
+import { aiCostUsd } from '../../common/ai-pricing';
 import { loadPuppeteer } from '../../common/puppeteer';
 import {
   chargedWithoutVat,
@@ -236,9 +237,12 @@ export class AdminFinanceInsightsService {
             provider: true,
           },
         }),
-        this.admin.$queryRaw<{ tenant_id: string; m: string; i: bigint; o: bigint }[]>`
+        this.admin.$queryRaw<
+          { tenant_id: string; m: string; model: string; i: bigint; o: bigint }[]
+        >`
           SELECT tenant_id::text AS tenant_id,
                  to_char(created_at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM') AS m,
+                 model,
                  COALESCE(SUM(input_tokens), 0)::bigint AS i,
                  COALESCE(SUM(output_tokens), 0)::bigint AS o
           FROM ai_usage_events
@@ -246,7 +250,7 @@ export class AdminFinanceInsightsService {
             AND counts_as_query = false
             AND own_key = false
             AND NOT (feature = ANY(${OWN_KEY_AI_FEATURES}))
-          GROUP BY 1, 2`,
+          GROUP BY 1, 2, 3`,
         this.admin.$queryRaw<{ tenant_id: string | null; m: string; n: bigint }[]>`
           SELECT tenant_id::text AS tenant_id,
                  to_char(created_at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM') AS m,
@@ -274,8 +278,11 @@ export class AdminFinanceInsightsService {
       redsys: [settings.redsysFeePct, settings.redsysFeeFixed],
       manual: [settings.manualFeePct, settings.manualFeeFixed],
     } as const;
-    const inUsd = this.config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true });
-    const outUsd = this.config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true });
+    // Coste de la IA con el precio de cada modelo (`ai-pricing.ts`).
+    const aiFallback = {
+      inputPerMTokUsd: this.config.get('AI_COST_INPUT_PER_MTOK_USD', { infer: true }),
+      outputPerMTokUsd: this.config.get('AI_COST_OUTPUT_PER_MTOK_USD', { infer: true }),
+    };
 
     type Costs = {
       revenue: number;
@@ -311,7 +318,7 @@ export class AdminFinanceInsightsService {
       addTo(month, p.tenantId, 'gatewayFees', gatewayFee(Number(p.amount), pct, fixed));
     }
     for (const r of aiRows) {
-      const usd = (Number(r.i) * inUsd + Number(r.o) * outUsd) / 1_000_000;
+      const usd = aiCostUsd(r.model, Number(r.i), Number(r.o), aiFallback);
       addTo(r.m, r.tenant_id, 'aiCost', usd * settings.usdEurRate);
     }
     let emailsSent = 0;

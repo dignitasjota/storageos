@@ -37,7 +37,9 @@ export function TenantHealthCard({ tenantId }: { tenantId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Salud</CardTitle>
+        <CardTitle className="text-base">
+          {health.data?.kind === 'activation' ? 'Activación de la prueba' : 'Salud'}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {health.isLoading || !health.data ? (
@@ -63,15 +65,28 @@ export function TenantHealthCard({ tenantId }: { tenantId: string }) {
                 <ul className="space-y-2 pt-1">
                   {d.factors.map((f) => (
                     <li key={f.key} className="text-sm">
-                      <div className="flex items-center justify-between">
-                        <span>{f.label}</span>
-                        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                          {f.score}/100
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0">
+                          {f.label}
+                          {f.counted && (
+                            <span className="text-xs text-muted-foreground">
+                              {' '}
+                              · {Math.round(f.weight * 100)} %
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                          {f.counted ? `${f.score}/100` : 'no cuenta'}
                         </span>
                       </div>
-                      <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full bg-foreground/40" style={{ width: `${f.score}%` }} />
-                      </div>
+                      {f.counted && (
+                        <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full bg-foreground/40"
+                            style={{ width: `${f.score}%` }}
+                          />
+                        </div>
+                      )}
                       <p className="mt-0.5 text-xs text-muted-foreground">{f.detail}</p>
                     </li>
                   ))}

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { NON_CASH_PAYMENT_METHODS, type AdminTenantSummaryDto } from '@storageos/shared';
 
 import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
+import { lastTeamActivity } from '../../common/team-activity';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -46,12 +47,12 @@ export class AdminTenantSummaryService {
       openTickets,
       lastInteraction,
       nextFollowup,
+      lastActivity,
     ] = await Promise.all([
       this.addons.billingSummary(tenantId),
       this.admin.user.aggregate({
         where: { tenantId, isActive: true },
         _count: { _all: true },
-        _max: { lastLoginAt: true },
       }),
       this.admin.invoice.aggregate({
         where: {
@@ -100,6 +101,7 @@ export class AdminTenantSummaryService {
         orderBy: { dueDate: 'asc' },
         select: { title: true, dueDate: true },
       }),
+      lastTeamActivity(this.admin, tenantId),
     ]);
 
     return {
@@ -111,7 +113,7 @@ export class AdminTenantSummaryService {
         tenant.billingExempt || !tenant.subscription
           ? null
           : tenant.subscription.currentPeriodEnd.toISOString(),
-      lastTeamLoginAt: users._max.lastLoginAt?.toISOString() ?? null,
+      lastTeamLoginAt: lastActivity?.toISOString() ?? null,
       activeUsers: users._count._all,
       invoiced30d: round2(num(invoiced._sum.total)),
       invoices30d: invoiced._count._all,

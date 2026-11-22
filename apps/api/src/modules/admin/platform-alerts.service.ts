@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { renderAdminEmail } from '@storageos/shared';
 
+import { aiCostOfRows } from '../../common/ai-pricing';
 import { currentMonth, formatDateLong } from '../../common/format';
 import { OWN_KEY_AI_FEATURES } from '../../common/saas-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -48,7 +49,8 @@ export class PlatformAlertsService {
     });
     if (ai?.monthlyCostAlertUsd == null) return null;
     const alertUsd = Number(ai.monthlyCostAlertUsd);
-    const tokens = await this.admin.aiUsageEvent.aggregate({
+    const tokens = await this.admin.aiUsageEvent.groupBy({
+      by: ['model'],
       where: {
         countsAsQuery: false,
         ownKey: false,
@@ -57,10 +59,15 @@ export class PlatformAlertsService {
       },
       _sum: { inputTokens: true, outputTokens: true },
     });
-    const costUsd =
-      ((tokens._sum.inputTokens ?? 0) * this.aiPrices.input +
-        (tokens._sum.outputTokens ?? 0) * this.aiPrices.output) /
-      1_000_000;
+    // Coste con el precio de cada modelo (`ai-pricing.ts`).
+    const costUsd = aiCostOfRows(
+      tokens.map((t) => ({
+        model: t.model,
+        inputTokens: t._sum.inputTokens ?? 0,
+        outputTokens: t._sum.outputTokens ?? 0,
+      })),
+      { inputPerMTokUsd: this.aiPrices.input, outputPerMTokUsd: this.aiPrices.output },
+    );
     return costUsd >= alertUsd ? { costUsd: Math.round(costUsd * 100) / 100, alertUsd } : null;
   }
 
