@@ -13,6 +13,7 @@ import {
   type PlatformSenderCategory,
 } from '@storageos/shared';
 
+import { csvLineCell } from '../../common/csv';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -338,10 +339,7 @@ export class PlatformEmailLogService {
       orderBy: { createdAt: 'desc' },
       take: 5000,
     });
-    const cell = (v: string | null | undefined) => {
-      const s = (v ?? '').replace(/\r?\n/g, ' ');
-      return /[;"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
+    const cell = csvLineCell;
     const head = ['Fecha', 'Destinatario', 'Tenant', 'Asunto', 'Tipo', 'Estado', 'Error'];
     const lines = rows.map((r) =>
       [

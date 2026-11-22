@@ -20,11 +20,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAdminLeadStats } from '@/lib/admin/leads-hooks';
+import { formatCount, formatEur, formatNumber, formatPct, plural } from '@/lib/format';
 
-const eur = (n: number) =>
-  n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-const pct = (part: number, whole: number) =>
-  whole > 0 ? `${Math.round((part / whole) * 1000) / 10} %` : '—';
+const pct = (part: number, whole: number) => (whole > 0 ? formatPct((part / whole) * 100) : '—');
 
 /** Una fila de barra: etiqueta, barra de un solo color y la cifra escrita. */
 function BarRow({
@@ -49,7 +47,7 @@ function BarRow({
         />
       </div>
       <span className="tabular-nums">
-        {value}
+        {formatCount(value)}
         {note ? <span className="ml-1 text-muted-foreground">{note}</span> : null}
       </span>
     </div>
@@ -76,7 +74,10 @@ export default function AdminLeadStatsPage() {
   const [months, setMonths] = useState(6);
   const q = useAdminLeadStats(months);
   const s = q.data;
-  const customers = s?.funnel.find((f) => f.stage === 'customer')?.reached ?? 0;
+  // Clientes: los que se trabajaron y llegaron a pagar más los que entraron solos y pagan.
+  const worked = s?.funnel.find((f) => f.stage === 'new')?.reached ?? 0;
+  const customers =
+    (s?.funnel.find((f) => f.stage === 'customer')?.reached ?? 0) + (s?.direct.customers ?? 0);
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -89,8 +90,8 @@ export default function AdminLeadStatsPage() {
           </Button>
           <h1 className="text-2xl font-semibold tracking-tight">Resultados de los leads</h1>
           <p className="text-sm text-muted-foreground">
-            Los leads que entraron en el periodo y hasta dónde han llegado. «Cliente» es quien ya ha
-            pagado.
+            Los leads que entraron en el periodo (desde el día 1 del mes, en hora de España) y hasta
+            dónde han llegado. «Cliente» es quien ya ha pagado.
           </p>
         </div>
         <Select value={String(months)} onValueChange={(v) => setMonths(Number(v))}>
@@ -100,7 +101,7 @@ export default function AdminLeadStatsPage() {
           <SelectContent>
             {[3, 6, 12, 24].map((m) => (
               <SelectItem key={m} value={String(m)}>
-                Últimos {m} meses
+                {`Este mes y los ${m - 1} anteriores`}
               </SelectItem>
             ))}
           </SelectContent>
@@ -116,18 +117,30 @@ export default function AdminLeadStatsPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-            <Stat label="Leads" value={String(s.leads)} />
-            <Stat label="Clientes" value={String(customers)} />
+            <Stat label="Leads" value={formatCount(s.leads)} />
+            <Stat label="Clientes" value={formatCount(customers)} />
             <Stat label="Conversión" value={pct(customers, s.leads)} hint="de lead a cliente" />
-            <Stat label="Pagan al mes" value={eur(s.mrr)} hint="los que son clientes" />
+            <Stat
+              label="Pagan al mes"
+              value={formatEur(s.mrr)}
+              hint="los que son clientes, sin IVA"
+            />
             <Stat
               label="Primera respuesta"
-              value={s.medianFirstResponseHours === null ? '—' : `${s.medianFirstResponseHours} h`}
-              hint="mediana"
+              value={
+                s.medianFirstResponseHours === null
+                  ? '—'
+                  : `${formatNumber(s.medianFirstResponseHours, 1)} h`
+              }
+              hint="mediana, de quien escribe solo"
             />
             <Stat
               label="Hasta pagar"
-              value={s.avgDaysToCustomer === null ? '—' : `${s.avgDaysToCustomer} días`}
+              value={
+                s.avgDaysToCustomer === null
+                  ? '—'
+                  : `${formatNumber(s.avgDaysToCustomer, 1)} ${s.avgDaysToCustomer === 1 ? 'día' : 'días'}`
+              }
               hint="media"
             />
           </div>
@@ -138,17 +151,32 @@ export default function AdminLeadStatsPage() {
                 <CardTitle className="text-base">Hasta dónde llegan</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  Los que trabajó el equipo, por las fases por las que pasaron de verdad.
+                </p>
                 {s.funnel.map((f) => (
                   <BarRow
                     key={f.stage}
                     label={PLATFORM_LEAD_STAGE_LABELS[f.stage]}
                     value={f.reached}
-                    max={s.leads}
-                    note={f.stage === 'new' ? undefined : `(${pct(f.reached, s.leads)})`}
+                    max={worked}
+                    note={f.stage === 'new' ? undefined : `(${pct(f.reached, worked)})`}
                   />
                 ))}
                 <p className="pt-1 text-xs text-muted-foreground">
-                  {s.lost} perdidos en el periodo.
+                  Entraron directamente en prueba (se registraron solos o se les creó la cuenta):{' '}
+                  {formatCount(s.direct.leads)}
+                  {s.direct.leads > 0
+                    ? `, de los que ${plural(s.direct.customers, 'paga', 'pagan')} (${pct(s.direct.customers, s.direct.leads)})`
+                    : ''}
+                  .
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {plural(s.lost, 'perdido', 'perdidos')} antes de pagar
+                  {s.churned > 0
+                    ? ` y ${plural(s.churned, 'cliente que se dio de baja', 'clientes que se dieron de baja')}`
+                    : ''}
+                  .
                 </p>
               </CardContent>
             </Card>
@@ -191,7 +219,7 @@ export default function AdminLeadStatsPage() {
                         <th className="px-4 py-2 text-right font-medium">Con cuenta</th>
                         <th className="px-4 py-2 text-right font-medium">Clientes</th>
                         <th className="px-4 py-2 text-right font-medium">Conversión</th>
-                        <th className="px-4 py-2 text-right font-medium">Pagan al mes</th>
+                        <th className="px-4 py-2 text-right font-medium">Pagan al mes (sin IVA)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -200,13 +228,19 @@ export default function AdminLeadStatsPage() {
                           <td className="px-4 py-2">
                             {PLATFORM_LEAD_SOURCE_LABELS[r.source] ?? r.source}
                           </td>
-                          <td className="px-4 py-2 text-right tabular-nums">{r.leads}</td>
-                          <td className="px-4 py-2 text-right tabular-nums">{r.trials}</td>
-                          <td className="px-4 py-2 text-right tabular-nums">{r.customers}</td>
                           <td className="px-4 py-2 text-right tabular-nums">
-                            {r.conversionPct === null ? '—' : `${r.conversionPct} %`}
+                            {formatCount(r.leads)}
                           </td>
-                          <td className="px-4 py-2 text-right tabular-nums">{eur(r.mrr)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {formatCount(r.trials)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {formatCount(r.customers)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {r.conversionPct === null ? '—' : formatPct(r.conversionPct)}
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">{formatEur(r.mrr)}</td>
                         </tr>
                       ))}
                     </tbody>

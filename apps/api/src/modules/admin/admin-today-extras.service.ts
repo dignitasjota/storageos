@@ -98,7 +98,7 @@ export class AdminTodayExtrasService {
   async newLeads(now = new Date()): Promise<AdminTodayLeadDto[]> {
     const rows = await this.admin.platformLead.findMany({
       where: { status: 'new', discardedAt: null },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ awaitingReplySince: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
       take: 100,
       select: {
         id: true,
@@ -107,6 +107,7 @@ export class AdminTodayExtrasService {
         email: true,
         source: true,
         createdAt: true,
+        awaitingReplySince: true,
         assignedToId: true,
         assignedTo: { select: { fullName: true } },
       },
@@ -116,7 +117,11 @@ export class AdminTodayExtrasService {
       name: platformLeadName(r),
       email: r.email,
       source: r.source as PlatformLeadSource,
-      waitingHours: Math.floor((now.getTime() - r.createdAt.getTime()) / 3_600_000),
+      // Desde su último mensaje sin responder (un perdido que vuelve a escribir
+      // empieza a contar de nuevo).
+      waitingHours: Math.floor(
+        (now.getTime() - (r.awaitingReplySince ?? r.createdAt).getTime()) / 3_600_000,
+      ),
       assignedToId: r.assignedToId,
       assignedToName: r.assignedTo?.fullName ?? null,
     }));

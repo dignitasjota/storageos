@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { MONTH_PARAM_REGEX } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
+import { csvCell } from '../../common/csv';
 import { loadPuppeteer } from '../../common/puppeteer';
 import {
   churnedBetween,
@@ -69,10 +70,6 @@ const eur = (n: number) => {
 };
 const pctText = (n: number) => `${n.toFixed(1).replace('.', ',')} %`;
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const csvCell = (v: string | number) => {
-  const s = typeof v === 'number' ? String(v).replace('.', ',') : v;
-  return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
 const pct = (current: number, target: number): AdminGoalProgressDto | null =>
   target > 0 ? { current, target, pct: round2((current / target) * 100) } : null;
 

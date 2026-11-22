@@ -372,13 +372,7 @@ export class AdminQuoteService {
       where: { id: lead.id },
       select: { salesRep: { select: { salesCode: true, isActive: true } } },
     });
-    await this.audit.record({
-      superAdminId,
-      action: 'admin.platform_lead.quote_sent',
-      targetType: 'platform_lead',
-      targetId: lead.id,
-      changes: { planId: input.planId, cycle: input.cycle, total: quote.total },
-    });
+    // El registro de acciones lo deja quien la envía, una vez enviado el correo.
     return {
       quote,
       registerUrl: this.registerUrl({ ...lead, salesRep: withRep?.salesRep ?? null }),
@@ -487,13 +481,20 @@ export class AdminQuoteService {
         expiresAt: new Date(Date.now() + QUOTE_OFFER_VALID_DAYS * DAY),
       },
     });
-    const recipients = await this.lifecycle.sendQuoteOffer(tenantId, {
-      tenantName: tenant.name,
-      quote,
-      message: input.message ?? null,
-      acceptUrl: this.trackedUrl(offer.id),
-      ...(sender ? { sender } : {}),
-    });
+    let recipients: number;
+    try {
+      recipients = await this.lifecycle.sendQuoteOffer(tenantId, {
+        tenantName: tenant.name,
+        quote,
+        message: input.message ?? null,
+        acceptUrl: this.trackedUrl(offer.id),
+        ...(sender ? { sender } : {}),
+      });
+    } catch (err) {
+      // Si el correo no sale, la oferta no se queda a medias (nadie la ha recibido).
+      await this.admin.platformQuoteOffer.deleteMany({ where: { id: offer.id } });
+      throw err;
+    }
     const summary = `${quote.lines.map((l) => l.label).join(' + ')} → ${quote.total.toFixed(2).replace('.', ',')} € ${
       quote.cycle === 'yearly' ? 'al año' : 'al mes'
     }`;

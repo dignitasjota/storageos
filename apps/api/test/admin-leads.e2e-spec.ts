@@ -188,7 +188,11 @@ describe('Leads del panel admin (e2e)', () => {
     const withFollowup = await http()
       .post(`/admin/leads/${lead.id}/followups`)
       .set(auth())
-      .send({ title: 'Llamar tras la demo', dueDate: '2026-01-10' })
+      // Hoy (en hora de España): una fecha pasada ya no se admite.
+      .send({
+        title: 'Llamar tras la demo',
+        dueDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Madrid' }),
+      })
       .expect(201);
     const followup = withFollowup.body.followups[0];
     expect(withFollowup.body.nextFollowup.title).toBe('Llamar tras la demo');
@@ -263,7 +267,9 @@ describe('Leads del panel admin (e2e)', () => {
       .set(auth())
       .expect(200);
     expect(board.body.items).toHaveLength(0);
-    await http().get(`/admin/leads/${created.body.id}`).set(auth()).expect(404);
+    // La ficha se sigue pudiendo abrir (en solo lectura, para recuperarlo).
+    const read = await http().get(`/admin/leads/${created.body.id}`).set(auth()).expect(200);
+    expect(read.body.discardedAt).toBeTruthy();
   });
 
   it('al registrarse con el email de un lead se vincula; sin lead, entra en prueba', async () => {
@@ -415,9 +421,14 @@ describe('Leads del panel admin (e2e)', () => {
         paidAt: new Date(),
       },
     });
+    // Acabó la prueba hace más de 7 días (el margen) y su cuenta está en solo lectura.
     await db.tenant.update({
       where: { id: quitter.tenant!.id },
-      data: { trialEndedAt: new Date(Date.now() - 2 * 86_400_000) },
+      data: { status: 'active', trialEndedAt: new Date(Date.now() - 8 * 86_400_000) },
+    });
+    await db.tenantSubscription.update({
+      where: { tenantId: quitter.tenant!.id },
+      data: { status: 'expired' },
     });
     const moved = await leads.syncFromTenants();
     expect(moved.customers).toBeGreaterThanOrEqual(1);
@@ -432,15 +443,21 @@ describe('Leads del panel admin (e2e)', () => {
     expect((await detail(quitter.id)).followups).toHaveLength(1);
 
     const stats = await http().get('/admin/leads/stats?months=3').set(auth()).expect(200);
+    // El embudo cuenta los que trabaja el equipo; los que entran ya en prueba, aparte.
+    const inPeriod = await db.platformLead.findMany({
+      where: {
+        discardedAt: null,
+        customerAt: { not: null },
+        createdAt: { gte: new Date(stats.body.from) },
+      },
+      select: { createdAt: true, trialAt: true },
+    });
+    const isDirect = (l: { createdAt: Date; trialAt: Date | null }) =>
+      !!l.trialAt && l.trialAt.getTime() <= l.createdAt.getTime() + 60_000;
     expect(stats.body.funnel.find((f: { stage: string }) => f.stage === 'customer').reached).toBe(
-      await db.platformLead.count({
-        where: {
-          discardedAt: null,
-          customerAt: { not: null },
-          createdAt: { gte: new Date(stats.body.from) },
-        },
-      }),
+      inPeriod.filter((l) => !isDirect(l)).length,
     );
+    expect(stats.body.direct.customers).toBe(inPeriod.filter(isDirect).length);
     expect(stats.body.lostReasons.some((r: { code: string }) => r.code === 'no_conversion')).toBe(
       true,
     );

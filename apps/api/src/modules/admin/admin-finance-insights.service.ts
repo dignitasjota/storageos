@@ -20,6 +20,7 @@ import {
 } from '@storageos/shared';
 
 import { aiCostUsd } from '../../common/ai-pricing';
+import { csvCell } from '../../common/csv';
 import { loadPuppeteer } from '../../common/puppeteer';
 import {
   chargedWithoutVat,
@@ -65,11 +66,6 @@ const eur = (n: number) => {
 };
 const pctText = (n: number | null) => (n === null ? '—' : `${n.toFixed(1).replace('.', ',')} %`);
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const csvCell = (v: string | number | null) => {
-  if (v === null) return '';
-  const s = typeof v === 'number' ? String(v).replace('.', ',') : v;
-  return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-};
 const toCsv = (rows: (string | number | null)[][]) =>
   `${String.fromCharCode(0xfeff)}${rows.map((r) => r.map(csvCell).join(';')).join('\n')}\n`;
 

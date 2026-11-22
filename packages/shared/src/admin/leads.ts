@@ -93,6 +93,7 @@ export const PLATFORM_LEAD_LOST_REASONS = [
   'not_now',
   'no_response',
   'no_conversion',
+  'churned',
   'other',
 ] as const;
 export const PlatformLeadLostReasonEnum = z.enum(PLATFORM_LEAD_LOST_REASONS);
@@ -106,8 +107,15 @@ export const PLATFORM_LEAD_LOST_REASON_LABELS: Record<PlatformLeadLostReason, st
   not_now: 'No es el momento',
   no_response: 'No responde',
   no_conversion: 'No contrató tras la prueba',
+  churned: 'Cliente que se dio de baja',
   other: 'Otro',
 };
+
+/** Motivos que el equipo elige a mano (los otros los pone el sistema). */
+export const PLATFORM_LEAD_MANUAL_LOST_REASONS = PLATFORM_LEAD_LOST_REASONS.filter(
+  (r) => r !== 'churned',
+) as Exclude<PlatformLeadLostReason, 'churned'>[];
+export const PlatformLeadManualLostReasonEnum = PlatformLeadLostReasonEnum.exclude(['churned']);
 
 export const PLATFORM_LEAD_ACTIVITY_TYPES = [
   'note',
@@ -157,6 +165,15 @@ export const PLATFORM_LEAD_UNATTENDED_HOURS = 4;
 
 /** Días tras los que se propone volver a contactar a quien acabó la prueba sin contratar. */
 export const PLATFORM_LEAD_TRIAL_RECONTACT_DAYS = 14;
+
+/**
+ * Días de margen tras el fin de la prueba antes de dar el lead por perdido
+ * (puede estar a punto de pagar: una remesa, una tarjeta, una transferencia).
+ */
+export const PLATFORM_LEAD_TRIAL_LOST_GRACE_DAYS = 7;
+
+/** Tope de leads abiertos que trae el tablero (el resto, con la búsqueda o los filtros). */
+export const PLATFORM_LEAD_BOARD_OPEN_LIMIT = 500;
 
 /** Origen de la visita en trasteros.pro (lo guarda el navegador). */
 export const PLATFORM_ATTRIBUTION_KEY = '_platform';
@@ -213,7 +230,7 @@ export const MovePlatformLeadSchema = z.object({ status: PlatformLeadManualStage
 export type MovePlatformLeadInput = z.infer<typeof MovePlatformLeadSchema>;
 
 export const LosePlatformLeadSchema = z.object({
-  reasonCode: PlatformLeadLostReasonEnum,
+  reasonCode: PlatformLeadManualLostReasonEnum,
   reason: z.string().trim().max(1000).optional().or(z.literal('')),
   /** Volver a contactar ese día (crea un seguimiento). */
   recontactOn: dateString.optional().or(z.literal('')),
@@ -258,6 +275,8 @@ export const PlatformLeadsQuerySchema = z.object({
   source: PlatformLeadSourceEnum.optional(),
   /** `me` = los míos; un id = los de ese super admin; `none` = sin responsable. */
   assignedTo: z.string().trim().max(60).optional(),
+  /** Los marcados «No es un lead» (en vez de los del tablero). */
+  discarded: z.boolean().optional(),
 });
 export type PlatformLeadsQuery = z.infer<typeof PlatformLeadsQuerySchema>;
 
@@ -311,6 +330,20 @@ export interface PlatformLeadDto {
   lostReasonCode: PlatformLeadLostReason | null;
   lostReason: string | null;
   firstResponseAt: string | null;
+  /**
+   * Desde cuándo espera respuesta (volvió a escribir tras perderse, o aún nadie
+   * le ha respondido); null si no espera nada.
+   */
+  awaitingReplySince: string | null;
+  /** «No es un lead»: la ficha se abre en solo lectura. */
+  discardedAt: string | null;
+  /** Comercial que lleva la cuenta (cartera y comisiones). */
+  salesRepName: string | null;
+  /**
+   * Comercial de su cuenta de cliente si no es quien lo lleva en el tablero:
+   * la cuenta (y sus comisiones) sigue siendo suya.
+   */
+  accountKeptBy: { id: string; name: string } | null;
   lastActivityAt: string | null;
   nextFollowup: { id: string; title: string; dueDate: string } | null;
   createdAt: string;
@@ -321,6 +354,10 @@ export interface PlatformLeadBoardDto {
   items: PlatformLeadDto[];
   /** Total por fase (Cliente y Perdido solo traen los últimos). */
   counts: Record<PlatformLeadStage, number>;
+  /** Hay más leads abiertos de los que trae el tablero. */
+  truncated: boolean;
+  /** Cuántos leads abiertos no se ven (0 si cabe todo). */
+  hiddenOpen: number;
 }
 
 export interface PlatformLeadActivityDto {
@@ -357,7 +394,7 @@ export interface PlatformLeadStatsSourceDto {
   leads: number;
   trials: number;
   customers: number;
-  /** Lo que pagan al mes los que son clientes (plan + extras). */
+  /** Lo que pagan al mes los que son clientes (plan + extras, sin IVA). */
   mrr: number;
   /** % de leads que acabaron pagando. */
   conversionPct: number | null;
@@ -367,12 +404,23 @@ export interface PlatformLeadStatsDto {
   months: number;
   from: string;
   leads: number;
-  /** Cuántos llegaron a cada fase (o más allá). */
+  /**
+   * Leads que se trabajan (sin los que entraron directamente en prueba): cuántos
+   * pasaron de verdad por cada fase (con su fecha). El de «Nuevo» son todos.
+   */
   funnel: { stage: Exclude<PlatformLeadStage, 'lost'>; reached: number }[];
+  /** Se registraron por su cuenta (o se les creó la cuenta) sin pasar por el equipo. */
+  direct: { leads: number; customers: number };
+  /** Perdidos antes de ser clientes. */
   lost: number;
+  /** Clientes que se dieron de baja. */
+  churned: number;
   bySource: PlatformLeadStatsSourceDto[];
   lostReasons: { code: PlatformLeadLostReason; count: number }[];
-  /** Mediana de horas hasta la primera respuesta (null sin datos). */
+  /**
+   * Mediana de horas hasta la primera respuesta de los que escribieron solos
+   * (formulario, demo, calculadora…); null sin datos.
+   */
   medianFirstResponseHours: number | null;
   /** Media de días del alta del lead al primer pago. */
   avgDaysToCustomer: number | null;

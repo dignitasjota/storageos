@@ -9,6 +9,7 @@ import {
   type ProfitabilityResult,
 } from '@storageos/shared';
 
+import { csvLineCell } from '../../common/csv';
 import {
   PLATFORM_LEAD_INBOUND,
   type PlatformLeadInboundEvent,
@@ -356,10 +357,7 @@ export class PlatformContactService {
       orderBy: { createdAt: 'desc' },
       take: 5000,
     });
-    const cell = (v: string | null | undefined) => {
-      const t = (v ?? '').replace(/\r?\n/g, ' ');
-      return /[";]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-    };
+    const cell = csvLineCell;
     const date = (d: Date | null) =>
       d ? d.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }) : '';
     const header = [

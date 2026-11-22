@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { CreatePlatformLeadSchema, fillPlatformLeadTemplate, platformLeadName } from './leads';
+import {
+  CreatePlatformLeadSchema,
+  LosePlatformLeadSchema,
+  PLATFORM_LEAD_MANUAL_LOST_REASONS,
+  fillPlatformLeadTemplate,
+  platformLeadName,
+} from './leads';
 
 describe('leads del panel admin', () => {
   it('el nombre es la empresa, o la persona, o el email', () => {
@@ -29,5 +35,11 @@ describe('leads del panel admin', () => {
     expect(CreatePlatformLeadSchema.safeParse({ email: 'ana@ej.com' }).success).toBe(false);
     const ok = CreatePlatformLeadSchema.safeParse({ companyName: 'Sol', phone: '600000000' });
     expect(ok.success && ok.data.source).toBe('phone');
+  });
+
+  it('«Cliente que se dio de baja» lo pone el sistema, no se elige a mano', () => {
+    expect(PLATFORM_LEAD_MANUAL_LOST_REASONS).not.toContain('churned');
+    expect(LosePlatformLeadSchema.safeParse({ reasonCode: 'churned' }).success).toBe(false);
+    expect(LosePlatformLeadSchema.safeParse({ reasonCode: 'price' }).success).toBe(true);
   });
 });
