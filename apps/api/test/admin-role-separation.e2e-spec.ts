@@ -135,13 +135,13 @@ describe('Admin: separación de roles superadmin/support + revocación (e2e)', (
     expect(domain.status).toBe(403);
     expect(domain.body.code).toBe('insufficient_super_admin_role');
 
-    // support → revocar una sesión de impersonación (kill switch) = 403
-    // (el guard corta antes de mirar si la sesión existe siquiera).
+    // support → revocar una sesión de impersonación: solo las que abrió él
+    // (las de otro dan 403, ver admin-tenants-improvements-2); una que no
+    // existe, 404.
     const revokeImp = await request(app.getHttpServer())
       .post('/admin/impersonation-logs/00000000-0000-0000-0000-000000000000/revoke')
       .set('Authorization', `Bearer ${supportToken}`);
-    expect(revokeImp.status).toBe(403);
-    expect(revokeImp.body.code).toBe('insufficient_super_admin_role');
+    expect(revokeImp.status).toBe(404);
 
     // support SÍ puede LEER (la lectura no está restringida).
     const read = await request(app.getHttpServer())
