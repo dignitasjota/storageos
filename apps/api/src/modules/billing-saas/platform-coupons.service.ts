@@ -262,8 +262,14 @@ export class PlatformCouponsService {
   async validateAndComputeDiscount(
     code: string,
     amount: number,
-    ctx: { tenantId?: string | null; planId?: string | null } = {},
-  ): Promise<{ couponId: string; discount: number; stripeCouponId: string | null }> {
+    ctx: { tenantId?: string | null; planId?: string | null; months?: number | null } = {},
+  ): Promise<{
+    couponId: string;
+    discount: number;
+    stripeCouponId: string | null;
+    /** Cuotas del cupón que cubre este pago (para anotar un uso por cuota). */
+    periods: number;
+  }> {
     const normalized = code.trim().toUpperCase();
     const coupon = await this.admin.platformCoupon.findUnique({ where: { code: normalized } });
     if (!coupon || !coupon.isActive) {
@@ -296,8 +302,9 @@ export class PlatformCouponsService {
     // Usos por tenant: «solo una vez» o «las primeras N cuotas» (en los pagos a
     // mano, cada pago con el cupón cuenta como una cuota).
     const perTenant = coupon.durationMonths ?? (coupon.oncePerTenant ? 1 : null);
+    let used = 0;
     if (ctx.tenantId && perTenant != null) {
-      const used = await this.admin.platformCouponRedemption.count({
+      used = await this.admin.platformCouponRedemption.count({
         where: { couponId: coupon.id, tenantId: ctx.tenantId },
       });
       if (used >= perTenant) {
@@ -311,14 +318,23 @@ export class PlatformCouponsService {
       }
     }
     const value = Number(coupon.discountValue);
+    // «Las primeras N cuotas»: un pago de varios meses solo lleva descuento en
+    // las cuotas que le quedan al tenant (el resto, a precio de lista).
+    // Un importe fijo se descuenta una vez por pago, como hasta ahora.
+    const months = Math.max(1, Math.floor(ctx.months ?? 1));
+    const remaining =
+      coupon.durationMonths != null ? Math.max(0, coupon.durationMonths - used) : months;
+    const periods = Math.min(months, remaining);
+    const base = round2((amount * periods) / months);
     const discount =
       coupon.discountType === 'percentage'
-        ? round2((amount * Math.min(value, 100)) / 100)
-        : Math.min(round2(value), round2(amount));
+        ? round2((base * Math.min(value, 100)) / 100)
+        : Math.min(round2(value), base);
     return {
       couponId: coupon.id,
       discount: round2(discount),
       stripeCouponId: coupon.stripeCouponId,
+      periods: coupon.durationMonths != null ? periods : 1,
     };
   }
 
@@ -328,8 +344,12 @@ export class PlatformCouponsService {
    * así una carrera de dos cobros simultáneos NUNCA sobrepasa el límite. Lanza
    * 400 `coupon_exhausted` si el cupón se agotó entre validar y cobrar.
    */
-  async incrementUsage(couponId: string): Promise<void> {
-    const affected = await this.admin.$executeRaw`
+  async incrementUsage(
+    couponId: string,
+    tx?: Pick<PrismaAdminService, '$executeRaw'>,
+  ): Promise<void> {
+    const db = tx ?? this.admin;
+    const affected = await db.$executeRaw`
       UPDATE platform_coupons
       SET used_count = used_count + 1, updated_at = now()
       WHERE id = ${couponId}::uuid

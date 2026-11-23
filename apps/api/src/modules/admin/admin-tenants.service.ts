@@ -10,7 +10,6 @@ import {
   effectiveFeaturesFromList,
   missingFiscalData,
   resolvePlanFeatures,
-  NON_CASH_PAYMENT_METHODS,
   WEB_CHAT_AI_FEATURE,
 } from '@storageos/shared';
 
@@ -26,12 +25,25 @@ import {
 import { lastTeamActivityByTenant } from '../../common/team-activity';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { anonymizeWhatsappConversations } from '../../common/whatsapp-anonymize';
+import { ALL_FACILITIES, LIVE_CONTRACT_WHERE } from '../analytics/analytics-scope';
+import {
+  collectedBetween,
+  collectedWhere,
+  currentYearMonth,
+  invoicedAmount,
+  INVOICED_SELECT,
+  invoicedWhere,
+  receivables,
+  zonedMonthKey,
+  zonedMonthStart,
+} from '../analytics/business-metrics';
 import { AuditService } from '../auth/audit.service';
 import { billableUnits } from '../billing-saas/billable-units';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
-import { periodsOwed, subscriptionDueDate } from '../billing-saas/platform-due';
+import { addMonthsUtc, periodsOwed, subscriptionDueDate } from '../billing-saas/platform-due';
 import { amountToCharge, platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PrismaService } from '../database/prisma.service';
 import { FilesService } from '../files/files.service';
 
 import { INTENSITY_UNITS, loadFeatureIntensity } from './adoption-intensity';
@@ -39,7 +51,7 @@ import { ADOPTION_SIGNALS, adoptionLimits, pickRecommendedPlan } from './adoptio
 import { SuperAdminAuditService } from './super-admin-audit.service';
 import { TenantHealthService } from './tenant-health.service';
 
-import type { InvoiceStatus, Prisma } from '@storageos/database';
+import type { Prisma } from '@storageos/database';
 import type {
   AdminAdoptionDto,
   AdminAtRiskDto,
@@ -66,16 +78,6 @@ import type {
   TenantFeature,
 } from '@storageos/shared';
 
-/** Estados de factura que cuentan como facturación (excluye draft/cancelled). */
-const ACCOUNTING_STATUSES: InvoiceStatus[] = [
-  'issued',
-  'paid',
-  'overdue',
-  'refunded',
-  'partially_refunded',
-  'rectified',
-];
-
 const MONTHS_ES = [
   'ene',
   'feb',
@@ -92,6 +94,9 @@ const MONTHS_ES = [
 ];
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** Inquilinos que lista el diálogo de la ficha (los más recientes). */
+export const ADMIN_CUSTOMERS_LIMIT = 500;
 
 interface ActionMeta {
   superAdminId: string;
@@ -116,6 +121,25 @@ export interface AnonymizeTenantResult {
 /** Placeholder con el que se sustituye cada campo de texto personal. */
 const ANON = '*** ANONIMIZADO ***';
 
+/** Un tenant grande tarda más que el plazo por defecto de una transacción. */
+const ANONYMIZE_TX_OPTIONS = { timeout: 120_000, maxWait: 10_000 } as const;
+
+/**
+ * Carpetas de ficheros del tenant que se borran al anonimizar (las facturas y
+ * los contratos firmados se conservan).
+ */
+const ANONYMIZE_FILE_PREFIXES = [
+  'customers',
+  'chat',
+  'collections',
+  'incidents',
+  'support',
+  'tasks',
+  'reminders',
+  'expenses',
+  'cameras',
+] as const;
+
 /**
  * Operaciones de super admin sobre tenants: lectura cross-tenant + acciones
  * de plataforma (suspender, reactivar, extender trial, anonimizar).
@@ -136,6 +160,7 @@ export class AdminTenantsService {
     private readonly files: FilesService,
     private readonly saasBilling: BillingSaasService,
     private readonly health: TenantHealthService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // =============================== read ====================================
@@ -173,11 +198,13 @@ export class AdminTenantsService {
       },
       include: {
         subscription: { include: { plan: true } },
+        // Lo mismo que listan los diálogos: usuarios activos, inquilinos sin
+        // borrar ni el de prueba, contratos vigentes y locales sin borrar.
         _count: {
           select: {
-            users: true,
-            customers: true,
-            contracts: true,
+            users: { where: { isActive: true } },
+            customers: { where: { deletedAt: null, isTest: false } },
+            contracts: { where: LIVE_CONTRACT_WHERE },
             facilities: { where: { deletedAt: null } },
           },
         },
@@ -214,11 +241,13 @@ export class AdminTenantsService {
       where: { id: tenantId },
       include: {
         subscription: { include: { plan: true } },
+        // Lo mismo que listan los diálogos: usuarios activos, inquilinos sin
+        // borrar ni el de prueba, contratos vigentes y locales sin borrar.
         _count: {
           select: {
-            users: true,
-            customers: true,
-            contracts: true,
+            users: { where: { isActive: true } },
+            customers: { where: { deletedAt: null, isTest: false } },
+            contracts: { where: LIVE_CONTRACT_WHERE },
             facilities: { where: { deletedAt: null } },
           },
         },
@@ -1051,9 +1080,11 @@ export class AdminTenantsService {
     });
     // Último acceso real: inicio de sesión o sesión renovada (la app instalada
     // mantiene la sesión 90 días sin volver a iniciarla).
+    // Solo las sesiones renovadas: la que abre el inicio de sesión ya cuenta en
+    // `lastLoginAt` (como `team-activity`).
     const sessions = await this.admin.session.groupBy({
       by: ['userId'],
-      where: { tenantId },
+      where: { tenantId, rotatedFromId: { not: null } },
       _max: { lastUsedAt: true },
     });
     const sessionBy = new Map(sessions.map((r) => [r.userId, r._max.lastUsedAt ?? null]));
@@ -1081,113 +1112,88 @@ export class AdminTenantsService {
   }
 
   /**
-   * Resumen de la facturación que el tenant emite a sus inquilinos (volumen de
-   * su negocio): totales + serie de los últimos 12 meses. Cross-tenant vía
-   * `PrismaAdminService`. Misma lógica que `AnalyticsService` (invoices por
-   * `issueDate`, pagos `succeeded` por `paidAt`).
+   * Facturación del negocio del tenant (a sus inquilinos) con las mismas
+   * definiciones que su Resumen (`business-metrics`): sin fianzas, la
+   * sustitutiva solo por la diferencia, cobrado sin fianza aplicada ni
+   * compensaciones, pendiente y vencido de facturas, y meses en su zona.
    */
   async getInvoicing(tenantId: string): Promise<AdminTenantInvoicingDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, deletedAt: true, currency: true },
+      select: { id: true, deletedAt: true, currency: true, timezone: true },
     });
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
-
-    // Ventana de 12 meses (UTC), del más antiguo al actual.
+    const tz = tenant.timezone || 'Europe/Madrid';
     const now = new Date();
-    const baseY = now.getUTCFullYear();
-    const baseM = now.getUTCMonth();
+    const { year, month } = currentYearMonth(tz, now);
+    // Últimos 12 meses en su zona, del más antiguo al actual.
     const months = Array.from({ length: 12 }, (_, idx) => {
-      const d = new Date(Date.UTC(baseY, baseM - (11 - idx), 1));
-      const year = d.getUTCFullYear();
-      const month = d.getUTCMonth() + 1;
+      const d = new Date(Date.UTC(year, month - 1 - (11 - idx), 1));
+      const y = d.getUTCFullYear();
+      const m = d.getUTCMonth() + 1;
       return {
-        year,
-        month,
-        key: `${year}-${String(month).padStart(2, '0')}`,
-        label: `${MONTHS_ES[month - 1]} ${String(year % 100).padStart(2, '0')}`,
+        key: `${y}-${String(m).padStart(2, '0')}`,
+        label: `${MONTHS_ES[m - 1]} ${String(y % 100).padStart(2, '0')}`,
+        dayStart: d,
+        zonedStart: zonedMonthStart(y, m, tz),
       };
     });
-    const fromDate = new Date(Date.UTC(months[0]!.year, months[0]!.month - 1, 1));
-    const toExclusive = new Date(Date.UTC(baseY, baseM + 1, 1));
+    const first = months[0]!;
+    const farFuture = new Date(now.getTime() + 366 * 86_400_000);
+    const epoch = new Date(0);
 
-    const [totals, pending, overdueCount, collected, invoices, payments] = await Promise.all([
-      this.admin.invoice.aggregate({
-        where: { tenantId, deletedAt: null, status: { in: ACCOUNTING_STATUSES }, kind: 'invoice' },
-        _sum: { total: true },
-        _count: true,
-      }),
-      this.admin.invoice.aggregate({
-        where: { tenantId, deletedAt: null, status: { in: ['issued', 'overdue'] } },
-        _sum: { total: true, amountPaid: true, amountRefunded: true },
-      }),
-      this.admin.invoice.count({ where: { tenantId, deletedAt: null, status: 'overdue' } }),
-      this.admin.payment.aggregate({
-        where: {
-          tenantId,
-          status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
-          invoice: { kind: 'invoice' },
-          methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
-        },
-        _sum: { amount: true, refundedAmount: true },
-      }),
-      this.admin.invoice.findMany({
-        where: {
-          tenantId,
-          deletedAt: null,
-          status: { in: ACCOUNTING_STATUSES },
-          kind: 'invoice',
-          issueDate: { gte: fromDate, lt: toExclusive },
-        },
-        select: { issueDate: true, total: true },
-      }),
-      this.admin.payment.findMany({
-        where: {
-          tenantId,
-          status: { in: ['succeeded', 'partially_refunded', 'refunded'] }, // neto de reembolsos
-          paidAt: { gte: fromDate, lt: toExclusive },
-          invoice: { kind: 'invoice' },
-          methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] }, // una compensación con abono no es dinero cobrado
-        },
-        select: { paidAt: true, amount: true, refundedAmount: true },
-      }),
-    ]);
+    const data = await this.prisma.withTenant(async (tx) => {
+      const [all, window, collectedTotal, payments, owed] = await Promise.all([
+        tx.invoice.findMany({
+          where: invoicedWhere(ALL_FACILITIES, epoch, farFuture),
+          select: INVOICED_SELECT,
+        }),
+        tx.invoice.findMany({
+          where: invoicedWhere(ALL_FACILITIES, first.dayStart, farFuture),
+          select: INVOICED_SELECT,
+        }),
+        collectedBetween(tx, ALL_FACILITIES, epoch, farFuture),
+        tx.payment.findMany({
+          where: collectedWhere(ALL_FACILITIES, first.zonedStart, farFuture),
+          select: { paidAt: true, amount: true, refundedAmount: true },
+        }),
+        receivables(tx, ALL_FACILITIES, now),
+      ]);
+      return { all, window, collectedTotal, payments, owed };
+    }, tenantId);
 
     const invoicedByKey = new Map<string, number>();
-    for (const inv of invoices) {
+    for (const inv of data.window) {
+      // `issueDate` es un día (DATE): su mes es el de la fecha.
       if (!inv.issueDate) continue;
-      const key = `${inv.issueDate.getUTCFullYear()}-${String(inv.issueDate.getUTCMonth() + 1).padStart(2, '0')}`;
-      invoicedByKey.set(key, (invoicedByKey.get(key) ?? 0) + Number(inv.total));
+      const key = inv.issueDate.toISOString().slice(0, 7);
+      invoicedByKey.set(key, (invoicedByKey.get(key) ?? 0) + invoicedAmount(inv));
     }
     const collectedByKey = new Map<string, number>();
-    for (const p of payments) {
+    for (const p of data.payments) {
       if (!p.paidAt) continue;
-      const key = `${p.paidAt.getUTCFullYear()}-${String(p.paidAt.getUTCMonth() + 1).padStart(2, '0')}`;
+      const key = zonedMonthKey(p.paidAt, tz);
       collectedByKey.set(
         key,
         (collectedByKey.get(key) ?? 0) + Number(p.amount) - Number(p.refundedAmount),
       );
     }
 
-    const totalInvoiced = Number(totals._sum.total ?? 0);
-    const invoiceCount = totals._count;
-    const totalPending =
-      Number(pending._sum.total ?? 0) -
-      Number(pending._sum.amountPaid ?? 0) -
-      Number(pending._sum.amountRefunded ?? 0);
+    const totalInvoiced = data.all.reduce((sum, r) => sum + invoicedAmount(r), 0);
+    // Facturas, sin los abonos (que restan pero no son facturas al cliente).
+    const invoices = data.all.filter((r) => Number(r.total) > 0);
+    const invoicesTotal = invoices.reduce((sum, r) => sum + Number(r.total), 0);
 
     return {
       currency: tenant.currency,
       totalInvoiced: round2(totalInvoiced),
-      totalCollected: round2(
-        Number(collected._sum.amount ?? 0) - Number(collected._sum.refundedAmount ?? 0),
-      ),
-      totalPending: round2(Math.max(0, totalPending)),
-      invoiceCount,
-      overdueCount,
-      avgInvoice: invoiceCount > 0 ? round2(totalInvoiced / invoiceCount) : 0,
+      totalCollected: data.collectedTotal,
+      totalPending: data.owed.total,
+      invoiceCount: invoices.length,
+      overdueCount: data.owed.overdueInvoices,
+      avgInvoice: invoices.length > 0 ? round2(invoicesTotal / invoices.length) : 0,
       monthly: months.map((m) => ({
         label: m.label,
         invoiced: round2(invoicedByKey.get(m.key) ?? 0),
@@ -1197,7 +1203,14 @@ export class AdminTenantsService {
   }
 
   /** Inquilinos (customers) del tenant con nº de contratos (total y vigentes). */
-  async listCustomers(tenantId: string): Promise<AdminTenantCustomerDto[]> {
+  /**
+   * Inquilinos del tenant (los 500 más recientes, sin el de prueba). Al rol
+   * soporte se le enseña solo el final del documento de identidad.
+   */
+  async listCustomers(
+    tenantId: string,
+    opts: { maskDocuments?: boolean } = {},
+  ): Promise<AdminTenantCustomerDto[]> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: { id: true, deletedAt: true },
@@ -1207,13 +1220,14 @@ export class AdminTenantsService {
     }
     const [customers, activeContracts] = await Promise.all([
       this.admin.customer.findMany({
-        where: { tenantId, deletedAt: null },
-        include: { _count: { select: { contracts: true } } },
+        where: { tenantId, deletedAt: null, isTest: false },
+        include: { _count: { select: { contracts: { where: { deletedAt: null } } } } },
         orderBy: { createdAt: 'desc' },
+        take: ADMIN_CUSTOMERS_LIMIT,
       }),
       this.admin.contract.groupBy({
         by: ['customerId'],
-        where: { tenantId, status: { in: ['active', 'ending'] } },
+        where: { tenantId, ...LIVE_CONTRACT_WHERE },
         _count: { _all: true },
       }),
     ]);
@@ -1230,7 +1244,10 @@ export class AdminTenantsService {
         email: c.email,
         phone: c.phone,
         documentType: c.documentType,
-        documentNumber: c.documentNumber,
+        documentNumber:
+          opts.maskDocuments && c.documentNumber
+            ? `***${c.documentNumber.slice(-4)}`
+            : c.documentNumber,
         kycVerified: c.kycVerified,
         contractCount: c._count.contracts,
         activeContractCount: activeByCustomer.get(c.id) ?? 0,
@@ -1375,13 +1392,34 @@ export class AdminTenantsService {
     }
     // Determinar status destino: si el trial sigue vigente, vuelve a trial;
     // si no, pasa a active.
-    const targetStatus =
-      tenant.trialEndsAt && tenant.trialEndsAt.getTime() > Date.now() ? 'trial' : 'active';
+    const trialAlive = !!tenant.trialEndsAt && tenant.trialEndsAt.getTime() > Date.now();
+    const targetStatus = trialAlive ? 'trial' : 'active';
+    // Con la prueba ya vencida y la suscripción aún en prueba, queda como al
+    // vencer sola: solo lectura hasta que elija cómo pagar (si no, nadie la
+    // recogería: el vencimiento automático solo mira tenants en prueba).
+    if (!trialAlive) {
+      const sub = await this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        select: { status: true, billingMode: true },
+      });
+      if (sub?.status === 'trial') {
+        const willCharge = sub.billingMode === 'sepa' || sub.billingMode === 'redsys';
+        await this.admin.tenantSubscription.update({
+          where: { tenantId },
+          data: { status: willCharge ? 'active' : 'expired' },
+        });
+      }
+    }
 
     await this.admin.tenant.update({
       where: { id: tenantId },
       // El tenant vuelve: deja de ser churn (se limpia motivo + fecha de baja).
-      data: { status: targetStatus, churnReason: null, canceledAt: null },
+      data: {
+        status: targetStatus,
+        churnReason: null,
+        canceledAt: null,
+        ...(trialAlive ? {} : { trialEndsAt: null }),
+      },
     });
     await this.audit.write({
       tenantId,
@@ -1454,6 +1492,26 @@ export class AdminTenantsService {
         where: { tenantId, status: { in: ['trial', 'past_due', 'expired', 'cancelled'] } },
         data: { status: 'active', cancelAtPeriodEnd: false },
       });
+    } else if (tenant.billingExempt) {
+      // Deja de estar exento: el periodo empieza hoy (sin arrastrar la deuda de
+      // los meses en que no pagaba). Con Stripe el periodo lo lleva Stripe.
+      const sub = await this.admin.tenantSubscription.findUnique({
+        where: { tenantId },
+        select: { billingMode: true, stripeSubscriptionId: true },
+      });
+      const now = new Date();
+      const nextMonth = addMonthsUtc(now, 1);
+      if (sub && !(sub.billingMode === 'stripe' && sub.stripeSubscriptionId)) {
+        await this.admin.tenantSubscription.update({
+          where: { tenantId },
+          data: { currentPeriodStart: now, currentPeriodEnd: nextMonth },
+        });
+      }
+      // Los extras que se cobran a mano tampoco arrastran cuotas atrasadas.
+      await this.admin.tenantSubscriptionAddon.updateMany({
+        where: { tenantId, billingMode: 'manual', suspendedAt: null },
+        data: { nextChargeAt: nextMonth },
+      });
     }
     await this.audit.write({
       tenantId,
@@ -1493,9 +1551,17 @@ export class AdminTenantsService {
       where: { id: tenantId },
       data: { status: 'active', trialEndsAt: null },
     });
+    // La misma regla que al vencer sola: quien ya eligió domiciliación o
+    // tarjeta guardada se cobra solo (no pasa a solo lectura); un cobro de
+    // Stripe que falló sigue con su impago.
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { billingMode: true },
+    });
+    const willCharge = sub?.billingMode === 'sepa' || sub?.billingMode === 'redsys';
     await this.admin.tenantSubscription.updateMany({
-      where: { tenantId, status: { not: 'active' } },
-      data: { status: 'expired' },
+      where: { tenantId, status: { notIn: ['active', 'past_due'] } },
+      data: { status: willCharge ? 'active' : 'expired' },
     });
     await this.audit.write({
       tenantId,
@@ -1568,6 +1634,14 @@ export class AdminTenantsService {
         ...(tenant.status === 'cancelled' ? {} : { status: 'trial' }),
       },
     });
+    // Sigue en prueba: el fin del periodo es el de la prueba (si no, el cobro
+    // y las métricas leerían la fecha antigua).
+    if (sub?.status === 'trial' && !onFree && tenant.status !== 'cancelled') {
+      await this.admin.tenantSubscription.update({
+        where: { tenantId },
+        data: { currentPeriodEnd: newTrialEndsAt },
+      });
+    }
     // Prueba vencida sin pagar: vuelve a probar con su mismo plan.
     if (expired && !onFree && tenant.status !== 'cancelled') {
       await this.admin.tenantSubscription.update({
@@ -1689,73 +1763,121 @@ export class AdminTenantsService {
   /** Checklist de puesta a punto del tenant (derivado de sus datos). */
   async getOnboarding(tenantId: string): Promise<AdminOnboardingDto> {
     await this.findOrThrow(tenantId);
-    const [
-      tenant,
-      ownerVerified,
-      facilities,
-      units,
-      customers,
-      contracts,
-      aeat,
-      series,
-      issuedInvoices,
-      activeUsers,
-      redsys,
-      gocardless,
-      sepa,
-    ] = await Promise.all([
-      this.admin.tenant.findUnique({
-        where: { id: tenantId },
-        select: {
-          portalLogoUrl: true,
-          portalBrandColor: true,
-          invoicingMode: true,
-          transferIban: true,
-        },
-      }),
-      this.admin.user.count({
-        where: { tenantId, role: 'owner', emailVerifiedAt: { not: null } },
-      }),
-      this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
-      this.admin.unit.count({ where: { tenantId } }),
-      this.admin.customer.count({ where: { tenantId, deletedAt: null } }),
-      this.admin.contract.count({ where: { tenantId } }),
-      this.admin.tenantAeatCredential.count({
-        where: { tenantId, ownerId: null, revokedAt: null },
-      }),
-      this.admin.invoiceSeries.count({ where: { tenantId, isActive: true } }),
-      this.admin.invoice.count({
-        where: { tenantId, status: { notIn: ['draft', 'cancelled'] } },
-      }),
-      this.admin.user.count({ where: { tenantId, isActive: true } }),
-      this.admin.redsysSettings.count({ where: { tenantId, enabled: true } }),
-      this.admin.goCardlessSettings.count({ where: { tenantId, enabled: true } }),
-      this.admin.sepaSettings.count({ where: { tenantId, enabled: true } }),
-    ]);
-    const paymentsReady = redsys + gocardless + sepa > 0 || Boolean(tenant?.transferIban);
+    // Las mismas reglas que la puesta en marcha que ve el tenant
+    // (`OnboardingService`): sin el inquilino de prueba, sin locales borrados,
+    // sin reservas online sin pagar ni contratos cancelados.
+    const d = await this.prisma.withTenant(async (tx) => {
+      const [
+        tenant,
+        facilities,
+        units,
+        customers,
+        contracts,
+        aeat,
+        series,
+        issuedInvoices,
+        activeUsers,
+        redsys,
+        gocardless,
+        sepa,
+        stripe,
+      ] = await Promise.all([
+        tx.tenant.findUnique({
+          where: { id: tenantId },
+          select: {
+            portalLogoUrl: true,
+            portalBrandColor: true,
+            invoicingMode: true,
+            verifactuEnabled: true,
+            transferIban: true,
+            offlineCashEnabled: true,
+            offlineTransferEnabled: true,
+            offlineSepaEnabled: true,
+          },
+        }),
+        tx.facility.count({ where: { deletedAt: null } }),
+        tx.unit.count({ where: { facility: { deletedAt: null } } }),
+        tx.customer.count({
+          where: {
+            deletedAt: null,
+            isTest: false,
+            NOT: { contracts: { some: { firstPaymentDeadline: { not: null } } } },
+          },
+        }),
+        tx.contract.count({
+          where: {
+            deletedAt: null,
+            status: { not: 'cancelled' },
+            firstPaymentDeadline: null,
+            customer: { isTest: false },
+          },
+        }),
+        tx.tenantAeatCredential.count({ where: { ownerId: null, revokedAt: null } }),
+        tx.invoiceSeries.count({
+          where: { isActive: true, isRectification: false, ownerId: null },
+        }),
+        tx.invoice.count({
+          where: { kind: 'invoice', deletedAt: null, status: { notIn: ['draft', 'cancelled'] } },
+        }),
+        tx.user.count({ where: { isActive: true } }),
+        tx.redsysSettings.count({ where: { enabled: true } }),
+        tx.goCardlessSettings.count({ where: { enabled: true } }),
+        tx.sepaSettings.count({ where: { enabled: true } }),
+        tx.tenantStripeAccount.count({ where: { chargesEnabled: true } }),
+      ]);
+      return {
+        tenant,
+        facilities,
+        units,
+        customers,
+        contracts,
+        aeat,
+        series,
+        issuedInvoices,
+        activeUsers,
+        gateways: redsys + gocardless + sepa + stripe,
+      };
+    }, tenantId);
+    const ownerVerified = await this.admin.user.count({
+      where: { tenantId, role: 'owner', emailVerifiedAt: { not: null } },
+    });
+    const t = d.tenant;
+    const paymentsReady =
+      d.gateways > 0 ||
+      Boolean(t?.transferIban) ||
+      Boolean(t?.offlineCashEnabled) ||
+      Boolean(t?.offlineTransferEnabled) ||
+      Boolean(t?.offlineSepaEnabled);
     const items: AdminOnboardingDto['items'] = [
       { key: 'email_verified', label: 'Email del propietario verificado', done: ownerVerified > 0 },
-      { key: 'facility', label: 'Primer local creado', done: facilities > 0 },
-      { key: 'unit', label: 'Primer trastero creado', done: units > 0 },
-      { key: 'customer', label: 'Primer inquilino dado de alta', done: customers > 0 },
-      { key: 'contract', label: 'Primer contrato', done: contracts > 0 },
+      { key: 'facility', label: 'Primer local creado', done: d.facilities > 0 },
+      { key: 'unit', label: 'Primer trastero creado', done: d.units > 0 },
+      { key: 'customer', label: 'Primer inquilino dado de alta', done: d.customers > 0 },
+      { key: 'contract', label: 'Primer contrato', done: d.contracts > 0 },
       {
         key: 'branding',
         label: 'Marca del portal configurada',
-        done: Boolean(tenant?.portalLogoUrl || tenant?.portalBrandColor),
+        done: Boolean(t?.portalLogoUrl || t?.portalBrandColor),
       },
-      { key: 'invoice_series', label: 'Serie de facturación creada', done: series > 0 },
-      { key: 'first_invoice', label: 'Primera factura emitida', done: issuedInvoices > 0 },
+      { key: 'invoice_series', label: 'Serie de facturación creada', done: d.series > 0 },
+      { key: 'first_invoice', label: 'Primera factura emitida', done: d.issuedInvoices > 0 },
       {
         key: 'payments',
-        label: 'Forma de cobro configurada (Redsys, GoCardless, SEPA o IBAN)',
+        label: 'Forma de cobro (tarjeta, domiciliación, IBAN o cobro en el local)',
         done: paymentsReady,
       },
-      // En modo Holded la factura la registra Holded: no necesita certificado propio.
-      ...(tenant?.invoicingMode === 'holded'
+      // En modo Holded la factura la registra Holded; sin Veri*Factu activado el
+      // certificado no se usa todavía.
+      ...(t?.invoicingMode === 'holded'
         ? []
-        : [{ key: 'verifactu', label: 'Veri*Factu (certificado AEAT)', done: aeat > 0 }]),
-      { key: 'team', label: 'Equipo invitado (2 o más usuarios)', done: activeUsers > 1 },
+        : [
+            {
+              key: 'verifactu',
+              label: 'Veri*Factu activado con el certificado AEAT',
+              done: !!t?.verifactuEnabled && d.aeat > 0,
+            },
+          ]),
+      { key: 'team', label: 'Equipo invitado (2 o más usuarios)', done: d.activeUsers > 1 },
     ];
     return { items, completed: items.filter((i) => i.done).length, total: items.length };
   }
@@ -2172,8 +2294,19 @@ export class AdminTenantsService {
     const newPrice = Number(newPlan.priceMonthly) + extraUnits * unitPrice;
     const chargedByStripe =
       !!subscription.stripeSubscriptionId && subscription.billingMode === 'stripe';
+    // Cuotas vencidas: se cuentan a la cuota del plan que tenga cuando las pague.
+    const owedPeriods =
+      subscription.status === 'past_due'
+        ? periodsOwed(subscriptionDueDate(subscription), new Date(), 1, chargedByStripe)
+        : 0;
+    const tenantRow = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
     return {
       chargedByStripe,
+      owedPeriods,
+      inTrial: tenantRow?.status === 'trial' || subscription.status === 'trial',
       stripePriceMissing: chargedByStripe && !newPlan.stripePriceId,
       currentPlanName: subscription.plan.name,
       currentPriceMonthly: currentPrice,
@@ -2218,8 +2351,16 @@ export class AdminTenantsService {
     const placeholderHash = await argonHash(randomBytes(32).toString('hex'));
     const now = new Date();
 
+    // Primero, que deje de cobrársele (Stripe confirma la cancelación o no se
+    // sigue): un tenant anonimizado no puede seguir pagando.
+    await this.saasBilling.stopChargingForAnonymize(tenantId);
+    // Los inquilinos que cuenta el aviso: los mismos que la vista previa.
+    const liveCustomers = await this.admin.customer.count({
+      where: { tenantId, deletedAt: null, isTest: false },
+    });
+
     const counts = await this.admin.$transaction(async (tx) => {
-      const customers = await tx.customer.updateMany({
+      await tx.customer.updateMany({
         where: { tenantId },
         data: {
           firstName: ANON,
@@ -2320,6 +2461,165 @@ export class AdminTenantsService {
         where: { tenantId, status: 'active' },
         data: { status: 'cancelled' },
       });
+
+      // Lo que quedaba con datos de inquilinos o del equipo fuera de sus fichas.
+      await tx.incident.updateMany({
+        where: { tenantId },
+        data: {
+          title: ANON,
+          description: null,
+          photos: [],
+          reportedByExternal: null,
+          resolution: null,
+          metadata: {},
+        },
+      });
+      await tx.reservation.updateMany({
+        where: { tenantId },
+        data: { notes: null, cancelReason: null },
+      });
+      await tx.notification.updateMany({ where: { tenantId }, data: { title: ANON, body: null } });
+      await tx.leadActivity.updateMany({ where: { tenantId }, data: { content: ANON } });
+      await tx.leadFollowup.updateMany({ where: { tenantId }, data: { title: ANON, note: null } });
+      await tx.leadVisit.updateMany({ where: { tenantId }, data: { notes: null } });
+      await tx.customerOffer.updateMany({ where: { tenantId }, data: { message: ANON } });
+      await tx.retentionOffer.updateMany({ where: { tenantId }, data: { message: null } });
+      await tx.dataSubjectRequest.updateMany({
+        where: { tenantId },
+        data: { email: ANON, notes: null, rejectionReason: null, exportFileUrl: null },
+      });
+      await tx.aiMessage.updateMany({
+        where: { tenantId },
+        data: { content: ANON, toolsUsed: {} },
+      });
+      await tx.webhookDelivery.updateMany({
+        where: { tenantId },
+        data: { payload: {}, responseBody: null, errorMessage: null },
+      });
+      await tx.emailSuppression.deleteMany({ where: { tenantId } });
+      await tx.expenseSupplier.updateMany({
+        where: { tenantId },
+        data: { name: ANON, taxId: null, email: null, phone: null, notes: null },
+      });
+      await tx.businessReminder.updateMany({
+        where: { tenantId },
+        data: { extraEmails: [], notes: null },
+      });
+      await tx.reportSchedule.updateMany({
+        where: { tenantId },
+        data: { recipients: [], isActive: false },
+      });
+      await tx.ownerStatement.updateMany({ where: { tenantId }, data: { sentTo: null } });
+      await tx.invitation.updateMany({
+        where: { tenantId },
+        data: { email: ANON, revokedAt: now, revokedReason: 'tenant_anonymized' },
+      });
+      // Puertas y cámaras: desactivadas y sin claves (no pueden seguir hablando
+      // con la plataforma en nombre del negocio).
+      await tx.accessDevice.updateMany({
+        where: { tenantId },
+        data: {
+          isActive: false,
+          apiKeyHash: null,
+          apiKeyPreview: null,
+          controlSecretEncrypted: null,
+        },
+      });
+      // El token de ingesta es único: se cambia por uno al azar que nadie conoce.
+      const cameras = await tx.cameraDevice.findMany({ where: { tenantId }, select: { id: true } });
+      for (const c of cameras) {
+        await tx.cameraDevice.update({
+          where: { id: c.id },
+          data: {
+            isActive: false,
+            controlSecretEncrypted: null,
+            ingestTokenHash: `revoked-${randomBytes(24).toString('hex')}`,
+            ingestTokenPreview: '',
+          },
+        });
+      }
+      // Justificantes del depósito de fianzas de vivienda (llevan datos del inquilino).
+      const depositReceipts = await tx.contract.findMany({
+        where: { tenantId, depositRegistryReceiptKey: { not: null } },
+        select: { depositRegistryReceiptKey: true },
+      });
+      await tx.contract.updateMany({
+        where: { tenantId, depositRegistryReceiptKey: { not: null } },
+        data: { depositRegistryReceiptKey: null },
+      });
+      // El mandato SEPA y la tarjeta con los que nos pagaba la suscripción.
+      await tx.platformSepaMandate.updateMany({
+        where: { tenantId },
+        data: {
+          status: 'cancelled',
+          ibanEncrypted: '',
+          bic: null,
+          debtorName: null,
+          debtorAddress: null,
+          debtorPostalCode: null,
+          debtorCity: null,
+          signerName: null,
+          signatureImage: null,
+          typedSignature: null,
+          documentText: null,
+          signedIp: null,
+          signedUserAgent: null,
+        },
+      });
+      await tx.platformRedsysCard.deleteMany({ where: { tenantId } });
+      // Más texto libre que puede llevar nombres, teléfonos o lo hablado.
+      await tx.aiConversation.updateMany({ where: { tenantId }, data: { title: ANON } });
+      await tx.aiScheduledQuestion.deleteMany({ where: { tenantId } });
+      await tx.aiPendingAction.deleteMany({ where: { tenantId } });
+      await tx.task.updateMany({
+        where: { tenantId },
+        data: { title: ANON, description: null, cancelReason: null, metadata: {} },
+      });
+      await tx.taskComment.updateMany({ where: { tenantId }, data: { body: ANON } });
+      await tx.businessReminderCompletion.updateMany({ where: { tenantId }, data: { note: null } });
+      await tx.incidentComment.updateMany({ where: { tenantId }, data: { body: ANON } });
+      await tx.delinquencyCase.updateMany({
+        where: { tenantId },
+        data: { notes: null, custodyLocation: null, noticeTracking: null },
+      });
+      await tx.delinquencyCaseEvent.updateMany({ where: { tenantId }, data: { payload: {} } });
+      await tx.paymentPlan.updateMany({ where: { tenantId }, data: { notes: null } });
+      await tx.consent.updateMany({ where: { tenantId }, data: { evidence: {} } });
+      await tx.automationRun.updateMany({
+        where: { tenantId },
+        data: { eventPayload: {}, errorMessage: null },
+      });
+      await tx.accessLog.updateMany({
+        where: { tenantId },
+        data: { attemptedValue: null, ipAddress: null, metadata: {} },
+      });
+      const snapshots = await tx.cameraEvent.findMany({
+        where: { tenantId, snapshotKey: { not: null } },
+        select: { snapshotKey: true },
+      });
+      await tx.cameraEvent.deleteMany({ where: { tenantId } });
+      // Lo que se guardó de la relación con la plataforma: sin contacto ni lo hablado.
+      await tx.tenantInteraction.updateMany({ where: { tenantId }, data: { content: ANON } });
+      await tx.platformEmailLog.updateMany({
+        where: { tenantId },
+        data: { recipient: ANON, bodyText: null, bodyHtml: null },
+      });
+      await tx.platformNpsResponse.updateMany({
+        where: { tenantId },
+        data: { email: ANON, comment: null },
+      });
+      await tx.platformLegalAcceptance.updateMany({
+        where: { tenantId },
+        data: { ipAddress: null },
+      });
+      await tx.supportTicket.updateMany({
+        where: { tenantId },
+        data: { userAgent: null, pageUrl: null, ratingComment: null },
+      });
+      // Enlaces de un solo uso que ya no se van a usar.
+      await tx.passwordResetToken.deleteMany({ where: { tenantId } });
+      await tx.emailVerificationToken.deleteMany({ where: { tenantId } });
+      await tx.recoveryCode.deleteMany({ where: { tenantId } });
 
       await tx.customerDocument.deleteMany({ where: { tenantId } });
       await tx.customerDocumentRequest.deleteMany({ where: { tenantId } });
@@ -2458,7 +2758,12 @@ export class AdminTenantsService {
             twoFactorEnabled: false,
             twoFactorEnrolledAt: null,
             appPinHash: null,
+            pendingEmail: null,
+            emailChangeTokenHash: null,
+            termsAcceptedIp: null,
+            termsAcceptedUserAgent: null,
             isActive: false,
+            tokensValidAfter: now,
           },
         });
       }
@@ -2481,23 +2786,38 @@ export class AdminTenantsService {
           transferIban: null,
           accountantEmail: null,
           accountantReportFrequency: 'off',
+          aiOwnApiKeyEncrypted: null,
+          remindersIcsTokenHash: null,
+          remindersIcsTokenEncrypted: null,
+          billingLegalName: null,
+          billingAddress: null,
+          billingCity: null,
+          billingPostalCode: null,
+          strategicNotes: null,
+          emailReplyTo: null,
+          // Libera el dominio para otro.
+          customDomain: null,
+          customDomainVerifiedAt: null,
+          customDomainReadyAt: null,
         },
       });
 
       return {
-        customers: customers.count,
+        customers: liveCustomers,
         users: users.length,
         leads: leads.count,
         communications: communications.count,
         whatsappConversations: whatsapp.count,
         fileKeys: [
           ...whatsapp.mediaKeys,
+          ...depositReceipts.map((c) => c.depositRegistryReceiptKey!),
+          ...snapshots.map((c) => c.snapshotKey!),
           ...faces.map((f) => f.facePhotoKey!),
           ...photos.map((p) => p.key),
           ...chatFiles.flatMap(attachmentKeysOf),
         ],
       };
-    });
+    }, ANONYMIZE_TX_OPTIONS);
 
     const changes = {
       reason: meta.reason,
@@ -2510,7 +2830,7 @@ export class AdminTenantsService {
     await this.files.deleteObjects('uploads', counts.fileKeys);
     // Documentos de los inquilinos y adjuntos que quedaran sueltos (las facturas
     // y los contratos firmados se conservan, como en el RGPD de un inquilino).
-    for (const prefix of ['customers', 'chat', 'collections', 'incidents']) {
+    for (const prefix of ANONYMIZE_FILE_PREFIXES) {
       await this.files
         .deleteByPrefix('uploads', `${tenantId}/${prefix}/`)
         .catch((err: unknown) =>

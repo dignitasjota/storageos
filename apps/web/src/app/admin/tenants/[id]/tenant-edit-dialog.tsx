@@ -1,7 +1,11 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { AdminUpdateTenantSchema, type AdminUpdateTenantInput } from '@storageos/shared';
+import {
+  AdminUpdateTenantSchema,
+  isValidSpanishTaxId,
+  type AdminUpdateTenantInput,
+} from '@storageos/shared';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
 
@@ -27,6 +31,26 @@ import {
 import { Input } from '@/components/ui/input';
 import { useUpdateTenant } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
+
+/** Las zonas habituales primero; después todas las que conoce el navegador. */
+const COMMON_ZONES = ['Europe/Madrid', 'Atlantic/Canary', 'Europe/Lisbon', 'Europe/London'];
+
+function allZones(): string[] {
+  try {
+    const list = (
+      Intl as unknown as { supportedValuesOf?: (k: string) => string[] }
+    ).supportedValuesOf?.('timeZone');
+    return (list ?? []).filter((z) => !COMMON_ZONES.includes(z));
+  } catch {
+    return [];
+  }
+}
+
+function zoneLabel(zone: string): string {
+  if (zone === 'Europe/Madrid') return 'España peninsular y Baleares (Europe/Madrid)';
+  if (zone === 'Atlantic/Canary') return 'Canarias (Atlantic/Canary)';
+  return zone;
+}
 
 export function TenantEditDialog({
   tenant,
@@ -55,6 +79,15 @@ export function TenantEditDialog({
   });
 
   async function onSubmit(values: AdminUpdateTenantInput) {
+    // En España el NIF tiene que ser válido (sale en sus facturas).
+    if (
+      (values.country ?? 'ES') === 'ES' &&
+      values.taxId?.trim() &&
+      !isValidSpanishTaxId(values.taxId)
+    ) {
+      form.setError('taxId', { message: 'El NIF no es válido (revisa la letra o el dígito).' });
+      return;
+    }
     try {
       await update.mutateAsync({
         ...values,
@@ -227,7 +260,23 @@ export function TenantEditDialog({
                 <FormItem>
                   <FormLabel>Zona horaria</FormLabel>
                   <FormControl>
-                    <Input {...field} value={field.value ?? ''} placeholder="Europe/Madrid" />
+                    <select
+                      value={field.value ?? 'Europe/Madrid'}
+                      onChange={(e) => field.onChange(e.target.value)}
+                      className="h-9 w-full rounded-md border bg-background px-2 text-base sm:text-sm"
+                    >
+                      {[
+                        ...new Set([
+                          field.value ?? 'Europe/Madrid',
+                          ...COMMON_ZONES,
+                          ...allZones(),
+                        ]),
+                      ].map((z) => (
+                        <option key={z} value={z}>
+                          {zoneLabel(z)}
+                        </option>
+                      ))}
+                    </select>
                   </FormControl>
                   <FormMessage />
                 </FormItem>

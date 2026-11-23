@@ -642,9 +642,17 @@ export class TenantSettingsService {
     // Con y sin `www.` son el mismo sitio: otra cuenta no puede tener la otra forma.
     const taken = await this.admin.tenant.findFirst({
       where: { customDomain: { in: customDomainHosts(domain) }, id: { not: tenantId } },
-      select: { id: true, customDomain: true, customDomainVerifiedAt: true },
+      select: { id: true, customDomain: true, customDomainVerifiedAt: true, deletedAt: true },
     });
     if (!taken?.customDomain) return;
+    // Una cuenta borrada (anonimizada) ya no lo usa: se libera.
+    if (taken.deletedAt) {
+      await this.admin.tenant.update({
+        where: { id: taken.id },
+        data: { customDomain: null, customDomainVerifiedAt: null, customDomainReadyAt: null },
+      });
+      return;
+    }
     if (taken.customDomainVerifiedAt) {
       throw new ConflictException({
         code: 'domain_taken',

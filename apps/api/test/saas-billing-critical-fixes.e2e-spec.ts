@@ -139,7 +139,11 @@ describe('Fixes críticos de facturación SaaS (e2e)', () => {
       where: { tenantId },
       data: { status: 'past_due' },
     });
-    await admin.tenant.update({ where: { id: tenantId }, data: { status: 'suspended' } });
+    // El escalado suspende con el motivo «impago» (solo esos se reactivan al pagar).
+    await admin.tenant.update({
+      where: { id: tenantId },
+      data: { status: 'suspended', churnReason: 'nonpayment', canceledAt: new Date() },
+    });
 
     // Pago manual con extensión (regulariza).
     const billing = app.get(BillingSaasService, { strict: false });
@@ -155,6 +159,31 @@ describe('Fixes críticos de facturación SaaS (e2e)', () => {
     const after = await admin.tenant.findUnique({ where: { id: tenantId } });
     const sub = await admin.tenantSubscription.findUnique({ where: { tenantId } });
     expect(after!.status).toBe('active');
+    expect(after!.churnReason).toBeNull();
     expect(sub!.status).toBe('active');
+  });
+
+  it('un pago manual no saca de la suspensión a quien se suspendió a mano', async () => {
+    const owner = await registerVerifiedUser(app, 'crit-keepsusp');
+    const tenant = await admin.tenant.findUnique({ where: { slug: owner.slug } });
+    const tenantId = tenant!.id;
+    await admin.tenant.update({
+      where: { id: tenantId },
+      data: { status: 'suspended', churnReason: 'other', canceledAt: new Date() },
+    });
+
+    const billing = app.get(BillingSaasService, { strict: false });
+    await billing.recordManualPayment({
+      tenantId,
+      provider: 'bank_transfer',
+      amount: 49,
+      currency: 'EUR',
+      durationMonths: 1,
+      extendsPeriod: true,
+    });
+
+    const after = await admin.tenant.findUnique({ where: { id: tenantId } });
+    expect(after!.status).toBe('suspended');
+    expect(after!.churnReason).toBe('other');
   });
 });

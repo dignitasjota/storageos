@@ -19,6 +19,8 @@ interface RawAccessPayload {
   trid?: string | null;
   purpose?: string;
   impersonationId?: string;
+  /** Emisión en milisegundos (los tokens anteriores no lo llevan). */
+  ims?: number;
   iat: number;
   exp: number;
 }
@@ -97,6 +99,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         isActive: true,
         role: true,
         tenantRoleId: true,
+        tokensValidAfter: true,
         tenantRole: { select: { permissions: true } },
         facilities: { select: { facilityId: true, facility: { select: { deletedAt: true } } } },
       },
@@ -105,6 +108,21 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException({
         code: 'account_unavailable',
         message: 'La cuenta ya no está disponible',
+      });
+    }
+    // Se cerraron todas sus sesiones (él mismo, el propietario o el soporte):
+    // los tokens anteriores dejan de valer al momento. Con `ims` se compara en
+    // milisegundos; un token antiguo sin él, en segundos como el `iat`.
+    if (
+      !impersonation &&
+      user.tokensValidAfter &&
+      (typeof payload.ims === 'number'
+        ? payload.ims < user.tokensValidAfter.getTime()
+        : payload.iat < Math.floor(user.tokensValidAfter.getTime() / 1000))
+    ) {
+      throw new UnauthorizedException({
+        code: 'session_revoked',
+        message: 'La sesión se ha cerrado. Vuelve a entrar.',
       });
     }
     // Rol cambiado: se rechaza y la web pide un token nuevo con los permisos

@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, Loader2, MapPin } from 'lucide-react';
 import { useState } from 'react';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -91,7 +92,9 @@ function FacilitiesView({
         </DialogDescription>
       </DialogHeader>
 
-      {facilities.isLoading ? (
+      {facilities.isError ? (
+        <AdminError onRetry={() => void facilities.refetch()} />
+      ) : facilities.isLoading ? (
         <div className="flex justify-center py-8">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
@@ -162,7 +165,9 @@ function UnitsView({
         </DialogDescription>
       </DialogHeader>
 
-      {units.isLoading ? (
+      {units.isError ? (
+        <AdminError onRetry={() => void units.refetch()} />
+      ) : units.isLoading ? (
         <div className="flex justify-center py-8">
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>

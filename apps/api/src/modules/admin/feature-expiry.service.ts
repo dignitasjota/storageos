@@ -61,6 +61,24 @@ export class FeatureExpiryService {
       include: { tenant: { select: { name: true } }, trialAddon: { select: { name: true } } },
     });
     for (const o of due) {
+      // Si entretanto contrató un extra que da esta función, no se quita: pasa
+      // a ser la del extra (sin fecha).
+      const paidAddon = await this.admin.tenantSubscriptionAddon.count({
+        where: { tenantId: o.tenantId, suspendedAt: null, addon: { feature: o.feature } },
+      });
+      if (paidAddon > 0) {
+        await this.admin.tenantFeatureOverride.updateMany({
+          where: { id: o.id, expiresAt: { lte: now } },
+          data: {
+            enabled: true,
+            source: 'addon',
+            expiresAt: null,
+            trialAddonId: null,
+            expiryNotifiedAt: null,
+          },
+        });
+        continue;
+      }
       const removed = await this.admin.tenantFeatureOverride.deleteMany({
         where: { id: o.id, expiresAt: { lte: now } },
       });

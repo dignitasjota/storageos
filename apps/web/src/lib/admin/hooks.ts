@@ -1,4 +1,10 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import { liveRefetchInterval } from '../realtime/store';
 
@@ -219,6 +225,19 @@ import type {
 export const adminMeKey = ['admin', 'me'] as const;
 
 type AdminLoginResponse = SuperAdminSessionDto | SuperAdminLoginRequires2faResponse;
+
+/**
+ * Todo lo de la ficha de un tenant (las claves usan `tenants`, `tenant`,
+ * `tenant-billing-summary` y la pestaña Negocio): tras una acción que cambia su
+ * suscripción, su resumen o su historial.
+ */
+export function invalidateTenant(qc: QueryClient, tenantId: string): void {
+  void qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'tenant-limits', tenantId] });
+  void qc.invalidateQueries({ queryKey: ['admin', 'business', 'tenant', tenantId] });
+}
 
 export function useAdminMe() {
   const token = useAdminAuthStore((s) => s.superAdminToken);
@@ -478,8 +497,8 @@ export function useTenantUserAction(tenantId: string) {
         { method: 'POST' },
       ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId, 'users'] });
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', tenantId] });
+      // «Activar cuenta» cambia también la puesta en marcha (otra clave).
+      invalidateTenant(qc, tenantId);
     },
   });
 }
@@ -619,10 +638,7 @@ export function useSwitchToManualBilling() {
   return useMutation({
     mutationFn: (id: string) =>
       adminApiFetch<AdminTenantDto>(`/admin/tenants/${id}/switch-to-manual`, { method: 'POST' }),
-    onSuccess: (_data, id) => {
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] });
-    },
+    onSuccess: (_data, id) => invalidateTenant(qc, id),
   });
 }
 
@@ -635,10 +651,7 @@ export function useSetBillingMode() {
         method: 'POST',
         json: { mode: args.mode },
       }),
-    onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id] });
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', variables.id, 'saas-payments'] });
-    },
+    onSuccess: (_data, variables) => invalidateTenant(qc, variables.id),
   });
 }
 
@@ -841,6 +854,8 @@ export function useChangePlan() {
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant', id, 'features'] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant-limits', id] });
       void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', id] });
+      invalidateTenant(qc, id);
+      void qc.invalidateQueries({ queryKey: ['admin', 'change-plan-preview', id] });
     },
   });
 }
@@ -1236,12 +1251,19 @@ export function useAdminQueues() {
 
 /** Envía un email directo a un tenant. */
 export function useEmailTenant(id: string) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: AdminEmailTenantInput) =>
       adminApiFetch<AdminEmailTenantResultDto>(`/admin/tenants/${id}/email`, {
         method: 'POST',
         json: input,
       }),
+    // Conversaciones, tickets, correos enviados, historial y resumen.
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'support', 'tickets'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'email-log'] });
+    },
   });
 }
 
@@ -1391,7 +1413,7 @@ export function useSetAddonBillingMode(tenantId: string) {
         { method: 'POST', json: { mode: args.mode } },
       ),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
+      invalidateTenant(qc, tenantId);
       void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
@@ -1407,8 +1429,8 @@ export function useAddonSuspension(tenantId: string, action: 'suspend' | 'reacti
         { method: 'POST' },
       ),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-billing-summary', tenantId] });
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant-limits', tenantId] });
+      // Funciones, resumen y estado de cuenta cambian con el extra.
+      invalidateTenant(qc, tenantId);
       void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
     },
   });
@@ -1542,8 +1564,8 @@ export function useAddManualSaasPayment(id: string) {
     onSuccess: () => {
       // Refresca los pagos y el detalle del tenant (el periodo de suscripción cambió).
       qc.invalidateQueries({ queryKey: ['admin', 'today'] });
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'saas-payments'] });
-      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
+      // Pagos, facturas de suscripción, estado de cuenta y resumen.
+      invalidateTenant(qc, id);
     },
   });
 }
@@ -1568,7 +1590,8 @@ export function useCreateTenantInteraction(id: string) {
         method: 'POST',
         json: input,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'interactions'] }),
+    // Conversaciones, resumen de cabecera e historial.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] }),
   });
 }
 
@@ -1612,7 +1635,8 @@ export function useCreateFollowup(id: string) {
         json: input,
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'followups'] });
+      // Seguimientos, resumen de cabecera e historial.
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants', id] });
       void qc.invalidateQueries({ queryKey: ['admin', 'followups', 'pending'] });
     },
   });
@@ -2272,7 +2296,7 @@ export function useRectifyPlatformInvoice(tenantId: string) {
         json: input,
       }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'platform-invoices'] });
+      invalidateTenant(qc, tenantId);
       void qc.invalidateQueries({ queryKey: ['admin', 'platform-invoices'] });
     },
   });
@@ -2303,8 +2327,7 @@ export function useIssuePlatformInvoice(tenantId: string) {
         method: 'POST',
         json: { paymentId },
       }),
-    onSuccess: () =>
-      void qc.invalidateQueries({ queryKey: ['admin', 'tenant', tenantId, 'platform-invoices'] }),
+    onSuccess: () => invalidateTenant(qc, tenantId),
   });
 }
 
@@ -3160,7 +3183,10 @@ export function useResetTenantData(tenantId: string) {
         method: 'POST',
         json: input,
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'tenants'] });
+      invalidateTenant(qc, tenantId);
+    },
   });
 }
 

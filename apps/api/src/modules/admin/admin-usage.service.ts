@@ -540,7 +540,7 @@ export class AdminUsageService {
         queriesThisMonth: queriesBy.get(t.id) ?? 0,
         queryLimit: features.includes('ai_assistant')
           ? (t.aiMonthlyLimit ??
-            planBase(settings?.planLimits, t.subscription?.plan.slug, general) + extra.queries)
+              planBase(settings?.planLimits, t.subscription?.plan.slug, general)) + extra.queries
           : null,
         revenueMonthly: Math.round(extra.revenue * 100) / 100,
       });

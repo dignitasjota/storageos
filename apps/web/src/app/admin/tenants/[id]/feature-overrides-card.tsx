@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 
 import type { TenantFeature } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,7 +29,8 @@ function lastDay(iso: string): string {
  */
 export function FeatureOverridesCard({ tenantId }: { tenantId: string }) {
   const canEdit = useIsSuperadmin();
-  const { data } = useAdminTenantFeatures(tenantId);
+  const featuresQ = useAdminTenantFeatures(tenantId);
+  const { data } = featuresQ;
   const save = useSetTenantFeatures(tenantId);
   // Estado deseado por feature (checked = activa) y fin de la cortesía.
   const [state, setState] = useState<Record<string, boolean>>({});
@@ -47,6 +49,7 @@ export function FeatureOverridesCard({ tenantId }: { tenantId: string }) {
     }
   }, [data]);
 
+  if (featuresQ.isError) return <AdminError onRetry={() => void featuresQ.refetch()} />;
   if (!data) return null;
 
   const planSet = new Set(data.planFeatures);

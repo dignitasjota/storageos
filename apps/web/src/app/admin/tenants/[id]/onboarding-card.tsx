@@ -2,11 +2,14 @@
 
 import { CheckCircle2, Circle } from 'lucide-react';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminTenantOnboarding } from '@/lib/admin/hooks';
 
 export function OnboardingCard({ tenantId }: { tenantId: string }) {
-  const { data } = useAdminTenantOnboarding(tenantId);
+  const q = useAdminTenantOnboarding(tenantId);
+  const data = q.data;
+  if (q.isError) return <AdminError onRetry={() => void q.refetch()} />;
   if (!data) return null;
 
   const pct = data.total > 0 ? Math.round((data.completed / data.total) * 100) : 0;

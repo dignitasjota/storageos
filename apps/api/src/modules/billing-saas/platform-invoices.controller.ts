@@ -214,6 +214,7 @@ export class PlatformInvoicesController {
   /** Rectificativa de una factura de suscripción (sustitución o abono). */
   @Post('platform-invoices/:id/rectify')
   @RequireSuperadmin()
+  @AdminAudit('admin.platform_invoice.rectified')
   rectify(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: RectifyDto,

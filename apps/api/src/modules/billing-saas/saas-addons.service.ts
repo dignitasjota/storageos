@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -1275,6 +1276,16 @@ export class SaasAddonsService {
             'El tenant no paga el plan por Stripe; no hay suscripción donde añadir el add-on.',
         });
       }
+      // Stripe cobraría el precio del catálogo: si a este tenant se le congeló
+      // otro precio, el cambio le cobraría distinto de lo acordado.
+      if (
+        Math.round(num(row.priceMonthly) * 100) !== Math.round(num(row.addon.priceMonthly) * 100)
+      ) {
+        throw new BadRequestException({
+          code: 'addon_price_differs',
+          message: `Este tenant paga ${num(row.priceMonthly).toFixed(2)} € por el extra y la tarifa es ${num(row.addon.priceMonthly).toFixed(2)} €: Stripe cobraría la tarifa. Déjalo en cobro manual o pon el precio de tarifa.`,
+        });
+      }
       const priceId = await this.ensureStripePrice(row.addon);
       const item = await this.stripe.subscriptionItems.create({
         subscription: sub.stripeSubscriptionId,
@@ -1369,17 +1380,29 @@ export class SaasAddonsService {
     }
   }
 
+  /**
+   * Quita la línea del extra de la suscripción de Stripe. Si Stripe no la
+   * confirma, lanza: quitar, suspender o volver a manual no siguen mientras
+   * Stripe la siga cobrando. Una línea que ya no existe en Stripe vale.
+   */
   private async deleteStripeItem(itemId: string, prorate = true): Promise<void> {
+    if (!this.stripeGateway.isConfigured()) return;
     try {
       await this.stripe.subscriptionItems.del(itemId, {
         proration_behavior: prorate ? 'create_prorations' : 'none',
       });
     } catch (err) {
+      if ((err as { code?: string }).code === 'resource_missing') return;
       this.logger.warn(
         `No se pudo borrar el subscription item ${itemId}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
+      throw new BadGatewayException({
+        code: 'stripe_item_delete_failed',
+        message:
+          'Stripe no ha confirmado que deje de cobrar este extra. Vuelve a intentarlo o quítalo en el panel de Stripe.',
+      });
     }
   }
 
@@ -1420,10 +1443,13 @@ export class SaasAddonsService {
     if (activeWithFeature > 0) {
       const existing = await this.admin.tenantFeatureOverride.findUnique({
         where: { tenantId_feature: { tenantId, feature } },
-        select: { source: true },
+        select: { source: true, expiresAt: true },
       });
-      // Una prueba gratis se convierte en el extra contratado (sin caducidad).
-      const fromTrial = existing?.source === 'trial';
+      // Una prueba gratis, o una cortesía con fecha, se convierte en el extra
+      // contratado (sin caducidad): si no, al caducar le quitaría la función
+      // que ya paga. Una cortesía sin fecha se respeta como está.
+      const fromTrial =
+        existing?.source === 'trial' || (existing?.source === 'manual' && !!existing.expiresAt);
       await this.admin.tenantFeatureOverride.upsert({
         where: { tenantId_feature: { tenantId, feature } },
         create: { tenantId, feature, enabled: true, source: 'addon' },

@@ -80,6 +80,8 @@ export interface AdminTenantAccountDto {
   overdue: AdminOverdueDto | null;
   /** Pagado en los últimos 12 meses (neto de devoluciones). */
   paid12m: number;
+  /** Hay un adeudo SEPA de la cuota enviado al banco y sin confirmar. */
+  sepaInProgress: boolean;
   history: AdminAccountEventDto[];
 }
 

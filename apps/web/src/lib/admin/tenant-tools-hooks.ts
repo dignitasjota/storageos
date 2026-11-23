@@ -30,6 +30,9 @@ export function useAnonymizePreview(tenantId: string, enabled: boolean) {
     queryFn: () =>
       adminApiFetch<AdminAnonymizePreviewDto>(`/admin/tenants/${tenantId}/anonymize-preview`),
     enabled,
+    // Siempre al día (tras pasar a manual se va el aviso de Stripe).
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 

@@ -141,7 +141,8 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'push_subscriptions', where: 'customer_id IS NOT NULL' },
   // Trasteros cedidos: su trastero queda libre (abajo) y su acceso se borra.
   { table: 'unit_cessions' },
-  // Todas las credenciales son de inquilinos (ya quitadas de los terminales).
+  // Los accesos de los inquilinos y los temporales (de visitas, sin inquilino):
+  // todo lo de prueba. Los del terminal ya se han quitado de él.
   { table: 'access_credentials' },
   { table: 'customers' },
   { table: 'expenses' },
@@ -156,6 +157,10 @@ const PURGE_STEPS: { table: string; where?: string }[] = [
   { table: 'web_chat_conversations', where: 'lead_id IS NULL' },
   // Métricas de los anuncios: su gasto ya se ha borrado con los gastos.
   { table: 'ad_metrics_daily' },
+  // Cierres trimestrales (con la foto de unas facturas que ya no existen) y lo
+  // apartado en «Hoy» (apunta a registros borrados).
+  { table: 'fiscal_period_closures' },
+  { table: 'today_snoozes' },
 ];
 
 /** Qué tabla se cuenta para cada cifra de la vista previa. */
@@ -192,7 +197,7 @@ export class AdminTenantResetService {
   async preview(tenantId: string): Promise<TenantResetPreviewDto> {
     const tenant = await this.findTenant(tenantId);
     const counts = await this.counts(tenantId);
-    const [facilities, units, products, leads, users, series] = await Promise.all([
+    const [facilities, units, products, leads, users, series, issuedInvoices] = await Promise.all([
       this.admin.facility.count({ where: { tenantId, deletedAt: null } }),
       this.admin.unit.count({ where: { tenantId } }),
       this.admin.product.count({ where: { tenantId } }),
@@ -202,6 +207,9 @@ export class AdminTenantResetService {
         where: { tenantId },
         select: { prefix: true, nextNumber: true },
         orderBy: { prefix: 'asc' },
+      }),
+      this.admin.invoice.count({
+        where: { tenantId, kind: 'invoice', status: { not: 'draft' } },
       }),
     ]);
     const [{ blockers, warnings }, files] = await Promise.all([
@@ -215,6 +223,7 @@ export class AdminTenantResetService {
       counts,
       kept: { facilities, units, products, leads, users },
       series,
+      issuedInvoices,
       blockers,
       warnings,
       files,
@@ -249,7 +258,7 @@ export class AdminTenantResetService {
 
     // Las credenciales de los inquilinos que están en un terminal (validan sin
     // red) se quitan de él antes: si no, seguirían abriendo la puerta.
-    await this.revokeOnTerminals(tenantId);
+    const revoked = await this.revokeOnTerminals(tenantId);
 
     const counts = await this.counts(tenantId);
     // Conversaciones de WhatsApp de inquilinos: sus archivos se borran después.
@@ -263,7 +272,7 @@ export class AdminTenantResetService {
       .map((c) => c.email!.trim().toLowerCase())
       .filter(Boolean);
 
-    const { unitsFreed, seriesReset } = await this.admin.$transaction(
+    const purge = this.admin.$transaction(
       async (tx) => {
         for (const step of PURGE_STEPS) {
           await tx.$executeRawUnsafe(
@@ -309,10 +318,23 @@ export class AdminTenantResetService {
             where: { tenantId, email: { in: customerEmails, mode: 'insensitive' } },
           });
         }
+        // Segmentos guardados con inquilinos elegidos a mano: esos ya no existen.
+        await tx.$executeRaw`
+          UPDATE campaign_segments SET segment = segment - 'customerIds'
+          WHERE tenant_id = ${tenantId}::uuid AND segment ? 'customerIds'`;
         return { unitsFreed: freed.count, seriesReset: series.count };
       },
       { timeout: 120_000, maxWait: 10_000 },
     );
+    let unitsFreed: number;
+    let seriesReset: number;
+    try {
+      ({ unitsFreed, seriesReset } = await purge);
+    } catch (err) {
+      // No se ha borrado nada: los accesos quitados del terminal vuelven a él.
+      await this.restoreOnTerminals(tenantId, revoked);
+      throw err;
+    }
 
     const filesDeleted = await this.deleteFiles(tenantId, waConversations);
 
@@ -380,25 +402,78 @@ export class AdminTenantResetService {
     const warnings: TenantResetIssueDto<TenantResetWarningCode>[] = [];
     const aeatMode = this.config.get('AEAT_MODE', { infer: true });
 
-    const [sentAny, holdedIssued, platformInvoices, holded, gateway, ownTenant, synced] =
-      await Promise.all([
-        this.countRows('invoices', tenantId, AEAT_SENT),
-        this.countRows('invoices', tenantId, `issued_by = 'holded'`),
-        this.countRows('invoices', tenantId, 'platform_payment_id IS NOT NULL'),
-        this.countRows('invoices', tenantId, 'holded_document_id IS NOT NULL'),
-        this.countRows(
-          'payments',
-          tenantId,
-          `gateway_payment_id IS NOT NULL AND status IN ('succeeded', 'partially_refunded', 'refunded')`,
-        ),
-        this.admin.platformBillingSettings.findFirst({
-          where: { ownTenantId: tenantId },
-          select: { id: true },
-        }),
-        this.admin.accessCredentialSync.count({
-          where: { tenantId },
-        }),
-      ]);
+    // Cobros por pasarelas en modo real: Stripe con la clave real de la
+    // plataforma, y Redsys o GoCardless del tenant en real.
+    const [redsysEnv, goCardlessEnv] = await Promise.all([
+      this.admin.redsysSettings.findUnique({ where: { tenantId }, select: { environment: true } }),
+      this.admin.goCardlessSettings.findUnique({
+        where: { tenantId },
+        select: { environment: true },
+      }),
+    ]);
+    const liveGateways = [
+      this.config.get('STRIPE_SECRET_KEY', { infer: true }).startsWith('sk_live_')
+        ? 'stripe'
+        : null,
+      redsysEnv?.environment === 'live' ? 'redsys' : null,
+      goCardlessEnv?.environment === 'live' ? 'gocardless' : null,
+    ].filter((g): g is string => g !== null);
+
+    const [
+      sentAny,
+      holdedIssued,
+      platformInvoices,
+      holded,
+      gateway,
+      ownTenant,
+      synced,
+      paidFees,
+      livePayments,
+    ] = await Promise.all([
+      this.countRows('invoices', tenantId, AEAT_SENT),
+      this.countRows('invoices', tenantId, `issued_by = 'holded'`),
+      this.countRows('invoices', tenantId, 'platform_payment_id IS NOT NULL'),
+      this.countRows('invoices', tenantId, 'holded_document_id IS NOT NULL'),
+      this.countRows(
+        'payments',
+        tenantId,
+        `gateway_payment_id IS NOT NULL AND status IN ('succeeded', 'partially_refunded', 'refunded')`,
+      ),
+      this.admin.platformBillingSettings.findFirst({
+        where: { ownTenantId: tenantId },
+        select: { id: true },
+      }),
+      this.admin.accessCredentialSync.count({
+        where: { tenantId },
+      }),
+      this.admin.tenantSubscriptionPayment.count({
+        where: { tenantId, status: 'paid', amount: { gt: 0 } },
+      }),
+      liveGateways.length > 0
+        ? this.admin.payment.count({
+            where: {
+              tenantId,
+              gateway: { in: liveGateways as never[] },
+              status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    if (paidFees > 0) {
+      blockers.push({
+        code: 'paid_subscription',
+        count: paidFees,
+        message: `Ha pagado ${paidFees} ${paidFees === 1 ? 'cuota' : 'cuotas'} de su suscripción: es un cliente real y sus datos no son de prueba.`,
+      });
+    }
+    if (livePayments > 0) {
+      blockers.push({
+        code: 'live_gateway_payments',
+        count: livePayments,
+        message: `Tiene ${livePayments} cobros reales por una pasarela en modo real: no son datos de prueba.`,
+      });
+    }
 
     if (aeatMode === 'production' && sentAny > 0) {
       blockers.push({
@@ -461,7 +536,7 @@ export class AdminTenantResetService {
    * Quita de los terminales las credenciales de los inquilinos. Si alguna no se
    * puede quitar (terminal sin conexión), no se borra nada: quedaría abriendo.
    */
-  private async revokeOnTerminals(tenantId: string): Promise<void> {
+  private async revokeOnTerminals(tenantId: string): Promise<string[]> {
     const rows = await this.admin.accessCredentialSync.findMany({
       where: { tenantId },
       select: { credentialId: true },
@@ -470,7 +545,7 @@ export class AdminTenantResetService {
     for (const row of rows) {
       await this.sync.applyState(tenantId, row.credentialId, 'revoked');
     }
-    if (rows.length === 0) return;
+    if (rows.length === 0) return [];
     const left = await this.admin.accessCredentialSync.findMany({
       where: { tenantId },
       select: { deviceId: true },
@@ -488,6 +563,25 @@ export class AdminTenantResetService {
         message: `No se pudieron quitar ${left.length} accesos de ${devices.join(', ')}. Revisa la conexión del terminal y vuelve a intentarlo; no se ha borrado nada.`,
         details: { devices },
       });
+    }
+    return rows.map((r) => r.credentialId);
+  }
+
+  /** El borrado falló: los accesos que seguían vivos vuelven a sus terminales. */
+  private async restoreOnTerminals(tenantId: string, credentialIds: string[]): Promise<void> {
+    if (credentialIds.length === 0) return;
+    const live = await this.admin.accessCredential.findMany({
+      where: { tenantId, id: { in: credentialIds }, status: { in: ['active', 'suspended'] } },
+      select: { id: true },
+    });
+    for (const c of live) {
+      await this.sync
+        .syncCredential(tenantId, c.id)
+        .catch((err: unknown) =>
+          this.logger.warn(
+            `[tenant-reset] no se pudo devolver ${c.id} al terminal: ${String(err)}`,
+          ),
+        );
     }
   }
 
@@ -563,6 +657,8 @@ export class AdminTenantResetService {
       },
       { label: 'Expedientes de impago', bucket: 'uploads', prefix: `${tenantId}/collections/` },
       { label: 'Adjuntos de los mensajes', bucket: 'uploads', prefix: `${tenantId}/chat/` },
+      { label: 'Fotos de las incidencias', bucket: 'uploads', prefix: `${tenantId}/incidents/` },
+      { label: 'Fotos de las tareas', bucket: 'uploads', prefix: `${tenantId}/tasks/` },
       {
         label: 'Informes',
         bucket: 'reports',

@@ -63,3 +63,13 @@ export function periodsOwed(
   while (n < MAX_PERIODS && addMonthsUtc(since, n * stepMonths) <= now) n++;
   return n;
 }
+
+/**
+ * Tenants suspendidos por impago (a mano con ese motivo, o por el escalado).
+ * Solo esos los reactiva un cobro: una suspensión a mano por otro motivo la
+ * levanta el super admin.
+ */
+export const SUSPENDED_FOR_NONPAYMENT = {
+  status: 'suspended' as const,
+  churnReason: 'nonpayment',
+};

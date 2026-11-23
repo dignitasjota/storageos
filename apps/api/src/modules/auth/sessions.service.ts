@@ -379,17 +379,20 @@ export class SessionsService {
     userId: string;
     reason?: RevocationReason;
   }): Promise<number> {
-    const result = await this.prisma.withTenant(
-      (tx) =>
-        tx.session.updateMany({
-          where: { userId: args.userId, revokedAt: null },
-          data: {
-            revokedAt: new Date(),
-            revokedReason: args.reason ?? 'logout_all',
-          },
-        }),
-      args.tenantId,
-    );
+    const now = new Date();
+    const result = await this.prisma.withTenant(async (tx) => {
+      const revoked = await tx.session.updateMany({
+        where: { userId: args.userId, revokedAt: null },
+        data: {
+          revokedAt: now,
+          revokedReason: args.reason ?? 'logout_all',
+        },
+      });
+      // El access token dura 15 minutos y no lleva la sesión: sin esta fecha
+      // seguiría valiendo hasta caducar (la comprueba `JwtStrategy`).
+      await tx.user.updateMany({ where: { id: args.userId }, data: { tokensValidAfter: now } });
+      return revoked;
+    }, args.tenantId);
     return result.count;
   }
 

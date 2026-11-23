@@ -136,9 +136,8 @@ export class PlatformAnnouncementsController {
     return this.announcements.resendMissing(id, meta(admin, req));
   }
 
-  /** Subida de un adjunto del correo directo a un tenant. */
+  /** Subida de un adjunto del correo directo a un tenant (el soporte también le escribe). */
   @Post('tenants/:id/email/upload-url')
-  @RequireSuperadmin()
   @HttpCode(HttpStatus.OK)
   uploadUrl(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: DirectFileUploadDto) {
     return this.comms.requestDirectFileUpload(id, body);

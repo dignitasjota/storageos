@@ -364,7 +364,7 @@ export class AdminOpportunitiesService {
       const slug = t.subscription?.plan.slug;
       const base =
         slug && typeof planLimits[slug] === 'number' ? (planLimits[slug] as number) : general;
-      const limit = t.aiMonthlyLimit ?? base + (extraBy.get(t.id) ?? 0);
+      const limit = (t.aiMonthlyLimit ?? base) + (extraBy.get(t.id) ?? 0);
       if (limit <= 0) continue;
       const [older, last, now0] = keys.map((k) => counts.get(`${t.id}:${k}`) ?? 0) as [
         number,

@@ -416,26 +416,29 @@ export interface PayerLifecycle {
 export async function loadPayerLifecycles(
   admin: PrismaAdminService,
   now = new Date(),
+  /** Solo estos tenants (la ficha de uno no carga toda la plataforma). */
+  tenantIds?: string[],
 ): Promise<PayerLifecycle[]> {
+  const scope = tenantIds ? { tenantId: { in: tenantIds } } : {};
   const [firstPayments, firstSnapshots, lastSnapshots, tenants, ctx] = await Promise.all([
     admin.tenantSubscriptionPayment.groupBy({
       by: ['tenantId'],
-      where: { status: { in: [...COLLECTED_PAYMENT_STATUSES] }, paidAt: { not: null } },
+      where: { ...scope, status: { in: [...COLLECTED_PAYMENT_STATUSES] }, paidAt: { not: null } },
       _min: { paidAt: true },
     }),
     admin.mrrSnapshot.groupBy({
       by: ['tenantId'],
-      where: { mrr: { gt: 0 } },
+      where: { ...scope, mrr: { gt: 0 } },
       _min: { month: true },
     }),
     admin.mrrSnapshot.findMany({
-      where: { mrr: { gt: 0 } },
+      where: { ...scope, mrr: { gt: 0 } },
       orderBy: [{ tenantId: 'asc' }, { month: 'desc' }],
       distinct: ['tenantId'],
       select: { tenantId: true, mrr: true },
     }),
     admin.tenant.findMany({
-      where: { billingExempt: false },
+      where: { billingExempt: false, ...(tenantIds ? { id: { in: tenantIds } } : {}) },
       select: {
         id: true,
         name: true,
@@ -451,7 +454,7 @@ export async function loadPayerLifecycles(
         },
       },
     }),
-    loadMrrContext(admin),
+    loadMrrContext(admin, tenantIds),
   ]);
   const firstPaid = new Map<string, Date>();
   const remember = (id: string, d: Date | null | undefined) => {

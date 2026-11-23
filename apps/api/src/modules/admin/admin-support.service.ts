@@ -1,9 +1,19 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { normalizeTaxId, type AdminUpdateTenantInput } from '@storageos/shared';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  isValidSpanishTaxId,
+  normalizeTaxId,
+  type AdminUpdateTenantInput,
+} from '@storageos/shared';
 
 import { assertTaxIdFree } from '../../common/tax-id-unique';
 import { AuditService } from '../auth/audit.service';
-import { AuthService } from '../auth/auth.service';
+import { AuthService, type EmailDelivery, TENANT_OWNER_VERIFIED } from '../auth/auth.service';
 import { SessionsService } from '../auth/sessions.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
@@ -33,6 +43,7 @@ export class AdminSupportService {
     private readonly auth: AuthService,
     private readonly sessions: SessionsService,
     private readonly limits: PlanLimitsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ----------------------------------------------------------------- helpers
@@ -104,6 +115,20 @@ export class AdminSupportService {
     meta: ActionMeta,
   ): Promise<void> {
     await this.getTenant(tenantId);
+    // En España el NIF tiene que ser válido (sale en sus facturas de suscripción).
+    if (input.taxId) {
+      const current = await this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { country: true },
+      });
+      const country = input.country ?? current?.country ?? 'ES';
+      if (country === 'ES' && !isValidSpanishTaxId(input.taxId)) {
+        throw new BadRequestException({
+          code: 'invalid_tax_id',
+          message: 'El NIF no es válido (revisa la letra o el dígito de control).',
+        });
+      }
+    }
     const data: Record<string, unknown> = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.billingEmail !== undefined) data.billingEmail = input.billingEmail;
@@ -128,9 +153,29 @@ export class AdminSupportService {
 
   // --------------------------------------------------------------- user actions
 
+  /** Un usuario desactivado no puede entrar: no se le manda nada. */
+  private assertActive(user: { isActive: boolean }): void {
+    if (!user.isActive) {
+      throw new BadRequestException({
+        code: 'user_inactive',
+        message: 'El usuario está desactivado: reactívalo antes de enviarle nada.',
+      });
+    }
+  }
+
+  /** El correo no ha salido (dirección bloqueada…): se dice y no se anota como enviado. */
+  private assertDelivered(delivery: EmailDelivery): void {
+    if (!delivery.sent) {
+      throw new BadRequestException({
+        code: 'email_not_sent',
+        message: `El correo no ha salido${delivery.reason ? `: ${delivery.reason}` : ''}. Revisa la dirección en Correo saliente → Direcciones bloqueadas.`,
+      });
+    }
+  }
+
   /** Reenvía el email de verificación al usuario (si no está ya verificado). */
   async resendVerification(tenantId: string, userId: string, meta: ActionMeta): Promise<void> {
-    const { slug } = await this.getTenant(tenantId);
+    await this.getTenant(tenantId);
     const user = await this.getUser(tenantId, userId);
     if (user.emailVerifiedAt) {
       throw new BadRequestException({
@@ -138,14 +183,16 @@ export class AdminSupportService {
         message: 'El email del usuario ya está verificado.',
       });
     }
-    await this.auth.resendVerification({ tenantSlug: slug, email: user.email });
+    this.assertActive(user);
+    this.assertDelivered(await this.auth.resendVerificationBySupport(tenantId, userId));
     await this.trace(tenantId, userId, 'admin.user.verification_resent', meta, {});
   }
 
   /**
    * Verifica manualmente el email del usuario (soporte): marca la cuenta como
    * activada sin que el usuario tenga que pulsar el enlace del email. Útil
-   * cuando el operador no recibe/encuentra el correo de activación.
+   * cuando el operador no recibe/encuentra el correo de activación. Si es el
+   * propietario, le llega la bienvenida como al activarla él.
    */
   async verifyEmailManually(tenantId: string, userId: string, meta: ActionMeta): Promise<void> {
     await this.getTenant(tenantId);
@@ -160,22 +207,22 @@ export class AdminSupportService {
       where: { id: userId },
       data: { emailVerifiedAt: new Date() },
     });
+    if (user.role === 'owner') this.events.emit(TENANT_OWNER_VERIFIED, { tenantId });
     await this.trace(tenantId, userId, 'admin.user.email_verified_manually', meta, {});
   }
 
-  /** Dispara el flujo de restablecimiento de contraseña (email con enlace). */
+  /** Envía el enlace para restablecer la contraseña (sin la IP del super admin). */
   async sendPasswordReset(tenantId: string, userId: string, meta: ActionMeta): Promise<void> {
-    const { slug } = await this.getTenant(tenantId);
+    await this.getTenant(tenantId);
     const user = await this.getUser(tenantId, userId);
-    await this.auth.forgotPassword(
-      { tenantSlug: slug, email: user.email },
-      { ipAddress: meta.ipAddress ?? undefined, userAgent: meta.userAgent ?? undefined },
-    );
+    this.assertActive(user);
+    this.assertDelivered(await this.auth.sendPasswordResetBySupport(tenantId, userId));
     await this.trace(tenantId, userId, 'admin.user.password_reset_sent', meta, {});
   }
 
-  /** Cierra todas las sesiones activas del usuario. */
+  /** Cierra todas las sesiones activas del usuario (también el acceso en curso). */
   async revokeSessions(tenantId: string, userId: string, meta: ActionMeta): Promise<number> {
+    await this.getTenant(tenantId);
     await this.getUser(tenantId, userId);
     const revoked = await this.sessions.revokeAllForUser({
       tenantId,
@@ -188,6 +235,7 @@ export class AdminSupportService {
 
   /** Desactiva el 2FA del usuario (recuperación de cuenta por soporte). */
   async disableTwoFactor(tenantId: string, userId: string, meta: ActionMeta): Promise<void> {
+    await this.getTenant(tenantId);
     const user = await this.getUser(tenantId, userId);
     if (!user.twoFactorEnabled) {
       throw new BadRequestException({
@@ -215,6 +263,7 @@ export class AdminSupportService {
     active: boolean,
     meta: ActionMeta,
   ): Promise<void> {
+    await this.getTenant(tenantId);
     const user = await this.getUser(tenantId, userId);
     if (user.isActive === active) return; // idempotente
 
@@ -240,7 +289,18 @@ export class AdminSupportService {
           where: { tenantId, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
         }),
       ]);
-      await this.limits.assertCanCreate(tenantId, 'users', activeUsers + pendingInvites);
+      try {
+        await this.limits.assertCanCreate(tenantId, 'users', activeUsers + pendingInvites);
+      } catch (err) {
+        // El mensaje del límite está escrito para el tenant («amplía tu plan»).
+        if (err instanceof ForbiddenException) {
+          throw new ForbiddenException({
+            code: 'users_limit_reached',
+            message: `El tenant ya está en el tope de usuarios de su plan (${activeUsers} activos y ${pendingInvites} invitaciones pendientes). Desactiva otro usuario, revoca una invitación o súbele de plan antes de reactivarlo.`,
+          });
+        }
+        throw err;
+      }
     }
 
     await this.admin.user.update({ where: { id: userId }, data: { isActive: active } });

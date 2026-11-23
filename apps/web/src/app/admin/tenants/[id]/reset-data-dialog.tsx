@@ -5,6 +5,7 @@ import { AlertTriangle, Ban, Download, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -97,12 +98,18 @@ export function ResetDataDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {preview.isLoading || !p ? (
+        {preview.isError ? (
+          <AdminError onRetry={() => void preview.refetch()} />
+        ) : preview.isLoading || !p ? (
           <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Calculando lo que se borraría…
           </div>
         ) : step === 'preview' ? (
           <div className="space-y-4 text-sm">
+            <p className="font-medium text-red-700 dark:text-red-300">
+              Tiene {formatCount(p.issuedInvoices)}{' '}
+              {p.issuedInvoices === 1 ? 'factura emitida' : 'facturas emitidas'}.
+            </p>
             {p.blockers.map((b) => (
               <div
                 key={b.code}
@@ -133,7 +140,8 @@ export function ResetDataDialog({
                 ))}
               </ul>
               <p className="mt-1.5 text-xs text-muted-foreground">
-                También sus documentos, PDF, mensajes, accesos, cupones usados, remesas, impagos,
+                También sus documentos, PDF, mensajes, todos los accesos (de inquilinos y los
+                temporales de visitas), cupones usados, remesas, impagos, cierres trimestrales,
                 notificaciones y visitas de la web.
               </p>
             </div>

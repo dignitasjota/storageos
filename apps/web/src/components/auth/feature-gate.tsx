@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { apiFetch } from '@/lib/auth/api';
 import { useBillingStatus, useFeatures, useMe } from '@/lib/auth/hooks';
+import { getImpersonation } from '@/lib/auth/impersonation';
 
 /**
  * Apunta que el usuario entró en una función que su plan no incluye (una vez
@@ -20,6 +21,8 @@ import { useBillingStatus, useFeatures, useMe } from '@/lib/auth/hooks';
 function useRecordInterest(feature: TenantFeature, active: boolean) {
   useEffect(() => {
     if (!active) return;
+    // El soporte de TrasterOS entrando como el negocio no es interés del cliente.
+    if (getImpersonation()) return;
     const key = `storageos.interest.${feature}`;
     try {
       if (sessionStorage.getItem(key)) return;

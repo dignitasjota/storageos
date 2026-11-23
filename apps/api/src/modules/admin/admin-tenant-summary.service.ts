@@ -1,132 +1,138 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { NON_CASH_PAYMENT_METHODS, type AdminTenantSummaryDto } from '@storageos/shared';
+import { type AdminTenantSummaryDto } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
+import { isPayingSubscription, loadMrrContext, mrrFor } from '../../common/saas-metrics';
 import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { lastTeamActivity } from '../../common/team-activity';
-import { SaasAddonsService } from '../billing-saas/saas-addons.service';
+import { ALL_FACILITIES, LIVE_CONTRACT_WHERE } from '../analytics/analytics-scope';
+import {
+  collectedBetween,
+  invoicedAmount,
+  INVOICED_SELECT,
+  invoicedWhere,
+  receivables,
+  unitCounts,
+} from '../analytics/business-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { PrismaService } from '../database/prisma.service';
 
 const DAY = 24 * 60 * 60 * 1000;
-const num = (v: unknown): number => Number(v ?? 0);
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
  * Resumen de un tenant para la cabecera de su ficha en el panel admin: lo que
  * aporta, cómo paga, si el equipo entra, cómo factura y cobra a sus inquilinos
- * y lo pendiente con soporte. Antes había que abrir tres pestañas y dos
- * diálogos para verlo.
+ * y lo pendiente con soporte. Las cifras de su negocio son las mismas que ve él
+ * en su Resumen (`business-metrics`); lo que aporta, el mismo MRR que la lista.
  */
 @Injectable()
 export class AdminTenantSummaryService {
   constructor(
     private readonly admin: PrismaAdminService,
-    private readonly addons: SaasAddonsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async get(tenantId: string): Promise<AdminTenantSummaryDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: {
+        status: true,
         billingExempt: true,
-        subscription: { select: { currentPeriodEnd: true, billingMode: true } },
+        deletedAt: true,
+        trialEndsAt: true,
+        timezone: true,
+        subscription: {
+          select: {
+            status: true,
+            billingMode: true,
+            currentPeriodStart: true,
+            currentPeriodEnd: true,
+            cancelAtPeriodEnd: true,
+            plan: { select: { name: true, priceMonthly: true, priceYearly: true } },
+          },
+        },
       },
     });
     if (!tenant) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
-    const since = new Date(Date.now() - 30 * DAY);
-    const [
-      billing,
-      users,
-      invoiced,
-      collected,
-      overdue,
-      activeContracts,
-      unitsTotal,
-      unitsOccupied,
-      openTickets,
-      lastInteraction,
-      nextFollowup,
-      lastActivity,
-    ] = await Promise.all([
-      this.addons.billingSummary(tenantId),
-      this.admin.user.aggregate({
-        where: { tenantId, isActive: true },
-        _count: { _all: true },
-      }),
-      this.admin.invoice.aggregate({
-        where: {
-          tenantId,
-          kind: 'invoice',
-          status: { notIn: ['draft', 'cancelled'] },
-          issueDate: { gte: since },
-        },
-        _count: { _all: true },
-        _sum: { total: true },
-      }),
-      this.admin.payment.aggregate({
-        where: {
-          tenantId,
-          status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
-          paidAt: { gte: since },
-          methodType: { notIn: [...NON_CASH_PAYMENT_METHODS] },
-          invoice: { kind: 'invoice' },
-        },
-        _sum: { amount: true, refundedAmount: true },
-      }),
-      this.admin.invoice.aggregate({
-        where: { tenantId, kind: 'invoice', status: 'overdue' },
-        _count: { _all: true },
-        _sum: { total: true, amountPaid: true, amountRefunded: true },
-      }),
-      this.admin.contract.count({
-        where: { tenantId, status: { in: ['active', 'ending'] }, deletedAt: null },
-      }),
-      this.admin.unit.count({ where: { tenantId } }),
-      this.admin.unit.count({ where: { tenantId, status: 'occupied' } }),
-      this.admin.supportTicket.count({
-        where: {
-          tenantId,
-          status: { in: ['open', 'in_progress', 'waiting_user'] },
-          NOT: UNANSWERED_ADMIN_MESSAGE,
-        },
-      }),
-      this.admin.tenantInteraction.findFirst({
-        where: { tenantId },
-        orderBy: { occurredAt: 'desc' },
-        select: { occurredAt: true },
-      }),
-      this.admin.tenantFollowup.findFirst({
-        where: { tenantId, status: 'pending' },
-        orderBy: { dueDate: 'asc' },
-        select: { title: true, dueDate: true },
-      }),
-      lastTeamActivity(this.admin, tenantId),
-    ]);
+    const now = new Date();
+    const since = new Date(now.getTime() - 30 * DAY);
+    // La fecha de la factura es un día (DATE) en la zona del negocio: «hoy»
+    // allí puede ser ya mañana en UTC.
+    const today = todayInTimezone(tenant.timezone || 'Europe/Madrid', now);
+    const invoicedFrom = new Date(today.getTime() - 30 * DAY);
+    const invoicedTo = new Date(today.getTime() + DAY);
+    const sub = tenant.subscription;
+    const [ctx, users, business, openTickets, lastInteraction, nextFollowup, lastActivity] =
+      await Promise.all([
+        loadMrrContext(this.admin, [tenantId]),
+        this.admin.user.aggregate({
+          where: { tenantId, isActive: true },
+          _count: { _all: true },
+        }),
+        // Su negocio con sus propias reglas (RLS de su tenant).
+        this.prisma.withTenant(async (tx) => {
+          const [invoiced, collected, owed, activeContracts, units] = await Promise.all([
+            tx.invoice.findMany({
+              where: invoicedWhere(ALL_FACILITIES, invoicedFrom, invoicedTo),
+              select: INVOICED_SELECT,
+            }),
+            collectedBetween(tx, ALL_FACILITIES, since, now),
+            receivables(tx, ALL_FACILITIES, now),
+            tx.contract.count({ where: LIVE_CONTRACT_WHERE }),
+            unitCounts(tx, ALL_FACILITIES),
+          ]);
+          return { invoiced, collected, owed, activeContracts, units };
+        }, tenantId),
+        this.admin.supportTicket.count({
+          where: {
+            tenantId,
+            status: { in: ['open', 'in_progress', 'waiting_user'] },
+            NOT: UNANSWERED_ADMIN_MESSAGE,
+          },
+        }),
+        this.admin.tenantInteraction.findFirst({
+          where: { tenantId },
+          orderBy: { occurredAt: 'desc' },
+          select: { occurredAt: true },
+        }),
+        this.admin.tenantFollowup.findFirst({
+          where: { tenantId, status: 'pending' },
+          orderBy: { dueDate: 'asc' },
+          select: { title: true, dueDate: true },
+        }),
+        lastTeamActivity(this.admin, tenantId),
+      ]);
 
+    // Lo que aporta: el MRR sin IVA, 0 si no paga (prueba, exenta, solo
+    // lectura, suspendida). En prueba, aparte lo que pagaría.
+    const mrr = sub ? mrrFor(ctx, tenantId, sub).total : 0;
+    const paying = isPayingSubscription(sub, tenant) && mrr > 0;
+    const inTrial = tenant.status === 'trial';
+    const { invoiced, collected, owed, activeContracts, units } = business;
     return {
-      effectiveMonthly: billing.effectiveMonthly,
-      planName: billing.planName,
-      billingMode: tenant.subscription?.billingMode ?? null,
+      effectiveMonthly: paying ? round2(mrr) : 0,
+      wouldPay: inTrial && !tenant.billingExempt && mrr > 0 ? round2(mrr) : null,
+      trialEndsAt: inTrial ? (tenant.trialEndsAt?.toISOString() ?? null) : null,
+      planName: sub?.plan.name ?? null,
+      billingMode: sub?.billingMode ?? null,
       billingExempt: tenant.billingExempt,
       nextChargeAt:
-        tenant.billingExempt || !tenant.subscription
-          ? null
-          : tenant.subscription.currentPeriodEnd.toISOString(),
+        paying && !sub?.cancelAtPeriodEnd && sub ? sub.currentPeriodEnd.toISOString() : null,
       lastTeamLoginAt: lastActivity?.toISOString() ?? null,
       activeUsers: users._count._all,
-      invoiced30d: round2(num(invoiced._sum.total)),
-      invoices30d: invoiced._count._all,
-      collected30d: round2(num(collected._sum.amount) - num(collected._sum.refundedAmount)),
-      overdueInvoices: overdue._count._all,
-      overdueAmount: round2(
-        Math.max(
-          0,
-          num(overdue._sum.total) - num(overdue._sum.amountPaid) - num(overdue._sum.amountRefunded),
-        ),
-      ),
+      invoiced30d: round2(invoiced.reduce((sum, r) => sum + invoicedAmount(r), 0)),
+      // Facturas, sin los abonos que las anulan.
+      invoices30d: invoiced.filter((r) => Number(r.total) > 0).length,
+      collected30d: collected,
+      overdueInvoices: owed.overdueInvoices,
+      overdueAmount: owed.overdue,
       activeContracts,
-      occupancyPct: unitsTotal > 0 ? Math.round((unitsOccupied / unitsTotal) * 100) : null,
+      // Como en su Resumen: ocupados sobre el total (sin locales borrados ni el
+      // trastero del inquilino de prueba).
+      occupancyPct: units.total > 0 ? Math.round((units.occupied / units.total) * 100) : null,
       openTickets,
       lastInteractionAt: lastInteraction?.occurredAt.toISOString() ?? null,
       nextFollowup: nextFollowup

@@ -46,11 +46,15 @@ export function NewTenantDialog({ open, onClose }: { open: boolean; onClose: () 
   const [note, setNote] = useState('');
 
   const activePlans = (plans.data ?? []).filter((p) => p.isActive);
+  // Los días de prueba son obligatorios: vacío no es «sin prueba» (0 se escribe).
+  const trialNumber = /^\d{1,3}$/.test(trialDays.trim()) ? Number(trialDays.trim()) : null;
+  const trialValid = trialNumber !== null && trialNumber <= 365;
   const valid =
     tenantName.trim().length >= 2 &&
     ownerName.trim().length >= 2 &&
     /\S+@\S+\.\S+/.test(ownerEmail) &&
-    !!planSlug;
+    !!planSlug &&
+    trialValid;
 
   async function submit() {
     try {
@@ -60,12 +64,21 @@ export function NewTenantDialog({ open, onClose }: { open: boolean; onClose: () 
         ownerName: ownerName.trim(),
         ownerEmail: ownerEmail.trim(),
         planSlug,
-        trialDays: Math.max(0, Number.parseInt(trialDays, 10) || 0),
+        trialDays: trialNumber ?? 0,
         ...(note.trim() ? { note: note.trim() } : {}),
       });
-      toast.success(
-        `Tenant creado. Hemos enviado a ${res.ownerEmail} el enlace para su contraseña.`,
-      );
+      if (res.emailSent) {
+        toast.success(
+          `Tenant creado. Hemos enviado a ${res.ownerEmail} el enlace para su contraseña (vale 7 días).`,
+        );
+      } else {
+        toast.warning(
+          `Tenant creado, pero el correo a ${res.ownerEmail} no ha salido${
+            res.emailError ? `: ${res.emailError}` : ''
+          }. Revísalo en Correo saliente → Direcciones bloqueadas y envíale el enlace desde Usuarios.`,
+          { duration: 15000 },
+        );
+      }
       onClose();
       router.push(`/admin/tenants/${res.tenantId}`);
     } catch (err) {
@@ -150,9 +163,14 @@ export function NewTenantDialog({ open, onClose }: { open: boolean; onClose: () 
                 max={365}
                 value={trialDays}
                 onChange={(e) => setTrialDays(e.target.value)}
+                aria-invalid={!trialValid}
                 className="text-base sm:text-sm"
               />
-              <p className="text-xs text-muted-foreground">0 = activo desde hoy en ese plan.</p>
+              <p className={`text-xs ${trialValid ? 'text-muted-foreground' : 'text-destructive'}`}>
+                {trialValid
+                  ? '0 = activo desde hoy en ese plan.'
+                  : 'Escribe un número de 0 a 365 (0 = sin prueba).'}
+              </p>
             </div>
           </div>
           <div className="space-y-1.5">

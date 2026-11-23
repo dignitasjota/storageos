@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
+import { CASH_METHOD_WHERE } from '../analytics/business-metrics';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type {
@@ -45,6 +46,46 @@ const ACTION_LABELS: Record<string, string> = {
   'admin.saas_addon.suspended': 'Extra suspendido',
   'admin.saas_addon.reactivated': 'Extra reactivado',
   'admin.saas_addon.billing_mode_changed': 'Cobro de un extra cambiado',
+  'admin.saas_addon.charged': 'Cobro de un extra registrado',
+  'admin.saas_addon.proposed': 'Extra propuesto',
+  'admin.tenant.created': 'Alta manual del tenant',
+  'admin.tenant.saas_payments_synced': 'Pagos sincronizados con Stripe',
+  'admin.tenant.risk_snoozed': 'Ignorado en «En riesgo»',
+  'admin.tenant.risk_unsnoozed': 'Vuelve a «En riesgo»',
+  'admin.tenant.followup_updated': 'Seguimiento actualizado',
+  'admin.tenant.followup_deleted': 'Seguimiento borrado',
+  'admin.tenant.ai_usage_changed': 'Asistente IA: límite o modo cambiados',
+  'admin.tenant.addon_offer_sent': 'Extra ofrecido',
+  'admin.approval.approved': 'Aprobación concedida',
+  'admin.approval.rejected': 'Aprobación rechazada',
+  'admin.user.verification_resent': 'Verificación reenviada a un usuario',
+  'admin.user.email_verified_manually': 'Cuenta de un usuario activada a mano',
+  'admin.user.password_reset_sent': 'Enlace de contraseña enviado a un usuario',
+  'admin.user.sessions_revoked': 'Sesiones de un usuario cerradas',
+  'admin.user.session_revoked': 'Sesión de un usuario cerrada',
+  'admin.user.2fa_disabled': 'Verificación en dos pasos quitada a un usuario',
+  'admin.user.deactivated': 'Usuario desactivado',
+  'admin.user.reactivated': 'Usuario reactivado',
+  'admin.sales.addon_claim_created': 'Comercial: extra vendido anotado',
+  'admin.sales.addon_claim_approved': 'Comercial: extra vendido aprobado',
+  'admin.sales.addon_claim_rejected': 'Comercial: extra vendido rechazado',
+  'admin.platform_invoice.issued': 'Factura de suscripción emitida',
+  'admin.platform_invoice.rectified': 'Factura de suscripción rectificada',
+  'admin.platform_invoice.resent': 'Factura de suscripción reenviada',
+  'admin.invoice.aeat_resent': 'Factura reenviada a la AEAT',
+  'admin.invoice.aeat_refreshed': 'Estado de una factura consultado en la AEAT',
+  'admin.tenant.custom_domain_dns_checked': 'DNS del dominio propio comprobado',
+  'admin.tenant.followups_bulk_created': 'Seguimiento creado en lote',
+  'admin.tenant.quote_status_changed': 'Estado del presupuesto cambiado',
+  'admin.sales.account_assigned': 'Comercial asignado',
+  'admin.sales.account_unassigned': 'Comercial quitado',
+  'admin.sales.portfolio_reassigned': 'Cartera del comercial reasignada',
+  'admin.sales.appointment_created': 'Cita comercial creada',
+  'admin.sales.demo_created': 'Demo preparada',
+  'admin.sales.demo_portal_opened': 'Demo abierta',
+  'admin.sales.commission_item_created': 'Comisión anotada',
+  'admin.sales.commission_item_approved': 'Comisión aprobada',
+  'admin.sales.commission_item_rejected': 'Comisión rechazada',
 };
 
 /** Acciones que ya salen por su propio origen (no se duplican). */
@@ -55,6 +96,8 @@ const SKIP_ACTIONS = new Set([
   'admin.tenant.interaction_deleted',
   'admin.tenant.followup_created',
   'admin.tenant.email_sent',
+  // Abrir la ficha no es una acción sobre el tenant.
+  'admin.sales.account_viewed',
 ]);
 
 const NEGATIVE_ACTIONS = new Set([
@@ -63,6 +106,13 @@ const NEGATIVE_ACTIONS = new Set([
   'admin.tenant.operational_data_reset',
   'admin.platform_sepa.item_bounced',
 ]);
+
+/** Una acción sin texto propio: la última parte, legible («plan_changed» → «Plan changed»). */
+function fallbackLabel(action: string): string {
+  const last = action.split('.').pop() ?? action;
+  const text = last.replace(/_/g, ' ');
+  return `Acción del panel: ${text}`;
+}
 
 const INTERACTION_LABELS: Record<string, string> = {
   note: 'Nota',
@@ -95,7 +145,7 @@ export class AdminTenantTimelineService {
 
   async page(
     tenantId: string,
-    args: { before?: Date; limit?: number; kinds?: AdminTimelineKind[] },
+    args: { before?: Date; beforeId?: string; limit?: number; kinds?: AdminTimelineKind[] },
   ): Promise<AdminTimelinePageDto> {
     const exists = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -107,7 +157,9 @@ export class AdminTenantTimelineService {
     const limit = Math.min(Math.max(args.limit ?? 40, 1), 100);
     const before = args.before ?? new Date(Date.now() + 60_000);
     const want = (k: AdminTimelineKind) => !args.kinds?.length || args.kinds.includes(k);
-    const lt = { lt: before };
+    // Con el id del último visto, los empatados a la misma hora se separan por
+    // id (no se pierde ni se repite ninguno al cargar más).
+    const lt = args.beforeId ? { lte: before } : { lt: before };
     const take = limit;
     const none = Promise.resolve([] as AdminTimelineItemDto[]);
 
@@ -115,7 +167,12 @@ export class AdminTenantTimelineService {
       want('interaction')
         ? this.admin.tenantInteraction
             .findMany({
-              where: { tenantId, occurredAt: lt },
+              where: {
+                tenantId,
+                occurredAt: lt,
+                // El ticket ya sale con su propio evento.
+                ...(want('ticket') ? { NOT: { type: 'support' } } : {}),
+              },
               orderBy: { occurredAt: 'desc' },
               take,
               include: { superAdmin: { select: { fullName: true } } },
@@ -153,7 +210,7 @@ export class AdminTenantTimelineService {
                   id: `admin_action:${r.id}`,
                   kind: 'admin_action' as const,
                   at: r.occurredAt.toISOString(),
-                  title: ACTION_LABELS[r.action] ?? r.action,
+                  title: ACTION_LABELS[r.action] ?? fallbackLabel(r.action),
                   detail: reason,
                   actor: r.superAdmin?.fullName ?? null,
                   link: null,
@@ -191,7 +248,7 @@ export class AdminTenantTimelineService {
           // ni se repite al cargar más.
           this.admin.$queryRaw<{ id: string }[]>`
             SELECT id FROM tenant_subscription_payments
-            WHERE tenant_id = ${tenantId}::uuid AND COALESCE(paid_at, created_at) < ${before}
+            WHERE tenant_id = ${tenantId}::uuid AND COALESCE(paid_at, created_at) <= ${before}
             ORDER BY COALESCE(paid_at, created_at) DESC
             LIMIT ${take}`
             .then((ids) =>
@@ -337,13 +394,19 @@ export class AdminTenantTimelineService {
     if (want('milestone')) sources.push(this.milestones(tenantId, before));
 
     const results = await Promise.all(sources);
+    const beforeIso = before.toISOString();
     const all = results
       .flat()
+      // Lo anterior al cursor: antes de esa hora o, a la misma, con id menor.
+      .filter((i) =>
+        args.beforeId ? i.at < beforeIso || (i.at === beforeIso && i.id < args.beforeId) : true,
+      )
       .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1));
     const items = all.slice(0, limit);
     // Hay más si se ha cortado o si algún origen llegó a su tope de filas.
     const more = all.length > limit || results.some((r) => r.length >= take);
-    const nextBefore = more ? (items[items.length - 1]?.at ?? null) : null;
+    const last = items[items.length - 1];
+    const nextBefore = more && last ? `${last.at}|${last.id}` : null;
     return { items, nextBefore };
   }
 
@@ -353,6 +416,11 @@ export class AdminTenantTimelineService {
    * inquilino, certificado de la AEAT, dominio propio): su recorrido completo.
    */
   private async milestones(tenantId: string, before: Date): Promise<AdminTimelineItemDto[]> {
+    const signup = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { createdAt: true },
+    });
+    const since = signup?.createdAt ?? new Date(0);
     const [tenant, facility, unit, customer, contract, invoice, payment, cert, owner] =
       await Promise.all([
         this.admin.tenant.findUnique({
@@ -361,14 +429,36 @@ export class AdminTenantTimelineService {
         }),
         this.admin.facility.aggregate({ where: { tenantId }, _min: { createdAt: true } }),
         this.admin.unit.aggregate({ where: { tenantId }, _min: { createdAt: true } }),
-        this.admin.customer.aggregate({ where: { tenantId }, _min: { createdAt: true } }),
-        this.admin.contract.aggregate({ where: { tenantId }, _min: { signedAt: true } }),
+        // Sin el inquilino de prueba de la puesta en marcha.
+        this.admin.customer.aggregate({
+          where: { tenantId, isTest: false },
+          _min: { createdAt: true },
+        }),
+        // Un contrato importado lleva la firma original (anterior al alta): no
+        // es su primer contrato en TrasterOS.
+        this.admin.contract.aggregate({
+          where: {
+            tenantId,
+            deletedAt: null,
+            customer: { isTest: false },
+            signedAt: { gte: since },
+          },
+          _min: { signedAt: true },
+        }),
+        // La hora real de emisión (la fecha de la factura es un día sin hora).
         this.admin.invoice.aggregate({
           where: { tenantId, kind: 'invoice', status: { notIn: ['draft', 'cancelled'] } },
-          _min: { issueDate: true },
+          _min: { createdAt: true },
         }),
+        // Un cobro real: sin fianzas aplicadas ni compensaciones ni el de prueba.
         this.admin.payment.aggregate({
-          where: { tenantId, status: 'succeeded' },
+          where: {
+            tenantId,
+            status: { in: ['succeeded', 'partially_refunded', 'refunded'] },
+            methodType: CASH_METHOD_WHERE,
+            invoice: { kind: 'invoice' },
+            customer: { isTest: false },
+          },
           _min: { paidAt: true },
         }),
         this.admin.tenantAeatCredential.aggregate({
@@ -383,12 +473,19 @@ export class AdminTenantTimelineService {
       ]);
     const raw: [string, string, Date | null | undefined][] = [
       ['signup', 'Alta en TrasterOS', tenant?.createdAt],
-      ['verified', 'El propietario verificó su email', owner?.emailVerifiedAt],
+      [
+        'verified',
+        'Se activó la cuenta',
+        // Nunca antes del alta (una cuenta creada a mano nace ya activada).
+        owner?.emailVerifiedAt && tenant?.createdAt && owner.emailVerifiedAt < tenant.createdAt
+          ? tenant.createdAt
+          : owner?.emailVerifiedAt,
+      ],
       ['facility', 'Primer local creado', facility._min.createdAt],
       ['unit', 'Primer trastero creado', unit._min.createdAt],
       ['customer', 'Primer inquilino', customer._min.createdAt],
       ['contract', 'Primer contrato firmado', contract._min.signedAt],
-      ['invoice', 'Primera factura emitida', invoice._min.issueDate],
+      ['invoice', 'Primera factura emitida', invoice._min.createdAt],
       ['payment', 'Primer cobro a un inquilino', payment._min.paidAt],
       ['aeat', 'Certificado de la AEAT subido', cert._min?.uploadedAt],
       [
@@ -398,7 +495,7 @@ export class AdminTenantTimelineService {
       ],
     ];
     return raw
-      .filter((r): r is [string, string, Date] => !!r[2] && r[2] < before)
+      .filter((r): r is [string, string, Date] => !!r[2] && r[2] <= before)
       .map(([key, title, at]) => ({
         id: `milestone:${key}`,
         kind: 'milestone' as const,

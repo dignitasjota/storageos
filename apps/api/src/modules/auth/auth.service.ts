@@ -32,6 +32,7 @@ import { BUILTIN_TEMPLATES } from '../communications/builtin-templates';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { EmailService } from '../email/email.service';
+import { AccountReadyEmail } from '../email/templates/account-ready-email';
 import { PasswordResetEmail } from '../email/templates/password-reset-email';
 import { VerificationEmail } from '../email/templates/verification-email';
 import { SecurityBlocksService } from '../security-events/security-blocks.service';
@@ -86,6 +87,18 @@ export interface AuthFlowResult<TBody> {
 
 /** Evento interno: el propietario acaba de activar su cuenta. */
 export const TENANT_OWNER_VERIFIED = 'tenant.owner_verified';
+
+/** Si un correo salió y, si no, por qué (dirección bloqueada o de ejemplo). */
+export interface EmailDelivery {
+  sent: boolean;
+  reason: string | null;
+}
+
+function deliveryOf(result: { suppressed?: string | null | undefined }): EmailDelivery {
+  return result.suppressed
+    ? { sent: false, reason: result.suppressed }
+    : { sent: true, reason: null };
+}
 
 const TRIAL_DAYS = 30;
 const TRIAL_PLAN_SLUG = DEFAULT_TRIAL_PLAN_SLUG;
@@ -852,7 +865,7 @@ export class AuthService {
     tenant: Tenant,
     user: User,
     extra?: { source?: 'register' | 'resend' | 'reminder'; subject?: string; note?: string },
-  ): Promise<void> {
+  ): Promise<EmailDelivery> {
     const { plaintext } = await this.verificationTokens.issue({
       tenantId: tenant.id,
       userId: user.id,
@@ -860,7 +873,7 @@ export class AuthService {
     const baseUrl = this.config.get('WEB_BASE_URL', { infer: true });
     const verifyUrl = `${baseUrl}/verify-email/${plaintext}`;
 
-    await this.email.send({
+    const result = await this.email.send({
       to: user.email,
       kind: 'verify_email',
       subject: extra?.subject ?? 'Verifica tu cuenta de TrasterOS',
@@ -880,6 +893,7 @@ export class AuthService {
       entityId: user.id,
       ...(extra?.source ? { changes: { source: extra.source } } : {}),
     });
+    return deliveryOf(result);
   }
 
   /**
@@ -977,21 +991,66 @@ export class AuthService {
    * Envía al usuario un enlace para elegir su contraseña (alta manual desde el
    * panel admin: la cuenta se crea con una contraseña que nadie conoce).
    */
-  async sendSetPasswordEmail(tenantId: string, userId: string): Promise<void> {
-    const user = await this.admin.user.findUniqueOrThrow({ where: { id: userId } });
+  /**
+   * Cuenta creada por el super admin: enlace de 7 días para elegir contraseña,
+   * con el identificador de la empresa. Dice si el correo salió (una dirección
+   * bloqueada no lo recibe).
+   */
+  async sendSetPasswordEmail(tenantId: string, userId: string): Promise<EmailDelivery> {
+    const [user, tenant] = await Promise.all([
+      this.admin.user.findUniqueOrThrow({ where: { id: userId } }),
+      this.admin.tenant.findUniqueOrThrow({ where: { id: tenantId }, select: { slug: true } }),
+    ]);
     const { plaintext } = await this.passwordResetTokens.issue({
       tenantId,
       userId,
       ipAddress: null,
       userAgent: null,
+      ttlMinutes: 7 * 24 * 60,
     });
-    const resetUrl = `${this.config.get('WEB_BASE_URL', { infer: true })}/reset-password/${plaintext}`;
-    await this.email.send({
+    const baseUrl = this.config.get('WEB_BASE_URL', { infer: true });
+    const result = await this.email.send({
       to: user.email,
       kind: 'password_reset',
       subject: 'Tu cuenta de TrasterOS está lista: elige tu contraseña',
-      template: PasswordResetEmail({ fullName: user.fullName, resetUrl }),
+      template: AccountReadyEmail({
+        fullName: user.fullName,
+        setPasswordUrl: `${baseUrl}/reset-password/${plaintext}`,
+        tenantSlug: tenant.slug,
+        loginUrl: `${baseUrl}/login?tenant=${encodeURIComponent(tenant.slug)}`,
+      }),
     });
+    return deliveryOf(result);
+  }
+
+  /**
+   * Restablecer la contraseña a petición del soporte de TrasterOS: el correo no
+   * lleva la IP de quien lo pide (es la del super admin) ni se anota como
+   * petición del usuario. Dice si el correo salió.
+   */
+  async sendPasswordResetBySupport(tenantId: string, userId: string): Promise<EmailDelivery> {
+    const user = await this.admin.user.findUniqueOrThrow({ where: { id: userId } });
+    const { plaintext } = await this.passwordResetTokens.issue({ tenantId, userId });
+    const baseUrl = this.config.get('WEB_BASE_URL', { infer: true });
+    const result = await this.email.send({
+      to: user.email,
+      kind: 'password_reset',
+      subject: 'Restablece tu contraseña de TrasterOS',
+      template: PasswordResetEmail({
+        fullName: user.fullName,
+        resetUrl: `${baseUrl}/reset-password/${plaintext}`,
+      }),
+    });
+    return deliveryOf(result);
+  }
+
+  /** Reenvío de la verificación pedido por el soporte; dice si el correo salió. */
+  async resendVerificationBySupport(tenantId: string, userId: string): Promise<EmailDelivery> {
+    const [tenant, user] = await Promise.all([
+      this.admin.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
+      this.admin.user.findUniqueOrThrow({ where: { id: userId } }),
+    ]);
+    return this.sendVerificationEmail(tenant, user, { source: 'resend' });
   }
 
   private async resolveSlug(tenantName: string, requestedSlug?: string): Promise<string> {

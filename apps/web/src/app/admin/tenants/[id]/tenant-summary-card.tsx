@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAdminTenantSummary } from '@/lib/admin/hooks';
@@ -37,6 +38,7 @@ export function TenantSummaryCard({ tenantId }: { tenantId: string }) {
   if (q.isLoading) {
     return <Skeleton className="h-28 w-full rounded-xl" />;
   }
+  if (q.isError) return <AdminError onRetry={() => void q.refetch()} />;
   if (!s) return null;
 
   const loginDays = s.lastTeamLoginAt
@@ -46,18 +48,25 @@ export function TenantSummaryCard({ tenantId }: { tenantId: string }) {
   return (
     <Card>
       <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 py-4 text-sm sm:grid-cols-3 2xl:grid-cols-6">
-        <Item label="Aporta al mes">
+        <Item label="Aporta al mes (sin IVA)">
           {s.billingExempt ? (
             <span className="text-violet-700 dark:text-violet-300">Exenta</span>
           ) : (
             eur(s.effectiveMonthly)
           )}
-          <Sub>{s.planName ?? 'Sin plan'}</Sub>
+          <Sub>
+            {s.planName ?? 'Sin plan'}
+            {s.wouldPay !== null ? ` · pagaría ${eur(s.wouldPay)}` : ''}
+          </Sub>
         </Item>
         <Item label="Cobro">
           {s.billingMode ? (MODE_LABELS[s.billingMode] ?? s.billingMode) : '—'}
           <Sub>
-            {s.nextChargeAt ? `pagado hasta ${fmtDate(s.nextChargeAt)}` : 'sin vencimiento'}
+            {s.trialEndsAt
+              ? `prueba hasta ${fmtDate(s.trialEndsAt)}`
+              : s.nextChargeAt
+                ? `pagado hasta ${fmtDate(s.nextChargeAt)}`
+                : 'sin cobro programado'}
           </Sub>
         </Item>
         <Item label="Equipo" warn={loginDays === null || loginDays > 14}>
@@ -74,16 +83,26 @@ export function TenantSummaryCard({ tenantId }: { tenantId: string }) {
         <Item label="Vencidas" danger={s.overdueInvoices > 0}>
           {s.overdueInvoices > 0 ? eur(s.overdueAmount) : 'Ninguna'}
           <Sub>
-            {s.activeContracts} contratos activos
+            {s.activeContracts} contratos vigentes
             {s.occupancyPct !== null ? ` · ${s.occupancyPct} % ocupado` : ''}
           </Sub>
         </Item>
         <Item label="Soporte" warn={s.openTickets > 0}>
           {s.openTickets > 0 ? `${s.openTickets} ticket(s) abiertos` : 'Sin tickets'}
           <Sub>
-            {s.nextFollowup
-              ? `seguimiento ${fmtDate(s.nextFollowup.dueDate)}`
-              : `última conversación ${ago(s.lastInteractionAt)}`}
+            {s.nextFollowup ? (
+              <span
+                className={
+                  s.nextFollowup.dueDate <= new Date().toISOString().slice(0, 10)
+                    ? 'font-medium text-red-600 dark:text-red-400'
+                    : undefined
+                }
+              >
+                seguimiento {fmtDate(s.nextFollowup.dueDate)}
+              </span>
+            ) : (
+              `última conversación ${ago(s.lastInteractionAt)}`
+            )}
           </Sub>
         </Item>
       </CardContent>

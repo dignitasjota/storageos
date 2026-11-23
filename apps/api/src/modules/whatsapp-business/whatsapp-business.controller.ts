@@ -223,7 +223,7 @@ export class WhatsappConversationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<WhatsappConversationDetailDto> {
-    return this.inbox.detail(user.tenantId, id);
+    return this.inbox.detail(user.tenantId, id, Boolean(user.impersonation));
   }
 
   /** Activa o pausa el asistente en esta conversación. */

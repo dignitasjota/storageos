@@ -62,8 +62,10 @@ test('borrar un seguimiento del tenant pide confirmación en un diálogo', async
   await page.getByRole('tab', { name: 'Seguimientos' }).click();
   const now = new Date();
   now.setDate(now.getDate() + 7);
-  const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  await expect(page.locator('input[type="date"]').first()).toHaveValue(expected);
+  // La fecha se elige con desplegables (día, mes y año): por defecto, dentro de 7 días.
+  await expect(page.getByRole('combobox', { name: 'Día' }).first()).toHaveText(
+    String(now.getDate()),
+  );
 
   await page.getByPlaceholder(/Recordatorio/).fill('Llamar para renovar');
   await page.getByRole('button', { name: /Añadir recordatorio/ }).click();

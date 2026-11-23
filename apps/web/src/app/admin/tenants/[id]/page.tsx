@@ -45,6 +45,7 @@ import { TenantTimelineCard } from './tenant-timeline-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
 import { WhatsappAiCard } from './whatsapp-ai-card';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { PlatformEmailLog } from '@/components/admin/platform-email-log';
 import { TenantRepCard } from '@/components/admin/sales/tenant-rep-card';
 import { SupportTicketList } from '@/components/admin/support-ticket-list';
@@ -97,6 +98,7 @@ import {
   useExtendTrial,
   useEndTrial,
   useSetBillingExempt,
+  useAdminTenantAccount,
   useAdminTenantSepaMandate,
   useSetBillingMode,
   useSwitchToManualBilling,
@@ -111,6 +113,19 @@ import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { IMPERSONATION_HANDOFF_KEY, IMPERSONATION_URL_PARAM } from '@/lib/auth/impersonation';
 
+/** Pestañas de la ficha (las que admite `?tab=`). */
+const TENANT_TABS = [
+  'general',
+  'business',
+  'timeline',
+  'config',
+  'payments',
+  'conversations',
+  'followups',
+  'tickets',
+  'emails',
+];
+
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   trial: 'secondary',
   active: 'default',
@@ -121,8 +136,19 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
 export default function AdminTenantDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
-  // `?tab=payments` abre directamente esa pestaña (enlaces desde Cobros pendientes).
-  const initialTab = useSearchParams().get('tab') ?? 'general';
+  // `?tab=payments` abre directamente esa pestaña (enlaces desde Cobros
+  // pendientes); una desconocida abre General y la URL sigue a la pestaña.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const requestedTab = searchParams.get('tab');
+  const tab = requestedTab && TENANT_TABS.includes(requestedTab) ? requestedTab : 'general';
+  const setTab = (next: string) => {
+    const qs = new URLSearchParams(searchParams.toString());
+    if (next === 'general') qs.delete('tab');
+    else qs.set('tab', next);
+    const query = qs.toString();
+    router.replace(`/admin/tenants/${id}${query ? `?${query}` : ''}`, { scroll: false });
+  };
   const tenant = useAdminTenant(id);
   const dataExport = useTenantDataExport(id);
   // El rol `support` no edita, suspende, impersona ni toca la suscripción (403 en el API).
@@ -162,8 +188,8 @@ export default function AdminTenantDetailPage() {
 
   if (!tenant.data) {
     return (
-      <div className="px-4 py-4 sm:px-6 sm:py-6 text-sm text-muted-foreground">
-        No hemos podido cargar el tenant.
+      <div className="px-4 py-4 sm:px-6 sm:py-6">
+        <AdminError onRetry={() => void tenant.refetch()} />
       </div>
     );
   }
@@ -285,7 +311,7 @@ export default function AdminTenantDetailPage() {
       <ApprovalRequestsCard tenantId={t.id} />
       <RequestApprovalDialog tenantId={t.id} open={approvalOpen} onOpenChange={setApprovalOpen} />
 
-      <Tabs defaultValue={initialTab} className="w-full">
+      <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="business">Negocio</TabsTrigger>
@@ -413,7 +439,11 @@ export default function AdminTenantDetailPage() {
                 <CardTitle className="text-base">Uso</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                <Stat label="Usuarios" value={t.userCount} onClick={() => setUsersOpen(true)} />
+                <Stat
+                  label="Usuarios activos"
+                  value={t.userCount}
+                  onClick={() => setUsersOpen(true)}
+                />
                 <Stat
                   label="Locales"
                   value={t.facilityCount}
@@ -425,7 +455,7 @@ export default function AdminTenantDetailPage() {
                   onClick={() => setCustomersOpen(true)}
                 />
                 <Stat
-                  label="Contratos"
+                  label="Contratos vigentes"
                   value={t.contractCount}
                   onClick={() => setInvoicingOpen(true)}
                 />
@@ -481,7 +511,7 @@ export default function AdminTenantDetailPage() {
           <SupportTicketList
             filters={{ tenantId: id }}
             showTenant={false}
-            emptyText="Este tenant no ha abierto ningún ticket de soporte."
+            emptyText="Sin tickets con este tenant."
           />
         </TabsContent>
       </Tabs>
@@ -505,7 +535,19 @@ export default function AdminTenantDetailPage() {
       <TenantEditDialog tenant={t} open={editOpen} onClose={() => setEditOpen(false)} />
       <TenantEmailDialog tenantId={t.id} open={emailOpen} onClose={() => setEmailOpen(false)} />
 
-      <SuspendDialog open={dialog === 'suspend'} tenantId={t.id} onClose={() => setDialog(null)} />
+      <SuspendDialog
+        open={dialog === 'suspend'}
+        tenantId={t.id}
+        autoCharge={
+          !t.billingExempt &&
+          ['stripe', 'sepa', 'redsys'].includes(t.subscription?.billingMode ?? 'manual')
+            ? (BILLING_MODE_LABELS[t.subscription?.billingMode ?? ''] ??
+              t.subscription?.billingMode ??
+              null)
+            : null
+        }
+        onClose={() => setDialog(null)}
+      />
       <ReactivateDialog
         open={dialog === 'reactivate'}
         tenantId={t.id}
@@ -581,10 +623,13 @@ function Stat({ label, value, onClick }: { label: string; value: number; onClick
 function SuspendDialog({
   open,
   tenantId,
+  autoCharge,
   onClose,
 }: {
   open: boolean;
   tenantId: string;
+  /** Cómo se le cobra la cuota si es automático (Stripe, SEPA, Redsys); null si no. */
+  autoCharge: string | null;
   onClose: () => void;
 }) {
   const suspend = useSuspendTenant();
@@ -613,9 +658,16 @@ function SuspendDialog({
           <DialogDescription>
             Su equipo solo podrá consultar y pagar la suscripción, sin crear ni cambiar nada. Los
             cobros automáticos y los correos a sus inquilinos se retienen; el acceso de los
-            inquilinos al local no se corta.
+            inquilinos al local no se corta. Si el motivo es otro que el impago, un pago de la cuota
+            no lo reactiva: lo reactivas tú.
           </DialogDescription>
         </DialogHeader>
+        {autoCharge && (
+          <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            Su cuota se cobra sola ({autoCharge}): suspenderlo no la para y se le seguirá cobrando.
+            Si deja de ser cliente, pásalo antes a pago manual.
+          </p>
+        )}
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FormField
@@ -697,7 +749,7 @@ function ReactivateDialog({
         id: tenantId,
         input: { ...values, ...(forgive ? { forgivePeriod: true } : {}) },
       });
-      toast.success(forgive ? 'Tenant reactivado y periodo perdonado.' : 'Tenant reactivado.');
+      toast.success(forgive ? 'Tenant reactivado y deuda perdonada.' : 'Tenant reactivado.');
       setForgive(false);
       form.reset();
       onClose();
@@ -729,10 +781,11 @@ function ReactivateDialog({
               className="mt-0.5"
             />
             <span>
-              Perdonar este periodo
+              Perdonar lo que debe
               <span className="block text-xs text-muted-foreground">
-                Su suscripción vuelve a estar al día y el fin del periodo pasa un mes más adelante,
-                sin cobrarle.
+                No se le reclama ninguna de las cuotas vencidas: su suscripción queda al día y el
+                próximo cobro es un mes después del vencimiento (o dentro de 30 días, si esa fecha
+                ya ha pasado).
               </span>
             </span>
           </label>
@@ -933,12 +986,17 @@ function ImpersonateDialog({
   onClose: () => void;
 }) {
   const impersonate = useImpersonateTenant();
+  // El navegador bloquea las ventanas que no se abren al pulsar: si no se pudo
+  // abrir, se enseña un enlace para abrirla a mano.
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
   const form = useForm<ImpersonateInput>({
     resolver: zodResolver(ImpersonateSchema),
     defaultValues: { reason: '', readOnly: true },
   });
 
   async function onSubmit(values: ImpersonateInput) {
+    // La pestaña se abre ya (con el clic); la petición la navega después.
+    const tab = window.open('about:blank', '_blank');
     try {
       const session = await impersonate.mutateAsync({ id: tenantId, input: values });
       // El panel del tenant (pestaña nueva, mismo origen) recoge el token solo
@@ -955,18 +1013,35 @@ function ImpersonateDialog({
           nonce,
         }),
       );
-      window.open(`/dashboard?${IMPERSONATION_URL_PARAM}=${nonce}`, '_blank', 'noopener');
-      toast.success(`Abierto ${session.tenantName} en una pestaña nueva.`);
-      form.reset();
-      onClose();
+      const url = `/dashboard?${IMPERSONATION_URL_PARAM}=${nonce}`;
+      // Si nadie lo recoge en 2 minutos, el código se borra.
+      window.setTimeout(() => {
+        const raw = window.localStorage.getItem(IMPERSONATION_HANDOFF_KEY);
+        if (raw?.includes(nonce)) window.localStorage.removeItem(IMPERSONATION_HANDOFF_KEY);
+      }, 120_000);
+      if (tab) {
+        tab.opener = null;
+        tab.location.href = url;
+        toast.success(`Abierto ${session.tenantName} en una pestaña nueva.`);
+        form.reset();
+        onClose();
+      } else {
+        setManualUrl(url);
+      }
     } catch (err) {
+      tab?.close();
       if (err instanceof ApiError) toast.error(err.body.message);
       else toast.error('Error de red.');
     }
   }
 
+  function close() {
+    setManualUrl(null);
+    onClose();
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && close()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Impersonar tenant</DialogTitle>
@@ -975,52 +1050,65 @@ function ImpersonateDialog({
             en el registro de auditoría. Úsalo solo para soporte.
           </DialogDescription>
         </DialogHeader>
-        <Form {...form}>
-          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-            <FormField
-              control={form.control}
-              name="readOnly"
-              render={({ field }) => (
-                <FormItem className="flex items-start gap-2 space-y-0">
-                  <FormControl>
-                    <Checkbox
-                      checked={field.value}
-                      onCheckedChange={(v) => field.onChange(v === true)}
-                    />
-                  </FormControl>
-                  <div className="space-y-0.5">
-                    <FormLabel className="font-normal">Solo lectura</FormLabel>
-                    <p className="text-xs text-muted-foreground">
-                      Ves lo mismo que el propietario pero no puedes cambiar nada. Desmárcalo solo
-                      si necesitas hacer un cambio por él.
-                    </p>
-                  </div>
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="reason"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Motivo</FormLabel>
-                  <FormControl>
-                    <Textarea {...field} rows={3} placeholder="Investigación incidencia #1234" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={onClose}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                Iniciar impersonación
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+        {manualUrl ? (
+          <div className="space-y-3 text-sm">
+            <p>El navegador no ha dejado abrir la pestaña. Ábrela tú:</p>
+            <Button asChild>
+              <a href={manualUrl} target="_blank" rel="noopener noreferrer" onClick={close}>
+                Abrir el panel
+              </a>
+            </Button>
+          </div>
+        ) : (
+          <Form {...form}>
+            <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+              <FormField
+                control={form.control}
+                name="readOnly"
+                render={({ field }) => (
+                  <FormItem className="flex items-start gap-2 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={(v) => field.onChange(v === true)}
+                      />
+                    </FormControl>
+                    <div className="space-y-0.5">
+                      <FormLabel className="font-normal">Solo lectura</FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        Ves lo mismo que el propietario pero no puedes cambiar nada. Desmárcalo solo
+                        si necesitas hacer un cambio por él; aun así no podrás invitar usuarios,
+                        traspasar la propiedad, crear claves de API o webhooks ni enlaces del área
+                        de clientes.
+                      </p>
+                    </div>
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="reason"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Motivo</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} rows={3} placeholder="Investigación incidencia #1234" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <DialogFooter>
+                <Button type="button" variant="ghost" onClick={close}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={form.formState.isSubmitting}>
+                  Iniciar impersonación
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -1082,11 +1170,23 @@ function AnonymizeDialog({
           <DialogTitle>Anonimizar tenant (RGPD)</DialogTitle>
           <DialogDescription>
             Acción <strong>irreversible</strong>. Se anonimizan todos los inquilinos y usuarios del
-            tenant, se borran sus documentos y métodos de pago, se revocan las sesiones y la cuenta
-            queda cancelada. Las facturas se conservan por obligación fiscal. Si el cliente quiere
-            sus datos, descárgalos antes con «Exportar datos (Excel)» del menú.
+            tenant, se borran sus documentos y métodos de pago, se revocan las sesiones, deja de
+            cobrársele la cuota (Stripe, mandato SEPA y tarjeta) y la cuenta queda cancelada. Las
+            facturas se conservan por obligación fiscal. Si el cliente quiere sus datos, descárgalos
+            antes con «Exportar datos (Excel)» del menú.
           </DialogDescription>
         </DialogHeader>
+        {preview.isLoading && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Revisando lo que se va a borrar…
+          </p>
+        )}
+        {preview.isError && (
+          <AdminError
+            message="No se pudo revisar lo que se va a borrar."
+            onRetry={() => void preview.refetch()}
+          />
+        )}
         {preview.data && (
           <div className="space-y-2 text-sm">
             <p className="text-muted-foreground">
@@ -1149,7 +1249,7 @@ function AnonymizeDialog({
               <Button
                 type="submit"
                 variant="destructive"
-                disabled={!slugMatches || !exported || form.formState.isSubmitting}
+                disabled={!preview.data || !slugMatches || !exported || form.formState.isSubmitting}
               >
                 Anonimizar definitivamente
               </Button>
@@ -1177,6 +1277,9 @@ const BILLING_MODE_LABELS: Record<string, string> = {
  */
 function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billingMode: string }) {
   const mandate = useAdminTenantSepaMandate(tenantId);
+  const account = useAdminTenantAccount(tenantId);
+  const sepaInProgress = account.data?.sepaInProgress ?? false;
+  const fromLabel = BILLING_MODE_LABELS[billingMode] ?? billingMode;
   const switchToManual = useSwitchToManualBilling();
   const setSepa = useSetBillingMode();
   const [confirmMode, setConfirmMode] = useState<'manual' | 'sepa' | null>(null);
@@ -1210,15 +1313,17 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
         value={
           mandate.isLoading
             ? '…'
-            : hasMandate
-              ? `····${mandate.data!.ibanLast4} (${mandate.data!.status === 'active' ? 'activo' : mandate.data!.status === 'expired' ? 'caducado' : 'cancelado'}${
-                  mandate.data!.signatureStatus === 'signed'
-                    ? `, firmado por ${mandate.data!.signedByName ?? 'el tenant'}`
-                    : mandate.data!.signatureStatus === 'external'
-                      ? ', firmado antes de la firma en la app'
-                      : ''
-                })`
-              : 'Sin mandato'
+            : mandate.isError
+              ? 'No se pudo cargar'
+              : hasMandate
+                ? `····${mandate.data!.ibanLast4} (${mandate.data!.status === 'active' ? 'activo' : mandate.data!.status === 'expired' ? 'caducado' : 'cancelado'}${
+                    mandate.data!.signatureStatus === 'signed'
+                      ? `, firmado por ${mandate.data!.signedByName ?? 'el tenant'}`
+                      : mandate.data!.signatureStatus === 'external'
+                        ? ', firmado antes de la firma en la app'
+                        : ''
+                  })`
+                : 'Sin mandato'
         }
       />
       <div className="flex flex-wrap gap-2">
@@ -1274,10 +1379,16 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
             </DialogTitle>
             <DialogDescription>
               {confirmMode === 'manual'
-                ? 'Se cancelará la suscripción en Stripe (deja de cobrar de inmediato, si la había) y el tenant pasará a cobro manual. Conserva el periodo ya pagado.'
-                : 'Se cancelará la suscripción en Stripe (si la había) y las próximas cuotas se domiciliarán por SEPA con el mandato ya autorizado.'}
+                ? `Deja de cobrarse por ${fromLabel}${billingMode === 'stripe' ? ' (se cancela la suscripción en Stripe)' : ''} y las próximas cuotas se registran a mano. Conserva el periodo ya pagado; si está en prueba o en solo lectura sigue igual, y si debe cuotas las sigue debiendo.`
+                : `Deja de cobrarse por ${fromLabel}${billingMode === 'stripe' ? ' (se cancela la suscripción en Stripe)' : ''} y las próximas cuotas se domiciliarán por SEPA con el mandato ya autorizado.`}
             </DialogDescription>
           </DialogHeader>
+          {sepaInProgress && (
+            <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              Hay un adeudo SEPA de su cuota en el banco sin confirmar: si se cobra, regístralo en
+              la remesa aunque haya cambiado la forma de cobro.
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmMode(null)}>
               Cancelar
@@ -1352,12 +1463,18 @@ function ChangePlanControl({
   const change = useChangePlan();
   const [slug, setSlug] = useState(currentSlug ?? '');
   const [reason, setReason] = useState('');
-  const changing = Boolean(slug) && slug !== currentSlug;
-  const preview = useChangePlanPreview(tenantId, slug, changing);
+  const [confirming, setConfirming] = useState(false);
+  // Si su plan actual no se puede asignar (gratuito o desactivado), el
+  // desplegable no lo tiene: arranca sin plan elegido en vez de enseñar el
+  // primero como si fuera el suyo.
+  const assignable = (plans.data ?? []).some((p) => p.slug === currentSlug);
+  const selected = assignable || slug !== currentSlug ? slug : '';
+  const changing = Boolean(selected) && selected !== currentSlug;
+  const preview = useChangePlanPreview(tenantId, selected, changing);
   const eurFmt = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 
-  async function submit() {
-    if (!slug || slug === currentSlug) {
+  function ask() {
+    if (!changing) {
       toast.error('Elige un plan distinto al actual.');
       return;
     }
@@ -1365,10 +1482,18 @@ function ChangePlanControl({
       toast.error('Indica un motivo.');
       return;
     }
+    setConfirming(true);
+  }
+
+  async function submit() {
     try {
-      await change.mutateAsync({ id: tenantId, input: { planSlug: slug, reason: reason.trim() } });
+      await change.mutateAsync({
+        id: tenantId,
+        input: { planSlug: selected, reason: reason.trim() },
+      });
       toast.success('Plan cambiado.');
       setReason('');
+      setConfirming(false);
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);
       else toast.error('No se pudo cambiar el plan.');
@@ -1380,10 +1505,15 @@ function ChangePlanControl({
       <Label className="text-xs text-muted-foreground">Cambiar plan</Label>
       <div className="flex flex-wrap items-center gap-2">
         <select
-          value={slug}
+          value={selected}
           onChange={(e) => setSlug(e.target.value)}
           className="h-9 rounded-md border bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
+          {!assignable && (
+            <option value="" disabled>
+              Elige un plan
+            </option>
+          )}
           {(plans.data ?? []).map((p) => (
             <option key={p.slug} value={p.slug}>
               {p.name} ({p.slug})
@@ -1396,10 +1526,45 @@ function ChangePlanControl({
           placeholder="Motivo"
           className="h-9 w-40"
         />
-        <Button size="sm" onClick={submit} disabled={change.isPending}>
+        <Button size="sm" onClick={ask} disabled={change.isPending}>
           Cambiar
         </Button>
       </div>
+      <Dialog open={confirming} onOpenChange={(o) => !o && setConfirming(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar de plan</DialogTitle>
+            <DialogDescription>
+              {preview.data
+                ? `${preview.data.currentPlanName} → ${preview.data.newPlanName}: ${eurFmt(preview.data.newPriceMonthly)}/mes.`
+                : 'Se cambia su plan.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            {preview.data?.inTrial && (
+              <p>Está en prueba: cambiar de plan termina la prueba y empieza a pagar.</p>
+            )}
+            {preview.data?.chargedByStripe && (
+              <p>Paga por Stripe: Stripe prorratea la diferencia en su próxima factura.</p>
+            )}
+            {(preview.data?.owedPeriods ?? 0) > 0 && (
+              <p className="text-amber-700 dark:text-amber-300">
+                Debe {preview.data!.owedPeriods}{' '}
+                {preview.data!.owedPeriods === 1 ? 'cuota' : 'cuotas'}: se le reclamarán al precio
+                del plan nuevo.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void submit()} disabled={change.isPending}>
+              {change.isPending ? 'Cambiando…' : 'Cambiar de plan'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Preview del impacto del cambio de plan */}
       {changing && preview.data && (

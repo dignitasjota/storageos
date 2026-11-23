@@ -63,6 +63,10 @@ export class TokensService {
         permissions: payload.permissions,
         facilityScope: payload.facilityScope,
         trid: payload.tenantRoleId,
+        // Momento de emisión en milisegundos: `iat` va en segundos y un token
+        // emitido en el mismo segundo que «cerrar todas las sesiones» seguía
+        // valiendo (o no) según el reloj.
+        ims: Date.now(),
       },
       {
         subject: payload.sub,

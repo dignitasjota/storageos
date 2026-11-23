@@ -168,7 +168,7 @@ export type SetBillingExemptInput = z.infer<typeof SetBillingExemptSchema>;
 export const ImpersonateSchema = z.object({
   reason: z.string().trim().min(1).max(500),
   /** Solo lectura: el panel del tenant se ve pero no se puede cambiar nada. */
-  readOnly: z.boolean().default(false),
+  readOnly: z.boolean().default(true),
 });
 export type ImpersonateInput = z.infer<typeof ImpersonateSchema>;
 
@@ -279,11 +279,20 @@ export const TenantFollowupStatusEnum = z.enum(['pending', 'done']);
 export type TenantFollowupStatusValue = z.infer<typeof TenantFollowupStatusEnum>;
 
 /** Crear un seguimiento/recordatorio sobre un tenant. */
+/** Un día real en formato YYYY-MM-DD (2026-13-45 no lo es). */
+const realDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)')
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00.000Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, 'Esa fecha no existe');
+
 export const CreateTenantFollowupSchema = z.object({
   title: z.string().trim().min(1).max(200),
   note: z.string().trim().max(2000).optional(),
   /** Fecha de recordatorio (YYYY-MM-DD). */
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)'),
+  dueDate: realDay,
   /** Super admin que se encarga (null = nadie en concreto). */
   assignedToId: z.string().uuid().nullable().optional(),
 });
@@ -294,10 +303,7 @@ export const UpdateTenantFollowupSchema = z
   .object({
     status: TenantFollowupStatusEnum.optional(),
     /** Posponer: nueva fecha (YYYY-MM-DD). */
-    dueDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)')
-      .optional(),
+    dueDate: realDay.optional(),
     assignedToId: z.string().uuid().nullable().optional(),
   })
   .refine((v) => Object.keys(v).length > 0, { message: 'Nada que cambiar' });

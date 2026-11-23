@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import type { PlatformInvoiceDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +56,8 @@ const STATUS: Record<string, { label: string; className: string }> = {
  */
 export function PlatformInvoicesCard({ tenantId }: { tenantId: string }) {
   const canEdit = useIsSuperadmin();
-  const { data, isLoading } = useAdminTenantPlatformInvoices(tenantId);
+  const invoicesQ = useAdminTenantPlatformInvoices(tenantId);
+  const { data, isLoading } = invoicesQ;
   const [target, setTarget] = useState<PlatformInvoiceDto | null>(null);
 
   async function onDownload(id: string) {
@@ -73,7 +75,9 @@ export function PlatformInvoicesCard({ tenantId }: { tenantId: string }) {
         <CardTitle className="text-base">Facturas de suscripción</CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {invoicesQ.isError ? (
+          <AdminError onRetry={() => void invoicesQ.refetch()} />
+        ) : isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">Aún no hay facturas.</p>

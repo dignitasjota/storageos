@@ -3,11 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import {
-  permissionsForRole,
-  renderAdminEmail,
-  type ImpersonationTokenDto,
-} from '@storageos/shared';
+import { renderAdminEmail, type ImpersonationTokenDto } from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -103,17 +99,17 @@ export class ImpersonationService {
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
-    // Sin owner activo (tenant vacío/anonimizado a medias): sub sintético
-    // como antes — la impersonación sirve solo para lecturas.
+    // Sin owner activo (tenant vacío/anonimizado a medias): sub sintético.
+    // `JwtStrategy` no encuentra ese usuario y rechaza el token, así que la
+    // sesión no sirve; el panel lo dice al abrirla.
     const subject = owner?.id ?? randomUUID();
     const accessToken = await this.jwt.signAsync(
       {
         tenantId: tenant.id,
-        // En solo lectura, los permisos de `readonly` (lo que gatea el panel y
-        // `PermissionsGuard`); si no, los del propietario (sin claim → su rol).
-        ...(args.readOnly
-          ? { role: 'readonly', permissions: permissionsForRole('readonly') }
-          : { role: 'owner' }),
+        // Siempre los permisos del propietario: en solo lectura el soporte ve
+        // todo lo que él ve (Suscripción, Configuración…) y es
+        // `ImpersonationGuard` quien bloquea cualquier escritura.
+        role: 'owner',
         purpose: 'impersonation',
         superAdminId: args.superAdminId,
         // Ata el JWT a su fila de `ImpersonationLog`: `JwtStrategy` la

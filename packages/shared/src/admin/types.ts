@@ -1904,6 +1904,10 @@ export interface AdminChangePlanPreviewDto {
   chargedByStripe: boolean;
   /** Paga por Stripe y el plan nuevo no tiene precio en Stripe (no se podrá cambiar). */
   stripePriceMissing: boolean;
+  /** Cuotas que debe: se cobrarán a la cuota del plan nuevo. */
+  owedPeriods: number;
+  /** Está en prueba: cambiar de plan la termina. */
+  inTrial: boolean;
 }
 
 /** Dashboard financiero del SaaS: ingresos por fuente + serie mensual. */
@@ -2448,12 +2452,16 @@ export interface TenantDataExportDto {
 
 /** Resumen de un vistazo de un tenant para la cabecera de su ficha. */
 export interface AdminTenantSummaryDto {
-  /** Lo que aporta al mes: plan + extras activos (sin IVA si los precios van +IVA). */
+  /** Lo que aporta al mes sin IVA (el MRR, como la lista): 0 si no paga. */
   effectiveMonthly: number;
+  /** En prueba: lo que pagaría al mes sin IVA; null en el resto. */
+  wouldPay: number | null;
+  /** Fin de la prueba (solo en prueba). */
+  trialEndsAt: string | null;
   planName: string | null;
   billingMode: string | null;
   billingExempt: boolean;
-  /** Fin del periodo pagado (null si es exenta o no tiene suscripción). */
+  /** Fin del periodo pagado (null si no paga, en prueba o se da de baja). */
   nextChargeAt: string | null;
   lastTeamLoginAt: string | null;
   activeUsers: number;
@@ -2582,13 +2590,21 @@ export interface AdminTenantOverviewDto {
   /** En prueba: lo que pagaría al mes sin IVA al acabarla; null en el resto. */
   wouldPay: number | null;
   addons: AdminOverviewAddonDto[];
-  /** Próximo cobro (fin del periodo pagado); null si es exenta, está en prueba o no tiene suscripción. */
+  /**
+   * Próximo cobro (fin del periodo pagado); null si es exenta, está en prueba,
+   * no paga (plan gratuito o a 0 €), se da de baja al acabar el periodo o no
+   * tiene suscripción. Puede estar en el pasado si aún no se ha marcado el impago.
+   */
   nextChargeAt: string | null;
+  /** Se da de baja al acabar el periodo: cuándo; null si no. */
+  cancelsAt: string | null;
   /** Debe la suscripción (past_due): desde cuándo, o null. */
   overdueSince: string | null;
   /** Salud 0-100 y nivel (solo tenants activos y en prueba). */
   healthScore: number | null;
   healthLevel: AdminTenantHealthLevel | null;
+  /** `activation` en las pruebas (su puntuación mide la puesta en marcha). */
+  healthKind: 'health' | 'activation' | null;
   lastTeamLoginAt: string | null;
   nextFollowup: { title: string; dueDate: string } | null;
   facilities: number;
@@ -2744,6 +2760,10 @@ export interface AdminCreateTenantResultDto {
   tenantId: string;
   slug: string;
   ownerEmail: string;
+  /** Si salió el correo para elegir la contraseña. */
+  emailSent: boolean;
+  /** Por qué no salió (dirección bloqueada…), o null. */
+  emailError: string | null;
 }
 
 /** Una sesión abierta de un usuario del tenant. */
