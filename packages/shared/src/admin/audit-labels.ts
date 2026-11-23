@@ -49,6 +49,17 @@ export const SUPER_ADMIN_AUDIT_GROUPS: Record<string, Record<string, AuditAction
     'admin.tenant.suspended': { label: 'Tenant suspendido', tone: 'destructive' },
     'admin.tenant.reactivated': { label: 'Tenant reactivado' },
     'admin.tenant.anonymized': { label: 'Tenant anonimizado', tone: 'destructive' },
+    'admin.tenant.cancelled': { label: 'Tenant dado de baja', tone: 'destructive' },
+    'admin.tenant.cancel_scheduled': { label: 'Baja programada', tone: 'destructive' },
+    'admin.tenant.cancel_undone': { label: 'Baja deshecha' },
+    'admin.tenant.anonymize_scheduled': {
+      label: 'Anonimización programada',
+      tone: 'destructive',
+    },
+    'admin.tenant.anonymize_cancelled': { label: 'Anonimización cancelada' },
+    'admin.tenant.consistency_fixed': { label: 'Incoherencia corregida' },
+    'admin.user.email_changed': { label: 'Email de un usuario cambiado' },
+    'admin.user.ownership_transferred': { label: 'Propiedad traspasada', tone: 'destructive' },
     'admin.tenant.operational_data_reset': {
       label: 'Datos de prueba vaciados',
       tone: 'destructive',
@@ -73,6 +84,8 @@ export const SUPER_ADMIN_AUDIT_GROUPS: Record<string, Record<string, AuditAction
   },
   'Cobros y facturación': {
     'admin.tenant.saas_payment_manual_created': { label: 'Pago manual registrado' },
+    'admin.tenant.saas_payment_voided': { label: 'Pago manual anulado', tone: 'destructive' },
+    'admin.saas_addon.updated': { label: 'Extra editado' },
     'admin.saas_addon.charged': { label: 'Cobro de un extra registrado' },
     'admin.tenant.billing_exempted': { label: 'Cuenta marcada exenta' },
     'admin.tenant.billing_unexempted': { label: 'Cuenta deja de ser exenta' },
