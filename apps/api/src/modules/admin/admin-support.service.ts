@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   isValidSpanishTaxId,
   normalizeTaxId,
+  renderAdminEmail,
   type AdminUpdateTenantInput,
 } from '@storageos/shared';
 
@@ -16,6 +17,7 @@ import { AuditService } from '../auth/audit.service';
 import { AuthService, type EmailDelivery, TENANT_OWNER_VERIFIED } from '../auth/auth.service';
 import { SessionsService } from '../auth/sessions.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { EmailService } from '../email/email.service';
 import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 import { SuperAdminAuditService } from './super-admin-audit.service';
@@ -44,6 +46,7 @@ export class AdminSupportService {
     private readonly sessions: SessionsService,
     private readonly limits: PlanLimitsService,
     private readonly events: EventEmitter2,
+    private readonly email: EmailService,
   ) {}
 
   // ----------------------------------------------------------------- helpers
@@ -314,5 +317,131 @@ export class AdminSupportService {
       meta,
       {},
     );
+  }
+
+  // ------------------------------------------------ correo y propiedad
+
+  /** Aviso por correo a un usuario (sin bloquear la acción si no sale). */
+  private async notice(to: string, subject: string, lines: string[]): Promise<void> {
+    try {
+      const { html, text } = renderAdminEmail(lines.join('\n\n'));
+      await this.email.sendRendered({ to, kind: 'admin_message', subject, html, text });
+    } catch {
+      /* el registro queda igual; el aviso es de cortesía */
+    }
+  }
+
+  /**
+   * Cambia el email de acceso de un usuario (soporte, con motivo): comprueba
+   * que no lo use otro del tenant, lo deja sin verificar, envía el enlace de
+   * verificación al nuevo, avisa al antiguo y cierra sus sesiones.
+   */
+  async changeUserEmail(
+    tenantId: string,
+    userId: string,
+    newEmail: string,
+    meta: ActionMeta,
+  ): Promise<void> {
+    await this.getTenant(tenantId);
+    const user = await this.getUser(tenantId, userId);
+    const email = newEmail.trim().toLowerCase();
+    if (email === user.email.toLowerCase()) {
+      throw new BadRequestException({
+        code: 'same_email',
+        message: 'Es el mismo email que ya tiene.',
+      });
+    }
+    const taken = await this.admin.user.findFirst({
+      where: { tenantId, email: { equals: email, mode: 'insensitive' }, id: { not: userId } },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new BadRequestException({
+        code: 'email_taken',
+        message: 'Ese email ya es de otro usuario de este tenant.',
+      });
+    }
+    await this.admin.user.update({
+      where: { id: userId },
+      data: {
+        email,
+        emailVerifiedAt: null,
+        pendingEmail: null,
+        emailChangeTokenHash: null,
+        emailChangeExpiresAt: null,
+      },
+    });
+    await this.sessions.revokeAllForUser({ tenantId, userId, reason: 'logout_all' });
+    const delivery = await this.auth
+      .resendVerificationBySupport(tenantId, userId)
+      .catch(() => ({ sent: false }) as EmailDelivery);
+    await this.notice(user.email, 'Tu email de acceso a TrasterOS ha cambiado', [
+      `El equipo de soporte de TrasterOS ha cambiado el email con el que entras a tu cuenta a ${email}.`,
+      `Motivo: ${meta.reason ?? '—'}`,
+      'Si no lo has pedido, escríbenos desde Soporte en tu panel o responde a este correo cuanto antes.',
+    ]);
+    await this.trace(tenantId, userId, 'admin.user.email_changed', meta, {
+      reason: meta.reason ?? null,
+      from: user.email,
+      to: email,
+      verificationSent: delivery.sent,
+    });
+  }
+
+  /**
+   * Traspasa la propiedad a otro usuario activo del tenant: él pasa a
+   * propietario y los propietarios de ahora, a gestores. Avisa a los dos.
+   */
+  async transferOwnership(tenantId: string, userId: string, meta: ActionMeta): Promise<void> {
+    await this.getTenant(tenantId);
+    const target = await this.getUser(tenantId, userId);
+    if (!target.isActive) {
+      throw new BadRequestException({
+        code: 'user_inactive',
+        message: 'El usuario está desactivado: reactívalo antes.',
+      });
+    }
+    if (target.role === 'owner') {
+      throw new BadRequestException({
+        code: 'already_owner',
+        message: 'Ese usuario ya es propietario.',
+      });
+    }
+    const owners = await this.admin.user.findMany({
+      where: { tenantId, role: 'owner', isActive: true },
+      select: { id: true, email: true, fullName: true },
+    });
+    await this.admin.$transaction([
+      this.admin.user.updateMany({
+        where: { tenantId, role: 'owner', id: { not: userId } },
+        data: { role: 'manager' },
+      }),
+      // El propietario lo ve todo: sin rol a medida ni locales asignados.
+      this.admin.user.update({
+        where: { id: userId },
+        data: { role: 'owner', tenantRoleId: null },
+      }),
+      this.admin.userFacility.deleteMany({ where: { userId } }),
+    ]);
+    // Cambia su rol: las sesiones abiertas deben pedir los permisos nuevos.
+    for (const id of [userId, ...owners.map((o) => o.id)]) {
+      await this.sessions.revokeAllForUser({ tenantId, userId: id, reason: 'logout_all' });
+    }
+    await this.notice(target.email, 'Ahora eres el propietario de la cuenta en TrasterOS', [
+      `El equipo de soporte de TrasterOS te ha hecho propietario de la cuenta. Vuelve a entrar para ver todas las opciones.`,
+      `Motivo: ${meta.reason ?? '—'}`,
+    ]);
+    for (const o of owners) {
+      await this.notice(o.email, 'La propiedad de tu cuenta en TrasterOS ha cambiado', [
+        `El equipo de soporte de TrasterOS ha traspasado la propiedad de la cuenta a ${target.fullName} (${target.email}). Tú sigues con acceso como gestor.`,
+        `Motivo: ${meta.reason ?? '—'}`,
+        'Si no lo esperabas, escríbenos desde Soporte en tu panel.',
+      ]);
+    }
+    await this.trace(tenantId, userId, 'admin.user.ownership_transferred', meta, {
+      reason: meta.reason ?? null,
+      previousOwners: owners.map((o) => o.email),
+      newOwner: target.email,
+    });
   }
 }

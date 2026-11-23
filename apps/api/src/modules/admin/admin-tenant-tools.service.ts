@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { hash as argonHash } from '@node-rs/argon2';
+import { Prisma } from '@storageos/database';
+import { isSimilarCompanyName, normalizeTaxId } from '@storageos/shared';
 
 import {
   PLATFORM_TENANT_REGISTERED,
@@ -23,7 +25,6 @@ import { CustomDomainCheckService } from '../users/custom-domain-check.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
-import type { Prisma } from '@storageos/database';
 import type {
   AdminAeatActionResultDto,
   AdminAnonymizePreviewDto,
@@ -34,6 +35,8 @@ import type {
   CreateAdminSavedViewInput,
   CustomDomainCheckDto,
   SnoozeRiskInput,
+  AdminTenantDuplicateDto,
+  TenantDuplicatesQuery,
 } from '@storageos/shared';
 
 interface Meta {
@@ -328,6 +331,73 @@ export class AdminTenantToolsService {
     }
   }
 
+  // ------------------------------------------------------ posibles duplicados
+
+  /**
+   * Tenants que pueden ser el mismo negocio que uno que se va a dar de alta:
+   * mismo NIF, el email del propietario ya es de un usuario o es el email de
+   * facturación de otro, o un nombre muy parecido. No bloquea el alta.
+   */
+  async findDuplicates(q: TenantDuplicatesQuery): Promise<AdminTenantDuplicateDto[]> {
+    const found = new Map<string, AdminTenantDuplicateDto>();
+    const add = (t: { id: string; name: string; slug: string; status: string }, why: string) => {
+      const row = found.get(t.id) ?? { ...t, matches: [] };
+      if (!row.matches.includes(why)) row.matches.push(why);
+      found.set(t.id, row);
+    };
+    const select = { id: true, name: true, slug: true, status: true } as const;
+    const email = q.email?.trim().toLowerCase();
+    if (email) {
+      const users = await this.admin.user.findMany({
+        where: { email: { equals: email, mode: 'insensitive' }, tenant: { deletedAt: null } },
+        select: { tenant: { select } },
+        take: 10,
+      });
+      for (const u of users) add(u.tenant, 'El email ya es de un usuario suyo');
+      const billing = await this.admin.tenant.findMany({
+        where: { deletedAt: null, billingEmail: { equals: email, mode: 'insensitive' } },
+        select,
+        take: 10,
+      });
+      for (const t of billing) add(t, 'Es su email de facturación');
+    }
+    const billingEmail = q.billingEmail?.trim().toLowerCase();
+    if (billingEmail && billingEmail !== email) {
+      const billing = await this.admin.tenant.findMany({
+        where: { deletedAt: null, billingEmail: { equals: billingEmail, mode: 'insensitive' } },
+        select,
+        take: 10,
+      });
+      for (const t of billing) add(t, 'Mismo email de facturación');
+    }
+    const taxId = q.taxId ? normalizeTaxId(q.taxId) : '';
+    if (taxId.length >= 5) {
+      const same = await this.admin.tenant.findMany({
+        where: { deletedAt: null, taxId: { equals: taxId, mode: 'insensitive' } },
+        select,
+        take: 10,
+      });
+      for (const t of same) add(t, 'Mismo NIF');
+    }
+    const name = q.name?.trim();
+    if (name && name.length >= 3) {
+      const all = await this.admin.tenant.findMany({
+        where: { deletedAt: null },
+        select: { ...select, billingLegalName: true },
+        take: 5000,
+      });
+      for (const t of all) {
+        if (
+          isSimilarCompanyName(name, t.name) ||
+          (t.billingLegalName ? isSimilarCompanyName(name, t.billingLegalName) : false)
+        ) {
+          add({ id: t.id, name: t.name, slug: t.slug, status: t.status }, 'Nombre parecido');
+        }
+      }
+    }
+    return [...found.values()].slice(0, 10);
+  }
+
   // ------------------------------------------------------ vistas guardadas
 
   async listViews(superAdminId: string, page: string): Promise<AdminSavedViewDto[]> {
@@ -364,8 +434,15 @@ export class AdminTenantToolsService {
         page: input.page,
         name: input.name,
         filters: input.filters as Prisma.InputJsonValue,
+        ...(input.columns ? { columns: input.columns as Prisma.InputJsonValue } : {}),
+        ...(input.sort ? { sort: input.sort as Prisma.InputJsonValue } : {}),
       },
-      update: { filters: input.filters as Prisma.InputJsonValue },
+      update: {
+        filters: input.filters as Prisma.InputJsonValue,
+        // Sin columnas ni orden, la vista usa los de siempre.
+        columns: input.columns ? (input.columns as Prisma.InputJsonValue) : Prisma.DbNull,
+        sort: input.sort ? (input.sort as Prisma.InputJsonValue) : Prisma.DbNull,
+      },
     });
     return this.viewDto(row);
   }
@@ -382,6 +459,8 @@ export class AdminTenantToolsService {
     page: string;
     name: string;
     filters: unknown;
+    columns?: unknown;
+    sort?: unknown;
     createdAt: Date;
   }): AdminSavedViewDto {
     return {
@@ -389,6 +468,8 @@ export class AdminTenantToolsService {
       page: 'tenants',
       name: r.name,
       filters: (r.filters ?? {}) as Record<string, unknown>,
+      columns: Array.isArray(r.columns) ? (r.columns as string[]) : null,
+      sort: (r.sort as AdminSavedViewDto['sort']) ?? null,
       createdAt: r.createdAt.toISOString(),
     };
   }

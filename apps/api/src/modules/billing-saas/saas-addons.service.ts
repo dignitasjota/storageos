@@ -40,6 +40,7 @@ import type {
   TenantBillingSummaryDto,
   TenantLimitsDto,
   TenantSelfAddonsDto,
+  UpdateTenantAddonInput,
   UpsertSaasAddonInput,
 } from '@storageos/shared';
 
@@ -1094,6 +1095,74 @@ export class SaasAddonsService {
     }
     // Reconcilia la feature del add-on (activa el override si procede).
     await this.reconcileFeatureOverride(tenantId, addon.feature);
+    return this.billingSummary(tenantId);
+  }
+
+  /**
+   * Edita un extra asignado: cantidad, precio negociado, nota y próximo cobro.
+   * En Stripe la cantidad se sincroniza con su línea; el precio y la fecha los
+   * lleva Stripe (hay que pasarlo antes a cobro manual).
+   */
+  async updateAssignment(
+    tenantId: string,
+    tenantAddonId: string,
+    input: UpdateTenantAddonInput,
+  ): Promise<TenantBillingSummaryDto> {
+    const row = await this.admin.tenantSubscriptionAddon.findFirst({
+      where: { id: tenantAddonId, tenantId },
+      include: { addon: true },
+    });
+    if (!row) throw new NotFoundException({ code: 'addon_not_found', message: 'No asignado' });
+    if (row.addon.isSystem) {
+      throw new BadRequestException({
+        code: 'addon_managed_by_platform',
+        message: 'Este extra lo calcula la plataforma con los trasteros del cliente.',
+      });
+    }
+    const onStripe = row.billingMode === 'stripe';
+    if (
+      onStripe &&
+      input.priceMonthly !== undefined &&
+      input.priceMonthly !== num(row.priceMonthly)
+    ) {
+      throw new BadRequestException({
+        code: 'addon_price_on_stripe',
+        message:
+          'Se cobra por Stripe con el precio del catálogo: pásalo a cobro manual para negociar el precio.',
+      });
+    }
+    if (onStripe && input.nextChargeAt !== undefined) {
+      throw new BadRequestException({
+        code: 'addon_date_on_stripe',
+        message: 'Se cobra con la suscripción de Stripe: la fecha la pone Stripe.',
+      });
+    }
+    if (input.quantity !== undefined && input.quantity !== row.quantity) {
+      assertAddonAllowed(row.addon, (await this.planContext(tenantId)).planSlug, input.quantity);
+    }
+    await this.admin.tenantSubscriptionAddon.update({
+      where: { id: tenantAddonId },
+      data: {
+        ...(input.quantity !== undefined ? { quantity: input.quantity } : {}),
+        ...(input.priceMonthly !== undefined ? { priceMonthly: input.priceMonthly } : {}),
+        ...(input.notes !== undefined ? { notes: input.notes || null } : {}),
+        ...(input.nextChargeAt !== undefined
+          ? {
+              nextChargeAt: input.nextChargeAt
+                ? new Date(`${input.nextChargeAt}T09:00:00.000Z`)
+                : null,
+            }
+          : {}),
+      },
+    });
+    if (
+      onStripe &&
+      row.stripeSubscriptionItemId &&
+      input.quantity !== undefined &&
+      input.quantity !== row.quantity
+    ) {
+      await this.syncStripeItemQuantity(row.stripeSubscriptionItemId, input.quantity);
+    }
     return this.billingSummary(tenantId);
   }
 

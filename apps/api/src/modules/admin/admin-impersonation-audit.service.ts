@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -37,7 +42,11 @@ export class AdminImpersonationAuditService {
     private readonly superAdminAudit: SuperAdminAuditService,
   ) {}
 
-  private toDto(r: SessionRow, actionsCount = 0): AdminImpersonationSessionDto {
+  private toDto(
+    r: SessionRow,
+    actionsCount = 0,
+    userNames: Map<string, string> = new Map(),
+  ): AdminImpersonationSessionDto {
     return {
       id: r.id,
       superAdminId: r.superAdminId,
@@ -53,7 +62,20 @@ export class AdminImpersonationAuditService {
       createdAt: r.createdAt.toISOString(),
       expiresAt: r.expiresAt.toISOString(),
       revokedAt: r.revokedAt ? r.revokedAt.toISOString() : null,
+      userId: r.userId,
+      userName: r.userId ? (userNames.get(r.userId) ?? null) : null,
+      live: !r.revokedAt && r.expiresAt.getTime() > Date.now(),
     };
+  }
+
+  private async userNamesOf(rows: SessionRow[]): Promise<Map<string, string>> {
+    const ids = [...new Set(rows.map((r) => r.userId).filter((id): id is string => !!id))];
+    if (ids.length === 0) return new Map();
+    const users = await this.admin.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, fullName: true, email: true },
+    });
+    return new Map(users.map((u) => [u.id, `${u.fullName} (${u.email})`]));
   }
 
   async listSessions(args: {
@@ -81,8 +103,9 @@ export class AdminImpersonationAuditService {
     });
     const countOf = (id: string): number =>
       counts.find((c) => c.impersonationId === id)?._count._all ?? 0;
+    const names = await this.userNamesOf(items);
     return {
-      items: items.map((r) => this.toDto(r, countOf(r.id))),
+      items: items.map((r) => this.toDto(r, countOf(r.id), names)),
       nextCursor: rows.length > limit ? (items[items.length - 1]?.id ?? null) : null,
     };
   }
@@ -97,7 +120,13 @@ export class AdminImpersonationAuditService {
    */
   async revoke(
     sessionId: string,
-    args: { superAdminId: string; ipAddress?: string | null; userAgent?: string | null },
+    args: {
+      superAdminId: string;
+      /** Rol de quien la corta: un superadmin corta cualquiera; el resto, solo las suyas. */
+      role?: string;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    },
   ): Promise<AdminImpersonationSessionDto> {
     const session = await this.admin.impersonationLog.findUnique({
       where: { id: sessionId },
@@ -105,6 +134,12 @@ export class AdminImpersonationAuditService {
     });
     if (!session) {
       throw new NotFoundException({ code: 'session_not_found', message: 'Sesión no encontrada' });
+    }
+    if (args.role && args.role !== 'superadmin' && session.superAdminId !== args.superAdminId) {
+      throw new ForbiddenException({
+        code: 'insufficient_super_admin_role',
+        message: 'Solo un superadmin o quien la abrió puede cortar esta sesión.',
+      });
     }
     if (session.revokedAt) {
       throw new BadRequestException({

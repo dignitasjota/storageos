@@ -79,6 +79,16 @@ export const AnonymizeTenantSchema = AdminTenantActionSchema.extend({
   exported: z.literal(true, {
     errorMap: () => ({ message: 'Confirma que ya has exportado sus datos' }),
   }),
+  /**
+   * Días de gracia antes de borrar (0-90). 0 o sin indicar = ahora; con días,
+   * se programa, se avisa al propietario y se puede cancelar hasta entonces.
+   */
+  graceDays: z.number().int().min(0).max(90).optional(),
+  /** Motivo de baja si hay que darlo de baja antes (no lo estaba). */
+  // Los mismos valores que `ChurnReasonEnum` (definido más abajo).
+  churnReason: z
+    .enum(['price', 'missing_features', 'business_closure', 'competitor', 'nonpayment', 'other'])
+    .optional(),
 });
 export type AnonymizeTenantInput = z.infer<typeof AnonymizeTenantSchema>;
 
@@ -121,6 +131,13 @@ export const CreateAdminSavedViewSchema = z.object({
   page: AdminSavedViewPageEnum,
   name: z.string().trim().min(1).max(80),
   filters: z.record(z.unknown()),
+  /** Columnas visibles de la lista, en orden. */
+  columns: z.array(z.string().trim().min(1).max(40)).max(40).nullable().optional(),
+  /** Orden de la lista. */
+  sort: z
+    .object({ key: z.string().trim().min(1).max(40), dir: z.union([z.literal(1), z.literal(-1)]) })
+    .nullable()
+    .optional(),
 });
 export type CreateAdminSavedViewInput = z.infer<typeof CreateAdminSavedViewSchema>;
 
@@ -169,6 +186,8 @@ export const ImpersonateSchema = z.object({
   reason: z.string().trim().min(1).max(500),
   /** Solo lectura: el panel del tenant se ve pero no se puede cambiar nada. */
   readOnly: z.boolean().default(true),
+  /** Entrar como este usuario (activo del tenant); sin él, el propietario. */
+  userId: z.string().uuid().optional(),
 });
 export type ImpersonateInput = z.infer<typeof ImpersonateSchema>;
 
@@ -181,6 +200,11 @@ export const AdminEmailTenantSchema = z.object({
    * «Mensajes de TrasterOS».
    */
   replyExpected: z.boolean().default(true),
+  /**
+   * Direcciones elegidas (de las que da `GET /admin/tenants/:id/email-recipients`).
+   * Sin indicar: los propietarios verificados o, si no hay, el email de facturación.
+   */
+  recipients: z.array(z.string().trim().toLowerCase().email().max(320)).min(1).max(30).optional(),
   /** Adjuntos ya subidos (`POST /admin/tenants/:id/email/upload-url`). */
   attachments: z
     .array(

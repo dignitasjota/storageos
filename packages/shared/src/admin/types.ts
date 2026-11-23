@@ -185,6 +185,17 @@ export interface AdminTenantDto {
    * verificar) y ofrecer activarla/reenviar el email desde el panel admin.
    */
   owner?: AdminTenantOwnerDto | null;
+  /** Anonimizado (RGPD): la ficha solo enseña lo que queda. */
+  anonymizedAt?: string | null;
+  /** Fecha y motivo de la baja (cancelado o suspendido). */
+  canceledAt?: string | null;
+  churnReason?: string | null;
+  /** «Dar de baja» programada para esta fecha (aún sin aplicar). */
+  cancelScheduledAt?: string | null;
+  cancelScheduledReason?: string | null;
+  cancelScheduledNote?: string | null;
+  /** Anonimización programada para esta fecha (periodo de gracia). */
+  anonymizeScheduledAt?: string | null;
 }
 
 /** Propietario del tenant, para las acciones de activación desde el admin. */
@@ -553,6 +564,21 @@ export interface AdminTenantCustomerDto {
   /** Nº de contratos vigentes (active/ending). */
   activeContractCount: number;
   createdAt: string;
+  /** El inquilino de prueba de la puesta en marcha. */
+  isTest?: boolean;
+  /** Borrado en su panel (se lista para ver su historia). */
+  deletedAt?: string | null;
+  /** Pendiente de cobro (emitido sin cobrar, como en el Resumen) y la parte vencida. */
+  debt?: number;
+  overdueDebt?: number;
+}
+
+/** Una página de inquilinos de un tenant (`GET /admin/tenants/:id/customers/page`). */
+export interface AdminTenantCustomersPageDto {
+  items: AdminTenantCustomerDto[];
+  nextCursor: string | null;
+  /** Total con el filtro (sin paginar). */
+  total: number;
 }
 
 /** Un local (facility) de un tenant, visto desde el panel super admin. */
@@ -565,6 +591,14 @@ export interface AdminTenantFacilityDto {
   unitCount: number;
   /** Nº de trasteros ocupados. */
   occupiedCount: number;
+  isActive?: boolean;
+}
+
+/** Una página de locales de un tenant (`GET /admin/tenants/:id/facilities/page`). */
+export interface AdminTenantFacilitiesPageDto {
+  items: AdminTenantFacilityDto[];
+  nextCursor: string | null;
+  total: number;
 }
 
 /** Un trastero (unit) de un local, visto desde el panel super admin. */
@@ -988,6 +1022,11 @@ export interface TenantSubscriptionPaymentDto {
   refundedAmount: number;
   /** Contracargo abierto. */
   disputed: boolean;
+  /** Anulado por el super admin (pago a mano registrado por error). */
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  /** Se puede anular (pago a mano cobrado, sin devoluciones). */
+  voidable?: boolean;
 }
 
 /**
@@ -1006,6 +1045,8 @@ export interface TenantInteractionDto {
   authorId: string | null;
   authorName: string | null;
   createdAt: string;
+  /** Fijada arriba del historial. */
+  pinned?: boolean;
 }
 
 /** Un seguimiento/recordatorio del super admin sobre un tenant. */
@@ -1178,6 +1219,11 @@ export interface AdminImpersonationSessionDto {
   createdAt: string;
   expiresAt: string;
   revokedAt: string | null;
+  /** Usuario como el que se entró (null = el propietario). */
+  userId?: string | null;
+  userName?: string | null;
+  /** Sigue abierta (sin cortar ni caducar). */
+  live?: boolean;
 }
 
 /** Una acción del tenant registrada durante la ventana de una impersonación. */
@@ -2504,12 +2550,16 @@ export interface AdminTimelineItemDto {
   link: string | null;
   /** Para colorear: ok / aviso / problema. */
   tone: 'neutral' | 'positive' | 'warning' | 'negative';
+  /** Conversación fijada arriba del historial. */
+  pinned?: boolean;
 }
 
 export interface AdminTimelinePageDto {
   items: AdminTimelineItemDto[];
   /** ISO: pasa como `before` para la página siguiente. */
   nextBefore: string | null;
+  /** Nota fijada arriba (solo en la primera página). */
+  pinned?: AdminTimelineItemDto | null;
 }
 
 /** Avisos por chat del panel admin (sin secretos). */
@@ -2555,6 +2605,10 @@ export interface AdminApprovalRequestDto {
   /** Error al ejecutar la acción aprobada (status `failed`). */
   error: string | null;
   createdAt: string;
+  /** Estado actual del tenant (solo en las pendientes). */
+  currentState?: string | null;
+  /** Lo que ha cambiado desde que se pidió (plan, estado, funciones…). */
+  changedSinceRequest?: string[];
 }
 
 /** Un extra contratado, en la visión general de tenants. */
@@ -2615,6 +2669,13 @@ export interface AdminTenantOverviewDto {
   /** Para buscar por NIF o email de facturación. */
   taxId: string | null;
   billingEmail: string | null;
+  /** Anonimizado (RGPD). */
+  anonymized: boolean;
+  /** Fecha y motivo de la baja (cancelado o suspendido). */
+  canceledAt: string | null;
+  churnReason: string | null;
+  /** Baja programada (aún operando). */
+  cancelScheduledAt: string | null;
 }
 
 /** Resultado de la búsqueda global del panel admin (⌘K). */
@@ -2742,6 +2803,9 @@ export interface AdminSavedViewDto {
   page: 'tenants';
   name: string;
   filters: Record<string, unknown>;
+  /** Columnas visibles y orden de la lista (null = los de siempre). */
+  columns?: string[] | null;
+  sort?: { key: string; dir: 1 | -1 } | null;
   createdAt: string;
 }
 

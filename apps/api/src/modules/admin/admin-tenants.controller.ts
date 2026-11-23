@@ -16,7 +16,6 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 import {
   ADMIN_HEALTH_SEGMENTS,
   type AdminAdoptionDto,
@@ -26,7 +25,6 @@ import {
   type AdminCustomDomainDto,
   type AdminOnboardingDto,
   type AdminTenantConfigDto,
-  type TenantDataExportDto,
   type AdminTenantCustomerDto,
   type AdminTenantDto,
   type AdminTenantsListResponseDto,
@@ -44,7 +42,6 @@ import {
   type AdminTrialDto,
   type AdminTenantUserDto,
   AdminTenantActionSchema,
-  AnonymizeTenantSchema,
   ReactivateTenantSchema,
   TenantResetSchema,
   type TenantResetPreviewDto,
@@ -83,19 +80,17 @@ import { AdminTenantInteractionsService } from './admin-tenant-interactions.serv
 import { AdminTenantResetService } from './admin-tenant-reset.service';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { AdminTenantTimelineService } from './admin-tenant-timeline.service';
-import { type AnonymizeTenantResult, AdminTenantsService } from './admin-tenants.service';
+import { AdminTenantsService } from './admin-tenants.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
 import { ImpersonationService } from './impersonation.service';
 import { RequireSuperadmin } from './require-superadmin.decorator';
 import { SuperAdminAuditService } from './super-admin-audit.service';
-import { TenantDataExportService } from './tenant-data-export.service';
 
 import type { Request, Response } from 'express';
 
 class AdminTenantActionDto extends createZodDto(AdminTenantActionSchema) {}
 class ReactivateTenantDto extends createZodDto(ReactivateTenantSchema) {}
-class AnonymizeTenantDto extends createZodDto(AnonymizeTenantSchema) {}
 class TenantResetDto extends createZodDto(TenantResetSchema) {}
 class SuspendTenantDto extends createZodDto(SuspendTenantSchema) {}
 class ExtendTrialDto extends createZodDto(ExtendTrialSchema) {}
@@ -138,7 +133,6 @@ export class AdminTenantsController {
     private readonly support: AdminSupportService,
     private readonly sepaMandate: PlatformSepaMandateService,
     private readonly config: AdminTenantConfigService,
-    private readonly dataExporter: TenantDataExportService,
     private readonly summaryService: AdminTenantSummaryService,
     private readonly timelineService: AdminTenantTimelineService,
     private readonly resetService: AdminTenantResetService,
@@ -715,7 +709,24 @@ export class AdminTenantsController {
     @Query('before') before?: string,
     @Query('limit') limit?: string,
     @Query('kinds') kinds?: string,
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('actorId') actorId?: string,
   ): Promise<AdminTimelinePageDto> {
+    const day = (v: string | undefined) => {
+      if (!v) return undefined;
+      const d = new Date(`${v.slice(0, 10)}T00:00:00.000Z`);
+      if (Number.isNaN(d.getTime())) {
+        throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
+      }
+      return d;
+    };
+    const fromDate = day(from);
+    const toDate = day(to);
+    if (actorId && !/^[0-9a-f-]{36}$/i.test(actorId)) {
+      throw new BadRequestException({ code: 'invalid_actor', message: 'Autor no válido' });
+    }
     // `before` = «fecha|id» del último visto (o solo la fecha).
     const [beforeAt, beforeId] = (before ?? '').split('|');
     const beforeDate = beforeAt ? new Date(beforeAt) : undefined;
@@ -741,6 +752,10 @@ export class AdminTenantsController {
       ...(beforeDate && beforeId ? { beforeId } : {}),
       ...(limit ? { limit: Number(limit) || 40 } : {}),
       ...(kindList.length ? { kinds: kindList } : {}),
+      ...(q?.trim() ? { q: q.trim().slice(0, 100) } : {}),
+      ...(fromDate ? { from: fromDate } : {}),
+      ...(toDate ? { to: toDate } : {}),
+      ...(actorId ? { actorId } : {}),
     });
   }
 
@@ -953,32 +968,6 @@ export class AdminTenantsController {
     });
   }
 
-  /** Descarga todos los datos del tenant (también si está de baja, antes de anonimizarlo). */
-  @RequireSuperadmin()
-  @Post(':id/data-export')
-  // Genera un Excel con todo: pocas veces por hora y tenant basta.
-  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
-  @HttpCode(HttpStatus.OK)
-  async dataExport(
-    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Req() req: Request,
-  ): Promise<TenantDataExportDto> {
-    const result = await this.dataExporter.export(id);
-    const meta = extractMeta(req);
-    await this.audit.record({
-      superAdminId: admin.sub,
-      action: 'admin.tenant.data_exported',
-      targetType: 'tenant',
-      targetId: id,
-      targetTenantId: id,
-      changes: { fileBytes: result.fileBytes, counts: result.counts },
-      ipAddress: meta.ipAddress,
-      userAgent: meta.userAgent,
-    });
-    return result;
-  }
-
   /** Lo que borraría «Vaciar los datos de prueba» y lo que lo impide. */
   @RequireSuperadmin()
   @Get(':id/reset-preview')
@@ -1011,24 +1000,6 @@ export class AdminTenantsController {
   }
 
   @RequireSuperadmin()
-  @Post(':id/anonymize')
-  @HttpCode(HttpStatus.OK)
-  async anonymize(
-    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
-    @Param('id', new ParseUUIDPipe()) id: string,
-    @Body() input: AnonymizeTenantDto,
-    @Req() req: Request,
-  ): Promise<AnonymizeTenantResult> {
-    const meta = extractMeta(req);
-    return this.tenants.anonymize(id, {
-      superAdminId: admin.sub,
-      reason: input.reason,
-      ipAddress: meta.ipAddress,
-      userAgent: meta.userAgent,
-    });
-  }
-
-  @RequireSuperadmin()
   @Post(':id/impersonate')
   @HttpCode(HttpStatus.OK)
   async impersonate(
@@ -1043,6 +1014,7 @@ export class AdminTenantsController {
       tenantId: id,
       reason: input.reason,
       readOnly: input.readOnly,
+      userId: input.userId,
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });

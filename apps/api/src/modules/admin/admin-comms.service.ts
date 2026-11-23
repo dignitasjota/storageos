@@ -20,6 +20,7 @@ import { Queue } from 'bullmq';
 
 import { buildUnsubscribeToken, unsubscribeKey } from '../../common/marketing/unsubscribe-token';
 import { PrismaAdminService } from '../database/prisma-admin.service';
+import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { EmailService } from '../email/email.service';
 import { FilesService } from '../files/files.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -32,6 +33,7 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { Env } from '../../config/env.schema';
 import type {
+  AdminTenantEmailRecipientDto,
   TenantPlatformMessageDto,
   TenantPlatformMessagesPageDto,
   AdminBroadcastInput,
@@ -92,6 +94,7 @@ export class AdminCommsService {
     private readonly segments: AdminSegmentService,
     private readonly files: FilesService,
     config: ConfigService<Env, true>,
+    private readonly suppressions: EmailSuppressionsService,
   ) {
     this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
     this.apiBaseUrl = config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '');
@@ -439,7 +442,31 @@ export class AdminCommsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
-    const recipients = await this.namedRecipientsFor(tenantId);
+    let recipients = await this.namedRecipientsFor(tenantId);
+    // Direcciones elegidas en el panel: solo las de ese tenant.
+    if (input.recipients?.length) {
+      const allowed = new Map(
+        (await this.emailRecipients(tenantId)).map((r) => [r.email, r] as const),
+      );
+      const wrong = input.recipients.filter((e) => !allowed.has(e));
+      if (wrong.length > 0) {
+        throw new BadRequestException({
+          code: 'invalid_recipient',
+          message: `No son direcciones de este tenant: ${wrong.join(', ')}`,
+        });
+      }
+      const tenantName = (
+        await this.admin.tenant.findUnique({ where: { id: tenantId }, select: { name: true } })
+      )?.name;
+      recipients = [...new Set(input.recipients)].map((email) => ({
+        tenantId,
+        tenantName: tenantName ?? '',
+        email,
+        userId: null,
+        fullName: allowed.get(email)?.fullName ?? null,
+        optedOut: false,
+      }));
+    }
     if (recipients.length === 0) {
       throw new BadRequestException({
         code: 'no_recipients',
@@ -514,6 +541,68 @@ export class AdminCommsService {
       /* el registro es secundario */
     }
     return { recipients: sent, failed };
+  }
+
+  /**
+   * A quién puede llegar un correo del admin a este tenant: propietarios, email
+   * de facturación y el resto de usuarios activos, con los que reciben por
+   * defecto marcados y las direcciones bloqueadas (rebote o queja) señaladas.
+   */
+  async emailRecipients(tenantId: string): Promise<AdminTenantEmailRecipientDto[]> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, deletedAt: true, billingEmail: true },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const users = await this.admin.user.findMany({
+      where: { tenantId, isActive: true },
+      select: { email: true, fullName: true, role: true, emailVerifiedAt: true },
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    });
+    const defaults = new Set((await this.namedRecipientsFor(tenantId)).map((r) => r.email));
+    const ROLE_LABEL: Record<string, string> = {
+      owner: 'Propietario',
+      manager: 'Gestor',
+      staff: 'Personal',
+      readonly: 'Solo lectura',
+    };
+    const out = new Map<string, AdminTenantEmailRecipientDto>();
+    for (const u of users) {
+      const email = u.email.toLowerCase();
+      if (out.has(email)) continue;
+      out.set(email, {
+        email,
+        label: ROLE_LABEL[u.role] ?? u.role,
+        kind: u.role === 'owner' ? 'owner' : 'user',
+        fullName: u.fullName,
+        defaultSelected: defaults.has(email),
+        verified: !!u.emailVerifiedAt,
+        blocked: null,
+      });
+    }
+    if (tenant.billingEmail) {
+      const email = tenant.billingEmail.toLowerCase();
+      const known = out.get(email);
+      if (known) known.label = `${known.label} · facturación`;
+      else
+        out.set(email, {
+          email,
+          label: 'Email de facturación',
+          kind: 'billing',
+          fullName: null,
+          defaultSelected: defaults.has(email),
+          verified: true,
+          blocked: null,
+        });
+    }
+    const list = [...out.values()];
+    for (const r of list) {
+      const block = await this.suppressions.blockedForAll(r.email).catch(() => null);
+      r.blocked = block ? block.label : null;
+    }
+    return list;
   }
 
   /** Anuncio inmediato (Anuncios y acción masiva de Tenants): queda en el historial. */

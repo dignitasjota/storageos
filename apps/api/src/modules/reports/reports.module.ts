@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
+import { TenantDataExportModule } from '../admin/tenant-data-export.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { AuthModule } from '../auth/auth.module';
 import { OwnersModule } from '../owners/owners.module';
@@ -41,7 +42,7 @@ const GENERATORS = [
  * para encolar nuevos runs y consultar progreso) sigue siempre activo.
  */
 @Module({
-  imports: [AuthModule, OwnersModule, AnalyticsModule],
+  imports: [AuthModule, OwnersModule, AnalyticsModule, TenantDataExportModule],
   controllers: [ReportsController, ReportFileDownloadController],
   providers: [
     ReportsService,

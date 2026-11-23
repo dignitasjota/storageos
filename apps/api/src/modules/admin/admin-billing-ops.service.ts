@@ -27,6 +27,7 @@ import type {
   AdminReceivablesDto,
   AdminScheduledChargeDto,
   AdminTenantAccountDto,
+  AdminSubscriptionStateDto,
 } from '@storageos/shared';
 
 const DAY = 86_400_000;
@@ -62,6 +63,24 @@ const STEP_LABEL: Record<AdminDunningStepDto['step'], string> = {
   reminder_2: 'Segundo recordatorio',
   suspend: 'Suspensión',
 };
+
+/**
+ * Cambios que haría una acción sobre la suscripción (para la vista previa):
+ * se aplican sobre una copia y se calcula el próximo cargo y la deuda.
+ */
+export interface SubscriptionStatePatch {
+  tenantStatus?: string;
+  billingExempt?: boolean;
+  trialEndsAt?: Date | null;
+  subStatus?: string;
+  billingMode?: string;
+  stripeSubscriptionId?: string | null;
+  periodStart?: Date;
+  periodEnd?: Date;
+  plan?: { name: string; priceMonthly: number; priceYearly: number };
+  /** Se da de baja: ningún cargo más. */
+  noCharges?: boolean;
+}
 
 function asMethod(mode: string | null | undefined): AdminChargeMethod {
   return mode === 'stripe' || mode === 'sepa' || mode === 'redsys' ? mode : 'manual';
@@ -362,6 +381,90 @@ export class AdminBillingOpsService {
       paid12m: round2(paid12m),
       sepaInProgress: sepaPending > 0,
       history: history.slice(0, 40),
+    };
+  }
+
+  /**
+   * Estado de la suscripción de un tenant (o cómo quedaría con `patch`): plan,
+   * estado, fin del periodo, próximo cargo de la cuota y deuda, con las mismas
+   * reglas que el estado de cuenta.
+   */
+  async subscriptionState(
+    tenantId: string,
+    patch: SubscriptionStatePatch = {},
+    now = new Date(),
+  ): Promise<AdminSubscriptionStateDto> {
+    const [tenant, row, pricing] = await Promise.all([
+      this.admin.tenant.findUnique({
+        where: { id: tenantId },
+        select: { status: true, billingExempt: true, trialEndsAt: true, deletedAt: true },
+      }),
+      this.admin.tenantSubscription.findUnique({ where: { tenantId }, include: SUB_INCLUDE }),
+      platformPricing(this.admin),
+    ]);
+    if (!tenant) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const tenantStatus = patch.tenantStatus ?? tenant.status;
+    const exempt = patch.billingExempt ?? tenant.billingExempt;
+    const trialEndsAt = patch.trialEndsAt !== undefined ? patch.trialEndsAt : tenant.trialEndsAt;
+    if (!row) {
+      return {
+        tenantStatus,
+        subscriptionStatus: null,
+        planName: null,
+        billingMode: null,
+        billingExempt: exempt,
+        trialEndsAt: trialEndsAt?.toISOString() ?? null,
+        periodEnd: null,
+        nextCharge: null,
+        debt: null,
+      };
+    }
+    const sub: SubRow = {
+      ...row,
+      status: (patch.subStatus ?? row.status) as SubRow['status'],
+      billingMode: patch.billingMode ?? row.billingMode,
+      stripeSubscriptionId:
+        patch.stripeSubscriptionId !== undefined
+          ? patch.stripeSubscriptionId
+          : row.stripeSubscriptionId,
+      currentPeriodStart: patch.periodStart ?? row.currentPeriodStart,
+      currentPeriodEnd: patch.periodEnd ?? row.currentPeriodEnd,
+      plan: patch.plan
+        ? ({
+            name: patch.plan.name,
+            priceMonthly: patch.plan.priceMonthly,
+            priceYearly: patch.plan.priceYearly,
+          } as unknown as SubRow['plan'])
+        : row.plan,
+      tenant: {
+        ...row.tenant,
+        status: tenantStatus as SubRow['tenant']['status'],
+        billingExempt: exempt,
+      },
+    };
+    const charging =
+      !patch.noCharges &&
+      !exempt &&
+      tenantStatus !== 'trial' &&
+      tenantStatus !== 'cancelled' &&
+      sub.status !== 'cancelled' &&
+      sub.status !== 'expired';
+    const charge = charging ? this.planCharge(sub, pricing) : null;
+    const overdue = patch.noCharges
+      ? undefined
+      : (await this.overdueFor([sub], pricing, now)).get(tenantId);
+    return {
+      tenantStatus,
+      subscriptionStatus: sub.status,
+      planName: sub.plan.name,
+      billingMode: sub.billingMode,
+      billingExempt: exempt,
+      trialEndsAt: trialEndsAt?.toISOString() ?? null,
+      periodEnd: sub.currentPeriodEnd.toISOString(),
+      nextCharge: charge && charge.total > 0 ? { date: charge.date, amount: charge.total } : null,
+      debt: overdue ? { amount: overdue.amount, since: overdue.since } : null,
     };
   }
 

@@ -104,6 +104,7 @@ const TREATED_ON_ANONYMIZE = [
   'task_comments',
   'tasks',
   'tenant_aeat_credentials',
+  'tenant_data_exports',
   'tenant_email_domains',
   'tenant_ga4',
   'tenant_interactions',

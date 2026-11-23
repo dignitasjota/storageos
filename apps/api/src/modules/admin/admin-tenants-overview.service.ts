@@ -25,13 +25,17 @@ export class AdminTenantsOverviewService {
   async overview(): Promise<AdminTenantOverviewDto[]> {
     const [rows, addons, logins, followups, facilities, units, contracts, owners, health, ctx] =
       await Promise.all([
+        // También los anonimizados: salen en la pestaña «Bajas».
         this.admin.tenant.findMany({
-          where: { deletedAt: null },
           select: {
             id: true,
             name: true,
             slug: true,
             status: true,
+            deletedAt: true,
+            canceledAt: true,
+            churnReason: true,
+            cancelScheduledAt: true,
             billingExempt: true,
             createdAt: true,
             trialEndsAt: true,
@@ -175,6 +179,10 @@ export class AdminTenantsOverviewService {
         ownerPhone: owner?.phone ?? null,
         taxId: t.taxId,
         billingEmail: t.billingEmail,
+        anonymized: !!t.deletedAt,
+        canceledAt: t.canceledAt?.toISOString() ?? t.deletedAt?.toISOString() ?? null,
+        churnReason: t.churnReason,
+        cancelScheduledAt: t.cancelScheduledAt?.toISOString() ?? null,
       };
     });
   }

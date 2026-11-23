@@ -91,6 +91,9 @@ function toPaymentDto(r: {
   createdAt: Date;
   refundedAmount?: unknown;
   disputedAt?: Date | null;
+  externalId?: string | null;
+  voidedAt?: Date | null;
+  voidReason?: string | null;
 }): TenantSubscriptionPaymentDto {
   return {
     id: r.id,
@@ -110,7 +113,33 @@ function toPaymentDto(r: {
     createdAt: r.createdAt.toISOString(),
     refundedAmount: Number(r.refundedAmount ?? 0),
     disputed: Boolean(r.disputedAt),
+    voidedAt: r.voidedAt?.toISOString() ?? null,
+    voidReason: r.voidReason ?? null,
+    voidable: isVoidableManualPayment(r),
   };
+}
+
+/** Pasarelas que cobran solas: sus pagos no se anulan a mano. */
+const AUTOMATIC_PROVIDERS = new Set(['sepa', 'redsys']);
+
+/**
+ * Un pago registrado a mano (sin id de Stripe, ni remesa SEPA ni Redsys),
+ * cobrado y sin devoluciones: se puede anular si se registró por error.
+ */
+export function isVoidableManualPayment(r: {
+  provider: string;
+  status: string;
+  externalId?: string | null;
+  refundedAmount?: unknown;
+  voidedAt?: Date | null;
+}): boolean {
+  return (
+    r.status === 'paid' &&
+    !r.externalId &&
+    !AUTOMATIC_PROVIDERS.has(r.provider) &&
+    !r.voidedAt &&
+    Number(r.refundedAmount ?? 0) === 0
+  );
 }
 
 // El SDK de Stripe exporta `Stripe` como namespace y como clase con el mismo
@@ -1639,6 +1668,7 @@ export class BillingSaasService {
           periodStart: base,
           periodEnd: newEnd,
           paidAt: args.paidAt ?? now,
+          extendedPeriod: true,
         },
       });
       await tx.tenantSubscription.update({
@@ -1825,11 +1855,26 @@ export class BillingSaasService {
    * Stripe. El mandato SEPA y la tarjeta de Redsys los quita la anonimización.
    */
   async stopChargingForAnonymize(tenantId: string): Promise<void> {
+    await this.stopAllCharging(tenantId, { stopManualAddons: false });
+  }
+
+  /**
+   * Deja de cobrarse por cualquier vía (al dar de baja o anonimizar): cancela la
+   * suscripción de Stripe (si Stripe no lo confirma, lanza 409 y no se sigue),
+   * pasa la cuota a pago manual (sale de la remesa SEPA y del cobro automático
+   * de Redsys) y, con `stopManualAddons`, los extras dejan de tener próximo
+   * cobro. El mandato SEPA y la tarjeta guardada se conservan (deshacer la
+   * baja no pide volver a autorizarlos).
+   */
+  async stopAllCharging(
+    tenantId: string,
+    opts: { stopManualAddons: boolean } = { stopManualAddons: true },
+  ): Promise<{ stripeCancelled: boolean; previousMode: string | null }> {
     const sub = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
-      select: { stripeSubscriptionId: true },
+      select: { stripeSubscriptionId: true, billingMode: true },
     });
-    if (!sub) return;
+    if (!sub) return { stripeCancelled: false, previousMode: null };
     if (sub.stripeSubscriptionId) {
       try {
         await this.cancelStripeSubscriptionOrThrow(tenantId, sub.stripeSubscriptionId);
@@ -1837,7 +1882,7 @@ export class BillingSaasService {
         throw new ConflictException({
           code: 'stripe_cancel_failed',
           message:
-            'Stripe no ha confirmado la cancelación de su suscripción: no se anonimiza para que no se le siga cobrando. Cancélala en Stripe y vuelve a intentarlo.',
+            'Stripe no ha confirmado la cancelación de su suscripción: no se sigue para que no se le cobre más. Cancélala en Stripe y vuelve a intentarlo.',
           details: { cause: err instanceof Error ? err.message : String(err) },
         });
       }
@@ -1858,7 +1903,129 @@ export class BillingSaasService {
         where: { tenantId, billingMode: 'stripe' },
         data: { billingMode: 'manual', stripeSubscriptionItemId: null, nextChargeAt: null },
       }),
+      ...(opts.stopManualAddons
+        ? [
+            this.admin.tenantSubscriptionAddon.updateMany({
+              where: { tenantId, billingMode: 'manual' },
+              data: { nextChargeAt: null },
+            }),
+          ]
+        : []),
     ]);
+    return { stripeCancelled: !!sub.stripeSubscriptionId, previousMode: sub.billingMode };
+  }
+
+  /**
+   * Anula un pago de la cuota registrado a mano por error: deshace la
+   * ampliación del periodo que dio, devuelve el uso del cupón, marca el pago
+   * como anulado (no se borra) y su factura recibe la rectificativa de abono.
+   * Si después queda debiendo y el periodo ya venció, vuelve a pago pendiente.
+   */
+  async voidManualPayment(args: {
+    tenantId: string;
+    paymentId: string;
+    reason: string;
+  }): Promise<TenantSubscriptionPaymentDto> {
+    const now = new Date();
+    const result = await this.admin.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.tenantId}::text))`;
+      const payment = await tx.tenantSubscriptionPayment.findFirst({
+        where: { id: args.paymentId, tenantId: args.tenantId },
+      });
+      if (!payment) {
+        throw new NotFoundException({ code: 'payment_not_found', message: 'Pago no encontrado' });
+      }
+      if (!isVoidableManualPayment(payment)) {
+        throw new BadRequestException({
+          code: 'payment_not_voidable',
+          message:
+            'Solo se anula un pago registrado a mano, cobrado y sin devoluciones (los de Stripe, SEPA o Redsys se devuelven desde allí).',
+        });
+      }
+      const [sub, tenant] = await Promise.all([
+        tx.tenantSubscription.findUnique({ where: { tenantId: args.tenantId } }),
+        tx.tenant.findUnique({
+          where: { id: args.tenantId },
+          select: { status: true, billingExempt: true },
+        }),
+      ]);
+      let periodEnd: Date | null = null;
+      let pastDue = false;
+      if (payment.extendedPeriod && payment.periodStart && payment.periodEnd && sub) {
+        // Se quita lo que alargó (aunque después hubiera otros pagos).
+        const shift = payment.periodEnd.getTime() - payment.periodStart.getTime();
+        periodEnd = new Date(sub.currentPeriodEnd.getTime() - shift);
+        const days = diffInDays(payment.periodStart, payment.periodEnd);
+        pastDue =
+          periodEnd < now &&
+          !tenant?.billingExempt &&
+          tenant?.status !== 'trial' &&
+          (sub.status === 'active' || sub.status === 'past_due');
+        await tx.tenantSubscription.update({
+          where: { tenantId: args.tenantId },
+          data: {
+            currentPeriodEnd: periodEnd,
+            ...(sub.stripeSubscriptionId
+              ? { manualExtensionDays: Math.max(0, sub.manualExtensionDays - days) }
+              : {}),
+            ...(pastDue ? { status: 'past_due' as const } : {}),
+          },
+        });
+      }
+      // El cupón vuelve a tener ese uso.
+      const redemptions = await tx.platformCouponRedemption.findMany({
+        where: { paymentId: payment.id },
+        select: { id: true, couponId: true },
+      });
+      if (redemptions.length > 0) {
+        await tx.platformCouponRedemption.deleteMany({
+          where: { id: { in: redemptions.map((r) => r.id) } },
+        });
+        const byCoupon = new Map<string, number>();
+        for (const r of redemptions) byCoupon.set(r.couponId, (byCoupon.get(r.couponId) ?? 0) + 1);
+        for (const [couponId, n] of byCoupon) {
+          await tx.$executeRaw`
+            UPDATE platform_coupons
+            SET used_count = GREATEST(0, used_count - ${n}::int), updated_at = now()
+            WHERE id = ${couponId}::uuid`;
+        }
+      }
+      const updated = await tx.tenantSubscriptionPayment.update({
+        where: { id: payment.id },
+        data: { status: 'voided', voidedAt: now, voidReason: args.reason },
+      });
+      return { payment: updated, periodEnd, pastDue, coupons: redemptions.length };
+    });
+
+    // La factura de ese pago recibe su abono (si se emitió).
+    try {
+      await this.platformInvoices.creditForPayment(
+        result.payment.id,
+        Number(result.payment.amount),
+        `Pago anulado: ${args.reason}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo abonar la factura del pago anulado ${result.payment.id}: ${String(err)}`,
+      );
+    }
+    await this.audit.write({
+      tenantId: args.tenantId,
+      userId: null,
+      action: 'saas_billing.manual_payment_voided',
+      entityType: 'TenantSubscriptionPayment',
+      entityId: result.payment.id,
+      changes: {
+        reason: args.reason,
+        amount: Number(result.payment.amount),
+        currentPeriodEnd: result.periodEnd?.toISOString() ?? null,
+        pastDue: result.pastDue,
+        couponUsesReturned: result.coupons,
+      },
+      ipAddress: null,
+      userAgent: null,
+    });
+    return toPaymentDto(result.payment);
   }
 
   /**

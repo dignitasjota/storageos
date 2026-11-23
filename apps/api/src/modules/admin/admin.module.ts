@@ -58,7 +58,10 @@ import { AdminSystemController } from './admin-system.controller';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import { AdminTenantLifecycleController } from './admin-tenant-lifecycle.controller';
+import { AdminTenantLifecycleService } from './admin-tenant-lifecycle.service';
 import { AdminTenantResetService } from './admin-tenant-reset.service';
+import { AdminTenantScheduleCron } from './admin-tenant-schedule.cron';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
 import { AdminTenantTimelineService } from './admin-tenant-timeline.service';
 import { AdminTenantToolsController } from './admin-tenant-tools.controller';
@@ -140,7 +143,7 @@ import { SupportTicketsService } from './support-tickets.service';
 import { SystemWatchCron } from './system-watch.cron';
 import { SystemWatchService } from './system-watch.service';
 import { TenantDataExportController } from './tenant-data-export.controller';
-import { TenantDataExportService } from './tenant-data-export.service';
+import { TenantDataExportModule } from './tenant-data-export.module';
 import { TenantHealthModule } from './tenant-health.module';
 import { TenantLifecycleEmailsController } from './tenant-lifecycle-emails.controller';
 import { TenantLifecycleEmailsCron } from './tenant-lifecycle-emails.cron';
@@ -189,6 +192,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     UsersModule,
     AiModule,
     PlatformLeadsCoreModule,
+    TenantDataExportModule,
   ],
   controllers: [
     AdminHealthInsightsController,
@@ -199,6 +203,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     TenantSalesRepController,
     PlatformLeadsController,
     AdminTenantToolsController,
+    AdminTenantLifecycleController,
     AdminBusinessController,
     AdminPushController,
     AdminTenantsOverviewController,
@@ -317,7 +322,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminUsageService,
     SupportAgilityService,
     SupportServiceStatusService,
-    TenantDataExportService,
+    AdminTenantLifecycleService,
+    AdminTenantScheduleCron,
     AdminTenantResetService,
     AeatCertExpiryService,
     AeatCertExpiryCron,

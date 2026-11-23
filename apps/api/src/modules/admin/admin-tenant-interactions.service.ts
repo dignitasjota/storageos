@@ -21,6 +21,7 @@ function toDto(row: InteractionRow): TenantInteractionDto {
     authorId: row.superAdminId,
     authorName: row.superAdmin?.fullName ?? null,
     createdAt: row.createdAt.toISOString(),
+    pinned: !!row.pinnedAt,
   };
 }
 
@@ -86,5 +87,31 @@ export class AdminTenantInteractionsService {
       });
     }
     await this.admin.tenantInteraction.delete({ where: { id } });
+  }
+
+  /** Fija una conversación arriba del historial (solo una por tenant) o la suelta. */
+  async pin(tenantId: string, id: string, pinned: boolean): Promise<TenantInteractionDto> {
+    const row = await this.admin.tenantInteraction.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    if (!row) {
+      throw new NotFoundException({
+        code: 'interaction_not_found',
+        message: 'Interacción no encontrada',
+      });
+    }
+    const [, updated] = await this.admin.$transaction([
+      this.admin.tenantInteraction.updateMany({
+        where: { tenantId, pinnedAt: { not: null }, id: { not: id } },
+        data: { pinnedAt: null },
+      }),
+      this.admin.tenantInteraction.update({
+        where: { id },
+        data: { pinnedAt: pinned ? new Date() : null },
+        include: interactionInclude,
+      }),
+    ]);
+    return toDto(updated);
   }
 }
