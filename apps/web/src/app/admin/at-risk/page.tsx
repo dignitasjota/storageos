@@ -165,20 +165,34 @@ function RiskSection({
  */
 function RetentionButton({ tenantId, tenantName }: { tenantId: string; tenantName: string }) {
   const playbook = useRetentionPlaybook();
+  const ask = useConfirm();
   return (
     <Button
       variant="default"
       size="sm"
       disabled={playbook.isPending}
-      onClick={() => {
+      onClick={async () => {
+        const ok = await ask({
+          title: `¿Lanzar el playbook de retención con ${tenantName}?`,
+          description:
+            'Crea un seguimiento para dentro de 3 días y le envía un correo de retención a sus propietarios.',
+        });
+        if (!ok) return;
         playbook.mutate(tenantId, {
           onSuccess: (res) => {
             toast.success('Playbook de retención lanzado', {
-              description: `${tenantName}: seguimiento creado + email enviado a ${res.emailRecipients} destinatario(s).`,
+              description:
+                res.emailRecipients > 0
+                  ? `${tenantName}: seguimiento creado y correo encolado para ${res.emailRecipients} destinatario(s).`
+                  : `${tenantName}: seguimiento creado. No tiene a quién escribir: no se ha enviado correo.`,
             });
           },
-          onError: () => {
-            toast.error('No se pudo lanzar el playbook de retención.');
+          onError: (err) => {
+            toast.error(
+              err instanceof ApiError
+                ? err.body.message
+                : 'No se pudo lanzar el playbook de retención.',
+            );
           },
         });
       }}

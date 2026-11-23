@@ -2567,6 +2567,59 @@ export class AdminTenantsService {
         },
       });
       await tx.platformRedsysCard.deleteMany({ where: { tenantId } });
+      // Más texto libre que puede llevar nombres, teléfonos o lo hablado.
+      await tx.aiConversation.updateMany({ where: { tenantId }, data: { title: ANON } });
+      await tx.aiScheduledQuestion.deleteMany({ where: { tenantId } });
+      await tx.aiPendingAction.deleteMany({ where: { tenantId } });
+      await tx.task.updateMany({
+        where: { tenantId },
+        data: { title: ANON, description: null, cancelReason: null, metadata: {} },
+      });
+      await tx.taskComment.updateMany({ where: { tenantId }, data: { body: ANON } });
+      await tx.businessReminderCompletion.updateMany({ where: { tenantId }, data: { note: null } });
+      await tx.incidentComment.updateMany({ where: { tenantId }, data: { body: ANON } });
+      await tx.delinquencyCase.updateMany({
+        where: { tenantId },
+        data: { notes: null, custodyLocation: null, noticeTracking: null },
+      });
+      await tx.delinquencyCaseEvent.updateMany({ where: { tenantId }, data: { payload: {} } });
+      await tx.paymentPlan.updateMany({ where: { tenantId }, data: { notes: null } });
+      await tx.consent.updateMany({ where: { tenantId }, data: { evidence: {} } });
+      await tx.automationRun.updateMany({
+        where: { tenantId },
+        data: { eventPayload: {}, errorMessage: null },
+      });
+      await tx.accessLog.updateMany({
+        where: { tenantId },
+        data: { attemptedValue: null, ipAddress: null, metadata: {} },
+      });
+      const snapshots = await tx.cameraEvent.findMany({
+        where: { tenantId, snapshotKey: { not: null } },
+        select: { snapshotKey: true },
+      });
+      await tx.cameraEvent.deleteMany({ where: { tenantId } });
+      // Lo que se guardó de la relación con la plataforma: sin contacto ni lo hablado.
+      await tx.tenantInteraction.updateMany({ where: { tenantId }, data: { content: ANON } });
+      await tx.platformEmailLog.updateMany({
+        where: { tenantId },
+        data: { recipient: ANON, bodyText: null, bodyHtml: null },
+      });
+      await tx.platformNpsResponse.updateMany({
+        where: { tenantId },
+        data: { email: ANON, comment: null },
+      });
+      await tx.platformLegalAcceptance.updateMany({
+        where: { tenantId },
+        data: { ipAddress: null },
+      });
+      await tx.supportTicket.updateMany({
+        where: { tenantId },
+        data: { userAgent: null, pageUrl: null, ratingComment: null },
+      });
+      // Enlaces de un solo uso que ya no se van a usar.
+      await tx.passwordResetToken.deleteMany({ where: { tenantId } });
+      await tx.emailVerificationToken.deleteMany({ where: { tenantId } });
+      await tx.recoveryCode.deleteMany({ where: { tenantId } });
 
       await tx.customerDocument.deleteMany({ where: { tenantId } });
       await tx.customerDocumentRequest.deleteMany({ where: { tenantId } });
@@ -2758,6 +2811,7 @@ export class AdminTenantsService {
         fileKeys: [
           ...whatsapp.mediaKeys,
           ...depositReceipts.map((c) => c.depositRegistryReceiptKey!),
+          ...snapshots.map((c) => c.snapshotKey!),
           ...faces.map((f) => f.facePhotoKey!),
           ...photos.map((p) => p.key),
           ...chatFiles.flatMap(attachmentKeysOf),

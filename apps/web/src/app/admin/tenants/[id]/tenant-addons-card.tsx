@@ -6,7 +6,9 @@ import { toast } from 'sonner';
 
 import type { SaasAddonDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { ProposeAddonDialog } from '@/components/admin/propose-addon-dialog';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,6 +58,7 @@ export function TenantAddonsCard({
   const reactivate = useAddonSuspension(tenantId, 'reactivate');
   const setBillingMode = useSetAddonBillingMode(tenantId);
   const [selected, setSelected] = useState<string>('');
+  const ask = useConfirm();
 
   async function doSetMode(assignmentId: string, mode: 'manual' | 'stripe') {
     try {
@@ -72,12 +75,20 @@ export function TenantAddonsCard({
           ? 'El tenant no paga el plan por Stripe; no hay suscripción donde añadir el add-on.'
           : code === 'payments_not_configured'
             ? 'Stripe no está configurado todavía.'
-            : 'No se pudo cambiar el modo de cobro.',
+            : err instanceof ApiError
+              ? err.body.message
+              : 'No se pudo cambiar el modo de cobro.',
       );
     }
   }
 
   async function doSuspend(id: string) {
+    const ok = await ask({
+      title: '¿Suspender este extra?',
+      description: 'Su función se desactiva y deja de cobrarse hasta que lo reactives.',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await suspend.mutateAsync(id);
       toast.success('Add-on suspendido. Su funcionalidad queda desactivada.');
@@ -134,6 +145,12 @@ export function TenantAddonsCard({
   }
 
   async function doRemove(id: string) {
+    const ok = await ask({
+      title: '¿Quitar este extra?',
+      description: 'Se le quita del todo (y su función, si no la tiene por otra vía).',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await remove.mutateAsync(id);
       toast.success('Add-on retirado.');
@@ -151,7 +168,9 @@ export function TenantAddonsCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {summary.isLoading ? (
+        {summary.isError ? (
+          <AdminError onRetry={() => void summary.refetch()} />
+        ) : summary.isLoading ? (
           <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
         ) : (
           <>

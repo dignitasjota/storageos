@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAdminSuperAdmins, useUpdateFollowup } from '@/lib/admin/hooks';
+import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
 
 /** Fecha de hoy + N días (YYYY-MM-DD). */
@@ -26,12 +27,19 @@ function plusDays(n: number): string {
 export function FollowupControls({ f }: { f: TenantFollowupDto }) {
   const update = useUpdateFollowup();
   const admins = useAdminSuperAdmins();
-  const active = (admins.data ?? []).filter((a) => a.isActive);
+  // Los comerciales no llevan los seguimientos de soporte.
+  const active = (admins.data ?? []).filter((a) => a.isActive && a.role !== 'sales');
+  const onError = (err: unknown) =>
+    toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
 
   function postpone(days: number) {
+    const day = plusDays(days);
     update.mutate(
-      { followupId: f.id, dueDate: plusDays(days) },
-      { onSuccess: () => toast.success(`Pospuesto al ${plusDays(days)}.`) },
+      { followupId: f.id, dueDate: day },
+      {
+        onSuccess: () => toast.success(`Pospuesto al ${day.split('-').reverse().join('/')}.`),
+        onError,
+      },
     );
   }
 
@@ -53,7 +61,9 @@ export function FollowupControls({ f }: { f: TenantFollowupDto }) {
       </DropdownMenu>
       <select
         value={f.assignedToId ?? ''}
-        onChange={(e) => update.mutate({ followupId: f.id, assignedToId: e.target.value || null })}
+        onChange={(e) =>
+          update.mutate({ followupId: f.id, assignedToId: e.target.value || null }, { onError })
+        }
         aria-label="Quién se encarga"
         className="h-8 max-w-[140px] rounded-md border bg-background px-1 text-xs"
       >

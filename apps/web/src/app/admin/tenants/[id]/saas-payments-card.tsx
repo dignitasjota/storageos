@@ -1,10 +1,12 @@
 'use client';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { SaasPaymentProviderValue } from '@storageos/shared';
+import type { AdminTenantAccountDto, SaasPaymentProviderValue } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -25,10 +27,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { adminApiFetch } from '@/lib/admin/api';
 import {
   fetchPlatformInvoicePdf,
   useAddManualPaymentDeps,
   useAddManualSaasPayment,
+  useAdminTenantAccount,
   useAdminTenantPlatformInvoices,
   useAdminTenantSaasPayments,
   useIssuePlatformInvoice,
@@ -121,16 +125,21 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
   }
 
   const rows = payments.data ?? [];
-  const totalPaid = rows.filter((p) => p.status === 'paid').reduce((s, p) => s + p.amount, 0);
+  // Neto de lo devuelto (también los pagos devueltos en parte o del todo).
+  const totalPaid = rows
+    .filter((p) => ['paid', 'partially_refunded', 'refunded'].includes(p.status))
+    .reduce((s, p) => s + p.amount - (p.refundedAmount ?? 0), 0);
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle className="text-base">Historial de pagos (suscripción)</CardTitle>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={onSync} disabled={sync.isPending}>
-            {sync.isPending ? 'Sincronizando…' : 'Sincronizar con Stripe'}
-          </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          {canEdit && (
+            <Button variant="outline" size="sm" onClick={onSync} disabled={sync.isPending}>
+              {sync.isPending ? 'Sincronizando…' : 'Sincronizar con Stripe'}
+            </Button>
+          )}
           <Button size="sm" onClick={() => setManualOpen(true)} disabled={!canEdit}>
             Añadir pago manual
           </Button>
@@ -139,6 +148,8 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
       <CardContent>
         {payments.isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : payments.isError ? (
+          <AdminError onRetry={() => void payments.refetch()} />
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Sin pagos registrados. Los cobros de Stripe se guardan aquí automáticamente; también
@@ -292,6 +303,8 @@ export function AddManualPaymentDialog({
   periodAmount?: number;
 }) {
   const add = useAddManualSaasPayment(tenantId);
+  const qc = useQueryClient();
+  const account = useAdminTenantAccount(tenantId);
   const { planPriceMonthly, effectiveMonthly, planCurrency, periodEnd, hasStripe } =
     useAddManualPaymentDeps(tenantId);
 
@@ -318,11 +331,11 @@ export function AddManualPaymentDialog({
     if (open && defaultAmount && defaultAmount > 0) setAmount(String(defaultAmount));
   }, [open, defaultAmount]);
 
-  // Propone la duración (importe ÷ precio del PLAN) mientras el admin no la haya
-  // editado. Se usa el precio del plan —no el efectivo con add-ons— porque los
-  // add-ons manuales se cobran por separado desde la bandeja «Hoy» (cada uno con
-  // su propio vencimiento), así que este pago cubre solo la suscripción.
-  const monthlyRef = periodAmount ?? planPriceMonthly ?? effectiveMonthly;
+  // Propone la duración (importe ÷ lo que se cobra en cada cuota) mientras el
+  // admin no la haya editado: el total del próximo cargo del estado de cuenta
+  // (plan con su IVA y los extras que van con él); si no hay, el plan.
+  const monthlyRef =
+    periodAmount ?? account.data?.nextCharge?.total ?? planPriceMonthly ?? effectiveMonthly;
   const suggested = useMemo(() => {
     if (!monthlyRef || amountNum <= 0) return null;
     return Math.max(1, Math.round(amountNum / monthlyRef));
@@ -372,11 +385,25 @@ export function AddManualPaymentDialog({
         ...(description.trim() ? { description: description.trim() } : {}),
         ...(couponCode.trim() ? { couponCode: couponCode.trim().toUpperCase() } : {}),
       });
-      toast.success(
-        extendsPeriod
-          ? 'Pago registrado y periodo extendido.'
-          : 'Cobro registrado (sin extender el periodo).',
-      );
+      if (!extendsPeriod) {
+        toast.success('Cobro registrado (sin extender el periodo).');
+      } else {
+        // Un moroso de varias cuotas puede seguir debiendo tras pagar una.
+        const after = await qc
+          .fetchQuery({
+            queryKey: ['admin', 'tenants', tenantId, 'account'],
+            queryFn: () =>
+              adminApiFetch<AdminTenantAccountDto>(`/admin/tenants/${tenantId}/account`),
+            staleTime: 0,
+          })
+          .catch(() => null);
+        const owed = after?.overdue?.periods ?? 0;
+        if (owed > 0) {
+          toast.warning(`Pago registrado; aún debe ${owed} ${owed === 1 ? 'cuota' : 'cuotas'}.`);
+        } else {
+          toast.success('Pago registrado y periodo extendido.');
+        }
+      }
       close();
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.body.message);

@@ -4,8 +4,10 @@ import { Check, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { FollowupControls } from '@/components/admin/followup-controls';
 import { useConfirm } from '@/components/confirm-provider';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +22,8 @@ import {
 import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
 
+const fmtDay = (day: string) => day.split('-').reverse().join('/');
+
 function defaultDue(): string {
   const d = new Date();
   d.setDate(d.getDate() + 7);
@@ -32,6 +36,9 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
   const create = useCreateFollowup(tenantId);
   const update = useUpdateFollowup();
   const remove = useDeleteFollowup();
+  const today = localDateString(new Date());
+  const onError = (err: unknown) =>
+    toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
 
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState(defaultDue());
@@ -64,7 +71,7 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
           />
           <div className="space-y-1">
             <Label className="sr-only">Fecha</Label>
-            <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <DateSelect value={dueDate} onChange={(v) => setDueDate(v ?? defaultDue())} future />
           </div>
           <Input
             placeholder="Nota (opcional)"
@@ -82,7 +89,9 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
           </Button>
         </div>
 
-        {list.isLoading || !list.data ? (
+        {list.isError ? (
+          <AdminError onRetry={() => void list.refetch()} />
+        ) : list.isLoading || !list.data ? (
           <div className="flex justify-center py-4">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
@@ -101,8 +110,20 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
                     >
                       {f.title}
                     </span>
-                    <Badge variant={f.status === 'done' ? 'secondary' : 'outline'}>
-                      {f.status === 'done' ? 'Hecho' : f.dueDate}
+                    <Badge
+                      variant={
+                        f.status === 'done'
+                          ? 'secondary'
+                          : f.dueDate < today
+                            ? 'destructive'
+                            : 'outline'
+                      }
+                    >
+                      {f.status === 'done'
+                        ? 'Hecho'
+                        : f.dueDate < today
+                          ? `Vencido · ${fmtDay(f.dueDate)}`
+                          : fmtDay(f.dueDate)}
                     </Badge>
                   </div>
                   {f.note && <p className="text-xs text-muted-foreground">{f.note}</p>}
@@ -117,7 +138,9 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
                       variant="ghost"
                       size="icon"
                       aria-label="Marcar hecho"
-                      onClick={() => update.mutate({ followupId: f.id, status: 'done' })}
+                      onClick={() =>
+                        update.mutate({ followupId: f.id, status: 'done' }, { onError })
+                      }
                     >
                       <Check className="size-4 text-green-600" />
                     </Button>
@@ -126,7 +149,9 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
                       variant="ghost"
                       size="icon"
                       aria-label="Reabrir"
-                      onClick={() => update.mutate({ followupId: f.id, status: 'pending' })}
+                      onClick={() =>
+                        update.mutate({ followupId: f.id, status: 'pending' }, { onError })
+                      }
                     >
                       <RotateCcw className="size-4 text-muted-foreground" />
                     </Button>
@@ -137,7 +162,7 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
                     aria-label="Borrar"
                     onClick={async () => {
                       if (await confirm({ title: '¿Borrar este seguimiento?', destructive: true }))
-                        remove.mutate(f.id);
+                        remove.mutate(f.id, { onError });
                     }}
                   >
                     <Trash2 className="size-4 text-muted-foreground" />

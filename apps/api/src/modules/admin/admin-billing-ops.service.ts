@@ -233,7 +233,7 @@ export class AdminBillingOpsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
-    const [sub, pricing, payments, invoices, bounces] = await Promise.all([
+    const [sub, pricing, payments, invoices, bounces, sepaPending] = await Promise.all([
       this.admin.tenantSubscription.findUnique({ where: { tenantId }, include: SUB_INCLUDE }),
       platformPricing(this.admin),
       this.admin.tenantSubscriptionPayment.findMany({
@@ -259,6 +259,9 @@ export class AdminBillingOpsService {
         select: { amount: true, bouncedAt: true, bounceReason: true },
         orderBy: { bouncedAt: 'desc' },
         take: 10,
+      }),
+      this.admin.platformSepaRemittanceItem.count({
+        where: { tenantId, itemStatus: 'pending' },
       }),
     ]);
 
@@ -357,6 +360,7 @@ export class AdminBillingOpsService {
       addonCharges: charging && sub ? this.separateAddonCharges(sub, pricing) : [],
       overdue: overdue ?? null,
       paid12m: round2(paid12m),
+      sepaInProgress: sepaPending > 0,
       history: history.slice(0, 40),
     };
   }

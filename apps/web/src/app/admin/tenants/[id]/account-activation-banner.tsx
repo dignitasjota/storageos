@@ -9,6 +9,7 @@ import type { AdminTenantOwnerDto } from '@storageos/shared';
 import { Button } from '@/components/ui/button';
 import { useTenantUserAction } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
+import { ApiError } from '@/lib/auth/api';
 
 /**
  * Aviso en el detalle del tenant cuando el propietario aún no ha activado su
@@ -40,8 +41,10 @@ export function AccountActivationBanner({
           ? 'Cuenta activada. El propietario ya puede acceder.'
           : 'Email de activación reenviado.',
       );
-    } catch {
-      toast.error('No se ha podido completar la acción.');
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError ? err.body.message : 'No se ha podido completar la acción.',
+      );
     } finally {
       setBusy(null);
     }

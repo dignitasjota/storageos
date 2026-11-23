@@ -4,6 +4,7 @@ import { Bot, Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -33,11 +34,13 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
 
   useEffect(() => {
     if (!usage.data) return;
-    setLimit(usage.data.customLimit ? String(usage.data.limit) : '');
+    // El límite propio sin las consultas de los extras (se suman aparte).
+    setLimit(usage.data.customLimit ? String(usage.data.limit - usage.data.extra) : '');
     setWebLimit(usage.data.webCustomLimit ? String(usage.data.webLimit) : '');
   }, [usage.data]);
 
   const u = usage.data;
+  if (usage.isError && hasAi) return <AdminError onRetry={() => void usage.refetch()} />;
   if (!u || (!hasAi && u.used === 0)) return null;
   const pct = u.limit > 0 ? Math.min(100, Math.round((u.used / u.limit) * 100)) : 100;
 
@@ -53,11 +56,16 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
   }
 
   async function save() {
+    // Un número entero o vacío (vacío = el general). «abc» no se guarda como 0.
+    const valid = (v: string) => v.trim() === '' || /^\d{1,7}$/.test(v.trim());
+    if (!valid(limit) || !valid(webLimit)) {
+      toast.error('Escribe un número entero de consultas, o déjalo vacío para usar el general.');
+      return;
+    }
     try {
       await update.mutateAsync({
-        monthlyLimit: limit.trim() === '' ? null : Math.max(0, Number.parseInt(limit, 10) || 0),
-        webMonthlyLimit:
-          webLimit.trim() === '' ? null : Math.max(0, Number.parseInt(webLimit, 10) || 0),
+        monthlyLimit: limit.trim() === '' ? null : Number(limit.trim()),
+        webMonthlyLimit: webLimit.trim() === '' ? null : Number(webLimit.trim()),
       });
       toast.success('Límite del asistente guardado.');
     } catch (err) {
@@ -127,11 +135,10 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1.5">
-            <Label htmlFor="ai-tenant-limit">Límite propio al mes</Label>
+            <Label htmlFor="ai-tenant-limit">Límite propio al mes (+ los extras)</Label>
             <Input
               id="ai-tenant-limit"
-              type="number"
-              min={0}
+              inputMode="numeric"
               value={limit}
               onChange={(e) => setLimit(e.target.value)}
               placeholder="El general + extras"
@@ -142,8 +149,7 @@ export function AiUsageCard({ tenantId }: { tenantId: string }) {
             <Label htmlFor="ai-tenant-web-limit">Chat de su web al mes</Label>
             <Input
               id="ai-tenant-web-limit"
-              type="number"
-              min={0}
+              inputMode="numeric"
               value={webLimit}
               onChange={(e) => setWebLimit(e.target.value)}
               placeholder="El general"

@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 
+import { AdminError } from '@/components/admin/admin-error';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +27,10 @@ export function TenantInvoicingDialog({
   const fmtMoney = (n: number) =>
     n.toLocaleString('es-ES', { style: 'currency', currency: d?.currency || 'EUR' });
 
-  const maxInvoiced = d ? Math.max(1, ...d.monthly.map((m) => m.invoiced)) : 1;
+  // La escala: el mayor de lo facturado y lo cobrado en un mes.
+  const maxInvoiced = d
+    ? Math.max(1, ...d.monthly.map((m) => Math.max(m.invoiced, m.collected)))
+    : 1;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -34,11 +38,14 @@ export function TenantInvoicingDialog({
         <DialogHeader>
           <DialogTitle>Facturación del tenant</DialogTitle>
           <DialogDescription>
-            Facturas que el tenant emite a sus inquilinos (el volumen de su negocio).
+            Facturas que el tenant emite a sus inquilinos (el volumen de su negocio), con IVA y sin
+            fianzas. Una factura sustituida cuenta solo la diferencia.
           </DialogDescription>
         </DialogHeader>
 
-        {invoicing.isLoading || !d ? (
+        {invoicing.isError ? (
+          <AdminError onRetry={() => void invoicing.refetch()} />
+        ) : invoicing.isLoading || !d ? (
           <div className="flex justify-center py-8">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
@@ -53,13 +60,13 @@ export function TenantInvoicingDialog({
                 value={fmtMoney(d.totalPending)}
                 accent={d.totalPending > 0 ? 'amber' : undefined}
               />
-              <Kpi label="Facturas" value={String(d.invoiceCount)} />
+              <Kpi label="Facturas (sin abonos)" value={String(d.invoiceCount)} />
               <Kpi
                 label="Vencidas"
                 value={String(d.overdueCount)}
                 accent={d.overdueCount > 0 ? 'red' : undefined}
               />
-              <Kpi label="Ticket medio" value={fmtMoney(d.avgInvoice)} />
+              <Kpi label="Factura media" value={fmtMoney(d.avgInvoice)} />
             </div>
 
             {/* Serie mensual */}
@@ -88,13 +95,13 @@ export function TenantInvoicingDialog({
                         <div className="h-2 rounded-sm bg-muted">
                           <div
                             className="h-2 rounded-sm bg-foreground/30"
-                            style={{ width: `${(m.invoiced / maxInvoiced) * 100}%` }}
+                            style={{ width: `${barPct(m.invoiced, maxInvoiced)}%` }}
                           />
                         </div>
                         <div className="h-1.5 rounded-sm bg-muted">
                           <div
                             className="h-1.5 rounded-sm bg-primary"
-                            style={{ width: `${(m.collected / maxInvoiced) * 100}%` }}
+                            style={{ width: `${barPct(m.collected, maxInvoiced)}%` }}
                           />
                         </div>
                       </div>
@@ -111,6 +118,12 @@ export function TenantInvoicingDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Ancho de la barra entre 0 y 100 (un mes con abonos o con más cobrado que facturado no se sale). */
+function barPct(value: number, max: number): number {
+  if (max <= 0) return 0;
+  return Math.max(0, Math.min(100, (value / max) * 100));
 }
 
 function Kpi({

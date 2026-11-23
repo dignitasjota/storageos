@@ -4,6 +4,7 @@ import { Building2, CheckCircle2, Loader2, User } from 'lucide-react';
 
 import type { AdminTenantCustomerDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -42,7 +43,9 @@ export function TenantCustomersDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {customers.isLoading ? (
+        {customers.isError ? (
+          <AdminError onRetry={() => void customers.refetch()} />
+        ) : customers.isLoading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>

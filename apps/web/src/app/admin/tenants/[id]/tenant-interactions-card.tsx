@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 
 import type { TenantInteractionDto, TenantInteractionTypeValue } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -160,7 +161,9 @@ export function TenantInteractionsCard({ tenantId }: { tenantId: string }) {
         </form>
 
         {/* Timeline */}
-        {interactions.isLoading ? (
+        {interactions.isError ? (
+          <AdminError onRetry={() => void interactions.refetch()} />
+        ) : interactions.isLoading ? (
           <p className="text-sm text-muted-foreground">Cargando…</p>
         ) : rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">

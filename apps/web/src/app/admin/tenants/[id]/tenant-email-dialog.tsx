@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { EmailPreviewFrame } from '@/components/admin/comms/email-preview-frame';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -26,7 +27,12 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { adminApiFetch } from '@/lib/admin/api';
-import { useEmailTenant, useSupportCannedResponses } from '@/lib/admin/hooks';
+import {
+  useAdminTenant,
+  useAdminTenantUsers,
+  useEmailTenant,
+  useSupportCannedResponses,
+} from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 
 type FileMime = 'application/pdf' | 'image/png' | 'image/jpeg' | 'image/webp';
@@ -51,6 +57,16 @@ export function TenantEmailDialog({
 }) {
   const email = useEmailTenant(tenantId);
   const canned = useSupportCannedResponses();
+  const confirm = useConfirm();
+  const tenant = useAdminTenant(tenantId);
+  const users = useAdminTenantUsers(tenantId, open);
+  // A quién llega: los propietarios activos con el email verificado o, si no
+  // hay ninguno, el email de facturación.
+  const owners = (users.data ?? [])
+    .filter((u) => u.role === 'owner' && u.isActive && u.emailVerified)
+    .map((u) => u.email);
+  const recipients =
+    owners.length > 0 ? owners : tenant.data?.billingEmail ? [tenant.data.billingEmail] : [];
   const fileInput = useRef<HTMLInputElement>(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
@@ -59,13 +75,32 @@ export function TenantEmailDialog({
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(false);
 
-  function close() {
+  function reset() {
     setSubject('');
     setBody('');
     setFiles([]);
     setReplyExpected(true);
     setPreview(false);
+  }
+
+  function close() {
+    reset();
     onClose();
+  }
+
+  // Cerrar con algo escrito pide confirmación (se perdería el borrador).
+  async function askClose() {
+    if (
+      (subject.trim() || body.trim() || files.length > 0) &&
+      !(await confirm({
+        title: '¿Descartar el correo?',
+        description: 'Se perderá lo que has escrito.',
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    close();
   }
 
   async function onPickFiles(list: FileList | null) {
@@ -132,7 +167,7 @@ export function TenantEmailDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && close()}>
+    <Dialog open={open} onOpenChange={(v) => !v && void askClose()}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Enviar email al tenant</DialogTitle>
@@ -141,6 +176,14 @@ export function TenantEmailDialog({
             en su panel, en Soporte → Mensajes de TrasterOS.
           </DialogDescription>
         </DialogHeader>
+        <p className="text-sm">
+          <span className="text-muted-foreground">Llegará a: </span>
+          {users.isLoading
+            ? '…'
+            : recipients.length > 0
+              ? recipients.join(', ')
+              : 'nadie (no tiene propietarios verificados ni email de facturación)'}
+        </p>
         <form onSubmit={onSubmit} className="space-y-4">
           {(canned.data ?? []).length > 0 && (
             <Select
@@ -264,7 +307,7 @@ export function TenantEmailDialog({
             <span>Aviso sin respuesta necesaria (no abre un ticket de soporte).</span>
           </label>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={close}>
+            <Button type="button" variant="ghost" onClick={() => void askClose()}>
               Cancelar
             </Button>
             <Button type="submit" disabled={email.isPending || uploading}>

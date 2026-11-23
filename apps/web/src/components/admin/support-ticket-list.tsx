@@ -8,6 +8,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { type AdminSupportFilters, useAdminSupportTickets } from '@/lib/admin/hooks';
@@ -54,6 +55,7 @@ export function SupportTicketList({
     );
   }
 
+  if (tickets.isError) return <AdminError onRetry={() => void tickets.refetch()} />;
   const rows = tickets.data?.pages.flatMap((p) => p.items) ?? [];
   if (rows.length === 0) {
     return (

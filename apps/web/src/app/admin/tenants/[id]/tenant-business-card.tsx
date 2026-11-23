@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTenantBusiness } from '@/lib/admin/business-hooks';
@@ -29,6 +30,7 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
   const q = useTenantBusiness(tenantId);
   const d = q.data;
 
+  if (q.isError) return <AdminError onRetry={() => void q.refetch()} />;
   if (q.isLoading || !d) {
     return (
       <div className="flex justify-center py-10">
@@ -51,7 +53,7 @@ export function TenantBusinessCard({ tenantId }: { tenantId: string }) {
           }
         />
         <Kpi
-          label="Cobrado neto"
+          label="Cobrado neto (con IVA)"
           value={eur(d.payments.totalNet)}
           hint={`${plural(d.payments.count, 'pago', 'pagos')}${d.payments.refunded > 0 ? ` · devuelto ${eur(d.payments.refunded)}` : ''}`}
         />

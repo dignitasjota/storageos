@@ -214,6 +214,9 @@ function matches(t: Row, f: Filters): boolean {
     if (f.addonHas === 'has' ? !has : has) return false;
   }
   if (f.health !== 'all') {
+    // La salud solo compara a los que pagan: en prueba la puntuación es de
+    // activación (otra escala) y llenaría «En riesgo» de pruebas recién creadas.
+    if (t.healthKind !== 'health') return false;
     if (f.health === 'risk') {
       if (t.healthLevel !== 'at_risk' && t.healthLevel !== 'dormant') return false;
     } else if (t.healthLevel !== f.health) return false;
@@ -246,7 +249,8 @@ function sortValue(t: Row, key: SortKey): number | string {
           ? new Date(t.nextChargeAt).getTime()
           : Number.MAX_SAFE_INTEGER;
     case 'health':
-      return t.healthScore ?? 999;
+      // Las pruebas (activación) van detrás de los clientes.
+      return t.healthKind === 'health' ? (t.healthScore ?? 999) : 1000 + (t.healthScore ?? 0);
     case 'lastLogin':
       return t.lastTeamLoginAt ? new Date(t.lastTeamLoginAt).getTime() : 0;
     case 'followup':
@@ -453,8 +457,9 @@ export default function AdminTenantsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Tenants</h1>
           <p className="text-sm text-muted-foreground">
-            {rows.length} {rows.length === 1 ? 'tenant' : 'tenants'} · los activos aportan{' '}
-            <span className="font-medium text-foreground">{eur(totals.monthly)}/mes</span>
+            {rows.length} {rows.length === 1 ? 'tenant' : 'tenants'} · los que pagan aportan{' '}
+            <span className="font-medium text-foreground">{eur(totals.monthly)}/mes</span> sin IVA
+            (el MRR de los tenants que se ven)
             {totals.overdue > 0 && (
               <>
                 {' '}
@@ -555,7 +560,6 @@ export default function AdminTenantsPage() {
             ['trial', 'Prueba'],
             ['active', 'Activos'],
             ['suspended', 'Suspendidos'],
-            ['cancelled', 'Cancelados'],
           ]}
         />
         <FilterSelect
@@ -797,16 +801,12 @@ function TenantCard({
                 {t.status === 'trial' ? 'Prueba' : 'Próximo cobro'}
               </dt>
               <dd>
-                {t.overdueSince ? (
-                  <span className="font-medium text-destructive">
-                    Debe desde {day(t.overdueSince)}
-                  </span>
-                ) : t.status === 'trial' && trialLeft !== null ? (
+                {t.status === 'trial' && !t.overdueSince && trialLeft !== null ? (
                   <span className={trialLeft <= 3 ? 'text-destructive' : ''}>
                     {trialLeft > 0 ? `Quedan ${trialLeft} d` : 'Vencida'}
                   </span>
                 ) : (
-                  day(t.nextChargeAt)
+                  <NextCharge t={t} />
                 )}
               </dd>
             </div>
@@ -818,10 +818,8 @@ function TenantCard({
             </div>
           </dl>
           {t.healthLevel && (
-            <span
-              className={`mt-2 inline-block rounded px-1.5 py-0.5 text-xs ${HEALTH[t.healthLevel]?.className ?? ''}`}
-            >
-              Salud {t.healthScore} · {HEALTH[t.healthLevel]?.label}
+            <span className="mt-2 inline-block">
+              <HealthBadge t={t} />
             </span>
           )}
         </Link>
@@ -944,21 +942,13 @@ function TenantRow({
       )}
       {show('nextCharge') && (
         <td className="whitespace-nowrap px-3 py-2 align-top">
-          {t.overdueSince ? (
-            <span className="font-medium text-destructive">Debe desde {day(t.overdueSince)}</span>
-          ) : (
-            day(t.nextChargeAt)
-          )}
+          <NextCharge t={t} />
         </td>
       )}
       {show('health') && (
         <td className="px-3 py-2 align-top">
           {t.healthLevel ? (
-            <span
-              className={`rounded px-1.5 py-0.5 text-xs ${HEALTH[t.healthLevel]?.className ?? ''}`}
-            >
-              {t.healthScore} · {HEALTH[t.healthLevel]?.label}
-            </span>
+            <HealthBadge t={t} />
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           )}
@@ -1093,6 +1083,48 @@ function Toggle({
 }
 
 /** Lo que aporta al mes (sin IVA); en prueba, 0 y lo que pagaría al acabarla. */
+/** Próximo cobro: deuda, baja al acabar el periodo o fecha (vencida en ámbar). */
+function NextCharge({ t }: { t: AdminTenantOverviewDto }) {
+  if (t.overdueSince) {
+    return <span className="font-medium text-destructive">Debe desde {day(t.overdueSince)}</span>;
+  }
+  if (t.cancelsAt) {
+    return <span className="text-muted-foreground">Se da de baja el {day(t.cancelsAt)}</span>;
+  }
+  if (!t.nextChargeAt) return <>—</>;
+  const at = new Date(t.nextChargeAt);
+  const today = new Date();
+  if (at.toDateString() === today.toDateString()) {
+    return <span className="text-amber-700 dark:text-amber-400">Vence hoy</span>;
+  }
+  if (at.getTime() < today.getTime()) {
+    return (
+      <span className="text-amber-700 dark:text-amber-400">Vencido el {day(t.nextChargeAt)}</span>
+    );
+  }
+  return <>{day(t.nextChargeAt)}</>;
+}
+
+/** Salud de un cliente, o activación de una prueba (otra escala, en gris). */
+function HealthBadge({ t }: { t: AdminTenantOverviewDto }) {
+  if (!t.healthLevel) return null;
+  if (t.healthKind === 'activation') {
+    return (
+      <span
+        className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+        title="En prueba: mide la puesta en marcha, no la salud de un cliente"
+      >
+        Activación {t.healthScore}
+      </span>
+    );
+  }
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-xs ${HEALTH[t.healthLevel]?.className ?? ''}`}>
+      {t.healthScore} · {HEALTH[t.healthLevel]?.label}
+    </span>
+  );
+}
+
 function MonthlyValue({ t }: { t: AdminTenantOverviewDto }) {
   if (t.billingExempt) return <>—</>;
   if (t.wouldPay !== null) {

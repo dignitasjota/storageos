@@ -7,6 +7,7 @@ import {
 } from '@storageos/shared';
 import { Loader2 } from 'lucide-react';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Sparkline } from '@/components/admin/health/sparkline';
 import { TenantRowActions } from '@/components/admin/health/tenant-row-actions';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,9 @@ export function TenantHealthCard({ tenantId }: { tenantId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {health.isLoading || !health.data ? (
+        {health.isError ? (
+          <AdminError onRetry={() => void health.refetch()} />
+        ) : health.isLoading || !health.data ? (
           <div className="flex justify-center py-6">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>

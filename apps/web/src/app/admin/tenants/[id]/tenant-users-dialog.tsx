@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 
 import type { AdminTenantUserDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -102,7 +103,9 @@ export function TenantUsersDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {users.isLoading ? (
+        {users.isError ? (
+          <AdminError onRetry={() => void users.refetch()} />
+        ) : users.isLoading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
@@ -111,7 +114,18 @@ export function TenantUsersDialog({
         ) : (
           <ul className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
             {rows.map((u) => (
-              <UserRow key={u.id} tenantId={tenantId} user={u} onRun={(def) => runAction(u, def)} />
+              <UserRow
+                key={u.id}
+                tenantId={tenantId}
+                user={u}
+                // El único propietario activo no se puede desactivar.
+                lastOwner={
+                  u.role === 'owner' &&
+                  u.isActive &&
+                  rows.filter((r) => r.role === 'owner' && r.isActive).length === 1
+                }
+                onRun={(def) => runAction(u, def)}
+              />
             ))}
           </ul>
         )}
@@ -123,10 +137,12 @@ export function TenantUsersDialog({
 function UserRow({
   tenantId,
   user: u,
+  lastOwner,
   onRun,
 }: {
   tenantId: string;
   user: AdminTenantUserDto;
+  lastOwner: boolean;
   onRun: (def: ActionDef) => void;
 }) {
   const roleLabel = u.tenantRoleName ?? ROLE_LABELS[u.role] ?? u.role;
@@ -148,7 +164,12 @@ function UserRow({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Badge variant="secondary">{roleLabel}</Badge>
-          <UserActions user={u} onRun={onRun} onSessions={() => setShowSessions((v) => !v)} />
+          <UserActions
+            user={u}
+            lastOwner={lastOwner}
+            onRun={onRun}
+            onSessions={() => setShowSessions((v) => !v)}
+          />
         </div>
       </div>
 
@@ -191,9 +212,22 @@ function UserSessions({ tenantId, userId }: { tenantId: string; userId: string }
   if (sessions.isLoading) {
     return <Loader2 className="mt-2 size-4 animate-spin text-muted-foreground" />;
   }
+  if (sessions.isError) {
+    return (
+      <div className="mt-2">
+        <AdminError onRetry={() => void sessions.refetch()} />
+      </div>
+    );
+  }
   const rows = sessions.data ?? [];
   return (
     <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-2 text-xs">
+      {rows.length > 0 && (
+        <p className="text-muted-foreground">
+          Cerrar una sesión le impide renovarla; deja de funcionar en unos minutos. Para cortarle el
+          acceso al momento, usa «Cerrar sesiones».
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="text-muted-foreground">Sin sesiones abiertas.</p>
       ) : (
@@ -211,7 +245,14 @@ function UserSessions({ tenantId, userId }: { tenantId: string; userId: string }
                 className="h-6 text-xs"
                 disabled={revoke.isPending}
                 onClick={() =>
-                  revoke.mutate(s.id, { onSuccess: () => toast.success('Sesión cerrada.') })
+                  revoke.mutate(s.id, {
+                    onSuccess: () =>
+                      toast.success('Sesión cerrada: dejará de funcionar en unos minutos.'),
+                    onError: (err) =>
+                      toast.error(
+                        err instanceof ApiError ? err.body.message : 'No se pudo cerrar la sesión.',
+                      ),
+                  })
                 }
               >
                 Cerrar
@@ -252,10 +293,12 @@ function deviceLabel(ua: string | null): string {
 
 function UserActions({
   user: u,
+  lastOwner,
   onRun,
   onSessions,
 }: {
   user: AdminTenantUserDto;
+  lastOwner: boolean;
   onRun: (def: ActionDef) => void;
   onSessions: () => void;
 }) {
@@ -282,7 +325,8 @@ function UserActions({
             Activar cuenta (verificar email)
           </DropdownMenuItem>
         )}
-        {!u.emailVerified && (
+        {/* A un usuario desactivado no se le envía nada. */}
+        {u.isActive && !u.emailVerified && (
           <DropdownMenuItem
             onClick={() =>
               onRun({
@@ -295,25 +339,27 @@ function UserActions({
             Reenviar verificación
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem
-          onClick={() =>
-            onRun({
-              action: 'password-reset',
-              label: 'Enviar reset de contraseña',
-              success: 'Email de restablecimiento enviado.',
-            })
-          }
-        >
-          Enviar reset de contraseña
-        </DropdownMenuItem>
+        {u.isActive && (
+          <DropdownMenuItem
+            onClick={() =>
+              onRun({
+                action: 'password-reset',
+                label: 'Enviar reset de contraseña',
+                success: 'Email de restablecimiento enviado.',
+              })
+            }
+          >
+            Enviar reset de contraseña
+          </DropdownMenuItem>
+        )}
         {canEdit && (
           <DropdownMenuItem
             onClick={() =>
               onRun({
                 action: 'revoke-sessions',
                 label: 'Cerrar sesiones',
-                success: 'Sesiones cerradas.',
-                confirm: '¿Cerrar todas las sesiones de este usuario?',
+                success: 'Sesiones cerradas: tendrá que volver a entrar.',
+                confirm: '¿Cerrar todas las sesiones de este usuario? Saldrá al momento.',
               })
             }
           >
@@ -336,7 +382,7 @@ function UserActions({
           </DropdownMenuItem>
         )}
         {canEdit && <DropdownMenuSeparator />}
-        {!canEdit ? null : u.isActive ? (
+        {!canEdit || (u.isActive && lastOwner) ? null : u.isActive ? (
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
             onClick={() =>

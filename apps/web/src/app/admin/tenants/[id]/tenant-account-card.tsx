@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import type { AdminAccountEventDto, AdminScheduledChargeDto } from '@storageos/shared';
 
+import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAdminTenantAccount } from '@/lib/admin/hooks';
@@ -46,6 +47,7 @@ export function TenantAccountCard({ tenantId }: { tenantId: string }) {
       </Card>
     );
   }
+  if (account.isError) return <AdminError onRetry={() => void account.refetch()} />;
   const a = account.data;
   if (!a) return null;
   const vat = a.pricesIncludeVat ? 'IVA incl.' : 'con IVA';
