@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { type AdminTenantSummaryDto } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
 import { isPayingSubscription, loadMrrContext, mrrFor } from '../../common/saas-metrics';
 import { UNANSWERED_ADMIN_MESSAGE } from '../../common/support-ticket-filters';
 import { lastTeamActivity } from '../../common/team-activity';
@@ -40,6 +41,7 @@ export class AdminTenantSummaryService {
         billingExempt: true,
         deletedAt: true,
         trialEndsAt: true,
+        timezone: true,
         subscription: {
           select: {
             status: true,
@@ -57,6 +59,11 @@ export class AdminTenantSummaryService {
     }
     const now = new Date();
     const since = new Date(now.getTime() - 30 * DAY);
+    // La fecha de la factura es un día (DATE) en la zona del negocio: «hoy»
+    // allí puede ser ya mañana en UTC.
+    const today = todayInTimezone(tenant.timezone || 'Europe/Madrid', now);
+    const invoicedFrom = new Date(today.getTime() - 30 * DAY);
+    const invoicedTo = new Date(today.getTime() + DAY);
     const sub = tenant.subscription;
     const [ctx, users, business, openTickets, lastInteraction, nextFollowup, lastActivity] =
       await Promise.all([
@@ -69,7 +76,7 @@ export class AdminTenantSummaryService {
         this.prisma.withTenant(async (tx) => {
           const [invoiced, collected, owed, activeContracts, units] = await Promise.all([
             tx.invoice.findMany({
-              where: invoicedWhere(ALL_FACILITIES, since, now),
+              where: invoicedWhere(ALL_FACILITIES, invoicedFrom, invoicedTo),
               select: INVOICED_SELECT,
             }),
             collectedBetween(tx, ALL_FACILITIES, since, now),

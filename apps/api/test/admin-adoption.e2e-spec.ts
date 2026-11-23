@@ -125,7 +125,8 @@ describe('Admin adoption / upsell (e2e)', () => {
     const owner = await registerVerifiedUser(app, 'admin-adopt-config');
     await adminClient.tenant.update({
       where: { id: owner.tenantId },
-      data: { transferIban: 'ES9121000418450200051332' },
+      // Con Veri*Factu activado el certificado de la AEAT hace falta.
+      data: { transferIban: 'ES9121000418450200051332', verifactuEnabled: true },
     });
     const res = await request(app.getHttpServer())
       .get(`/admin/tenants/${owner.tenantId}/config`)

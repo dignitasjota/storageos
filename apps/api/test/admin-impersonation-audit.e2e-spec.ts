@@ -100,7 +100,7 @@ describe('Admin: auditoría de impersonación (e2e)', () => {
     },
   );
 
-  it('solo lectura: el panel recibe permisos de lectura y el API rechaza cualquier cambio', async () => {
+  it('solo lectura: el panel ve lo que ve el propietario y el API rechaza cualquier cambio', async () => {
     const admin = await seedSuperAdmin('imp-ro');
     const login = await request(app.getHttpServer())
       .post('/admin/auth/login')
@@ -119,8 +119,10 @@ describe('Admin: auditoría de impersonación (e2e)', () => {
     const me = await request(app.getHttpServer()).get('/auth/me').set(impAuth).expect(200);
     expect(me.body.impersonation.readOnly).toBe(true);
     expect(typeof me.body.impersonation.expiresAt).toBe('string');
+    // Lleva los permisos del propietario para ver todo lo que él ve (también
+    // la suscripción); lo que impide cualquier cambio es la sesión de solo lectura.
     expect(me.body.permissions).toContain('customers:read');
-    expect(me.body.permissions).not.toContain('customers:write');
+    expect(me.body.permissions).toContain('billing:configure');
 
     await request(app.getHttpServer()).get('/customers').set(impAuth).expect(200);
     const write = await request(app.getHttpServer())

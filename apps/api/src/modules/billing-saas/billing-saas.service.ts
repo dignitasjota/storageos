@@ -1849,8 +1849,9 @@ export class BillingSaasService {
           stripeSubscriptionId: null,
           cancelAtPeriodEnd: false,
           manualExtensionDays: 0,
+          // El estado no se toca: las métricas lo cuentan como baja por el
+          // tenant (cancelado y con fecha de baja), no por la suscripción.
           billingMode: 'manual',
-          status: 'cancelled',
         },
       }),
       this.admin.tenantSubscriptionAddon.updateMany({
