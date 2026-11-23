@@ -3111,3 +3111,17 @@ Migración `20270228100000_platform_leads_improvements` (se aplica sola): column
 - **Reparto automático**: apagado por defecto (Leads → Ajustes → «Reparto»). Plazo de primera respuesta 4 h y reasignación una vez; leads parados con 1/5/7/10 días según la fase y «alto valor» desde 150 € al mes sin IVA. La reasignación y los avisos de parados van en la vigilancia de los leads del API (cada 15 minutos).
 - **Cambia «Hoy»**: sección nueva «Leads parados» (urgentes solo los de alto valor). La primera vez saldrán todos los parados de antes; se pueden apartar.
 - **Alta rápida**: `/admin/leads/capture` (y «Alta rápida» en el panel de los comerciales): conviene guardarla en la pantalla de inicio del móvil.
+
+## 187. Tenants del super admin: arreglos (2026-11-23)
+
+Migración `20270301100000_admin_tenants_review` (se aplica sola): `users.tokens_valid_after`. Sin variables nuevas. Redesplegar api, worker y web.
+
+- **Cerrar sesiones corta ya**: «Cerrar sesiones» de un usuario (soporte, cambio de contraseña…) invalida también su acceso en curso (401 `session_revoked`), no solo la renovación.
+- **Cobros que ya no reactivan a quien se suspendió a mano**: un cobro de Stripe o un pago manual solo saca de la suspensión a quien se suspendió por impago (decisión de Jota). Al suspender, el panel avisa si Stripe, SEPA o Redsys siguen cobrando.
+- **Quitar la exención**: el periodo empieza el día que se quita (un mes) y los extras manuales cobran en un mes; ya no aparecen meses de deuda por el tiempo exento.
+- **Vaciar los datos de prueba**: se bloquea si el tenant ya pagó cuotas (`paid_subscription`) o hay cobros reales por pasarela (`live_gateway_payments`); la vista previa enseña en rojo las facturas emitidas.
+- **Impersonación**: la sesión de solo lectura (ahora la opción por defecto) lleva los permisos del propietario para verlo todo; con cambios, no puede crear claves de API ni webhooks, traspasar la propiedad, invitar ni dar acceso al portal.
+- **Rol soporte**: ve el documento de los inquilinos enmascarado (`***` + 4 últimos) y la lista llega a 500; sincronizar pagos y descargar el mandato SEPA pasan a ser de superadmin.
+- **Anonimizar**: cancela antes la suscripción de Stripe (si Stripe no lo confirma, no anonimiza: 409 `stripe_cancel_failed`), da de baja el mandato SEPA y la tarjeta de Redsys y borra mucho más (tareas, comentarios, expedientes, registros de acceso, cámaras, correos de la plataforma, enlaces de un solo uso, dominio propio…).
+- **Cambian cifras (a propósito)**: facturación, resumen y cabecera del tenant con las definiciones del Resumen (sin fianzas, sustitutivas solo la diferencia, inquilinos de prueba fuera, contratos vigentes y usuarios activos); el límite de IA = el propio (o el del plan) más los extras.
+- **Aprobaciones**: caducan a los 30 días (al aprobar una vencida: 409 `approval_expired`).
