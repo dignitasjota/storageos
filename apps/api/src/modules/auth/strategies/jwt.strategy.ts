@@ -19,6 +19,8 @@ interface RawAccessPayload {
   trid?: string | null;
   purpose?: string;
   impersonationId?: string;
+  /** Emisión en milisegundos (los tokens anteriores no lo llevan). */
+  ims?: number;
   iat: number;
   exp: number;
 }
@@ -109,12 +111,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       });
     }
     // Se cerraron todas sus sesiones (él mismo, el propietario o el soporte):
-    // los tokens anteriores dejan de valer al momento. Se compara en segundos,
-    // como el `iat`.
+    // los tokens anteriores dejan de valer al momento. Con `ims` se compara en
+    // milisegundos; un token antiguo sin él, en segundos como el `iat`.
     if (
       !impersonation &&
       user.tokensValidAfter &&
-      payload.iat < Math.floor(user.tokensValidAfter.getTime() / 1000)
+      (typeof payload.ims === 'number'
+        ? payload.ims < user.tokensValidAfter.getTime()
+        : payload.iat < Math.floor(user.tokensValidAfter.getTime() / 1000))
     ) {
       throw new UnauthorizedException({
         code: 'session_revoked',

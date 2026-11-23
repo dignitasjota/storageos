@@ -58,7 +58,16 @@ describe('Bloqueo de la app (e2e)', () => {
     expect(fifth.body.code).toBe('app_lock_exhausted');
     const live = await admin.session.count({ where: { userId: user.userId, revokedAt: null } });
     expect(live).toBe(0);
+    // Cerrar todas las sesiones corta también el acceso en curso.
+    const after = await http().get('/me/app-lock').set(auth);
+    expect(after.status).toBe(401);
+    expect(after.body.code).toBe('session_revoked');
+  });
 
+  it('sin PIN guardado, desbloquear con PIN responde no_pin', async () => {
+    const user = await registerVerifiedUser(app, 'applocknopin');
+    const auth = { Authorization: `Bearer ${user.accessToken}` };
+    await http().put('/me/app-lock/pin').set(auth).send({ pin: '4826' }).expect(204);
     await http().delete('/me/app-lock/pin').set(auth).expect(204);
     const noPin = await http().post('/me/app-lock/unlock/pin').set(auth).send({ pin: '4826' });
     expect(noPin.body.code).toBe('no_pin');
