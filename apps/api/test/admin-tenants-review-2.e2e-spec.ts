@@ -515,7 +515,11 @@ describe('Admin: arreglos del apartado Tenants (e2e)', () => {
     expect(tenant.aiOwnApiKeyEncrypted).toBeNull();
     expect(tenant.customDomain).toBeNull();
     expect(tenant.strategicNotes).toBeNull();
-    expect(sub.status).toBe('cancelled');
+    // Ya no se cobra (sin Stripe y en manual); el estado de la suscripción se
+    // conserva para que la baja siga contando en las métricas.
+    expect(sub.stripeSubscriptionId).toBeNull();
+    expect(sub.billingMode).toBe('manual');
+    expect(tenant.status).toBe('cancelled');
   });
 
   it('toda tabla con tenant_id está tratada o conservada a propósito al anonimizar', async () => {
