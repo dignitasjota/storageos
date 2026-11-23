@@ -2,11 +2,15 @@
 
 import { APPROVAL_ACTION_LABELS, type AdminApprovalRequestDto } from '@storageos/shared';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useApprovals } from '@/lib/admin/hooks';
+import { useApprovals, useDecideApproval } from '@/lib/admin/hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
+import { ApiError } from '@/lib/auth/api';
 
 const STATUS: Record<
   AdminApprovalRequestDto['status'],
@@ -58,6 +62,36 @@ export function ApprovalRequestsCard({ tenantId }: { tenantId: string }) {
 }
 
 function ApprovalRow({ r }: { r: AdminApprovalRequestDto }) {
+  const canDecide = useIsSuperadmin() && r.status === 'pending';
+  const decide = useDecideApproval();
+  const ask = useConfirm();
+  const changed = r.changedSinceRequest ?? [];
+
+  async function run(decision: 'approve' | 'reject') {
+    const res = await ask({
+      title: decision === 'approve' ? 'Aprobar y ejecutar' : 'Rechazar la solicitud',
+      description:
+        decision === 'approve'
+          ? `${r.summary}${changed.length ? ` · Ojo: desde que se pidió ha cambiado ${changed.join('; ')}.` : ''}`
+          : r.summary,
+      confirmLabel: decision === 'approve' ? 'Aprobar' : 'Rechazar',
+      destructive: decision === 'reject',
+      input: { label: 'Nota (opcional)' },
+    });
+    if (!res) return;
+    try {
+      const out = await decide.mutateAsync({
+        id: r.id,
+        decision,
+        ...(res.value.trim() ? { note: res.value.trim() } : {}),
+      });
+      if (out.status === 'failed') toast.error(`Aprobada, pero falló: ${out.error ?? ''}`);
+      else toast.success(decision === 'approve' ? 'Aprobada y hecha.' : 'Rechazada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo decidir.');
+    }
+  }
+
   return (
     <div className="rounded-md border p-2 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -75,6 +109,27 @@ function ApprovalRow({ r }: { r: AdminApprovalRequestDto }) {
         </p>
       )}
       {r.error && <p className="text-xs text-destructive">{r.error}</p>}
+      {r.currentState && <p className="text-xs text-muted-foreground">Ahora: {r.currentState}</p>}
+      {changed.length > 0 && (
+        <p className="rounded border border-amber-300 bg-amber-50 p-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Ha cambiado desde que se pidió: {changed.join(' · ')}
+        </p>
+      )}
+      {canDecide && (
+        <div className="mt-2 flex gap-2">
+          <Button size="sm" onClick={() => void run('approve')} disabled={decide.isPending}>
+            Aprobar
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void run('reject')}
+            disabled={decide.isPending}
+          >
+            Rechazar
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

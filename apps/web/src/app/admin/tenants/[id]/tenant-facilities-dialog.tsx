@@ -1,10 +1,11 @@
 'use client';
 
 import { ChevronLeft, ChevronRight, Loader2, MapPin } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useAdminTenantFacilities, useAdminTenantFacilityUnits } from '@/lib/admin/hooks';
+import { Input } from '@/components/ui/input';
+import { useAdminTenantFacilityUnits } from '@/lib/admin/hooks';
+import { useTenantFacilitiesPage } from '@/lib/admin/tenant-lifecycle-hooks';
 
 const STATUS_LABELS: Record<string, string> = {
   available: 'Disponible',
@@ -78,19 +81,31 @@ function FacilitiesView({
   open: boolean;
   onSelect: (f: { id: string; name: string }) => void;
 }) {
-  const facilities = useAdminTenantFacilities(tenantId, open);
-  const rows = facilities.data ?? [];
+  const [text, setText] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const id = window.setTimeout(() => setSearch(text), 350);
+    return () => window.clearTimeout(id);
+  }, [text]);
+  const facilities = useTenantFacilitiesPage(tenantId, search, open);
+  const rows = facilities.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = facilities.data?.pages[0]?.total ?? 0;
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Locales del tenant</DialogTitle>
         <DialogDescription>
-          {rows.length > 0
-            ? `${rows.length} local(es). Pincha uno para ver sus trasteros.`
+          {total > 0
+            ? `${total} local(es). Pincha uno para ver sus trasteros.`
             : 'Locales físicos del tenant.'}
         </DialogDescription>
       </DialogHeader>
+      <Input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Buscar por nombre, ciudad o dirección…"
+      />
 
       {facilities.isError ? (
         <AdminError onRetry={() => void facilities.refetch()} />
@@ -99,7 +114,9 @@ function FacilitiesView({
           <Loader2 className="size-5 animate-spin text-muted-foreground" />
         </div>
       ) : rows.length === 0 ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">Sin locales.</p>
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          {search ? 'Ningún local coincide.' : 'Sin locales.'}
+        </p>
       ) : (
         <ul className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
           {rows.map((f) => {
@@ -112,7 +129,14 @@ function FacilitiesView({
                   className="flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/60 focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   <div className="min-w-0">
-                    <div className="font-medium">{f.name}</div>
+                    <div className="font-medium">
+                      {f.name}
+                      {f.isActive === false && (
+                        <Badge variant="outline" className="ml-2">
+                          Inactivo
+                        </Badge>
+                      )}
+                    </div>
                     {(f.city || f.address) && (
                       <div className="flex items-center gap-1 truncate text-xs text-muted-foreground">
                         <MapPin className="size-3" />
@@ -132,6 +156,16 @@ function FacilitiesView({
             );
           })}
         </ul>
+      )}
+      {facilities.hasNextPage && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void facilities.fetchNextPage()}
+          disabled={facilities.isFetchingNextPage}
+        >
+          {facilities.isFetchingNextPage ? 'Cargando…' : 'Cargar más'}
+        </Button>
       )}
     </>
   );

@@ -37,6 +37,7 @@ import {
   useTenantUserAction,
   type TenantUserActionName,
 } from '@/lib/admin/hooks';
+import { useChangeUserEmail, useMakeOwner } from '@/lib/admin/tenant-lifecycle-hooks';
 import { useAdminUserSessions, useRevokeAdminUserSession } from '@/lib/admin/tenant-tools-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
@@ -165,6 +166,7 @@ function UserRow({
         <div className="flex shrink-0 items-center gap-2">
           <Badge variant="secondary">{roleLabel}</Badge>
           <UserActions
+            tenantId={tenantId}
             user={u}
             lastOwner={lastOwner}
             onRun={onRun}
@@ -292,17 +294,63 @@ function deviceLabel(ua: string | null): string {
 }
 
 function UserActions({
+  tenantId,
   user: u,
   lastOwner,
   onRun,
   onSessions,
 }: {
+  tenantId: string;
   user: AdminTenantUserDto;
   lastOwner: boolean;
   onRun: (def: ActionDef) => void;
   onSessions: () => void;
 }) {
   const canEdit = useIsSuperadmin();
+  const ask = useConfirm();
+  const changeEmail = useChangeUserEmail(tenantId);
+  const makeOwner = useMakeOwner(tenantId);
+
+  async function onChangeEmail() {
+    const email = await ask({
+      title: `Cambiar el email de ${u.fullName}`,
+      description:
+        'El email nuevo queda sin verificar: se le envía el enlace de verificación, se avisa al email actual y se cierran sus sesiones.',
+      confirmLabel: 'Seguir',
+      input: { label: 'Email nuevo', type: 'email', required: true, defaultValue: u.email },
+    });
+    if (!email) return;
+    const reason = await ask({
+      title: 'Motivo del cambio',
+      confirmLabel: 'Cambiar el email',
+      input: { label: 'Motivo', required: true },
+    });
+    if (!reason) return;
+    try {
+      await changeEmail.mutateAsync({ userId: u.id, email: email.value, reason: reason.value });
+      toast.success('Email cambiado. Le hemos enviado el enlace de verificación.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cambiar el email.');
+    }
+  }
+
+  async function onMakeOwner() {
+    const res = await ask({
+      title: `Hacer propietario a ${u.fullName}`,
+      description:
+        'Pasa a ser el propietario de la cuenta y los propietarios actuales pasan a gestores. Se avisa a los dos por correo y se cierran sus sesiones.',
+      confirmLabel: 'Traspasar la propiedad',
+      destructive: true,
+      input: { label: 'Motivo', required: true },
+    });
+    if (!res) return;
+    try {
+      await makeOwner.mutateAsync({ userId: u.id, reason: res.value });
+      toast.success('Propiedad traspasada.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo traspasar.');
+    }
+  }
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -380,6 +428,12 @@ function UserActions({
           >
             Quitar 2FA
           </DropdownMenuItem>
+        )}
+        {canEdit && (
+          <DropdownMenuItem onClick={() => void onChangeEmail()}>Cambiar el email</DropdownMenuItem>
+        )}
+        {canEdit && u.isActive && u.role !== 'owner' && (
+          <DropdownMenuItem onClick={() => void onMakeOwner()}>Hacer propietario</DropdownMenuItem>
         )}
         {canEdit && <DropdownMenuSeparator />}
         {!canEdit || (u.isActive && lastOwner) ? null : u.isActive ? (

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import type { AdminTenantAccountDto, SaasPaymentProviderValue } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { useConfirm } from '@/components/confirm-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -38,6 +39,7 @@ import {
   useIssuePlatformInvoice,
   useSyncTenantSaasPayments,
 } from '@/lib/admin/hooks';
+import { useVoidSaasPayment } from '@/lib/admin/tenant-lifecycle-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
@@ -64,6 +66,7 @@ const STATUS_LABELS: Record<string, string> = {
   failed: 'Fallido',
   pending: 'Pendiente',
   void: 'Anulado',
+  voided: 'Anulado',
   refunded: 'Devuelto',
   partially_refunded: 'Devuelto en parte',
 };
@@ -86,8 +89,34 @@ const PROVIDER_OPTIONS: { value: SaasPaymentProviderValue; label: string }[] = [
   { value: 'other', label: 'Otro' },
 ];
 
-export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
-  const canEdit = useIsSuperadmin();
+export function SaasPaymentsCard({
+  tenantId,
+  readOnly = false,
+}: {
+  tenantId: string;
+  /** Tenant anonimizado: solo se ve. */
+  readOnly?: boolean;
+}) {
+  const canEdit = useIsSuperadmin() && !readOnly;
+  const ask = useConfirm();
+  const voidPayment = useVoidSaasPayment(tenantId);
+
+  async function onVoid(paymentId: string, amount: string) {
+    const res = await ask({
+      title: 'Anular el pago',
+      description: `Se anula el pago de ${amount}: se deshace la ampliación del periodo que dio, el cupón recupera su uso y su factura recibe la rectificativa. Si después debe y el periodo ya venció, vuelve a pago pendiente.`,
+      confirmLabel: 'Anular el pago',
+      destructive: true,
+      input: { label: 'Motivo', required: true },
+    });
+    if (!res) return;
+    try {
+      await voidPayment.mutateAsync({ paymentId, reason: res.value });
+      toast.success('Pago anulado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo anular.');
+    }
+  }
   const payments = useAdminTenantSaasPayments(tenantId);
   const sync = useSyncTenantSaasPayments();
   const platformInvoices = useAdminTenantPlatformInvoices(tenantId);
@@ -140,9 +169,11 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
               {sync.isPending ? 'Sincronizando…' : 'Sincronizar con Stripe'}
             </Button>
           )}
-          <Button size="sm" onClick={() => setManualOpen(true)} disabled={!canEdit}>
-            Añadir pago manual
-          </Button>
+          {!readOnly && (
+            <Button size="sm" onClick={() => setManualOpen(true)} disabled={!canEdit}>
+              Añadir pago manual
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -204,6 +235,21 @@ export function SaasPaymentsCard({ tenantId }: { tenantId: string }) {
                             {STATUS_LABELS[p.status] ?? p.status}
                             {p.disputed && (
                               <span className="ml-1 text-xs text-destructive">· contracargo</span>
+                            )}
+                            {p.voidReason && (
+                              <span className="block text-xs text-muted-foreground">
+                                {p.voidReason}
+                              </span>
+                            )}
+                            {canEdit && p.voidable && (
+                              <button
+                                type="button"
+                                className="block text-xs text-destructive hover:underline"
+                                disabled={voidPayment.isPending}
+                                onClick={() => void onVoid(p.id, fmtMoney(p.amount, p.currency))}
+                              >
+                                Anular
+                              </button>
                             )}
                           </td>
                           <td className="space-x-2 p-2">

@@ -10,6 +10,7 @@ import {
   type ExtendTrialInput,
   ImpersonateSchema,
   type ImpersonateInput,
+  type AdminTenantDto,
 } from '@storageos/shared';
 import { Loader2, Mail, MoreVertical, Pencil } from 'lucide-react';
 import Link from 'next/link';
@@ -21,12 +22,14 @@ import { toast } from 'sonner';
 import { AccountActivationBanner } from './account-activation-banner';
 import { AiUsageCard } from './ai-usage-card';
 import { ApprovalRequestsCard } from './approval-requests-card';
+import { CancelTenantDialog } from './cancel-tenant-dialog';
 import { FeatureOverridesCard } from './feature-overrides-card';
 import { OnboardingCard } from './onboarding-card';
 import { PlatformInvoicesCard } from './platform-invoices-card';
 import { RequestApprovalDialog } from './request-approval-dialog';
 import { ResetDataDialog } from './reset-data-dialog';
 import { SaasPaymentsCard } from './saas-payments-card';
+import { SubscriptionPreviewBox } from './subscription-preview';
 import { TenantAccountCard } from './tenant-account-card';
 import { TenantAddonsCard } from './tenant-addons-card';
 import { TenantBusinessCard } from './tenant-business-card';
@@ -34,11 +37,14 @@ import { TenantConfigCard } from './tenant-config-card';
 import { TenantCustomersDialog } from './tenant-customers-dialog';
 import { TenantEditDialog } from './tenant-edit-dialog';
 import { TenantEmailDialog } from './tenant-email-dialog';
+import { ExportNowButton, TenantExportsCard } from './tenant-exports';
 import { TenantFacilitiesDialog } from './tenant-facilities-dialog';
 import { TenantFollowupsCard } from './tenant-followups-card';
 import { TenantHealthCard } from './tenant-health-card';
+import { TenantImpersonationsCard } from './tenant-impersonations-card';
 import { TenantInteractionsCard } from './tenant-interactions-card';
 import { TenantInvoicingDialog } from './tenant-invoicing-dialog';
+import { ConsistencyIssues, ScheduledBanners } from './tenant-lifecycle-banners';
 import { TenantNotesCard } from './tenant-notes-card';
 import { TenantSummaryCard } from './tenant-summary-card';
 import { TenantTimelineCard } from './tenant-timeline-card';
@@ -87,12 +93,11 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { adminApiFetchBlob } from '@/lib/admin/api';
-import { CHURN_REASONS } from '@/lib/admin/churn';
+import { CHURN_REASONS, churnReasonLabel } from '@/lib/admin/churn';
 import {
   useAdminSubscriptionPlans,
   useAdminTenant,
-  useTenantDataExport,
-  useAnonymizeTenant,
+  useAdminTenantUsers,
   useChangePlan,
   useChangePlanPreview,
   useExtendTrial,
@@ -108,6 +113,7 @@ import {
 } from '@/lib/admin/hooks';
 import { subscriptionStatusLabel, tenantStatusLabel } from '@/lib/admin/labels';
 import { rememberTenant } from '@/lib/admin/recent-tenants';
+import { useRequestAnonymize } from '@/lib/admin/tenant-lifecycle-hooks';
 import { useAnonymizePreview } from '@/lib/admin/tenant-tools-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
@@ -124,6 +130,8 @@ const TENANT_TABS = [
   'followups',
   'tickets',
   'emails',
+  'impersonations',
+  'exports',
 ];
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -150,7 +158,6 @@ export default function AdminTenantDetailPage() {
     router.replace(`/admin/tenants/${id}${query ? `?${query}` : ''}`, { scroll: false });
   };
   const tenant = useAdminTenant(id);
-  const dataExport = useTenantDataExport(id);
   // El rol `support` no edita, suspende, impersona ni toca la suscripción (403 en el API).
   const canEdit = useIsSuperadmin();
   const [approvalOpen, setApprovalOpen] = useState(false);
@@ -163,6 +170,7 @@ export default function AdminTenantDetailPage() {
     | 'impersonate'
     | 'anonymize'
     | 'reset'
+    | 'cancel'
     | null
   >(null);
   const [usersOpen, setUsersOpen] = useState(false);
@@ -195,6 +203,9 @@ export default function AdminTenantDetailPage() {
   }
 
   const t = tenant.data;
+
+  // Anonimizado: solo lo que queda (historial y pagos), sin acciones.
+  if (t.anonymizedAt) return <AnonymizedTenant t={t} />;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
@@ -271,20 +282,17 @@ export default function AdminTenantDetailPage() {
                 <DropdownMenuItem onClick={() => setDialog('impersonate')}>
                   Impersonar
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={dataExport.isPending}
-                  onClick={() =>
-                    dataExport.mutate(undefined, {
-                      onSuccess: (r) => {
-                        toast.success('Exportación lista. Se descarga el Excel.');
-                        window.location.href = r.url;
-                      },
-                      onError: () => toast.error('No se pudo generar la exportación.'),
-                    })
-                  }
-                >
-                  {dataExport.isPending ? 'Exportando datos…' : 'Exportar datos (Excel)'}
+                <DropdownMenuItem onClick={() => setTab('exports')}>
+                  Exportar datos (Excel)
                 </DropdownMenuItem>
+                {t.status !== 'cancelled' && !t.cancelScheduledAt && (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={() => setDialog('cancel')}
+                  >
+                    Dar de baja
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onClick={() => setDialog('reset')}
@@ -302,6 +310,15 @@ export default function AdminTenantDetailPage() {
           )}
         </div>
       </div>
+
+      {t.status === 'cancelled' && (
+        <p className="rounded-md border bg-muted/40 p-3 text-sm">
+          Dado de baja
+          {t.canceledAt ? ` el ${new Date(t.canceledAt).toLocaleDateString('es-ES')}` : ''}
+          {t.churnReason ? ` · ${churnReasonLabel(t.churnReason)}` : ''}.
+        </p>
+      )}
+      <ScheduledBanners tenant={t} />
 
       {t.owner && !t.owner.emailVerified && (
         <AccountActivationBanner tenantId={t.id} owner={t.owner} />
@@ -322,6 +339,8 @@ export default function AdminTenantDetailPage() {
           <TabsTrigger value="followups">Seguimientos</TabsTrigger>
           <TabsTrigger value="tickets">Tickets</TabsTrigger>
           <TabsTrigger value="emails">Correos</TabsTrigger>
+          <TabsTrigger value="impersonations">Impersonaciones</TabsTrigger>
+          <TabsTrigger value="exports">Exportaciones</TabsTrigger>
         </TabsList>
 
         <TabsContent value="general" className="mt-4">
@@ -431,6 +450,7 @@ export default function AdminTenantDetailPage() {
                     onStripe={!!t.subscription?.stripeSubscriptionId}
                   />
                 )}
+                <ConsistencyIssues tenantId={id} />
               </CardContent>
             </Card>
 
@@ -507,6 +527,12 @@ export default function AdminTenantDetailPage() {
         <TabsContent value="emails" className="mt-4">
           <PlatformEmailLog tenantId={id} />
         </TabsContent>
+        <TabsContent value="impersonations" className="mt-4">
+          <TenantImpersonationsCard tenantId={id} />
+        </TabsContent>
+        <TabsContent value="exports" className="mt-4">
+          <TenantExportsCard tenantId={id} />
+        </TabsContent>
         <TabsContent value="tickets" className="mt-4">
           <SupportTicketList
             filters={{ tenantId: id }}
@@ -580,6 +606,13 @@ export default function AdminTenantDetailPage() {
         open={dialog === 'anonymize'}
         tenantId={t.id}
         tenantSlug={t.slug}
+        cancelled={t.status === 'cancelled' || !!t.cancelScheduledAt}
+        onClose={() => setDialog(null)}
+      />
+      <CancelTenantDialog
+        open={dialog === 'cancel'}
+        tenantId={t.id}
+        periodEnd={t.subscription?.currentPeriodEnd ?? null}
         onClose={() => setDialog(null)}
       />
     </div>
@@ -790,6 +823,9 @@ function ReactivateDialog({
             </span>
           </label>
         )}
+        {forgive && (
+          <SubscriptionPreviewBox tenantId={tenantId} query={open ? { action: 'forgive' } : null} />
+        )}
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FormField
@@ -859,6 +895,7 @@ function EndTrialDialog({
             pagar.
           </DialogDescription>
         </DialogHeader>
+        <SubscriptionPreviewBox tenantId={tenantId} query={open ? { action: 'end_trial' } : null} />
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FormField
@@ -907,6 +944,7 @@ function ExtendTrialDialog({
     resolver: zodResolver(ExtendTrialSchema),
     defaultValues: { days: 7, reason: '' },
   });
+  const days = Number(form.watch('days')) || 0;
 
   async function onSubmit(values: ExtendTrialInput) {
     try {
@@ -927,6 +965,10 @@ function ExtendTrialDialog({
           <DialogTitle>Extender trial</DialogTitle>
           <DialogDescription>Suma días al periodo de prueba actual.</DialogDescription>
         </DialogHeader>
+        <SubscriptionPreviewBox
+          tenantId={tenantId}
+          query={open && days >= 1 && days <= 365 ? { action: 'extend_trial', days } : null}
+        />
         <Form {...form}>
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
             <FormField
@@ -986,6 +1028,8 @@ function ImpersonateDialog({
   onClose: () => void;
 }) {
   const impersonate = useImpersonateTenant();
+  const users = useAdminTenantUsers(tenantId, open);
+  const [asUser, setAsUser] = useState<string>('owner');
   // El navegador bloquea las ventanas que no se abren al pulsar: si no se pudo
   // abrir, se enseña un enlace para abrirla a mano.
   const [manualUrl, setManualUrl] = useState<string | null>(null);
@@ -998,7 +1042,10 @@ function ImpersonateDialog({
     // La pestaña se abre ya (con el clic); la petición la navega después.
     const tab = window.open('about:blank', '_blank');
     try {
-      const session = await impersonate.mutateAsync({ id: tenantId, input: values });
+      const session = await impersonate.mutateAsync({
+        id: tenantId,
+        input: { ...values, ...(asUser !== 'owner' ? { userId: asUser } : {}) },
+      });
       // El panel del tenant (pestaña nueva, mismo origen) recoge el token solo
       // si la URL trae este código de un solo uso; luego lo borra de aquí.
       const nonce = crypto.randomUUID();
@@ -1062,6 +1109,27 @@ function ImpersonateDialog({
         ) : (
           <Form {...form}>
             <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
+              <div className="space-y-1">
+                <Label>Entrar como</Label>
+                <Select value={asUser} onValueChange={setAsUser}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="owner">El propietario</SelectItem>
+                    {(users.data ?? [])
+                      .filter((u) => u.isActive && u.role !== 'owner')
+                      .map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.fullName} ({u.tenantRoleName ?? u.role})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Con un usuario, ves exactamente lo que ve él: sus permisos y sus locales.
+                </p>
+              </div>
               <FormField
                 control={form.control}
                 name="readOnly"
@@ -1118,111 +1186,204 @@ function AnonymizeDialog({
   open,
   tenantId,
   tenantSlug,
+  cancelled,
   onClose,
 }: {
   open: boolean;
   tenantId: string;
   tenantSlug: string;
+  /** Ya está dado de baja (o lo tiene programado): no se le cobra. */
+  cancelled: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
-  const anonymize = useAnonymizeTenant();
+  const anonymize = useRequestAnonymize(tenantId);
   const preview = useAnonymizePreview(tenantId, open);
-  const [confirmSlug, setConfirmSlug] = useState('');
+  const [step, setStep] = useState(1);
+  const [churn, setChurn] = useState('');
   const [exported, setExported] = useState(false);
-  const form = useForm<AdminTenantActionInput>({
-    resolver: zodResolver(AdminTenantActionSchema),
-    defaultValues: { reason: '' },
-  });
-
+  const [reason, setReason] = useState('');
+  const [graceDays, setGraceDays] = useState(30);
+  const [confirmSlug, setConfirmSlug] = useState('');
   const slugMatches = confirmSlug.trim() === tenantSlug;
 
   function close() {
-    setConfirmSlug('');
+    setStep(1);
+    setChurn('');
     setExported(false);
-    form.reset();
+    setReason('');
+    setGraceDays(30);
+    setConfirmSlug('');
     onClose();
   }
 
-  async function onSubmit(values: AdminTenantActionInput) {
-    if (!slugMatches || !exported) return;
+  async function submit() {
+    if (!slugMatches || !exported || reason.trim().length < 3) return;
     try {
       const result = await anonymize.mutateAsync({
-        id: tenantId,
-        input: { ...values, exported: true },
+        reason: reason.trim(),
+        exported: true,
+        graceDays,
+        ...(churn ? { churnReason: churn as 'other' } : {}),
       });
-      toast.success(
-        `Tenant anonimizado: ${result.anonymizedCustomers} inquilino(s) y ${result.anonymizedUsers} usuario(s).`,
-      );
-      close();
-      // El tenant queda con deletedAt; ya no es accesible en el detalle.
-      router.push('/admin/tenants');
+      if (result.scheduledFor) {
+        toast.success(
+          `Programada para el ${new Date(result.scheduledFor).toLocaleDateString('es-ES')}. Se ha avisado al propietario.`,
+        );
+        close();
+      } else {
+        toast.success(
+          `Tenant anonimizado: ${result.anonymizedCustomers} inquilino(s) y ${result.anonymizedUsers} usuario(s).`,
+        );
+        close();
+        router.push('/admin/tenants');
+      }
     } catch (err) {
-      if (err instanceof ApiError) toast.error(err.body.message);
-      else toast.error('Error de red.');
+      toast.error(err instanceof ApiError ? err.body.message : 'Error de red.');
     }
   }
 
+  const STEPS = ['Cortar cobros', 'Exportar', 'Qué se borra', 'Confirmar'];
+  const canNext =
+    step === 1 ? cancelled || !!churn : step === 2 ? exported : step === 3 ? !!preview.data : true;
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && close()}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Anonimizar tenant (RGPD)</DialogTitle>
           <DialogDescription>
-            Acción <strong>irreversible</strong>. Se anonimizan todos los inquilinos y usuarios del
-            tenant, se borran sus documentos y métodos de pago, se revocan las sesiones, deja de
-            cobrársele la cuota (Stripe, mandato SEPA y tarjeta) y la cuenta queda cancelada. Las
-            facturas se conservan por obligación fiscal. Si el cliente quiere sus datos, descárgalos
-            antes con «Exportar datos (Excel)» del menú.
+            Paso {step} de 4: {STEPS[step - 1]}
           </DialogDescription>
         </DialogHeader>
-        {preview.isLoading && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Revisando lo que se va a borrar…
-          </p>
-        )}
-        {preview.isError && (
-          <AdminError
-            message="No se pudo revisar lo que se va a borrar."
-            onRetry={() => void preview.refetch()}
-          />
-        )}
-        {preview.data && (
+        <ol className="flex gap-1 text-xs">
+          {STEPS.map((label, i) => (
+            <li
+              key={label}
+              className={`flex-1 rounded px-1.5 py-1 text-center ${
+                i + 1 === step
+                  ? 'bg-primary text-primary-foreground'
+                  : i + 1 < step
+                    ? 'bg-muted'
+                    : 'border'
+              }`}
+            >
+              {label}
+            </li>
+          ))}
+        </ol>
+
+        {step === 1 && (
           <div className="space-y-2 text-sm">
-            <p className="text-muted-foreground">
-              Se anonimizan {preview.data.customers} inquilino(s) y {preview.data.users} usuario(s).
-              Se conservan {preview.data.invoicesKept} factura(s).
-            </p>
-            {preview.data.warnings.map((w) => (
-              <p
-                key={w.code}
-                className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-              >
-                {w.message}
-              </p>
-            ))}
+            {cancelled ? (
+              <p>Ya está dado de baja (o lo tiene programado): no se le cobra nada más.</p>
+            ) : (
+              <>
+                <p>
+                  Primero deja de ser cliente: al confirmar se le da de baja hoy y se cortan todos
+                  los cobros (Stripe, remesa SEPA, tarjeta guardada y extras).
+                </p>
+                <Label>Motivo de baja</Label>
+                <Select value={churn} onValueChange={setChurn}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Elige un motivo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CHURN_REASONS.map((r) => (
+                      <SelectItem key={r.value} value={r.value}>
+                        {r.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
           </div>
         )}
-        <Form {...form}>
-          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)} noValidate>
-            <FormField
-              control={form.control}
-              name="reason"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Motivo</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      rows={3}
-                      placeholder="Solicitud de baja y derecho al olvido del cliente"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="space-y-2">
+
+        {step === 2 && (
+          <div className="space-y-2 text-sm">
+            <p>Si el cliente quiere sus datos, expórtalos ahora (después ya no se puede).</p>
+            <ExportNowButton tenantId={tenantId} onDone={() => setExported(true)} />
+            <label className="flex items-start gap-2">
+              <Checkbox
+                checked={exported}
+                onCheckedChange={(v) => setExported(v === true)}
+                className="mt-0.5"
+              />
+              <span>Ya he exportado sus datos (o el cliente no los quiere)</span>
+            </label>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-2 text-sm">
+            {preview.isLoading && (
+              <p className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Revisando lo que se va a borrar…
+              </p>
+            )}
+            {preview.isError && (
+              <AdminError
+                message="No se pudo revisar lo que se va a borrar."
+                onRetry={() => void preview.refetch()}
+              />
+            )}
+            {preview.data && (
+              <>
+                <p>
+                  <strong>Se borra:</strong> los datos de {preview.data.customers} inquilino(s) y{' '}
+                  {preview.data.users} usuario(s), sus documentos, mensajes, accesos, métodos de
+                  pago, sesiones y lo escrito en tareas, incidencias y notas.
+                </p>
+                <p>
+                  <strong>Se conserva:</strong> {preview.data.invoicesKept} factura(s) y los
+                  contratos firmados (obligación fiscal), y el registro de auditoría.
+                </p>
+                {preview.data.warnings.map((w) => (
+                  <p
+                    key={w.code}
+                    className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                  >
+                    {w.message}
+                  </p>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="space-y-3 text-sm">
+            <div className="space-y-1">
+              <Label htmlFor="anon-days">Días de gracia (0 = ahora)</Label>
+              <Input
+                id="anon-days"
+                type="number"
+                min={0}
+                max={90}
+                value={graceDays}
+                onChange={(e) =>
+                  setGraceDays(Math.min(90, Math.max(0, Number(e.target.value) || 0)))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {graceDays > 0
+                  ? `Se borra el ${new Date(Date.now() + graceDays * 86_400_000).toLocaleDateString('es-ES')}; se avisa al propietario y lo puedes cancelar hasta entonces.`
+                  : 'Se borra ahora mismo: es irreversible.'}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="anon-reason">Motivo</Label>
+              <Textarea
+                id="anon-reason"
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Solicitud de baja y derecho al olvido del cliente"
+              />
+            </div>
+            <div className="space-y-1">
               <Label htmlFor="confirm-slug">
                 Escribe <span className="font-mono text-xs">{tenantSlug}</span> para confirmar
               </Label>
@@ -1234,30 +1395,69 @@ function AnonymizeDialog({
                 placeholder={tenantSlug}
               />
             </div>
-            <label className="flex items-start gap-2 text-sm">
-              <Checkbox
-                checked={exported}
-                onCheckedChange={(v) => setExported(v === true)}
-                className="mt-0.5"
-              />
-              <span>Ya he exportado sus datos (o el cliente no los quiere)</span>
-            </label>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={close}>
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                variant="destructive"
-                disabled={!preview.data || !slugMatches || !exported || form.formState.isSubmitting}
-              >
-                Anonimizar definitivamente
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={step === 1 ? close : () => setStep(step - 1)}
+          >
+            {step === 1 ? 'Cancelar' : 'Atrás'}
+          </Button>
+          {step < 4 ? (
+            <Button disabled={!canNext} onClick={() => setStep(step + 1)}>
+              Siguiente
+            </Button>
+          ) : (
+            <Button
+              variant="destructive"
+              disabled={!slugMatches || reason.trim().length < 3 || anonymize.isPending}
+              onClick={() => void submit()}
+            >
+              {graceDays > 0 ? 'Programar la anonimización' : 'Anonimizar definitivamente'}
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Ficha de un tenant anonimizado: lo que queda (historial y pagos), sin acciones. */
+function AnonymizedTenant({ t }: { t: AdminTenantDto }) {
+  const [tab, setTab] = useState('timeline');
+  return (
+    <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
+      <div>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight">{t.name}</h1>
+          <Badge variant="outline">Anonimizado</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          /{t.slug} · anonimizado el {new Date(t.anonymizedAt!).toLocaleDateString('es-ES')}
+          {t.churnReason ? ` · baja: ${churnReasonLabel(t.churnReason)}` : ''}
+        </p>
+      </div>
+      <p className="rounded-md border bg-muted/40 p-3 text-sm">
+        Sus datos personales se borraron (RGPD). Quedan su historial y los pagos y facturas de la
+        suscripción, que se conservan por obligación fiscal.
+      </p>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="timeline">Historial</TabsTrigger>
+          <TabsTrigger value="payments">Pagos</TabsTrigger>
+        </TabsList>
+        <TabsContent value="timeline" className="mt-4">
+          <TenantTimelineCard tenantId={t.id} />
+        </TabsContent>
+        <TabsContent value="payments" className="mt-4 space-y-4">
+          <SaasPaymentsCard tenantId={t.id} readOnly />
+          <PlatformInvoicesCard tenantId={t.id} />
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }
 
@@ -1383,6 +1583,10 @@ function BillingModeControl({ tenantId, billingMode }: { tenantId: string; billi
                 : `Deja de cobrarse por ${fromLabel}${billingMode === 'stripe' ? ' (se cancela la suscripción en Stripe)' : ''} y las próximas cuotas se domiciliarán por SEPA con el mandato ya autorizado.`}
             </DialogDescription>
           </DialogHeader>
+          <SubscriptionPreviewBox
+            tenantId={tenantId}
+            query={confirmMode ? { action: 'billing_mode', mode: confirmMode } : null}
+          />
           {sepaInProgress && (
             <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
               Hay un adeudo SEPA de su cuota en el banco sin confirmar: si se cobra, regístralo en
@@ -1413,12 +1617,14 @@ function BillingExemptControl({
   onStripe: boolean;
 }) {
   const setExempt = useSetBillingExempt();
+  const [confirming, setConfirming] = useState(false);
   async function toggle() {
     try {
       await setExempt.mutateAsync({ id: tenantId, exempt: !exempt });
       toast.success(
         exempt ? 'Exención retirada.' : 'Cuenta marcada como exenta (fuera de las métricas).',
       );
+      setConfirming(false);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'Error');
     }
@@ -1436,12 +1642,36 @@ function BillingExemptControl({
         <Button
           variant={exempt ? 'outline' : 'secondary'}
           size="sm"
-          onClick={toggle}
+          onClick={() => setConfirming(true)}
           disabled={setExempt.isPending}
         >
           {exempt ? 'Quitar exención' : 'Marcar exenta'}
         </Button>
       </div>
+      <Dialog open={confirming} onOpenChange={(o) => !o && setConfirming(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{exempt ? 'Quitar la exención' : 'Marcar como exenta'}</DialogTitle>
+            <DialogDescription>
+              {exempt
+                ? 'Vuelve a pagar: el periodo empieza hoy y vuelve a contar en las métricas.'
+                : 'Opera con su plan sin pagar y sale de las métricas de negocio.'}
+            </DialogDescription>
+          </DialogHeader>
+          <SubscriptionPreviewBox
+            tenantId={tenantId}
+            query={confirming ? { action: exempt ? 'unexempt' : 'exempt' } : null}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void toggle()} disabled={setExempt.isPending}>
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {exempt && onStripe && (
         <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
           Sigue suscrita en Stripe, que le seguirá cobrando. Usa «Pasar a pago manual» para cancelar
@@ -1540,6 +1770,10 @@ function ChangePlanControl({
                 : 'Se cambia su plan.'}
             </DialogDescription>
           </DialogHeader>
+          <SubscriptionPreviewBox
+            tenantId={tenantId}
+            query={confirming ? { action: 'change_plan', planSlug: selected } : null}
+          />
           <div className="space-y-2 text-sm">
             {preview.data?.inTrial && (
               <p>Está en prueba: cambiar de plan termina la prueba y empieza a pagar.</p>

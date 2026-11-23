@@ -1485,6 +1485,8 @@ export interface TenantAddonDto {
   billingMode: 'manual' | 'stripe';
   /** De la plataforma (p. ej. «Trasteros de más»): no se quita a mano. */
   isSystem: boolean;
+  /** Próximo cobro a mano (null si va con la cuota, por Stripe o suspendido). */
+  nextChargeAt?: string | null;
 }
 
 /** Resumen de la facturación efectiva del tenant (plan + add-ons). */

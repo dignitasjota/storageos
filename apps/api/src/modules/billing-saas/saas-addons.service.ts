@@ -1599,6 +1599,7 @@ export class SaasAddonsService {
     notes: string | null;
     suspendedAt: Date | null;
     billingMode: string;
+    nextChargeAt?: Date | null;
     addon: { name: string; slug: string; feature: string | null; isSystem?: boolean };
   }): TenantAddonDto {
     const price = num(r.priceMonthly);
@@ -1615,6 +1616,7 @@ export class SaasAddonsService {
       suspended: r.suspendedAt !== null,
       billingMode: r.billingMode === 'stripe' ? 'stripe' : 'manual',
       isSystem: r.addon.isSystem ?? false,
+      nextChargeAt: r.nextChargeAt?.toISOString() ?? null,
     };
   }
 }

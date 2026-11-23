@@ -2696,12 +2696,36 @@ export function useMarkNotifRead() {
 }
 
 /** Historial unificado del tenant, paginado por fecha. */
-export function useAdminTenantTimeline(tenantId: string, kinds: AdminTimelineKind[]) {
+export interface TimelineFilters {
+  q?: string;
+  from?: string;
+  to?: string;
+  actorId?: string;
+}
+
+/** Parámetros del historial (filtros + tipos). */
+export function timelineQuery(
+  kinds: AdminTimelineKind[],
+  f: TimelineFilters = {},
+): URLSearchParams {
+  const qs = new URLSearchParams({ limit: '40' });
+  if (kinds.length) qs.set('kinds', kinds.join(','));
+  if (f.q?.trim()) qs.set('q', f.q.trim());
+  if (f.from) qs.set('from', f.from);
+  if (f.to) qs.set('to', f.to);
+  if (f.actorId) qs.set('actorId', f.actorId);
+  return qs;
+}
+
+export function useAdminTenantTimeline(
+  tenantId: string,
+  kinds: AdminTimelineKind[],
+  filters: TimelineFilters = {},
+) {
   return useInfiniteQuery({
-    queryKey: ['admin', 'tenants', tenantId, 'timeline', kinds] as const,
+    queryKey: ['admin', 'tenants', tenantId, 'timeline', kinds, filters] as const,
     queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
-      const qs = new URLSearchParams({ limit: '40' });
-      if (kinds.length) qs.set('kinds', kinds.join(','));
+      const qs = timelineQuery(kinds, filters);
       if (pageParam) qs.set('before', pageParam);
       return adminApiFetch<AdminTimelinePageDto>(`/admin/tenants/${tenantId}/timeline?${qs}`);
     },

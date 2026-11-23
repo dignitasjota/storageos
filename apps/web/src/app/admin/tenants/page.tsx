@@ -33,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { churnReasonLabel } from '@/lib/admin/churn';
 import { useAdminTenantsOverview } from '@/lib/admin/hooks';
 import { tenantStatusLabel } from '@/lib/admin/labels';
 import { useDeleteView, useSaveView, useSavedViews } from '@/lib/admin/tenant-tools-hooks';
@@ -48,11 +49,28 @@ const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | '
   cancelled: 'outline',
 };
 
+/** Una cuenta activa sin pagar (prueba o plan gratuito terminados): solo lectura. */
+function isReadOnly(t: { status: string; subscriptionStatus: string | null }): boolean {
+  return t.status === 'active' && t.subscriptionStatus === 'expired';
+}
+
+/** Baja: cancelado, anonimizado o suspendido por un motivo que no es el impago. */
+function isChurned(t: Row): boolean {
+  return (
+    t.anonymized ||
+    t.status === 'cancelled' ||
+    (t.status === 'suspended' && !!t.churnReason && t.churnReason !== 'nonpayment')
+  );
+}
+
 /** Estado de la fila: una cuenta activa sin pagar (prueba o plan gratuito terminados) va aparte. */
-function rowStatusLabel(t: { status: string; subscriptionStatus: string | null }): string {
-  return t.status === 'active' && t.subscriptionStatus === 'expired'
-    ? 'Solo lectura'
-    : tenantStatusLabel(t.status);
+function rowStatusLabel(t: {
+  status: string;
+  subscriptionStatus: string | null;
+  anonymized?: boolean;
+}): string {
+  if (t.anonymized) return 'Anonimizado';
+  return isReadOnly(t) ? 'Solo lectura' : tenantStatusLabel(t.status);
 }
 function rowStatusVariant(t: {
   status: string;
@@ -101,6 +119,7 @@ const COLUMNS = [
   { key: 'usage', label: 'Uso' },
   { key: 'owner', label: 'Propietario' },
   { key: 'created', label: 'Alta' },
+  { key: 'churn', label: 'Baja (fecha y motivo)' },
 ] as const;
 type ColumnKey = (typeof COLUMNS)[number]['key'];
 const DEFAULT_COLUMNS: ColumnKey[] = [
@@ -113,7 +132,15 @@ const DEFAULT_COLUMNS: ColumnKey[] = [
   'followup',
 ];
 
-type SortKey = 'name' | 'monthly' | 'nextCharge' | 'health' | 'lastLogin' | 'followup' | 'created';
+type SortKey =
+  | 'name'
+  | 'monthly'
+  | 'nextCharge'
+  | 'health'
+  | 'lastLogin'
+  | 'followup'
+  | 'created'
+  | 'churn';
 
 interface Filters {
   search: string;
@@ -127,6 +154,8 @@ interface Filters {
   overdue: boolean;
   trialSoon: boolean;
   noAddons: boolean;
+  /** Prueba o plan terminados sin pagar (panel en solo lectura). */
+  readOnly: boolean;
   /** Sin acceso del equipo en N días (0 = sin filtro). */
   noLoginDays: number;
 }
@@ -143,12 +172,15 @@ const EMPTY: Filters = {
   overdue: false,
   trialSoon: false,
   noAddons: false,
+  readOnly: false,
   noLoginDays: 0,
 };
 
 interface View {
   name: string;
   filters: Filters;
+  columns?: ColumnKey[] | null;
+  sort?: { key: SortKey; dir: 1 | -1 } | null;
 }
 
 const PRESET_VIEWS: View[] = [
@@ -229,6 +261,7 @@ function matches(t: Row, f: Filters): boolean {
     if (left > 7 * DAY) return false;
   }
   if (f.noAddons && t.addons.some((a) => !a.suspended)) return false;
+  if (f.readOnly && !isReadOnly(t)) return false;
   if (f.noLoginDays > 0) {
     const ago = daysAgo(t.lastTeamLoginAt);
     if (ago !== null && ago < f.noLoginDays) return false;
@@ -257,6 +290,8 @@ function sortValue(t: Row, key: SortKey): number | string {
       return t.nextFollowup ? new Date(t.nextFollowup.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
     case 'created':
       return new Date(t.createdAt).getTime();
+    case 'churn':
+      return t.canceledAt ? new Date(t.canceledAt).getTime() : 0;
   }
 }
 
@@ -281,6 +316,8 @@ export default function AdminTenantsPage() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'health', dir: 1 });
   const [columns, setColumns] = useState<ColumnKey[]>(DEFAULT_COLUMNS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Pestaña: los clientes de ahora o las bajas (canceladas, anonimizadas…).
+  const [tab, setTab] = useState<'live' | 'churned'>('live');
   // Vistas guardadas en el servidor (las ve el mismo super admin en cualquier navegador).
   const savedViews = useSavedViews();
   const saveViewMut = useSaveView();
@@ -329,14 +366,17 @@ export default function AdminTenantsPage() {
   }, [all]);
   const tagOptions = useMemo(() => [...new Set(all.flatMap((t) => t.tags))].sort(), [all]);
 
+  const churnedCount = useMemo(() => all.filter(isChurned).length, [all]);
   const rows = useMemo(() => {
-    const list = all.filter((t) => matches(t, filters));
+    const list = all.filter(
+      (t) => (tab === 'churned' ? isChurned(t) : !isChurned(t)) && matches(t, filters),
+    );
     return list.sort((a, b) => {
       const va = sortValue(a, sort.key);
       const vb = sortValue(b, sort.key);
       return (va < vb ? -1 : va > vb ? 1 : 0) * sort.dir;
     });
-  }, [all, filters, sort]);
+  }, [all, filters, sort, tab]);
 
   // Al cambiar el filtro, la selección anterior deja de tener sentido.
   useEffect(() => setSelected(new Set()), [filters]);
@@ -350,7 +390,8 @@ export default function AdminTenantsPage() {
   };
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) =>
     setFilters((f) => ({ ...f, [k]: v }));
-  const show = (k: ColumnKey) => columns.includes(k);
+  // En «Bajas» se ve siempre la fecha y el motivo.
+  const show = (k: ColumnKey) => columns.includes(k) || (k === 'churn' && tab === 'churned');
   const allSelected = rows.length > 0 && rows.every((t) => selected.has(t.id));
   const activeFilters = JSON.stringify(filters) !== JSON.stringify(EMPTY);
 
@@ -367,7 +408,8 @@ export default function AdminTenantsPage() {
   async function saveView() {
     const res = await ask({
       title: 'Guardar vista',
-      description: 'Se guarda con los filtros actuales y la verás en cualquier navegador.',
+      description:
+        'Se guarda con los filtros, las columnas y el orden actuales, y la verás en cualquier navegador.',
       input: { label: 'Nombre de la vista', placeholder: 'p. ej. Candidatos a WhatsApp' },
       confirmLabel: 'Guardar',
     });
@@ -377,6 +419,8 @@ export default function AdminTenantsPage() {
       await saveViewMut.mutateAsync({
         name: name.trim(),
         filters: filters as unknown as Record<string, unknown>,
+        columns,
+        sort,
       });
       toast.success('Vista guardada.');
     } catch {
@@ -421,6 +465,8 @@ export default function AdminTenantsPage() {
         'Alta',
         'Fin prueba',
         'Etiquetas',
+        'Baja',
+        'Motivo de baja',
       ],
       ...rows.map((t) => [
         t.name,
@@ -447,6 +493,8 @@ export default function AdminTenantsPage() {
         day(t.createdAt),
         day(t.trialEndsAt),
         t.tags.join(', '),
+        t.canceledAt ? day(t.canceledAt) : '',
+        t.churnReason ? churnReasonLabel(t.churnReason) : '',
       ]),
     ]);
   }
@@ -489,7 +537,17 @@ export default function AdminTenantsPage() {
                   {views.map((v) => (
                     <DropdownMenuItem
                       key={v.id}
-                      onSelect={() => setFilters({ ...EMPTY, ...(v.filters as Partial<Filters>) })}
+                      onSelect={() => {
+                        setFilters({ ...EMPTY, ...(v.filters as Partial<Filters>) });
+                        if (v.columns?.length) {
+                          const cols = v.columns.filter((c): c is ColumnKey =>
+                            COLUMNS.some((x) => x.key === c),
+                          );
+                          setColumns(cols);
+                          writeStorage(COLUMNS_KEY, cols);
+                        }
+                        if (v.sort) setSort(v.sort as { key: SortKey; dir: 1 | -1 });
+                      }}
                       className="justify-between"
                     >
                       <span className="truncate">{v.name}</span>
@@ -509,8 +567,8 @@ export default function AdminTenantsPage() {
                 </>
               )}
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => void saveView()} disabled={!activeFilters}>
-                <Save className="mr-2 size-4" /> Guardar los filtros actuales
+              <DropdownMenuItem onSelect={() => void saveView()}>
+                <Save className="mr-2 size-4" /> Guardar la vista actual
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -545,6 +603,31 @@ export default function AdminTenantsPage() {
         <NewTenantDialog open={newOpen} onClose={() => setNewOpen(false)} />
       </div>
 
+      <div className="flex gap-1 border-b">
+        {(
+          [
+            ['live', 'Clientes'],
+            ['churned', `Bajas${churnedCount ? ` (${churnedCount})` : ''}`],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => {
+              setTab(key);
+              if (key === 'churned') setSort({ key: 'churn', dir: -1 });
+            }}
+            className={`-mb-px border-b-2 px-3 py-1.5 text-sm ${
+              tab === key
+                ? 'border-primary font-medium text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={filters.search}
@@ -560,6 +643,7 @@ export default function AdminTenantsPage() {
             ['trial', 'Prueba'],
             ['active', 'Activos'],
             ['suspended', 'Suspendidos'],
+            ...(tab === 'churned' ? ([['cancelled', 'Cancelados']] as [string, string][]) : []),
           ]}
         />
         <FilterSelect
@@ -627,6 +711,11 @@ export default function AdminTenantsPage() {
           checked={filters.noAddons}
           onChange={(v) => set('noAddons', v)}
           label="Sin extras"
+        />
+        <Toggle
+          checked={filters.readOnly}
+          onChange={(v) => set('readOnly', v)}
+          label="Solo lectura"
         />
         <FilterSelect
           value={String(filters.noLoginDays)}
@@ -723,6 +812,9 @@ export default function AdminTenantsPage() {
                   {show('created') && (
                     <SortHead label="Alta" k="created" sort={sort} onSort={toggleSort} />
                   )}
+                  {show('churn') && (
+                    <SortHead label="Baja" k="churn" sort={sort} onSort={toggleSort} />
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -778,6 +870,12 @@ function TenantCard({
               {rowStatusLabel(t)}
             </Badge>
           </div>
+          {isChurned(t) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Baja{t.canceledAt ? ` el ${day(t.canceledAt)}` : ''}
+              {t.churnReason ? ` · ${churnReasonLabel(t.churnReason)}` : ''}
+            </p>
+          )}
           <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
             <div>
               <dt className="text-muted-foreground">Plan</dt>
@@ -995,6 +1093,19 @@ function TenantRow({
       {show('created') && (
         <td className="whitespace-nowrap px-3 py-2 align-top text-xs text-muted-foreground">
           {day(t.createdAt)}
+        </td>
+      )}
+      {show('churn') && (
+        <td className="whitespace-nowrap px-3 py-2 align-top text-xs">
+          {t.canceledAt
+            ? day(t.canceledAt)
+            : t.cancelScheduledAt
+              ? `El ${day(t.cancelScheduledAt)}`
+              : '—'}
+          <div className="text-muted-foreground">
+            {t.churnReason ? churnReasonLabel(t.churnReason) : ''}
+            {t.anonymized ? ' · anonimizado' : ''}
+          </div>
         </td>
       )}
     </tr>

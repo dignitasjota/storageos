@@ -27,12 +27,8 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { adminApiFetch } from '@/lib/admin/api';
-import {
-  useAdminTenant,
-  useAdminTenantUsers,
-  useEmailTenant,
-  useSupportCannedResponses,
-} from '@/lib/admin/hooks';
+import { useEmailTenant, useSupportCannedResponses } from '@/lib/admin/hooks';
+import { useEmailRecipients } from '@/lib/admin/tenant-lifecycle-hooks';
 import { ApiError } from '@/lib/auth/api';
 
 type FileMime = 'application/pdf' | 'image/png' | 'image/jpeg' | 'image/webp';
@@ -58,15 +54,19 @@ export function TenantEmailDialog({
   const email = useEmailTenant(tenantId);
   const canned = useSupportCannedResponses();
   const confirm = useConfirm();
-  const tenant = useAdminTenant(tenantId);
-  const users = useAdminTenantUsers(tenantId, open);
-  // A quién llega: los propietarios activos con el email verificado o, si no
-  // hay ninguno, el email de facturación.
-  const owners = (users.data ?? [])
-    .filter((u) => u.role === 'owner' && u.isActive && u.emailVerified)
-    .map((u) => u.email);
-  const recipients =
-    owners.length > 0 ? owners : tenant.data?.billingEmail ? [tenant.data.billingEmail] : [];
+  // A quién puede llegar (propietarios, facturación y el resto del equipo).
+  const options = useEmailRecipients(tenantId, open);
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const chosen =
+    picked ?? new Set((options.data ?? []).filter((r) => r.defaultSelected).map((r) => r.email));
+  const recipients = [...chosen];
+  const blocked = (options.data ?? []).filter((r) => chosen.has(r.email) && r.blocked);
+  function togglePick(email: string) {
+    const next = new Set(chosen);
+    if (next.has(email)) next.delete(email);
+    else next.add(email);
+    setPicked(next);
+  }
   const fileInput = useRef<HTMLInputElement>(null);
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
@@ -84,6 +84,7 @@ export function TenantEmailDialog({
   }
 
   function close() {
+    setPicked(null);
     reset();
     onClose();
   }
@@ -149,12 +150,27 @@ export function TenantEmailDialog({
       toast.error('Indica un asunto y un mensaje.');
       return;
     }
+    if (recipients.length === 0) {
+      toast.error('Elige al menos un destinatario.');
+      return;
+    }
+    if (
+      blocked.length > 0 &&
+      !(await confirm({
+        title: 'Hay direcciones bloqueadas',
+        description: `No le llegará a ${blocked.map((b) => `${b.email} (${b.blocked})`).join(', ')}. ¿Enviar al resto?`,
+        confirmLabel: 'Enviar igualmente',
+      }))
+    ) {
+      return;
+    }
     try {
       const res = await email.mutateAsync({
         subject: subject.trim(),
         body: body.trim(),
         replyExpected,
         attachments: files,
+        recipients,
       });
       toast.success(
         `Email enviado a ${res.recipients} destinatario(s)${res.failed ? `, ${res.failed} fallido(s)` : ''}.`,
@@ -176,14 +192,42 @@ export function TenantEmailDialog({
             en su panel, en Soporte → Mensajes de TrasterOS.
           </DialogDescription>
         </DialogHeader>
-        <p className="text-sm">
-          <span className="text-muted-foreground">Llegará a: </span>
-          {users.isLoading
-            ? '…'
-            : recipients.length > 0
-              ? recipients.join(', ')
-              : 'nadie (no tiene propietarios verificados ni email de facturación)'}
-        </p>
+        <div className="space-y-1 text-sm">
+          <span className="text-muted-foreground">Llegará a:</span>
+          {options.isLoading ? (
+            <p>…</p>
+          ) : (options.data ?? []).length === 0 ? (
+            <p>nadie (no tiene usuarios ni email de facturación)</p>
+          ) : (
+            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+              {(options.data ?? []).map((r) => (
+                <li key={r.email}>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={chosen.has(r.email)}
+                      onChange={() => togglePick(r.email)}
+                    />
+                    <span>
+                      {r.fullName ? `${r.fullName} · ` : ''}
+                      {r.email}
+                      <span className="text-xs text-muted-foreground">
+                        {' '}
+                        ({r.label}
+                        {!r.verified ? ', sin verificar' : ''})
+                      </span>
+                      {r.blocked && (
+                        <span className="ml-1 text-xs text-destructive">
+                          · bloqueada: {r.blocked}
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <form onSubmit={onSubmit} className="space-y-4">
           {(canned.data ?? []).length > 0 && (
             <Select

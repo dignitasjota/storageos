@@ -597,7 +597,9 @@ export class AdminCommsService {
           blocked: null,
         });
     }
-    const list = [...out.values()];
+    // Primero los propietarios, luego facturación y el resto del equipo.
+    const rank = { owner: 0, billing: 1, user: 2 } as const;
+    const list = [...out.values()].sort((a, b) => rank[a.kind] - rank[b.kind]);
     for (const r of list) {
       const block = await this.suppressions.blockedForAll(r.email).catch(() => null);
       r.blocked = block ? block.label : null;
