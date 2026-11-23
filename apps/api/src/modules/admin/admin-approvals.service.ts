@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import {
   APPROVAL_ACTION_LABELS,
+  FEATURE_LABELS,
   type AdminApprovalRequestDto,
   type ApprovalAction,
   type ApprovalRequestBody,
@@ -15,6 +16,7 @@ import {
   type CreateApprovalRequestInput,
 } from '@storageos/shared';
 
+import { todayInTimezone } from '../../common/format';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { SaasAddonsService } from '../billing-saas/saas-addons.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -24,6 +26,9 @@ import { AdminTenantsService } from './admin-tenants.service';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { Prisma } from '@storageos/database';
+
+/** Una solicitud sin resolver caduca a los 30 días. */
+const APPROVAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface Meta {
   superAdminId: string;
@@ -99,6 +104,7 @@ export class AdminApprovalsService {
     tenantId?: string;
     requestedById?: string;
   }): Promise<AdminApprovalRequestDto[]> {
+    await this.expireOld();
     const rows = await this.admin.adminApprovalRequest.findMany({
       where: {
         ...(filter.status ? { status: filter.status } : {}),
@@ -118,6 +124,14 @@ export class AdminApprovalsService {
     note: string | undefined,
     meta: Meta,
   ): Promise<AdminApprovalRequestDto> {
+    // Una solicitud de hace más de 30 días ya no se ejecuta: las condiciones
+    // (deuda, plan, precio) pueden haber cambiado.
+    if ((await this.expireOld(id)) > 0) {
+      throw new ConflictException({
+        code: 'approval_expired',
+        message: 'La solicitud tiene más de 30 días y ha caducado: pide que la vuelvan a enviar.',
+      });
+    }
     const claimed = await this.admin.adminApprovalRequest.updateMany({
       where: { id, status: 'pending' },
       data: {
@@ -147,6 +161,23 @@ export class AdminApprovalsService {
     const dto = await this.get(id);
     await this.notifyRequester(row.requestedById, dto);
     return dto;
+  }
+
+  /** Rechaza las solicitudes pendientes de más de 30 días (todas o una). */
+  private async expireOld(id?: string): Promise<number> {
+    const { count } = await this.admin.adminApprovalRequest.updateMany({
+      where: {
+        ...(id ? { id } : {}),
+        status: 'pending',
+        createdAt: { lt: new Date(Date.now() - APPROVAL_TTL_MS) },
+      },
+      data: {
+        status: 'rejected',
+        decidedAt: new Date(),
+        decisionNote: 'Caducada: llevaba más de 30 días sin resolverse.',
+      },
+    });
+    return count;
   }
 
   /** Un comercial que pidió la acción se entera de la decisión. */
@@ -240,13 +271,42 @@ export class AdminApprovalsService {
           days: body.payload.days,
         });
         return;
-      case 'set_features':
+      case 'set_features': {
+        // `setFeatures` reescribe todas las cortesías: lo pedido se suma a las
+        // vigentes (con su fecha) en vez de borrar las que no menciona.
+        const current = await this.admin.tenantFeatureOverride.findMany({
+          where: {
+            tenantId,
+            source: 'manual',
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+          },
+          select: { feature: true, enabled: true, expiresAt: true },
+        });
+        const merged = new Map(
+          current.map((o) => [
+            o.feature,
+            {
+              feature: o.feature as (typeof body.payload.overrides)[number]['feature'],
+              enabled: o.enabled,
+              // Se guardó como el inicio del día siguiente en Madrid.
+              expiresAt: o.expiresAt
+                ? todayInTimezone('Europe/Madrid', new Date(o.expiresAt.getTime() - 1))
+                    .toISOString()
+                    .slice(0, 10)
+                : null,
+            },
+          ]),
+        );
+        for (const o of body.payload.overrides) {
+          merged.set(o.feature, { ...o, expiresAt: o.expiresAt ?? null });
+        }
         await this.tenants.setFeatures(tenantId, {
           ...base,
           reason: 'feature_override',
-          overrides: body.payload.overrides,
+          overrides: [...merged.values()],
         });
         return;
+      }
       case 'update_tenant':
         await this.support.updateTenant(tenantId, body.payload, { ...base, reason });
         return;
@@ -350,12 +410,16 @@ export class AdminApprovalsService {
         assignmentIds.add(p.assignmentId);
     }
     const names = new Map<string, string>();
+    const prices = new Map<string, number>();
     if (addonIds.size) {
       const addons = await this.admin.subscriptionAddon.findMany({
         where: { id: { in: [...addonIds] } },
-        select: { id: true, name: true },
+        select: { id: true, name: true, priceMonthly: true },
       });
-      for (const a of addons) names.set(a.id, a.name);
+      for (const a of addons) {
+        names.set(a.id, a.name);
+        prices.set(a.id, Number(a.priceMonthly));
+      }
     }
     if (assignmentIds.size) {
       const assigned = await this.admin.tenantSubscriptionAddon.findMany({
@@ -364,17 +428,21 @@ export class AdminApprovalsService {
       });
       for (const a of assigned) names.set(a.id, a.addon.name);
     }
-    return rows.map((r) => this.toDto(r, names));
+    return rows.map((r) => this.toDto(r, names, prices));
   }
 
-  private toDto(r: Row, names: Map<string, string>): AdminApprovalRequestDto {
+  private toDto(
+    r: Row,
+    names: Map<string, string>,
+    prices: Map<string, number>,
+  ): AdminApprovalRequestDto {
     const action = r.action as ApprovalAction;
     return {
       id: r.id,
       tenantId: r.tenantId,
       tenantName: r.tenant.name,
       action,
-      summary: summarize(action, r.payload, names),
+      summary: summarize(action, r.payload, names, prices),
       payload: r.payload,
       reason: r.reason,
       status: r.status as ApprovalStatus,
@@ -399,27 +467,99 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : 'Error al ejecutar la acción';
 }
 
-/** Resumen legible de los datos de la solicitud. */
-function summarize(action: ApprovalAction, payload: unknown, names: Map<string, string>): string {
+/** Resumen legible de los datos de la solicitud: todo lo que tiene efecto. */
+function summarize(
+  action: ApprovalAction,
+  payload: unknown,
+  names: Map<string, string>,
+  prices: Map<string, number>,
+): string {
   const p = (payload ?? {}) as Record<string, unknown>;
+  const eur = (v: unknown) =>
+    `${Number(v ?? 0)
+      .toFixed(2)
+      .replace('.', ',')} €`;
   switch (action) {
     case 'suspend':
-      return `Motivo: ${String(p.reason ?? '')}`;
+      return [
+        `Motivo: ${String(p.reason ?? '')}`,
+        p.churnReason ? `causa: ${String(p.churnReason)}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
     case 'change_plan':
       return `Plan: ${String(p.planSlug ?? '')}`;
     case 'extend_trial':
       return `${String(p.days ?? '')} días más`;
-    case 'manual_payment':
-      return `${String(p.amount ?? '')} ${String(p.currency ?? 'EUR')} · ${String(p.durationMonths ?? '')} mes(es) · ${String(p.provider ?? '')}`;
-    case 'set_features': {
-      const list = (p.overrides as { feature: string; enabled: boolean }[] | undefined) ?? [];
-      return list.map((o) => `${o.enabled ? '+' : '−'}${o.feature}`).join(', ') || 'Sin cambios';
+    case 'manual_payment': {
+      const parts = [
+        `${eur(p.amount)} (${String(p.currency ?? 'EUR')})`,
+        String(p.provider ?? ''),
+        p.extendsPeriod === false
+          ? 'solo el cobro, sin extender el periodo'
+          : `extiende ${String(p.durationMonths ?? '')} mes(es)`,
+        Number(p.discount ?? 0) > 0 ? `descuento ${eur(p.discount)}` : null,
+        p.couponCode ? `cupón ${String(p.couponCode)}` : null,
+        p.paidAt ? `pagado el ${String(p.paidAt).slice(0, 10)}` : null,
+        p.description ? `«${String(p.description)}»` : null,
+      ];
+      return parts.filter(Boolean).join(' · ');
     }
-    case 'update_tenant':
-      return `Campos: ${Object.keys(p).join(', ')}`;
-    case 'assign_addon':
-      return `${names.get(String(p.addonId)) ?? 'Extra'} × ${String(p.quantity ?? 1)}`;
+    case 'set_features': {
+      const list =
+        (p.overrides as { feature: string; enabled: boolean; expiresAt?: string | null }[]) ?? [];
+      return (
+        list
+          .map((o) => {
+            const label = (FEATURE_LABELS as Record<string, string>)[o.feature] ?? o.feature;
+            const until = o.enabled && o.expiresAt ? ` hasta el ${o.expiresAt}` : '';
+            return `${o.enabled ? 'Activar' : 'Quitar'} ${label}${until}`;
+          })
+          .join(', ') || 'Sin cambios'
+      );
+    }
+    case 'update_tenant': {
+      const entries = Object.entries(p);
+      if (entries.length === 0) return 'Sin cambios';
+      return entries
+        .map(
+          ([k, v]) =>
+            `${UPDATE_TENANT_FIELDS[k] ?? k}: ${v == null || v === '' ? '(vacío)' : String(v)}`,
+        )
+        .join(' · ');
+    }
+    case 'assign_addon': {
+      const name = names.get(String(p.addonId)) ?? 'Extra';
+      const list = prices.get(String(p.addonId));
+      const price =
+        p.priceMonthly == null
+          ? 'a tarifa'
+          : list != null && Number(p.priceMonthly) !== list
+            ? `a ${eur(p.priceMonthly)}/mes (tarifa ${eur(list)})`
+            : `a ${eur(p.priceMonthly)}/mes`;
+      return [
+        `${name} × ${String(p.quantity ?? 1)}`,
+        price,
+        p.notes ? `«${String(p.notes)}»` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+    }
     case 'remove_addon':
       return names.get(String(p.assignmentId)) ?? 'Extra ya quitado';
   }
 }
+
+/** Nombres de los datos del tenant que puede cambiar una solicitud. */
+const UPDATE_TENANT_FIELDS: Record<string, string> = {
+  name: 'Nombre',
+  billingEmail: 'Email de facturación',
+  country: 'País',
+  currency: 'Moneda',
+  timezone: 'Zona horaria',
+  taxId: 'NIF',
+  billingLegalName: 'Razón social',
+  billingAddress: 'Domicilio fiscal',
+  billingCity: 'Población',
+  billingPostalCode: 'Código postal',
+};

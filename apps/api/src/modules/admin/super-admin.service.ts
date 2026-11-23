@@ -500,6 +500,16 @@ export class SuperAdminService {
     });
     if (!args.isActive) {
       await this.admin.superAdminSession.deleteMany({ where: { superAdminId: args.targetId } });
+      // Sus sesiones de soporte abiertas tampoco siguen vivas.
+      await this.admin.impersonationLog.updateMany({
+        where: { superAdminId: args.targetId, revokedAt: null, expiresAt: { gt: new Date() } },
+        data: { revokedAt: new Date() },
+      });
+      // Sus seguimientos pendientes quedan sin asignar (si no, nadie los ve como suyos).
+      await this.admin.tenantFollowup.updateMany({
+        where: { assignedToId: args.targetId, status: 'pending' },
+        data: { assignedToId: null },
+      });
     }
     return this.toDto(updated);
   }
@@ -542,6 +552,13 @@ export class SuperAdminService {
       where: { id: args.targetId },
       data: { role: args.role },
     });
+    // Con otro rol, las sesiones de soporte que abrió con el anterior se cierran.
+    if (args.role !== target.role) {
+      await this.admin.impersonationLog.updateMany({
+        where: { superAdminId: args.targetId, revokedAt: null, expiresAt: { gt: new Date() } },
+        data: { revokedAt: new Date() },
+      });
+    }
     return this.toDto(updated);
   }
 

@@ -59,6 +59,7 @@ export class AdminTenantConfigService {
       webhooks,
       users2fa,
       managers,
+      stripeAccount,
     ] = await Promise.all([
       this.admin.invoiceSeries.count({ where: { tenantId, isActive: true } }),
       this.admin.tenantAeatCredential.findFirst({
@@ -100,6 +101,10 @@ export class AdminTenantConfigService {
       this.admin.user.count({
         where: { tenantId, isActive: true, role: { in: ['owner', 'manager'] } },
       }),
+      this.admin.tenantStripeAccount.findUnique({
+        where: { tenantId },
+        select: { chargesEnabled: true },
+      }),
     ]);
 
     const sections: AdminTenantConfigSectionDto[] = [];
@@ -139,7 +144,12 @@ export class AdminTenantConfigService {
           : off('Envío a la AEAT (Veri*Factu)', 'Sin activar'),
       );
       if (!cert) {
-        billing.push(warn('Certificado de la AEAT', 'Sin subir'));
+        // Sin Veri*Factu activado aún no hace falta.
+        billing.push(
+          tenant.verifactuEnabled
+            ? warn('Certificado de la AEAT', 'Sin subir')
+            : off('Certificado de la AEAT', 'Sin subir'),
+        );
       } else {
         const days = Math.ceil((cert.certValidTo.getTime() - now.getTime()) / DAY_MS);
         const text = `Hasta el ${date(cert.certValidTo)} (${cert.environment === 'production' ? 'producción' : 'pruebas'})`;
@@ -198,7 +208,30 @@ export class AdminTenantConfigService {
         ? on('IBAN para transferencias', `…${tenant.transferIban.slice(-4)}`)
         : off('IBAN para transferencias', 'Sin indicar'),
     );
-    if (!redsys?.enabled && !gocardless?.enabled && !sepa?.enabled && !tenant.transferIban) {
+    payments.push(
+      stripeAccount?.chargesEnabled
+        ? on('Stripe (tarjeta)', 'Cuenta conectada con cobros')
+        : off('Stripe (tarjeta)'),
+    );
+    const offlineMethods = [
+      tenant.offlineCashEnabled ? 'en el local' : null,
+      tenant.offlineTransferEnabled ? 'transferencia' : null,
+      tenant.offlineSepaEnabled ? 'domiciliación' : null,
+    ].filter(Boolean);
+    payments.push(
+      offlineMethods.length > 0
+        ? on('Otras formas de pago del inquilino', offlineMethods.join(', '))
+        : off('Otras formas de pago del inquilino'),
+    );
+    // La misma regla que la puesta en marcha del tenant.
+    if (
+      !redsys?.enabled &&
+      !gocardless?.enabled &&
+      !sepa?.enabled &&
+      !stripeAccount?.chargesEnabled &&
+      !tenant.transferIban &&
+      offlineMethods.length === 0
+    ) {
       payments.push(warn('Forma de cobro', 'No tiene ninguna configurada'));
     }
     sections.push({ key: 'payments', title: 'Cobros', items: payments });

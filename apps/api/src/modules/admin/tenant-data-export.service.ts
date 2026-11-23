@@ -200,6 +200,7 @@ export class TenantDataExportService {
     this.sheet(wb, 'Contratos', contracts, [
       { header: 'Número', value: (c) => c.contractNumber },
       { header: 'Estado', value: (c) => c.status },
+      { header: 'Id del inquilino', width: 38, value: (c) => c.customerId },
       { header: 'Inquilino (email)', width: 28, value: (c) => c.customer.email },
       { header: 'Inquilino (documento)', value: (c) => c.customer.documentNumber },
       { header: 'Local', width: 24, value: (c) => c.unit.facility.name },
@@ -225,11 +226,17 @@ export class TenantDataExportService {
     this.sheet(wb, 'Facturas', invoices, [
       { header: 'Número', value: (i) => i.invoiceNumber },
       { header: 'Tipo', value: (i) => i.invoiceType },
+      {
+        header: 'Clase',
+        value: (i) => (i.kind === 'invoice' ? 'Factura' : 'Justificante de fianza'),
+      },
       { header: 'Estado', value: (i) => i.status },
       { header: 'Fecha', value: (i) => i.issueDate },
       { header: 'Vencimiento', value: (i) => i.dueDate },
       { header: 'Periodo desde', value: (i) => i.periodStart },
       { header: 'Periodo hasta', value: (i) => i.periodEnd },
+      { header: 'Id del inquilino', width: 38, value: (i) => i.customerId },
+      { header: 'Cliente (nombre en la factura)', width: 28, value: (i) => i.customerNameSnapshot },
       { header: 'Cliente (email)', width: 28, value: (i) => i.customer?.email ?? null },
       { header: 'Cliente (documento)', value: (i) => i.customer?.documentNumber ?? null },
       { header: 'Base', value: (i) => num(i.subtotal) },
@@ -263,6 +270,7 @@ export class TenantDataExportService {
       { header: 'Estado', value: (p) => p.status },
     ]);
     this.sheet(wb, 'Mandatos SEPA', mandates, [
+      { header: 'Id del inquilino', width: 38, value: (m) => m.customerId },
       { header: 'Inquilino (email)', width: 28, value: (m) => m.customer.email },
       { header: 'Inquilino (documento)', value: (m) => m.customer.documentNumber },
       { header: 'Referencia', width: 24, value: (m) => m.reference },
@@ -394,6 +402,11 @@ export class TenantDataExportService {
 
   private sheet<T>(wb: ExcelJS.Workbook, name: string, rows: T[], columns: Column<T>[]): void {
     const ws = wb.addWorksheet(name);
+    // El id de cada fila, para cruzar las hojas entre sí (y con una importación).
+    const first = rows[0] as { id?: unknown } | undefined;
+    if (first && typeof first.id === 'string') {
+      columns = [{ header: 'Id', width: 38, value: (r) => (r as { id: string }).id }, ...columns];
+    }
     ws.columns = columns.map((c) => ({ header: c.header, width: c.width ?? 16 }));
     ws.getRow(1).font = { bold: true };
     for (const row of rows) ws.addRow(columns.map((c) => c.value(row)));

@@ -101,16 +101,20 @@ export class AuditLogService {
     return {
       items: page.map((r: Row) => {
         const clean = sanitizeTenantAuditChanges(r.changes ?? null);
+        // Lo hecho entrando como el propietario lo hizo el soporte, no él.
+        const support = clean.fromSuperAdmin || !!r.impersonationId;
         return {
           id: r.id,
           action: r.action,
           entityType: r.entityType,
           entityId: r.entityId,
-          userName: r.user?.fullName ?? (clean.fromSuperAdmin ? 'Soporte de TrasterOS' : null),
+          userName: r.impersonationId
+            ? 'Soporte de TrasterOS'
+            : (r.user?.fullName ?? (support ? 'Soporte de TrasterOS' : null)),
           createdAt: r.occurredAt.toISOString(),
           changes: clean.changes,
           // La IP de alguien del equipo de TrasterOS no se enseña al negocio.
-          ipAddress: clean.fromSuperAdmin ? null : (r.ipAddress ?? null),
+          ipAddress: support ? null : (r.ipAddress ?? null),
         };
       }),
       nextCursor: hasMore ? (page[page.length - 1]?.id ?? null) : null,

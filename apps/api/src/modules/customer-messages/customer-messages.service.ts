@@ -291,12 +291,14 @@ export class CustomerMessagesService {
     /** Usuario del equipo que lo abre: su leído propio de esta conversación. */
     userId?: string,
     before?: string,
+    /** Lo abre el soporte de TrasterOS entrando como el negocio: no marca leído. */
+    impersonating = false,
   ): Promise<CustomerMessageDto[]> {
     await this.assertCustomer(tenantId, customerId);
     // El staff lee los del inquilino y viceversa.
     const otherSide = viewer === 'staff' ? 'customer' : 'staff';
     const rows = await this.prisma.withTenant(async (tx) => {
-      if (!before) {
+      if (!before && !impersonating) {
         const seen = await tx.customerMessage.updateMany({
           where: { tenantId, customerId, senderType: otherSide, isInternal: false, readAt: null },
           data: { readAt: new Date() },

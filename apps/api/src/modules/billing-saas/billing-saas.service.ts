@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -16,6 +17,7 @@ import { StripeGateway } from '../payments/stripe.gateway';
 
 import { billableUnits } from './billable-units';
 import { PlatformCouponsService } from './platform-coupons.service';
+import { SUSPENDED_FOR_NONPAYMENT, subscriptionDueDate } from './platform-due';
 import { PlatformInvoicesService } from './platform-invoices.service';
 import { PlatformSepaMandateService } from './platform-sepa/platform-sepa-mandate.service';
 import { addonFitsPlan, SaasAddonsService } from './saas-addons.service';
@@ -1025,10 +1027,16 @@ export class BillingSaasService {
     // prueba (`trial`) — al pagar de verdad ya no es un trial.
     if (newStatus === 'active') {
       await this.admin.tenant.updateMany({
-        where: { id: tenantId, status: { in: ['suspended', 'trial'] } },
+        where: { id: tenantId, status: 'trial' },
         // Sin la fecha de fin de prueba: «Reactivar» la usa para decidir si
         // vuelve a prueba, y un tenant que ya pagó no vuelve a ella.
         data: { status: 'active', trialEndsAt: null },
+      });
+      // Solo levanta la suspensión por impago; una suspensión a mano por otro
+      // motivo la quita el super admin.
+      await this.admin.tenant.updateMany({
+        where: { id: tenantId, ...SUSPENDED_FOR_NONPAYMENT },
+        data: { status: 'active', trialEndsAt: null, churnReason: null, canceledAt: null },
       });
     }
 
@@ -1065,6 +1073,10 @@ export class BillingSaasService {
       select: { status: true },
     });
     const stillTrial = tenant?.status === 'trial';
+    const current = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { currentPeriodEnd: true },
+    });
     const [updated] = await this.admin.$transaction([
       this.admin.tenantSubscription.update({
         where: { tenantId },
@@ -1079,7 +1091,7 @@ export class BillingSaasService {
         },
       }),
       // Los extras que iban en la suscripción terminada pasan a cobro manual.
-      ...this.detachStripeAddons(tenantId),
+      ...this.detachStripeAddons(tenantId, current?.currentPeriodEnd ?? new Date()),
     ]);
     await this.audit.write({
       tenantId,
@@ -1498,8 +1510,10 @@ export class BillingSaasService {
     // neto (lista − descuento). Sin cupón, `args.amount` es lo cobrado y
     // `args.discount` solo es informativo.
     let couponId: string | null = null;
+    let couponPeriods = 1;
     let discount = args.discount ?? null;
     let amount = args.amount;
+    const extendsPeriod = args.extendsPeriod !== false;
     if (args.couponCode) {
       const current = await this.admin.tenantSubscription.findUnique({
         where: { tenantId: args.tenantId },
@@ -1508,14 +1522,17 @@ export class BillingSaasService {
       const res = await this.coupons.validateAndComputeDiscount(args.couponCode, args.amount, {
         tenantId: args.tenantId,
         planId: current?.planId ?? null,
+        // Un pago de varios meses con un cupón «primeras N cuotas» solo lleva
+        // descuento en las cuotas que le quedan.
+        months: extendsPeriod ? args.durationMonths : 1,
       });
       couponId = res.couponId;
+      couponPeriods = res.periods;
       discount = res.discount;
       amount = Math.max(0, Math.round((args.amount - res.discount) * 100) / 100);
     }
 
     const now = new Date();
-    const extendsPeriod = args.extendsPeriod !== false;
 
     // Todo lo que decide y escribe el periodo/pago va DENTRO de una única
     // transacción, serializada por un advisory lock por tenant: sin esto, dos
@@ -1558,6 +1575,9 @@ export class BillingSaasService {
         orderBy: { createdAt: 'desc' },
       });
       if (recent) return { payment: recent, couponAlreadyRecent: true };
+      // El uso del cupón se reserva dentro de la transacción: si se ha agotado
+      // entretanto, el pago no se aplica (antes quedaba aplicado y daba un 400).
+      if (couponId) await this.coupons.incrementUsage(couponId, tx);
 
       // Cobro puntual (add-on) que NO extiende el periodo: registra el pago
       // sobre el periodo VIGENTE, sin tocar la suscripción (el periodo lo
@@ -1636,10 +1656,18 @@ export class BillingSaasService {
       // regularizado). El filtro por estado no toca `active` ni `cancelled`
       // (una baja no revive por un cobro retroactivo). Si el pago NO cubre
       // hasta hoy, no se reactiva.
-      await tx.tenant.updateMany({
-        where: { id: args.tenantId, status: { in: covered ? ['suspended', 'trial'] : [] } },
-        data: { status: 'active', trialEndsAt: null },
-      });
+      // Una suspensión a mano por otro motivo no la levanta un cobro: solo la
+      // del impago.
+      if (covered) {
+        await tx.tenant.updateMany({
+          where: { id: args.tenantId, status: 'trial' },
+          data: { status: 'active', trialEndsAt: null },
+        });
+        await tx.tenant.updateMany({
+          where: { id: args.tenantId, ...SUSPENDED_FOR_NONPAYMENT },
+          data: { status: 'active', trialEndsAt: null, churnReason: null, canceledAt: null },
+        });
+      }
 
       return { payment: created, couponAlreadyRecent: false };
     });
@@ -1647,14 +1675,16 @@ export class BillingSaasService {
     // Consumimos el cupón (uso atómico) solo si NO fue un dedup (un doble-submit
     // que devuelve el pago existente no debe volver a gastar el cupón).
     if (couponId && !couponAlreadyRecent) {
-      await this.coupons.incrementUsage(couponId);
-      await this.coupons.recordRedemption({
-        couponId,
-        tenantId: args.tenantId,
-        source: 'manual',
-        paymentId: payment.id,
-        discount,
-      });
+      // Un uso por cuota que cubre (para «las primeras N cuotas»).
+      for (let i = 0; i < couponPeriods; i++) {
+        await this.coupons.recordRedemption({
+          couponId,
+          tenantId: args.tenantId,
+          source: 'manual',
+          paymentId: payment.id,
+          discount: round2((discount ?? 0) / couponPeriods),
+        });
+      }
     }
     // Una propuesta de cuota con este plan queda aceptada al pagarla.
     if (extendsPeriod && !couponAlreadyRecent) await this.acceptQuoteOffers(args.tenantId);
@@ -1700,7 +1730,15 @@ export class BillingSaasService {
   async setBillingMode(tenantId: string, mode: 'manual' | 'sepa'): Promise<void> {
     const sub = await this.admin.tenantSubscription.findUnique({
       where: { tenantId },
-      select: { id: true, stripeSubscriptionId: true, billingMode: true },
+      select: {
+        id: true,
+        stripeSubscriptionId: true,
+        billingMode: true,
+        status: true,
+        currentPeriodStart: true,
+        currentPeriodEnd: true,
+        manualExtensionDays: true,
+      },
     });
     if (!sub) {
       throw new NotFoundException({
@@ -1731,6 +1769,18 @@ export class BillingSaasService {
       await this.cancelStripeSubscriptionOrThrow(tenantId, sub.stripeSubscriptionId);
     }
 
+    // Una prueba sigue en prueba y una prueba vencida sigue en solo lectura:
+    // cambiar cómo se cobra no es pagar. Un impago sigue siendo un impago; si
+    // venía de Stripe, Stripe ya había avanzado el periodo al del cobro que
+    // falló, así que vuelve al día desde el que se debe.
+    const fromStripe = sub.billingMode === 'stripe' && !!sub.stripeSubscriptionId;
+    const periodEnd =
+      fromStripe && sub.status === 'past_due' ? subscriptionDueDate(sub) : sub.currentPeriodEnd;
+    const status =
+      sub.status === 'trial' || sub.status === 'expired' || sub.status === 'past_due'
+        ? sub.status
+        : 'active';
+
     await this.admin.$transaction([
       this.admin.tenantSubscription.update({
         where: { tenantId },
@@ -1739,13 +1789,15 @@ export class BillingSaasService {
           // El cliente de Stripe se conserva: los avisos tardíos de Stripe siguen
           // encontrando al tenant y, si vuelve a suscribirse, no se duplica.
           cancelAtPeriodEnd: false,
-          status: 'active',
+          status,
+          currentPeriodEnd: periodEnd,
           manualExtensionDays: 0,
           billingMode: mode,
         },
       }),
-      // Los extras que cobraba Stripe pasan a cobrarse con el nuevo modo.
-      ...this.detachStripeAddons(tenantId),
+      // Los extras que cobraba Stripe pasan a cobrarse con el nuevo modo, desde
+      // el fin del periodo que ya está pagado.
+      ...this.detachStripeAddons(tenantId, periodEnd),
     ]);
 
     await this.audit.write({
@@ -1758,10 +1810,54 @@ export class BillingSaasService {
         from: sub.billingMode,
         to: mode,
         previousStripeSubscriptionId: sub.stripeSubscriptionId,
+        status,
+        currentPeriodEnd: periodEnd.toISOString(),
       },
       ipAddress: null,
       userAgent: null,
     });
+  }
+
+  /**
+   * Antes de anonimizar un tenant: deja de cobrarse por cualquier vía. Cancela
+   * la suscripción de Stripe (si Stripe no lo confirma, lanza y no se sigue) y
+   * deja la suscripción cancelada en pago manual, con los extras fuera de
+   * Stripe. El mandato SEPA y la tarjeta de Redsys los quita la anonimización.
+   */
+  async stopChargingForAnonymize(tenantId: string): Promise<void> {
+    const sub = await this.admin.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: { stripeSubscriptionId: true },
+    });
+    if (!sub) return;
+    if (sub.stripeSubscriptionId) {
+      try {
+        await this.cancelStripeSubscriptionOrThrow(tenantId, sub.stripeSubscriptionId);
+      } catch (err) {
+        throw new ConflictException({
+          code: 'stripe_cancel_failed',
+          message:
+            'Stripe no ha confirmado la cancelación de su suscripción: no se anonimiza para que no se le siga cobrando. Cancélala en Stripe y vuelve a intentarlo.',
+          details: { cause: err instanceof Error ? err.message : String(err) },
+        });
+      }
+    }
+    await this.admin.$transaction([
+      this.admin.tenantSubscription.update({
+        where: { tenantId },
+        data: {
+          stripeSubscriptionId: null,
+          cancelAtPeriodEnd: false,
+          manualExtensionDays: 0,
+          billingMode: 'manual',
+          status: 'cancelled',
+        },
+      }),
+      this.admin.tenantSubscriptionAddon.updateMany({
+        where: { tenantId, billingMode: 'stripe' },
+        data: { billingMode: 'manual', stripeSubscriptionItemId: null, nextChargeAt: null },
+      }),
+    ]);
   }
 
   /**
@@ -1804,11 +1900,14 @@ export class BillingSaasService {
    * (con la cuota por SEPA van en la remesa). Sin esto quedaban «en Stripe» sin
    * cobrarse nunca y con la función activa.
    */
-  private detachStripeAddons(tenantId: string) {
+  private detachStripeAddons(tenantId: string, paidUntil: Date) {
+    // Lo que ya cobró Stripe cubre hasta el fin del periodo: el siguiente cobro
+    // a mano es entonces (no hoy, que lo cobraría dos veces).
+    const nextChargeAt = paidUntil.getTime() > Date.now() ? paidUntil : new Date();
     return [
       this.admin.tenantSubscriptionAddon.updateMany({
         where: { tenantId, billingMode: 'stripe' },
-        data: { billingMode: 'manual', stripeSubscriptionItemId: null, nextChargeAt: new Date() },
+        data: { billingMode: 'manual', stripeSubscriptionItemId: null, nextChargeAt },
       }),
     ];
   }
@@ -1893,7 +1992,13 @@ export class BillingSaasService {
 
     const existing = await this.admin.tenantSubscriptionPayment.findFirst({
       where: { provider: 'stripe', externalId },
-      select: { id: true, status: true, firstFailedAt: true, recoveredAt: true },
+      select: {
+        id: true,
+        status: true,
+        firstFailedAt: true,
+        recoveredAt: true,
+        refundedAmount: true,
+      },
     });
     if (existing) {
       // Si esta factura había fallado antes y ahora se cobra, marca la
@@ -1902,9 +2007,16 @@ export class BillingSaasService {
         data.status === 'paid' && existing.firstFailedAt && !existing.recoveredAt
           ? { recoveredAt: new Date() }
           : {};
+      // El plan con el que se cobró no cambia al volver a leer la factura (el
+      // plan actual puede ser otro), y una devolución ya registrada no vuelve a
+      // «pagado» (Stripe sigue diciendo `paid` en la factura devuelta).
+      const { planSlug: _planSlug, planName: _planName, ...rest } = data;
+      const refunded =
+        Number(existing.refundedAmount ?? 0) > 0 &&
+        (existing.status === 'refunded' || existing.status === 'partially_refunded');
       await this.admin.tenantSubscriptionPayment.update({
         where: { id: existing.id },
-        data: { ...data, ...recovered },
+        data: { ...rest, ...(refunded ? { status: existing.status } : {}), ...recovered },
       });
       // Cobrada tras un intento fallido: ahora sí lleva su factura (la emisión
       // es idempotente por pago).

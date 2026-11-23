@@ -33,6 +33,7 @@ function buildConfig() {
 }
 
 interface TxMock {
+  user: { updateMany: jest.Mock };
   session: {
     create: jest.Mock;
     findUnique: jest.Mock;
@@ -53,6 +54,7 @@ function buildPrismaMock(tx: TxMock) {
 
 function buildTx(): TxMock {
   return {
+    user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     session: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -415,6 +417,10 @@ describe('SessionsService', () => {
       tx.session.updateMany.mockResolvedValue({ count: 4 });
       const count = await svc.revokeAllForUser({ tenantId: TENANT_A, userId: USER_ID });
       expect(count).toBe(4);
+      // Los access tokens ya emitidos dejan de valer.
+      expect(tx.user.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: USER_ID } }),
+      );
       expect(tx.session.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { userId: USER_ID, revokedAt: null },

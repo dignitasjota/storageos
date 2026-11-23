@@ -97,6 +97,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
         isActive: true,
         role: true,
         tenantRoleId: true,
+        tokensValidAfter: true,
         tenantRole: { select: { permissions: true } },
         facilities: { select: { facilityId: true, facility: { select: { deletedAt: true } } } },
       },
@@ -105,6 +106,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException({
         code: 'account_unavailable',
         message: 'La cuenta ya no está disponible',
+      });
+    }
+    // Se cerraron todas sus sesiones (él mismo, el propietario o el soporte):
+    // los tokens anteriores dejan de valer al momento. Se compara en segundos,
+    // como el `iat`.
+    if (
+      !impersonation &&
+      user.tokensValidAfter &&
+      payload.iat < Math.floor(user.tokensValidAfter.getTime() / 1000)
+    ) {
+      throw new UnauthorizedException({
+        code: 'session_revoked',
+        message: 'La sesión se ha cerrado. Vuelve a entrar.',
       });
     }
     // Rol cambiado: se rechaza y la web pide un token nuevo con los permisos

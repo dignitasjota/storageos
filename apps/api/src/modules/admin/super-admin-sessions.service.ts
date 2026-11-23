@@ -353,6 +353,11 @@ export class SuperAdminSessionsService {
       },
     });
     await this.invalidateAccessTokens(args.superAdminId);
+    // Cerrar todas sus sesiones cierra también las de soporte que tenga abiertas.
+    await this.admin.impersonationLog.updateMany({
+      where: { superAdminId: args.superAdminId, revokedAt: null, expiresAt: { gt: new Date() } },
+      data: { revokedAt: new Date() },
+    });
     return result.count;
   }
 

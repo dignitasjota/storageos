@@ -42,7 +42,11 @@ export type TenantResetBlockerCode =
   | 'aeat_production_invoices'
   | 'holded_issued_invoices'
   | 'platform_own_tenant'
-  | 'platform_invoices';
+  | 'platform_invoices'
+  /** Ha pagado alguna cuota de su suscripción: es un cliente real. */
+  | 'paid_subscription'
+  /** Tiene cobros reales por una pasarela en modo real. */
+  | 'live_gateway_payments';
 
 /** Avisos que no bloquean pero conviene leer antes. */
 export type TenantResetWarningCode =
@@ -66,6 +70,8 @@ export interface TenantResetPreviewDto {
   kept: { facilities: number; units: number; products: number; leads: number; users: number };
   /** Series que vuelven a 1 (prefijo y siguiente número actual). */
   series: { prefix: string; nextNumber: number }[];
+  /** Facturas emitidas (no borradores) que se borrarían. */
+  issuedInvoices: number;
   blockers: TenantResetIssueDto<TenantResetBlockerCode>[];
   warnings: TenantResetIssueDto<TenantResetWarningCode>[];
   /** Ficheros que se borrarían, por tipo (las exportaciones se conservan). */

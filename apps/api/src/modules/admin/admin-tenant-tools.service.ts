@@ -114,7 +114,14 @@ export class AdminTenantToolsService {
       trialDays: input.trialDays,
       emailVerified: true,
     });
-    await this.auth.sendSetPasswordEmail(tenant.id, user.id);
+    // El alta se hace aunque el correo no salga (dirección bloqueada): el panel
+    // lo avisa para que se le dé el acceso por otra vía.
+    const delivery = await this.auth
+      .sendSetPasswordEmail(tenant.id, user.id)
+      .catch((err: unknown) => ({
+        sent: false,
+        reason: err instanceof Error ? err.message : 'No se pudo enviar el correo',
+      }));
     if (input.note) {
       await this.interactions.create({
         tenantId: tenant.id,
@@ -143,7 +150,13 @@ export class AdminTenantToolsService {
       .catch((err: unknown) =>
         this.logger.warn(`[leads] alta del tenant ${tenant.id}: ${String(err)}`),
       );
-    return { tenantId: tenant.id, slug: tenant.slug, ownerEmail: user.email };
+    return {
+      tenantId: tenant.id,
+      slug: tenant.slug,
+      ownerEmail: user.email,
+      emailSent: delivery.sent,
+      emailError: delivery.reason,
+    };
   }
 
   // ------------------------------------------------------- antes de anonimizar
@@ -152,7 +165,7 @@ export class AdminTenantToolsService {
     await this.tenantOrThrow(tenantId);
     const [customers, users, activeContracts, invoicesKept, sub, mandate, connect] =
       await Promise.all([
-        this.admin.customer.count({ where: { tenantId, deletedAt: null } }),
+        this.admin.customer.count({ where: { tenantId, deletedAt: null, isTest: false } }),
         this.admin.user.count({ where: { tenantId } }),
         this.admin.contract.count({
           where: { tenantId, deletedAt: null, status: { in: ['active', 'ending'] } },
@@ -304,6 +317,8 @@ export class AdminTenantToolsService {
   }
 
   private async userOrThrow(tenantId: string, userId: string): Promise<void> {
+    // Un tenant anonimizado ya no tiene usuarios con los que hacer nada.
+    await this.tenantOrThrow(tenantId);
     const user = await this.admin.user.findFirst({
       where: { id: userId, tenantId },
       select: { id: true },

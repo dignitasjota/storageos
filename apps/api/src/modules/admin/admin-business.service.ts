@@ -468,7 +468,7 @@ export class AdminBusinessService {
         select: { month: true, mrr: true },
       }),
       loadMrrContext(this.admin, [tenantId]),
-      loadPayerLifecycles(this.admin),
+      loadPayerLifecycles(this.admin, new Date(), [tenantId]),
     ]);
 
     const sub = tenant.subscription;

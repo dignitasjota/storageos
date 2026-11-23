@@ -869,6 +869,8 @@ model User {
   twoFactorLastStep               BigInt?   @map("two_factor_last_step")
   twoFactorEnrolledAt             DateTime? @map("two_factor_enrolled_at") @db.Timestamptz(6)
   lastLoginAt                     DateTime? @map("last_login_at") @db.Timestamptz(6)
+  /// Los access tokens emitidos antes no valen (se cerraron todas sus sesiones).
+  tokensValidAfter                DateTime? @map("tokens_valid_after") @db.Timestamptz(6)
   /// Último día (hora de España) en que usó el panel; evita escribir más de una vez al día.
   lastActiveDay                   DateTime? @map("last_active_day") @db.Date
   /// Avisos por correo al equipo que el usuario cambió ({tipo: bool}); el resto, por rol.

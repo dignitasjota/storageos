@@ -16,6 +16,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ADMIN_HEALTH_SEGMENTS,
   type AdminAdoptionDto,
@@ -74,6 +75,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { PlatformSepaMandateService } from '../billing-saas/platform-sepa/platform-sepa-mandate.service';
 
+import { AdminAudit } from './admin-audit.decorator';
 import { AdminSupportService } from './admin-support.service';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
@@ -403,6 +405,8 @@ export class AdminTenantsController {
 
   /** Sincroniza los pagos de la suscripción desde Stripe (backfill idempotente). */
   @Post(':id/saas-payments/sync')
+  @RequireSuperadmin()
+  @AdminAudit('admin.tenant.saas_payments_synced', 'tenant')
   @HttpCode(HttpStatus.OK)
   async syncSaasPayments(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -520,8 +524,9 @@ export class AdminTenantsController {
     return { mandate: await this.sepaMandate.getMandate(id) };
   }
 
-  /** PDF del mandato firmado por el tenant (prueba ante una reclamación). */
+  /** PDF del mandato firmado por el tenant (prueba ante una reclamación). Lleva el IBAN completo. */
   @Get(':id/sepa-mandate/document')
+  @RequireSuperadmin()
   async sepaMandateDocument(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res() res: Response,
@@ -711,7 +716,9 @@ export class AdminTenantsController {
     @Query('limit') limit?: string,
     @Query('kinds') kinds?: string,
   ): Promise<AdminTimelinePageDto> {
-    const beforeDate = before ? new Date(before) : undefined;
+    // `before` = «fecha|id» del último visto (o solo la fecha).
+    const [beforeAt, beforeId] = (before ?? '').split('|');
+    const beforeDate = beforeAt ? new Date(beforeAt) : undefined;
     if (beforeDate && Number.isNaN(beforeDate.getTime())) {
       throw new BadRequestException({ code: 'invalid_date', message: 'Fecha no válida' });
     }
@@ -731,6 +738,7 @@ export class AdminTenantsController {
       .filter((k): k is AdminTimelineKind => allowed.has(k as AdminTimelineKind));
     return this.timelineService.page(id, {
       ...(beforeDate ? { before: beforeDate } : {}),
+      ...(beforeDate && beforeId ? { beforeId } : {}),
       ...(limit ? { limit: Number(limit) || 40 } : {}),
       ...(kindList.length ? { kinds: kindList } : {}),
     });
@@ -762,8 +770,12 @@ export class AdminTenantsController {
 
   /** Inquilinos del tenant (desglose de la card «Uso»). */
   @Get(':id/customers')
-  async customers(@Param('id', new ParseUUIDPipe()) id: string): Promise<AdminTenantCustomerDto[]> {
-    return this.tenants.listCustomers(id);
+  async customers(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+  ): Promise<AdminTenantCustomerDto[]> {
+    // El documento de identidad entero solo lo ve el super admin.
+    return this.tenants.listCustomers(id, { maskDocuments: admin.role !== 'superadmin' });
   }
 
   /** Locales del tenant (drill-down de la card «Uso»). */
@@ -944,6 +956,8 @@ export class AdminTenantsController {
   /** Descarga todos los datos del tenant (también si está de baja, antes de anonimizarlo). */
   @RequireSuperadmin()
   @Post(':id/data-export')
+  // Genera un Excel con todo: pocas veces por hora y tenant basta.
+  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
   @HttpCode(HttpStatus.OK)
   async dataExport(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,

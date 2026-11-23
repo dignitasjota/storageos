@@ -275,7 +275,10 @@ export class AdminBillingOpsService {
     for (const p of payments) {
       const method =
         p.provider === 'stripe' ? 'Stripe' : p.provider === 'sepa' ? 'SEPA' : p.provider;
-      if (p.status === 'paid' && p.paidAt) {
+      // Un pago devuelto (en todo o en parte) sigue siendo un pago: se enseña
+      // y, aparte, su devolución.
+      const collected = ['paid', 'refunded', 'partially_refunded'].includes(p.status);
+      if (collected && p.paidAt) {
         history.push({
           date: p.paidAt.toISOString(),
           kind: 'payment',
@@ -332,8 +335,14 @@ export class AdminBillingOpsService {
     history.sort((a, b) => b.date.localeCompare(a.date));
 
     const yearAgo = now.getTime() - 365 * DAY;
+    // Neto de lo devuelto (también de los pagos devueltos en parte).
     const paid12m = payments
-      .filter((p) => p.status === 'paid' && p.paidAt && p.paidAt.getTime() >= yearAgo)
+      .filter(
+        (p) =>
+          ['paid', 'refunded', 'partially_refunded'].includes(p.status) &&
+          p.paidAt &&
+          p.paidAt.getTime() >= yearAgo,
+      )
       .reduce((s, p) => s + Number(p.amount) - Number(p.refundedAmount), 0);
 
     return {

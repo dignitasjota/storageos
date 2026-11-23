@@ -15,6 +15,8 @@ export interface IssueArgs {
   userId: string;
   ipAddress?: string | null;
   userAgent?: string | null;
+  /** Validez del enlace (por defecto 60 min; la cuenta nueva lleva 7 días). */
+  ttlMinutes?: number;
 }
 
 export interface IssuedToken {
@@ -39,7 +41,7 @@ export class PasswordResetTokensService {
 
     const secret = randomBytes(TOKEN_BYTES).toString('base64url');
     const tokenHash = await argonHash(secret);
-    const expiresAt = new Date(Date.now() + TTL_MINUTES * 60 * 1000);
+    const expiresAt = new Date(Date.now() + (args.ttlMinutes ?? TTL_MINUTES) * 60 * 1000);
 
     const record = await this.admin.passwordResetToken.create({
       data: {

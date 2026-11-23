@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { isPayingSubscription, loadMrrContext, mrrFor } from '../../common/saas-metrics';
 import { lastTeamActivityByTenant } from '../../common/team-activity';
+import { subscriptionDueDate } from '../billing-saas/platform-due';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminTenantsService } from './admin-tenants.service';
@@ -44,6 +45,9 @@ export class AdminTenantsOverviewService {
                 billingMode: true,
                 currentPeriodStart: true,
                 currentPeriodEnd: true,
+                stripeSubscriptionId: true,
+                manualExtensionDays: true,
+                cancelAtPeriodEnd: true,
                 plan: { select: { slug: true, name: true, priceMonthly: true, priceYearly: true } },
               },
             },
@@ -140,13 +144,26 @@ export class AdminTenantsOverviewService {
           name: a.addon.name,
           suspended: !!a.suspendedAt,
         })),
-        nextChargeAt: paying && sub?.currentPeriodEnd ? sub.currentPeriodEnd.toISOString() : null,
+        // Sin cobro que esperar: plan gratuito o a 0 €, o se da de baja al
+        // acabar el periodo (entonces la fecha es la de la baja).
+        nextChargeAt:
+          paying && mrr > 0 && !sub?.cancelAtPeriodEnd && sub?.currentPeriodEnd
+            ? sub.currentPeriodEnd.toISOString()
+            : null,
+        cancelsAt:
+          paying && sub?.cancelAtPeriodEnd && sub.currentPeriodEnd
+            ? sub.currentPeriodEnd.toISOString()
+            : null,
+        // Desde cuándo debe, como en Cobros pendientes (con Stripe, desde el
+        // inicio del periodo del cobro que falló).
         overdueSince:
           !t.billingExempt && sub?.status === 'past_due'
-            ? (sub.currentPeriodEnd?.toISOString() ?? null)
+            ? subscriptionDueDate(sub).toISOString()
             : null,
         healthScore: h?.score ?? null,
         healthLevel: h?.level ?? null,
+        // En prueba la puntuación es de activación (otra escala).
+        healthKind: h?.kind ?? null,
         lastTeamLoginAt: loginBy.get(t.id)?.toISOString() ?? null,
         nextFollowup: followup
           ? { title: followup.title, dueDate: followup.dueDate.toISOString().slice(0, 10) }

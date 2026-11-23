@@ -90,6 +90,7 @@ function buildService(opts: { tx: TxMock; tenantFindUnique: jest.Mock }): {
 } {
   const admin = {
     tenant: { findUnique: opts.tenantFindUnique },
+    customer: { count: jest.fn().mockResolvedValue(3) },
     $transaction: jest.fn().mockImplementation(async (cb: (tx: TxMock) => unknown) => cb(opts.tx)),
   } as unknown as PrismaAdminService;
   const audit = jest.fn().mockResolvedValue(undefined);
@@ -102,6 +103,7 @@ function buildService(opts: { tx: TxMock; tenantFindUnique: jest.Mock }): {
       deleteObjects: jest.fn().mockResolvedValue(undefined),
       deleteByPrefix: jest.fn().mockResolvedValue(0),
     } as never,
+    { stopChargingForAnonymize: jest.fn().mockResolvedValue(undefined) } as never,
     {} as never,
     {} as never,
   );

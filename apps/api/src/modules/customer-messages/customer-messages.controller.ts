@@ -52,7 +52,14 @@ export class CustomerMessagesController {
     @Param('customerId', new ParseUUIDPipe()) customerId: string,
     @Query('before', new ParseUUIDPipe({ optional: true })) before?: string,
   ): Promise<CustomerMessageDto[]> {
-    return this.messages.list(user.tenantId, customerId, 'staff', user.sub, before);
+    return this.messages.list(
+      user.tenantId,
+      customerId,
+      'staff',
+      user.sub,
+      before,
+      Boolean(user.impersonation),
+    );
   }
 
   @RequirePermission('customers:write')

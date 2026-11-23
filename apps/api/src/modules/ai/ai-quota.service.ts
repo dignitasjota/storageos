@@ -175,8 +175,10 @@ export class AiQuotaService {
     return {
       month: month.key,
       used,
-      limit: customLimit ? tenant.aiMonthlyLimit! : monthlyQueryLimit + extra,
-      extra: customLimit ? 0 : extra,
+      // El límite propio sustituye al del plan; el extra «IA ampliada» se suma
+      // siempre (si no, comprarlo no daría nada a quien tiene límite propio).
+      limit: (customLimit ? tenant.aiMonthlyLimit! : monthlyQueryLimit) + extra,
+      extra,
       customLimit,
       dailyUsed,
       dailyLimit: dailyUserLimit,
@@ -376,11 +378,11 @@ export class AiQuotaService {
       });
       return { id: row.id, ownKey: own };
     }
-    const extra = tenant.aiMonthlyLimit != null ? 0 : await this.extraQueries(tenantId);
+    const extra = await this.extraQueries(tenantId);
     const { dailyUserLimit, portalDailyLimit } = this.settings.limits;
     const monthlyQueryLimit =
       this.settings.planLimit(tenant.planSlug) ?? this.settings.limits.monthlyQueryLimit;
-    const limit = tenant.aiMonthlyLimit ?? monthlyQueryLimit + extra;
+    const limit = (tenant.aiMonthlyLimit ?? monthlyQueryLimit) + extra;
     const dailyLimit = portal ? portalDailyLimit : dailyUserLimit;
     const dayStart = zonedDayStart(todayIn(tenant.timezone), tenant.timezone);
     const person = portal

@@ -439,6 +439,10 @@ describe('BillingSaasService.setBillingMode — cancelación en Stripe', () => {
       id: 'sub-1',
       stripeSubscriptionId: 'sub_live',
       billingMode: 'stripe',
+      status: 'active',
+      currentPeriodStart: new Date('2026-06-01T00:00:00Z'),
+      currentPeriodEnd: new Date('2026-07-01T00:00:00Z'),
+      manualExtensionDays: 0,
     });
     const service = new BillingSaasService(
       {} as unknown as PrismaService,

@@ -274,10 +274,15 @@ export class WhatsappInboxService {
   }
 
   /** Conversación con sus mensajes; al abrirla se marca como leída. */
-  async detail(tenantId: string, id: string): Promise<WhatsappConversationDetailDto> {
+  async detail(
+    tenantId: string,
+    id: string,
+    /** Lo abre el soporte de TrasterOS entrando como el negocio: no marca leído. */
+    impersonating = false,
+  ): Promise<WhatsappConversationDetailDto> {
     const row = await this.findOrThrow(tenantId, id);
     const messages = await this.prisma.withTenant(async (tx) => {
-      if (row.unreadCount > 0) {
+      if (row.unreadCount > 0 && !impersonating) {
         await tx.whatsappConversation.update({ where: { id }, data: { unreadCount: 0 } });
       }
       return tx.whatsappMessage.findMany({

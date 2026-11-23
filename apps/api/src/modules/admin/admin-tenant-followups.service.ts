@@ -138,19 +138,24 @@ export class AdminTenantFollowupsService {
     if (!id) return null;
     const sa = await this.admin.superAdmin.findUnique({
       where: { id },
-      select: { isActive: true },
+      select: { isActive: true, role: true },
     });
-    if (!sa?.isActive) {
+    // Un comercial no lleva los seguimientos de soporte de los tenants.
+    if (!sa?.isActive || sa.role === 'sales') {
       throw new BadRequestException({
         code: 'invalid_assignee',
-        message: 'Ese super admin no existe o está desactivado',
+        message: 'Ese super admin no existe, está desactivado o es comercial',
       });
     }
     return id;
   }
 
-  async remove(id: string): Promise<void> {
-    const row = await this.admin.tenantFollowup.findUnique({ where: { id }, select: { id: true } });
+  /** Borra el seguimiento y devuelve su tenant (para el registro de acciones). */
+  async remove(id: string): Promise<string> {
+    const row = await this.admin.tenantFollowup.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true },
+    });
     if (!row) {
       throw new NotFoundException({
         code: 'followup_not_found',
@@ -158,5 +163,6 @@ export class AdminTenantFollowupsService {
       });
     }
     await this.admin.tenantFollowup.delete({ where: { id } });
+    return row.tenantId;
   }
 }

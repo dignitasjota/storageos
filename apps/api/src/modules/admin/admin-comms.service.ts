@@ -4,6 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -39,6 +40,11 @@ import type {
   AdminEmailTenantResultDto,
   RetentionPlaybookResultDto,
 } from '@storageos/shared';
+
+/** Título del seguimiento que abre el playbook de retención. */
+const RETENTION_FOLLOWUP_TITLE = 'Retención: contactar al cliente';
+/** No se repite el playbook antes de estos días. */
+const RETENTION_PLAYBOOK_COOLDOWN_DAYS = 14;
 
 interface ActionMeta {
   superAdminId: string;
@@ -443,9 +449,18 @@ export class AdminCommsService {
     const files = await this.checkFiles(tenantId, input.attachments ?? []);
     // El texto guardado lleva las variables con los datos del tenant.
     const tenantName = recipients[0]?.tenantName ?? '';
+    // `{nombre}`: el del primer propietario (el email de facturación no tiene
+    // nombre); sin ninguno, la variable desaparece en vez de dejar «Hola ,».
+    const ownerName = recipients.find((r) => r.fullName)?.fullName ?? '';
     const stored = {
-      subject: fillAdminMessageVariables(input.subject, { empresa: tenantName }),
-      body: fillAdminMessageVariables(input.body, { empresa: tenantName }),
+      subject: fillAdminMessageVariables(input.subject, {
+        empresa: tenantName,
+        nombre: ownerName,
+      }).replace(/\s+,/g, ','),
+      body: fillAdminMessageVariables(input.body, {
+        empresa: tenantName,
+        nombre: ownerName,
+      }).replace(/ +,/g, ','),
     };
     // El ticket hace falta antes de enviar (el correo lleva su enlace). Si el
     // correo no sale a nadie, se borra: el tenant no debe ver un mensaje que no
@@ -493,7 +508,7 @@ export class AdminCommsService {
       await this.interactions.create({
         tenantId,
         superAdminId: meta.superAdminId,
-        input: { type: 'email', content: `Asunto: ${input.subject}\n\n${input.body}` },
+        input: { type: 'email', content: `Asunto: ${stored.subject}\n\n${stored.body}` },
       });
     } catch {
       /* el registro es secundario */
@@ -646,10 +661,40 @@ export class AdminCommsService {
   ): Promise<RetentionPlaybookResultDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, status: true },
     });
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    if (tenant.status === 'suspended' || tenant.status === 'cancelled') {
+      throw new BadRequestException({
+        code: 'tenant_not_live',
+        message: 'El tenant está suspendido o de baja: la retención no aplica.',
+      });
+    }
+    // Un playbook ya en marcha no se repite: seguimiento de retención pendiente
+    // o lanzado hace menos de 14 días.
+    const since = new Date(Date.now() - RETENTION_PLAYBOOK_COOLDOWN_DAYS * 86_400_000);
+    const [pending, recent] = await Promise.all([
+      this.admin.tenantFollowup.count({
+        where: { tenantId, status: 'pending', title: RETENTION_FOLLOWUP_TITLE },
+      }),
+      this.admin.superAdminAuditLog.count({
+        where: {
+          targetTenantId: tenantId,
+          action: 'admin.tenant.retention_playbook',
+          occurredAt: { gte: since },
+        },
+      }),
+    ]);
+    if (pending > 0 || recent > 0) {
+      throw new ConflictException({
+        code: 'retention_playbook_running',
+        message:
+          pending > 0
+            ? 'Ya hay un seguimiento de retención pendiente con este tenant.'
+            : `Ya se le lanzó el playbook de retención en los últimos ${RETENTION_PLAYBOOK_COOLDOWN_DAYS} días.`,
+      });
     }
 
     // 1) Seguimiento a +3 días para que el equipo contacte al cliente.
@@ -660,7 +705,7 @@ export class AdminCommsService {
       tenantId,
       superAdminId,
       input: {
-        title: 'Retención: contactar al cliente',
+        title: RETENTION_FOLLOWUP_TITLE,
         dueDate,
         ...(meta.note ? { note: meta.note } : {}),
       },
@@ -682,7 +727,10 @@ export class AdminCommsService {
     ].join('\n');
     await this.enqueue(recipients, subject, body);
     const emailRecipients = recipients.length;
-    await this.recordBroadcast([tenantId], { subject, body }, superAdminId, 'retention');
+    // Sin nadie a quien escribir, el mensaje tampoco queda en su panel.
+    if (emailRecipients > 0) {
+      await this.recordBroadcast([tenantId], { subject, body }, superAdminId, 'retention');
+    }
 
     // 3) Registro de la gestión como una única interacción.
     await this.interactions.create({
