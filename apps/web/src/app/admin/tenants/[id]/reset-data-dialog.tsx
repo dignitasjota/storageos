@@ -1,9 +1,11 @@
 'use client';
 
 import { TENANT_RESET_COUNT_KEYS, TENANT_RESET_COUNT_LABELS } from '@storageos/shared';
-import { AlertTriangle, Ban, Download, Loader2 } from 'lucide-react';
+import { AlertTriangle, Ban, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
+
+import { ExportNowButton } from './tenant-exports';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { Button } from '@/components/ui/button';
@@ -19,7 +21,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { useResetTenantData, useTenantDataExport, useTenantResetPreview } from '@/lib/admin/hooks';
+import { useResetTenantData, useTenantResetPreview } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { formatCount } from '@/lib/format';
 
@@ -41,7 +43,6 @@ export function ResetDataDialog({
 }) {
   const preview = useTenantResetPreview(tenantId, open);
   const reset = useResetTenantData(tenantId);
-  const dataExport = useTenantDataExport(tenantId);
   const [step, setStep] = useState<'preview' | 'confirm'>('preview');
   const [confirmSlug, setConfirmSlug] = useState('');
   const [reason, setReason] = useState('');
@@ -58,17 +59,6 @@ export function ResetDataDialog({
     setReason('');
     setExported(false);
     onClose();
-  }
-
-  function exportNow() {
-    dataExport.mutate(undefined, {
-      onSuccess: (r) => {
-        setExported(true);
-        toast.success('Exportación lista. Se descarga el Excel.');
-        window.location.href = r.url;
-      },
-      onError: () => toast.error('No se pudo generar la exportación.'),
-    });
   }
 
   async function submit() {
@@ -209,20 +199,11 @@ export function ResetDataDialog({
             </div>
 
             <div className="space-y-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={exportNow}
-                disabled={dataExport.isPending}
-              >
-                {dataExport.isPending ? (
-                  <Loader2 className="mr-1 size-4 animate-spin" />
-                ) : (
-                  <Download className="mr-1 size-4" />
-                )}
-                Exportar los datos antes (Excel)
-              </Button>
+              <ExportNowButton
+                tenantId={tenantId}
+                label="Exportar los datos antes (Excel)"
+                onDone={() => setExported(true)}
+              />
               <label className="flex items-start gap-2">
                 <Checkbox
                   checked={exported}

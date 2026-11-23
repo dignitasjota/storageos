@@ -1115,6 +1115,8 @@ export class AdminTodayService {
     tenantAddonId: string,
     provider: string,
     actor: { superAdminId: string; ipAddress: string | null; userAgent: string | null },
+    /** «Cobrar ahora» desde la ficha: también antes de su fecha (paga por adelantado). */
+    opts: { allowEarly?: boolean } = {},
   ): Promise<AdminTodayDto> {
     const row = await this.admin.tenantSubscriptionAddon.findUnique({
       where: { id: tenantAddonId },
@@ -1163,7 +1165,7 @@ export class AdminTodayService {
       });
     }
     const due = row.nextChargeAt;
-    if (!due || due.getTime() > Date.now()) {
+    if (!due || (!opts.allowEarly && due.getTime() > Date.now())) {
       throw new ConflictException({
         code: 'addon_already_charged',
         message: 'Este cobro ya está registrado.',

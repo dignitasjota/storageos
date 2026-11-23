@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { renderAdminEmail, type ImpersonationTokenDto } from '@storageos/shared';
+import {
+  permissionsForRole,
+  renderAdminEmail,
+  type ImpersonationTokenDto,
+  type Permission,
+  type UserRole,
+} from '@storageos/shared';
 
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -19,6 +25,8 @@ interface ImpersonateArgs {
   reason: string;
   /** Solo lectura: permisos de `readonly` y el API rechaza las escrituras. */
   readOnly?: boolean;
+  /** Entrar como este usuario (activo del tenant); sin él, el propietario. */
+  userId?: string | undefined;
   /** Sin aviso al propietario (la cuenta de demostración de los comerciales). */
   skipOwnerNotice?: boolean;
   ipAddress?: string | null;
@@ -70,6 +78,44 @@ export class ImpersonationService {
         message: 'No se puede impersonar un tenant cancelado',
       });
     }
+    // Como un usuario concreto: con sus permisos y su alcance por local.
+    let asUser: {
+      id: string;
+      role: UserRole;
+      fullName: string;
+      permissions: Permission[];
+    } | null = null;
+    if (args.userId) {
+      const u = await this.admin.user.findFirst({
+        where: { id: args.userId, tenantId: tenant.id },
+        select: {
+          id: true,
+          role: true,
+          isActive: true,
+          fullName: true,
+          tenantRole: { select: { permissions: true } },
+        },
+      });
+      if (!u) {
+        throw new NotFoundException({ code: 'user_not_found', message: 'Usuario no encontrado' });
+      }
+      if (!u.isActive) {
+        throw new BadRequestException({
+          code: 'user_inactive',
+          message: 'Ese usuario está desactivado.',
+        });
+      }
+      const role = u.role as UserRole;
+      asUser = {
+        id: u.id,
+        role,
+        fullName: u.fullName,
+        permissions:
+          u.tenantRole && role !== 'owner'
+            ? (u.tenantRole.permissions as Permission[])
+            : permissionsForRole(role),
+      };
+    }
     const ttl = this.config.get('IMPERSONATION_TTL_SECONDS', { infer: true });
     const expiresAt = new Date(Date.now() + ttl * 1000);
 
@@ -79,6 +125,7 @@ export class ImpersonationService {
         tenantId: args.tenantId,
         reason: args.reason,
         readOnly: args.readOnly ?? false,
+        userId: asUser?.id ?? null,
         ipAddress: args.ipAddress ?? null,
         userAgent: args.userAgent ?? null,
         expiresAt,
@@ -102,14 +149,17 @@ export class ImpersonationService {
     // Sin owner activo (tenant vacío/anonimizado a medias): sub sintético.
     // `JwtStrategy` no encuentra ese usuario y rechaza el token, así que la
     // sesión no sirve; el panel lo dice al abrirla.
-    const subject = owner?.id ?? randomUUID();
+    const subject = asUser?.id ?? owner?.id ?? randomUUID();
     const accessToken = await this.jwt.signAsync(
       {
         tenantId: tenant.id,
-        // Siempre los permisos del propietario: en solo lectura el soporte ve
-        // todo lo que él ve (Suscripción, Configuración…) y es
-        // `ImpersonationGuard` quien bloquea cualquier escritura.
-        role: 'owner',
+        // Sin usuario elegido, los permisos del propietario: en solo lectura el
+        // soporte ve todo lo que él ve (Suscripción, Configuración…) y es
+        // `ImpersonationGuard` quien bloquea cualquier escritura. Con un
+        // usuario, sus permisos (y su alcance por local, que `JwtStrategy`
+        // lee de la base de datos).
+        role: asUser?.role ?? 'owner',
+        ...(asUser ? { permissions: asUser.permissions } : {}),
         purpose: 'impersonation',
         superAdminId: args.superAdminId,
         // Ata el JWT a su fila de `ImpersonationLog`: `JwtStrategy` la
@@ -139,6 +189,7 @@ export class ImpersonationService {
         reason: args.reason,
         readOnly: args.readOnly ?? false,
         expiresAt: expiresAt.toISOString(),
+        ...(asUser ? { asUserId: asUser.id } : {}),
       },
       ipAddress: args.ipAddress ?? null,
       userAgent: args.userAgent ?? null,
@@ -159,6 +210,7 @@ export class ImpersonationService {
         reason: args.reason,
         readOnly: args.readOnly ?? false,
         expiresAt: expiresAt.toISOString(),
+        ...(asUser ? { asUserId: asUser.id, asUserName: asUser.fullName } : {}),
       },
     });
 

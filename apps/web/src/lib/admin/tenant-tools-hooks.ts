@@ -118,7 +118,12 @@ export function useSavedViews() {
 export function useSaveView() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { name: string; filters: Record<string, unknown> }) =>
+    mutationFn: (input: {
+      name: string;
+      filters: Record<string, unknown>;
+      columns?: string[] | null;
+      sort?: { key: string; dir: 1 | -1 } | null;
+    }) =>
       adminApiFetch<AdminSavedViewDto>('/admin/saved-views', {
         method: 'POST',
         json: { page: 'tenants', ...input },

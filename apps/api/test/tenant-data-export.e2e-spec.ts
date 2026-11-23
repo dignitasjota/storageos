@@ -80,6 +80,24 @@ describe('Exportar los datos del tenant (e2e)', () => {
       'WhatsApp',
       'Chat de la web',
       'Canales de marketing',
+      'Reservas',
+      'Usuarios',
+      'Tareas',
+      'Chat con inquilinos',
+      'Comunicaciones',
+      'Accesos',
+      'Productos',
+      'Ventas',
+      'Cupones',
+      'Promociones',
+      'Lista de espera',
+      'Valoraciones',
+      'Autorizados',
+      'Contactos de empresas',
+      'Cesiones',
+      'Proveedores',
+      'Gastos (desglose fiscal)',
+      'Remesas SEPA',
     ]);
     const customers = wb.getWorksheet('Inquilinos')!;
     expect(customers.rowCount).toBe(2);
@@ -91,12 +109,23 @@ describe('Exportar los datos del tenant (e2e)', () => {
     });
     expect(log).not.toBeNull();
 
-    // El super admin también puede exportarlo (p. ej. antes de anonimizarlo).
+    // El super admin también puede exportarlo (p. ej. antes de anonimizarlo):
+    // se genera en segundo plano y queda en su historial.
     const byAdmin = await request(app.getHttpServer())
       .post(`/admin/tenants/${owner.tenantId}/data-export`)
       .set(adminAuth);
-    expect(byAdmin.status).toBe(200);
-    expect(byAdmin.body.counts.customers).toBe(1);
+    expect(byAdmin.status).toBe(202);
+    let done: { status: string; counts: Record<string, number> | null } | undefined;
+    for (let i = 0; i < 60 && done?.status !== 'done'; i++) {
+      await new Promise((r) => setTimeout(r, 250));
+      const list = await request(app.getHttpServer())
+        .get(`/admin/tenants/${owner.tenantId}/data-exports`)
+        .set(adminAuth);
+      done = (list.body as { id: string; status: string; counts: Record<string, number> }[]).find(
+        (r) => r.id === byAdmin.body.id,
+      );
+    }
+    expect(done?.counts?.['Inquilinos']).toBe(1);
   });
 
   it('exige sesión', async () => {

@@ -31,7 +31,38 @@ export class TenantDataExportService {
     private readonly files: FilesService,
   ) {}
 
+  /** Genera el Excel, lo deja en el bucket de informes y da un enlace de 1 hora. */
   async export(tenantId: string): Promise<TenantDataExportDto> {
+    const built = await this.buildFile(tenantId);
+    const url = await this.files.getPresignedGetUrl('reports', built.key, LINK_TTL_SECONDS);
+    return {
+      url,
+      expiresAt: new Date(Date.now() + LINK_TTL_SECONDS * 1000).toISOString(),
+      fileBytes: built.fileBytes,
+      counts: {
+        facilities: built.counts['Locales'] ?? 0,
+        units: built.counts['Trasteros'] ?? 0,
+        customers: built.counts['Inquilinos'] ?? 0,
+        contracts: built.counts['Contratos'] ?? 0,
+        invoices: built.counts['Facturas'] ?? 0,
+        payments: built.counts['Cobros'] ?? 0,
+      },
+    };
+  }
+
+  /** Enlace de descarga (1 hora) de un fichero ya generado. */
+  downloadUrl(key: string): Promise<string> {
+    return this.files.getPresignedGetUrl('reports', key, LINK_TTL_SECONDS);
+  }
+
+  /**
+   * Genera el Excel completo (una hoja por tipo de dato, sin secretos) y lo
+   * sube al bucket de informes. Devuelve la clave, el tamaño y las filas de
+   * cada hoja.
+   */
+  async buildFile(
+    tenantId: string,
+  ): Promise<{ key: string; fileBytes: number; counts: Record<string, number> }> {
     const tenant = await this.admin.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException({ code: 'tenant_not_found' });
     const where = { tenantId };
@@ -376,6 +407,11 @@ export class TenantDataExportService {
       { header: 'Alta', value: (c) => c.createdAt },
     ]);
 
+    await this.extraSheets(wb, tenantId);
+    // Filas por hoja (sin la cabecera).
+    const counts: Record<string, number> = {};
+    for (const ws of wb.worksheets) counts[ws.name] = Math.max(0, ws.rowCount - 1);
+
     const buffer = Buffer.from(await wb.xlsx.writeBuffer());
     const key = `${tenantId}/exports/${new Date().toISOString().slice(0, 10)}-${randomUUID()}.xlsx`;
     await this.files.putObject({
@@ -384,20 +420,352 @@ export class TenantDataExportService {
       body: buffer,
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
-    const url = await this.files.getPresignedGetUrl('reports', key, LINK_TTL_SECONDS);
-    return {
-      url,
-      expiresAt: new Date(Date.now() + LINK_TTL_SECONDS * 1000).toISOString(),
-      fileBytes: buffer.length,
-      counts: {
-        facilities: facilities.length,
-        units: units.length,
-        customers: customers.length,
-        contracts: contracts.length,
-        invoices: invoices.length,
-        payments: payments.length,
+    return { key, fileBytes: buffer.length, counts };
+  }
+
+  /**
+   * Hojas del resto de la actividad: reservas, usuarios, tareas, chat,
+   * comunicaciones (sin el cuerpo de los correos de acceso), accesos (sin
+   * secretos), productos y ventas, cupones y promociones, lista de espera,
+   * valoraciones, autorizados y contactos, cesiones, proveedores, desglose
+   * fiscal de los gastos y remesas SEPA.
+   */
+  private async extraSheets(wb: ExcelJS.Workbook, tenantId: string): Promise<void> {
+    const where = { tenantId };
+    const [
+      reservations,
+      users,
+      tasks,
+      chat,
+      comms,
+      credentials,
+      products,
+      sales,
+      coupons,
+      promotions,
+      waitlist,
+      reviews,
+      authorized,
+      contacts,
+      cessions,
+      suppliers,
+      expenses,
+      remittances,
+    ] = await Promise.all([
+      this.admin.reservation.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: {
+          unit: { select: { code: true, facility: { select: { name: true } } } },
+          customer: { select: { email: true } },
+        },
+      }),
+      this.admin.user.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          emailVerifiedAt: true,
+          twoFactorEnabled: true,
+          lastLoginAt: true,
+          createdAt: true,
+          tenantRole: { select: { name: true } },
+        },
+      }),
+      this.admin.task.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.customerMessage.findMany({
+        where,
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        include: { customer: { select: { email: true } } },
+      }),
+      this.admin.communication.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          createdAt: true,
+          channel: true,
+          status: true,
+          direction: true,
+          recipient: true,
+          subject: true,
+          bodyText: true,
+          source: true,
+          secretsEncrypted: true,
+          sentAt: true,
+        },
+      }),
+      this.admin.accessCredential.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          method: true,
+          status: true,
+          label: true,
+          holderName: true,
+          customerId: true,
+          validFrom: true,
+          expiresAt: true,
+          lastUsedAt: true,
+          revokedAt: true,
+          createdAt: true,
+          customer: { select: { email: true } },
+        },
+      }),
+      this.admin.product.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.productSale.findMany({
+        where,
+        orderBy: { soldAt: 'asc' },
+        include: {
+          facility: { select: { name: true } },
+          customer: { select: { email: true } },
+          items: { include: { product: { select: { name: true } } } },
+        },
+      }),
+      this.admin.coupon.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.promotion.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.waitlistEntry.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.review.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: { customer: { select: { email: true } } },
+      }),
+      this.admin.customerAuthorizedPerson.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: { customer: { select: { email: true } } },
+      }),
+      this.admin.customerContact.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: { customer: { select: { email: true } } },
+      }),
+      this.admin.unitCession.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        include: { unit: { select: { code: true } } },
+      }),
+      this.admin.expenseSupplier.findMany({ where, orderBy: { createdAt: 'asc' } }),
+      this.admin.expense.findMany({ where, orderBy: { expenseDate: 'asc' } }),
+      this.admin.sepaRemittance.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          messageId: true,
+          collectionDate: true,
+          status: true,
+          itemCount: true,
+          totalAmount: true,
+          createdAt: true,
+          confirmedAt: true,
+        },
+      }),
+    ]);
+
+    this.sheet(wb, 'Reservas', reservations, [
+      { header: 'Estado', value: (r) => r.status },
+      { header: 'Local', width: 24, value: (r) => r.unit.facility.name },
+      { header: 'Trastero', value: (r) => r.unit.code },
+      { header: 'Inquilino (email)', width: 28, value: (r) => r.customer?.email ?? null },
+      { header: 'Desde', value: (r) => r.validFrom },
+      { header: 'Hasta', value: (r) => r.validUntil },
+      { header: 'Señal', value: (r) => num(r.depositAmount) },
+      { header: 'Señal pagada', value: (r) => r.depositPaid },
+      { header: 'Notas', width: 32, value: (r) => r.notes },
+      { header: 'Cancelada', value: (r) => r.cancelledAt },
+      { header: 'Alta', value: (r) => r.createdAt },
+    ]);
+    this.sheet(wb, 'Usuarios', users, [
+      { header: 'Nombre', width: 24, value: (u) => u.fullName },
+      { header: 'Email', width: 28, value: (u) => u.email },
+      { header: 'Teléfono', value: (u) => u.phone },
+      { header: 'Rol', value: (u) => u.tenantRole?.name ?? u.role },
+      { header: 'Activo', value: (u) => u.isActive },
+      { header: 'Email verificado', value: (u) => u.emailVerifiedAt },
+      { header: 'Verificación en dos pasos', value: (u) => u.twoFactorEnabled },
+      { header: 'Último acceso', value: (u) => u.lastLoginAt },
+      { header: 'Alta', value: (u) => u.createdAt },
+    ]);
+    this.sheet(wb, 'Tareas', tasks, [
+      { header: 'Tipo', value: (t) => t.type },
+      { header: 'Estado', value: (t) => t.status },
+      { header: 'Prioridad', value: (t) => t.priority },
+      { header: 'Título', width: 32, value: (t) => t.title },
+      { header: 'Descripción', width: 40, value: (t) => t.description },
+      { header: 'Para el', value: (t) => t.dueDate },
+      { header: 'Hecha', value: (t) => t.completedAt },
+      { header: 'Borrada', value: (t) => t.deletedAt },
+      { header: 'Alta', value: (t) => t.createdAt },
+    ]);
+    const SENDER: Record<string, string> = { customer: 'Inquilino', staff: 'Equipo' };
+    this.sheet(wb, 'Chat con inquilinos', chat, [
+      { header: 'Fecha', width: 20, value: (m) => m.createdAt },
+      { header: 'Inquilino (email)', width: 28, value: (m) => m.customer.email },
+      { header: 'Escribe', value: (m) => SENDER[m.senderType] ?? m.senderType },
+      { header: 'Canal', value: (m) => m.channel },
+      { header: 'Nota interna', value: (m) => m.isInternal },
+      { header: 'Mensaje', width: 60, value: (m) => m.body },
+      { header: 'Adjunto', value: (m) => m.attachmentName },
+    ]);
+    // Los correos con un PIN o un enlace de acceso no llevan el cuerpo.
+    const ACCESS_SOURCE = /access|portal|password|credential|login|magic/i;
+    this.sheet(wb, 'Comunicaciones', comms, [
+      { header: 'Fecha', width: 20, value: (c) => c.createdAt },
+      { header: 'Canal', value: (c) => c.channel },
+      { header: 'Dirección', value: (c) => c.direction },
+      { header: 'Estado', value: (c) => c.status },
+      { header: 'Destinatario', width: 28, value: (c) => c.recipient },
+      { header: 'Asunto', width: 36, value: (c) => c.subject },
+      { header: 'Origen', value: (c) => c.source },
+      {
+        header: 'Texto',
+        width: 60,
+        value: (c) =>
+          c.secretsEncrypted || ACCESS_SOURCE.test(c.source ?? '')
+            ? '(no se exporta: lleva datos de acceso)'
+            : c.bodyText,
       },
-    };
+      { header: 'Enviado', value: (c) => c.sentAt },
+    ]);
+    this.sheet(wb, 'Accesos', credentials, [
+      { header: 'Tipo', value: (c) => c.method },
+      { header: 'Estado', value: (c) => c.status },
+      { header: 'Etiqueta', value: (c) => c.label },
+      { header: 'Titular', value: (c) => c.holderName },
+      { header: 'Inquilino (email)', width: 28, value: (c) => c.customer?.email ?? null },
+      { header: 'Desde', value: (c) => c.validFrom },
+      { header: 'Caduca', value: (c) => c.expiresAt },
+      { header: 'Último uso', value: (c) => c.lastUsedAt },
+      { header: 'Revocado', value: (c) => c.revokedAt },
+      { header: 'Alta', value: (c) => c.createdAt },
+    ]);
+    this.sheet(wb, 'Productos', products, [
+      { header: 'Referencia', value: (p) => p.sku },
+      { header: 'Nombre', width: 28, value: (p) => p.name },
+      { header: 'Tipo', value: (p) => p.type },
+      { header: 'Precio', value: (p) => num(p.price) },
+      { header: '% IVA', value: (p) => num(p.taxRate) },
+      { header: 'Activo', value: (p) => p.isActive && !p.deletedAt },
+    ]);
+    this.sheet(wb, 'Ventas', sales, [
+      { header: 'Fecha', value: (s) => s.soldAt },
+      { header: 'Local', width: 24, value: (s) => s.facility.name },
+      { header: 'Inquilino (email)', width: 28, value: (s) => s.customer?.email ?? null },
+      {
+        header: 'Productos',
+        width: 40,
+        value: (s) => s.items.map((i) => `${i.quantity} × ${i.product.name}`).join(', '),
+      },
+      { header: 'Total', value: (s) => num(s.total) },
+      { header: 'Estado', value: (s) => s.status },
+    ]);
+    this.sheet(wb, 'Cupones', coupons, [
+      { header: 'Código', value: (c) => c.code },
+      { header: 'Nombre', width: 24, value: (c) => c.name },
+      { header: 'Descuento', value: (c) => c.discountType },
+      { header: 'Valor', value: (c) => num(c.discountValue) },
+      { header: 'Usos', value: (c) => c.usedCount },
+      { header: 'Máximo de usos', value: (c) => c.maxUses },
+      { header: 'Desde', value: (c) => c.validFrom },
+      { header: 'Hasta', value: (c) => c.validUntil },
+      { header: 'Activo', value: (c) => c.isActive },
+    ]);
+    this.sheet(wb, 'Promociones', promotions, [
+      { header: 'Código', value: (p) => p.code },
+      { header: 'Nombre', width: 24, value: (p) => p.name },
+      { header: 'Descuento', value: (p) => p.discountType },
+      { header: 'Valor', value: (p) => num(p.discountValue) },
+      { header: 'Usos', value: (p) => p.usedCount },
+      { header: 'Desde', value: (p) => p.validFrom },
+      { header: 'Hasta', value: (p) => p.validUntil },
+      { header: 'Activa', value: (p) => p.isActive },
+    ]);
+    this.sheet(wb, 'Lista de espera', waitlist, [
+      { header: 'Estado', value: (w) => w.status },
+      { header: 'Nombre', width: 24, value: (w) => w.contactName },
+      { header: 'Email', width: 28, value: (w) => w.contactEmail },
+      { header: 'Teléfono', value: (w) => w.contactPhone },
+      { header: 'En cola desde', value: (w) => w.queueDate },
+      { header: 'Avisado', value: (w) => w.notifiedAt },
+      { header: 'Notas', width: 32, value: (w) => w.notes },
+    ]);
+    this.sheet(wb, 'Valoraciones', reviews, [
+      { header: 'Inquilino (email)', width: 28, value: (r) => r.customer.email },
+      { header: 'Estado', value: (r) => r.status },
+      { header: 'Recomendación (0-10)', value: (r) => r.npsScore },
+      { header: 'Estrellas', value: (r) => r.rating },
+      { header: 'Comentario', width: 48, value: (r) => r.comment },
+      { header: 'Publicada en la web', value: (r) => r.publishedOnWeb },
+      { header: 'Pedida', value: (r) => r.requestedAt },
+      { header: 'Respondida', value: (r) => r.submittedAt },
+    ]);
+    this.sheet(wb, 'Autorizados', authorized, [
+      { header: 'Inquilino (email)', width: 28, value: (a) => a.customer.email },
+      { header: 'Nombre', width: 24, value: (a) => a.fullName },
+      { header: 'Documento', value: (a) => a.documentNumber },
+      { header: 'Teléfono', value: (a) => a.phone },
+      { header: 'Relación', value: (a) => a.relationship },
+      { header: 'Puede entrar', value: (a) => a.canAccess },
+      { header: 'Puede recoger', value: (a) => a.canPickup },
+      { header: 'Puede gestionar', value: (a) => a.canManage },
+    ]);
+    this.sheet(wb, 'Contactos de empresas', contacts, [
+      { header: 'Inquilino (email)', width: 28, value: (c) => c.customer.email },
+      { header: 'Nombre', width: 24, value: (c) => c.name },
+      { header: 'Cargo', value: (c) => c.role },
+      { header: 'Email', width: 28, value: (c) => c.email },
+      { header: 'Teléfono', value: (c) => c.phone },
+    ]);
+    this.sheet(wb, 'Cesiones', cessions, [
+      { header: 'Trastero', value: (c) => c.unit.code },
+      { header: 'A quién', width: 24, value: (c) => c.holderName },
+      { header: 'Teléfono', value: (c) => c.holderPhone },
+      { header: 'Desde', value: (c) => c.startsOn },
+      { header: 'Hasta', value: (c) => c.endsOn },
+      { header: 'Terminada', value: (c) => c.endedAt },
+      { header: 'Notas', width: 32, value: (c) => c.notes },
+    ]);
+    this.sheet(wb, 'Proveedores', suppliers, [
+      { header: 'Nombre', width: 28, value: (s) => s.name },
+      { header: 'NIF', value: (s) => s.taxId },
+      { header: 'Email', width: 28, value: (s) => s.email },
+      { header: 'Teléfono', value: (s) => s.phone },
+      { header: 'Categoría', value: (s) => s.defaultCategory },
+      { header: 'Activo', value: (s) => s.isActive },
+    ]);
+    this.sheet(wb, 'Gastos (desglose fiscal)', expenses, [
+      { header: 'Fecha', value: (e) => e.expenseDate },
+      { header: 'Proveedor', value: (e) => e.vendor },
+      { header: 'NIF del proveedor', value: (e) => e.vendorTaxId },
+      { header: 'Nº de factura', value: (e) => e.invoiceNumber },
+      { header: 'Base', value: (e) => num(e.baseAmount) },
+      { header: '% IVA', value: (e) => num(e.vatRate) },
+      { header: 'IVA', value: (e) => num(e.vatAmount) },
+      { header: 'IVA deducible', value: (e) => e.vatDeductible },
+      { header: '% retención', value: (e) => num(e.withholdingRate) },
+      { header: 'Retención', value: (e) => num(e.withholdingAmount) },
+      { header: 'Total', value: (e) => num(e.totalAmount ?? e.amount) },
+      { header: 'Pago', value: (e) => e.paymentStatus },
+      { header: 'Pagado', value: (e) => e.paidAt },
+    ]);
+    this.sheet(wb, 'Remesas SEPA', remittances, [
+      { header: 'Nombre', width: 24, value: (r) => r.name },
+      { header: 'Identificador', width: 28, value: (r) => r.messageId },
+      { header: 'Fecha de cobro', value: (r) => r.collectionDate },
+      { header: 'Estado', value: (r) => r.status },
+      { header: 'Adeudos', value: (r) => r.itemCount },
+      { header: 'Importe', value: (r) => r.totalAmount / 100 },
+      { header: 'Confirmada', value: (r) => r.confirmedAt },
+      { header: 'Alta', value: (r) => r.createdAt },
+    ]);
   }
 
   private sheet<T>(wb: ExcelJS.Workbook, name: string, rows: T[], columns: Column<T>[]): void {

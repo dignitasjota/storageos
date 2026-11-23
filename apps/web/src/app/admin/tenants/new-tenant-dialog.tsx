@@ -1,8 +1,9 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { EmailTypoHint } from '@/components/email-typo-hint';
@@ -26,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useAdminSubscriptionPlans } from '@/lib/admin/hooks';
+import { useTenantDuplicates } from '@/lib/admin/tenant-lifecycle-hooks';
 import { useCreateTenant } from '@/lib/admin/tenant-tools-hooks';
 import { ApiError } from '@/lib/auth/api';
 
@@ -44,6 +46,14 @@ export function NewTenantDialog({ open, onClose }: { open: boolean; onClose: () 
   const [planSlug, setPlanSlug] = useState('starter');
   const [trialDays, setTrialDays] = useState('30');
   const [note, setNote] = useState('');
+
+  // Posibles duplicados (mismo email, nombre parecido…): se avisa, no se bloquea.
+  const [dupQuery, setDupQuery] = useState({ name: '', email: '' });
+  useEffect(() => {
+    const id = window.setTimeout(() => setDupQuery({ name: tenantName, email: ownerEmail }), 500);
+    return () => window.clearTimeout(id);
+  }, [tenantName, ownerEmail]);
+  const duplicates = useTenantDuplicates(dupQuery, open);
 
   const activePlans = (plans.data ?? []).filter((p) => p.isActive);
   // Los días de prueba son obligatorios: vacío no es «sin prueba» (0 se escribe).
@@ -184,6 +194,22 @@ export function NewTenantDialog({ open, onClose }: { open: boolean; onClose: () 
             />
           </div>
         </div>
+        {(duplicates.data ?? []).length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <p className="font-medium">¿Ya existe? Se parece a:</p>
+            <ul className="mt-1 space-y-0.5">
+              {(duplicates.data ?? []).map((d) => (
+                <li key={d.id}>
+                  <Link href={`/admin/tenants/${d.id}`} className="underline" target="_blank">
+                    {d.name}
+                  </Link>{' '}
+                  ({d.slug}) · {d.matches.join(', ')}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1">Puedes crearlo igualmente.</p>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar

@@ -3125,3 +3125,13 @@ Migración `20270301100000_admin_tenants_review` (se aplica sola): `users.tokens
 - **Anonimizar**: cancela antes la suscripción de Stripe (si Stripe no lo confirma, no anonimiza: 409 `stripe_cancel_failed`), da de baja el mandato SEPA y la tarjeta de Redsys y borra mucho más (tareas, comentarios, expedientes, registros de acceso, cámaras, correos de la plataforma, enlaces de un solo uso, dominio propio…).
 - **Cambian cifras (a propósito)**: facturación, resumen y cabecera del tenant con las definiciones del Resumen (sin fianzas, sustitutivas solo la diferencia, inquilinos de prueba fuera, contratos vigentes y usuarios activos); el límite de IA = el propio (o el del plan) más los extras.
 - **Aprobaciones**: caducan a los 30 días (al aprobar una vencida: 409 `approval_expired`).
+
+## 188. Tenants del super admin: mejoras (2026-11-23)
+
+Migración `20270302100000_admin_tenants_improvements` (se aplica sola): bajas y anonimizaciones programadas en `tenants`, pagos a mano anulados, usuario de la impersonación, estado del tenant en las aprobaciones, columnas y orden en las vistas guardadas, nota fijada del historial y tabla `tenant_data_exports` (con RLS). Sin variables nuevas. Redesplegar api, worker y web.
+
+- **Cron nuevo** `admin-tenants.scheduled` (00:30, hora de España, en el **API**): aplica las bajas programadas que tocan y ejecuta las anonimizaciones cuyo periodo de gracia acaba.
+- **Exportación en segundo plano**: la del super admin la genera la cola `reports` (en producción, el **worker**): hay que redesplegar el worker para que se procese. Avisa en la campana al terminar.
+- **Dar de baja ≠ suspender**: «Dar de baja» corta todos los cobros y cuenta como baja; «Suspender» sigue siendo cortar el acceso un tiempo.
+- **Anonimizar** pasa a cuatro pasos y, por defecto, con 30 días de gracia y aviso al propietario (0 = ahora).
+- **Cambia a propósito**: la lista de Tenants incluye los anonimizados (pestaña «Bajas»), su ficha se abre con lo que queda y el rol soporte puede cortar las impersonaciones que abrió él.

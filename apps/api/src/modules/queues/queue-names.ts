@@ -19,3 +19,6 @@ export const QUEUE_WEBHOOKS = 'webhooks';
 
 /** Job de envío de un email ad-hoc (broadcasts del super admin). */
 export const JOB_EMAIL_SEND = 'email.send';
+
+/** Exportación de los datos de un tenant pedida por el super admin (cola `reports`). */
+export const JOB_TENANT_DATA_EXPORT = 'tenant-data-export';

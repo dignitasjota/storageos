@@ -364,6 +364,15 @@ model Tenant {
   tags                         String[]              @default([])
   churnReason                  String?               @map("churn_reason")
   canceledAt                   DateTime?             @map("canceled_at") @db.Timestamptz(6)
+  /// «Dar de baja» con fecha futura (fin del periodo pagado): el cron la aplica ese día.
+  cancelScheduledAt            DateTime?             @map("cancel_scheduled_at") @db.Timestamptz(6)
+  cancelScheduledReason        String?               @map("cancel_scheduled_reason")
+  cancelScheduledNote          String?               @map("cancel_scheduled_note")
+  cancelScheduledBy            String?               @map("cancel_scheduled_by") @db.Uuid
+  /// Anonimización programada (periodo de gracia): el cron la ejecuta ese día.
+  anonymizeScheduledAt         DateTime?             @map("anonymize_scheduled_at") @db.Timestamptz(6)
+  anonymizeScheduledReason     String?               @map("anonymize_scheduled_reason")
+  anonymizeScheduledBy         String?               @map("anonymize_scheduled_by") @db.Uuid
   /// Salida de la prueba (a pago, a Free o de baja). La pone un disparador en SQL.
   trialEndedAt                 DateTime?             @map("trial_ended_at") @db.Timestamptz(6)
   requireTwoFactorForManagers  Boolean               @default(false) @map("require_two_factor_for_managers")
@@ -613,6 +622,7 @@ model Tenant {
   mrrSnapshots            MrrSnapshot[]
   healthSnapshots         TenantHealthSnapshot[]
   tenantInteractions      TenantInteraction[]
+  dataExports             TenantDataExport[]
   tenantLifecycleEmails   TenantLifecycleEmail[]
   customerFollowups       CustomerFollowup[]
   paymentPlans            PaymentPlan[]
@@ -5237,6 +5247,7 @@ model SuperAdmin {
   refreshSessions    SuperAdminSession[]
   auditLogs          SuperAdminAuditLog[]
   tenantInteractions TenantInteraction[]      @relation("TenantInteractionAuthor")
+  tenantDataExports  TenantDataExport[]       @relation("TenantDataExportAuthor")
   tenantFollowups    TenantFollowup[]         @relation("TenantFollowupAuthor")
   followupsAssigned    TenantFollowup[]      @relation("TenantFollowupAssignee")
   savedViews           SuperAdminSavedView[]
@@ -5440,6 +5451,8 @@ model ImpersonationLog {
   tenantId     String    @map("tenant_id") @db.Uuid
   reason       String
   readOnly     Boolean   @default(false) @map("read_only")
+  /// Usuario como el que se entró (null = el propietario).
+  userId       String?   @map("user_id") @db.Uuid
   ipAddress    String?   @map("ip_address")
   userAgent    String?   @map("user_agent")
   expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
@@ -6643,6 +6656,11 @@ model TenantSubscriptionPayment {
   recoveredAt    DateTime? @map("recovered_at") @db.Timestamptz(6)
   /// Reserva mientras se emite su factura (dos procesos no la facturan dos veces).
   invoicingClaimedAt DateTime? @map("invoicing_claimed_at") @db.Timestamptz(6)
+  /// El pago alargó el periodo de la suscripción (pago a mano de la cuota).
+  extendedPeriod Boolean   @default(false) @map("extended_period")
+  /// Pago a mano anulado por el super admin (no se borra).
+  voidedAt       DateTime? @map("voided_at") @db.Timestamptz(6)
+  voidReason     String?   @map("void_reason")
   /// Devuelto (reembolso o contracargo perdido) y cuándo; contracargo abierto.
   refundedAmount Decimal   @default(0) @map("refunded_amount") @db.Decimal(12, 2)
   refundedAt     DateTime? @map("refunded_at") @db.Timestamptz(6)
@@ -6901,6 +6919,8 @@ model TenantInteraction {
   type         String   @default("note")
   content      String
   link         String?
+  /// Nota fijada arriba del historial (una por tenant).
+  pinnedAt     DateTime? @map("pinned_at") @db.Timestamptz(6)
   occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -6911,6 +6931,28 @@ model TenantInteraction {
   @@index([tenantId])
   @@index([tenantId, occurredAt])
   @@map("tenant_interactions")
+}
+
+/// Exportación de los datos de un tenant hecha por el super admin (en segundo
+/// plano, cola de informes). El Excel queda en el bucket de informes.
+model TenantDataExport {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  superAdminId String?   @map("super_admin_id") @db.Uuid
+  /// pending | done | failed
+  status       String    @default("pending")
+  fileKey      String?   @map("file_key")
+  fileBytes    Int?      @map("file_bytes")
+  counts       Json?
+  error        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  superAdmin SuperAdmin? @relation("TenantDataExportAuthor", fields: [superAdminId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt(sort: Desc)], map: "tenant_data_exports_tenant_idx")
+  @@map("tenant_data_exports")
 }
 
 /// Config (singleton) de las alertas proactivas de plataforma: el super admin
@@ -7521,6 +7563,8 @@ model AdminApprovalRequest {
   decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
   decisionNote  String?   @map("decision_note")
   error         String?
+  /// Estado del tenant al pedirla (plan, estado, modo de cobro, funciones).
+  snapshot      Json?
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -8903,6 +8947,8 @@ model SuperAdminSavedView {
   page         String
   name         String
   filters      Json     @default("{}")
+  columns      Json?
+  sort         Json?
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   superAdmin SuperAdmin @relation(fields: [superAdminId], references: [id], onDelete: Cascade)

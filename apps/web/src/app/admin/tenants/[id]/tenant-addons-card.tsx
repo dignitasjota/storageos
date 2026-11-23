@@ -4,20 +4,31 @@ import { Loader2, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-import type { SaasAddonDto } from '@storageos/shared';
+import type { SaasAddonDto, TenantAddonDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { ProposeAddonDialog } from '@/components/admin/propose-addon-dialog';
 import { useConfirm } from '@/components/confirm-provider';
+import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -35,6 +46,7 @@ import {
   useTenantBillingSummary,
   useTenantLimits,
 } from '@/lib/admin/hooks';
+import { useChargeTenantAddonNow, useUpdateTenantAddon } from '@/lib/admin/tenant-lifecycle-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 
@@ -58,7 +70,24 @@ export function TenantAddonsCard({
   const reactivate = useAddonSuspension(tenantId, 'reactivate');
   const setBillingMode = useSetAddonBillingMode(tenantId);
   const [selected, setSelected] = useState<string>('');
+  const [editing, setEditing] = useState<TenantAddonDto | null>(null);
+  const chargeNow = useChargeTenantAddonNow(tenantId);
   const ask = useConfirm();
+
+  async function doChargeNow(a: TenantAddonDto) {
+    const res = await ask({
+      title: `Cobrar ${a.name} ahora`,
+      description: `Se registra un cobro de ${eur(a.lineTotal)} (más IVA si los precios son +IVA) y su próximo cobro pasa un mes más tarde.`,
+      confirmLabel: 'Registrar el cobro',
+    });
+    if (!res) return;
+    try {
+      await chargeNow.mutateAsync({ assignmentId: a.id, provider: 'bank_transfer' });
+      toast.success('Cobro registrado.');
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo cobrar.');
+    }
+  }
 
   async function doSetMode(assignmentId: string, mode: 'manual' | 'stripe') {
     try {
@@ -254,6 +283,31 @@ export function TenantAddonsCard({
                             Cobrar por Stripe
                           </Button>
                         ))}
+                      {canEdit && !a.isSystem && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => setEditing(a)}
+                        >
+                          Editar
+                        </Button>
+                      )}
+                      {canEdit &&
+                        !a.isSystem &&
+                        !a.suspended &&
+                        a.billingMode === 'manual' &&
+                        a.nextChargeAt && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => void doChargeNow(a)}
+                            disabled={chargeNow.isPending}
+                          >
+                            Cobrar ahora
+                          </Button>
+                        )}
                       {!canEdit || (a.isSystem && !a.suspended) ? null : a.suspended ? (
                         <Button
                           variant="outline"
@@ -412,6 +466,123 @@ export function TenantAddonsCard({
           if (!v) setSelected('');
         }}
       />
+      <EditAddonDialog tenantId={tenantId} addon={editing} onClose={() => setEditing(null)} />
     </Card>
+  );
+}
+
+function EditAddonDialog({
+  tenantId,
+  addon,
+  onClose,
+}: {
+  tenantId: string;
+  addon: TenantAddonDto | null;
+  onClose: () => void;
+}) {
+  const update = useUpdateTenantAddon(tenantId);
+  const [quantity, setQuantity] = useState('1');
+  const [price, setPrice] = useState('0');
+  const [notes, setNotes] = useState('');
+  const [next, setNext] = useState('');
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  if (addon && loadedFor !== addon.id) {
+    setLoadedFor(addon.id);
+    setQuantity(String(addon.quantity));
+    setPrice(String(addon.priceMonthly));
+    setNotes(addon.notes ?? '');
+    setNext(addon.nextChargeAt ? addon.nextChargeAt.slice(0, 10) : '');
+  }
+  const onStripe = addon?.billingMode === 'stripe';
+
+  async function save() {
+    if (!addon) return;
+    try {
+      await update.mutateAsync({
+        assignmentId: addon.id,
+        input: {
+          quantity: Math.max(1, Number(quantity) || 1),
+          ...(onStripe ? {} : { priceMonthly: Math.max(0, Number(price.replace(',', '.')) || 0) }),
+          notes: notes.trim() || null,
+          ...(onStripe ? {} : { nextChargeAt: next || null }),
+        },
+      });
+      toast.success('Extra actualizado.');
+      setLoadedFor(null);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo guardar.');
+    }
+  }
+
+  return (
+    <Dialog
+      open={addon !== null}
+      onOpenChange={(o) => {
+        if (!o) {
+          setLoadedFor(null);
+          onClose();
+        }
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar {addon?.name}</DialogTitle>
+          <DialogDescription>
+            {onStripe
+              ? 'Se cobra por Stripe: la cantidad se cambia también allí; el precio y la fecha los lleva Stripe.'
+              : 'Cantidad, precio negociado, nota y fecha del próximo cobro.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="addon-qty">Cantidad</Label>
+            <Input
+              id="addon-qty"
+              type="number"
+              min={1}
+              max={999}
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="addon-price">Precio al mes</Label>
+            <Input
+              id="addon-price"
+              inputMode="decimal"
+              disabled={onStripe}
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label>Próximo cobro</Label>
+            {onStripe ? (
+              <p className="text-xs text-muted-foreground">Lo pone Stripe.</p>
+            ) : (
+              <DateSelect around value={next || undefined} onChange={(v) => setNext(v ?? '')} />
+            )}
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="addon-notes">Nota</Label>
+            <Input
+              id="addon-notes"
+              maxLength={500}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={() => void save()} disabled={update.isPending}>
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

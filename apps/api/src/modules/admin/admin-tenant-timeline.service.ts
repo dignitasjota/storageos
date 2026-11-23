@@ -33,6 +33,16 @@ const ACTION_LABELS: Record<string, string> = {
   'admin.tenant.custom_domain_revoked': 'Dominio propio desactivado',
   'admin.tenant.data_exported': 'Datos exportados',
   'admin.tenant.anonymized': 'Tenant anonimizado',
+  'admin.tenant.cancelled': 'Dado de baja',
+  'admin.tenant.cancel_scheduled': 'Baja programada',
+  'admin.tenant.cancel_undone': 'Baja deshecha',
+  'admin.tenant.anonymize_scheduled': 'Anonimización programada',
+  'admin.tenant.anonymize_cancelled': 'Anonimización cancelada',
+  'admin.tenant.consistency_fixed': 'Incoherencia de la suscripción corregida',
+  'admin.tenant.saas_payment_voided': 'Pago manual anulado',
+  'admin.saas_addon.updated': 'Extra editado',
+  'admin.user.email_changed': 'Email de un usuario cambiado',
+  'admin.user.ownership_transferred': 'Propiedad traspasada',
   'admin.tenant.whatsapp_ai_changed': 'IA de WhatsApp cambiada',
   'admin.tenant.ai_limit_changed': 'Asistente IA: límite o clave cambiados',
   'admin.tenant.operational_data_reset': 'Datos de prueba vaciados',
@@ -103,6 +113,10 @@ const SKIP_ACTIONS = new Set([
 const NEGATIVE_ACTIONS = new Set([
   'admin.tenant.suspended',
   'admin.tenant.anonymized',
+  'admin.tenant.cancelled',
+  'admin.tenant.cancel_scheduled',
+  'admin.tenant.anonymize_scheduled',
+  'admin.tenant.saas_payment_voided',
   'admin.tenant.operational_data_reset',
   'admin.platform_sepa.item_bounced',
 ]);
@@ -124,6 +138,15 @@ const INTERACTION_LABELS: Record<string, string> = {
   other: 'Conversación',
 };
 
+/** Texto comparable: minúsculas y sin tildes. */
+function normalizeText(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
 const LIFECYCLE_LABELS: Record<string, string> = {
   welcome: 'Correo de bienvenida',
   trial_7d: 'Aviso: la prueba termina en 7 días',
@@ -143,9 +166,24 @@ const LIFECYCLE_LABELS: Record<string, string> = {
 export class AdminTenantTimelineService {
   constructor(private readonly admin: PrismaAdminService) {}
 
+  /**
+   * Página del historial. Con `q` (texto), `from`/`to` (fechas) o `actorId`
+   * (super admin) filtra: las fechas y el autor en la consulta de cada origen y
+   * el texto sobre lo cargado, pidiendo más hasta llenar la página. La primera
+   * página trae además la nota fijada.
+   */
   async page(
     tenantId: string,
-    args: { before?: Date; beforeId?: string; limit?: number; kinds?: AdminTimelineKind[] },
+    args: {
+      before?: Date;
+      beforeId?: string;
+      limit?: number;
+      kinds?: AdminTimelineKind[];
+      q?: string;
+      from?: Date;
+      to?: Date;
+      actorId?: string;
+    },
   ): Promise<AdminTimelinePageDto> {
     const exists = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -155,11 +193,95 @@ export class AdminTenantTimelineService {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
     const limit = Math.min(Math.max(args.limit ?? 40, 1), 100);
-    const before = args.before ?? new Date(Date.now() + 60_000);
-    const want = (k: AdminTimelineKind) => !args.kinds?.length || args.kinds.includes(k);
+    const pinnedRow =
+      args.before || args.beforeId
+        ? null
+        : await this.admin.tenantInteraction.findFirst({
+            where: { tenantId, pinnedAt: { not: null } },
+            orderBy: { pinnedAt: 'desc' },
+            include: { superAdmin: { select: { fullName: true } } },
+          });
+    const pinned = pinnedRow
+      ? {
+          id: `interaction:${pinnedRow.id}`,
+          kind: 'interaction' as const,
+          at: pinnedRow.occurredAt.toISOString(),
+          title: INTERACTION_LABELS[pinnedRow.type] ?? 'Conversación',
+          detail: pinnedRow.content,
+          actor: pinnedRow.superAdmin?.fullName ?? null,
+          link: pinnedRow.link,
+          tone: 'neutral' as const,
+          pinned: true,
+        }
+      : null;
+    // «Hasta» incluye todo ese día.
+    const to = args.to ? new Date(args.to.getTime() + 86_400_000) : undefined;
+    let before = args.before ?? new Date(Date.now() + 60_000);
+    if (to && to < before) before = to;
+    const needle = normalizeText(args.q ?? '');
+    if (!needle) {
+      const res = await this.rawPage(tenantId, { ...args, before, limit });
+      return { ...res, pinned: res.items.length || pinned ? pinned : null };
+    }
+    // Con texto: se cargan páginas hasta reunir `limit` coincidencias.
+    const found: AdminTimelineItemDto[] = [];
+    let cursor: { before: Date; beforeId?: string } = {
+      before,
+      ...(args.beforeId ? { beforeId: args.beforeId } : {}),
+    };
+    let next: string | null = null;
+    for (let round = 0; round < 10; round++) {
+      const res = await this.rawPage(tenantId, { ...args, ...cursor, limit: 100 });
+      for (const item of res.items) {
+        const hay = normalizeText(`${item.title} ${item.detail ?? ''} ${item.actor ?? ''}`);
+        if (hay.includes(needle)) found.push(item);
+        if (found.length >= limit) {
+          next = `${item.at}|${item.id}`;
+          break;
+        }
+      }
+      if (found.length >= limit || !res.nextBefore) {
+        if (found.length < limit) next = null;
+        break;
+      }
+      const [at, id] = res.nextBefore.split('|');
+      cursor = { before: new Date(at!), ...(id ? { beforeId: id } : {}) };
+      next = res.nextBefore;
+    }
+    return { items: found, nextBefore: next, pinned };
+  }
+
+  private async rawPage(
+    tenantId: string,
+    args: {
+      before: Date;
+      beforeId?: string;
+      limit: number;
+      kinds?: AdminTimelineKind[];
+      from?: Date;
+      actorId?: string;
+    },
+  ): Promise<AdminTimelinePageDto> {
+    const limit = args.limit;
+    const before = args.before;
+    const actorId = args.actorId;
+    // Con un autor, solo lo que hace un super admin.
+    const authored = new Set<AdminTimelineKind>([
+      'interaction',
+      'admin_action',
+      'impersonation',
+      'followup',
+    ]);
+    const want = (k: AdminTimelineKind) =>
+      (!args.kinds?.length || args.kinds.includes(k)) && (!actorId || authored.has(k));
     // Con el id del último visto, los empatados a la misma hora se separan por
     // id (no se pierde ni se repite ninguno al cargar más).
-    const lt = args.beforeId ? { lte: before } : { lt: before };
+    const lt = {
+      ...(args.beforeId ? { lte: before } : { lt: before }),
+      ...(args.from ? { gte: args.from } : {}),
+    };
+    const by = actorId ? { superAdminId: actorId } : {};
+    const fromSql = args.from ?? new Date(0);
     const take = limit;
     const none = Promise.resolve([] as AdminTimelineItemDto[]);
 
@@ -170,6 +292,7 @@ export class AdminTenantTimelineService {
               where: {
                 tenantId,
                 occurredAt: lt,
+                ...by,
                 // El ticket ya sale con su propio evento.
                 ...(want('ticket') ? { NOT: { type: 'support' } } : {}),
               },
@@ -187,6 +310,7 @@ export class AdminTenantTimelineService {
                 actor: r.superAdmin?.fullName ?? null,
                 link: r.link,
                 tone: 'neutral' as const,
+                ...(r.pinnedAt ? { pinned: true } : {}),
               })),
             )
         : none,
@@ -196,6 +320,7 @@ export class AdminTenantTimelineService {
               where: {
                 targetTenantId: tenantId,
                 occurredAt: lt,
+                ...by,
                 action: { notIn: [...SKIP_ACTIONS] },
               },
               orderBy: { occurredAt: 'desc' },
@@ -224,7 +349,7 @@ export class AdminTenantTimelineService {
       want('impersonation')
         ? this.admin.impersonationLog
             .findMany({
-              where: { tenantId, createdAt: lt },
+              where: { tenantId, createdAt: lt, ...by },
               orderBy: { createdAt: 'desc' },
               take,
               include: { superAdmin: { select: { fullName: true } } },
@@ -249,6 +374,7 @@ export class AdminTenantTimelineService {
           this.admin.$queryRaw<{ id: string }[]>`
             SELECT id FROM tenant_subscription_payments
             WHERE tenant_id = ${tenantId}::uuid AND COALESCE(paid_at, created_at) <= ${before}
+              AND COALESCE(paid_at, created_at) >= ${fromSql}
             ORDER BY COALESCE(paid_at, created_at) DESC
             LIMIT ${take}`
             .then((ids) =>
@@ -368,7 +494,7 @@ export class AdminTenantTimelineService {
       want('followup')
         ? this.admin.tenantFollowup
             .findMany({
-              where: { tenantId, createdAt: lt },
+              where: { tenantId, createdAt: lt, ...by },
               orderBy: { createdAt: 'desc' },
               take,
               include: { superAdmin: { select: { fullName: true } } },
@@ -391,7 +517,13 @@ export class AdminTenantTimelineService {
         : none,
     ];
 
-    if (want('milestone')) sources.push(this.milestones(tenantId, before));
+    if (want('milestone')) {
+      sources.push(
+        this.milestones(tenantId, before).then((items) =>
+          args.from ? items.filter((i) => i.at >= args.from!.toISOString()) : items,
+        ),
+      );
+    }
 
     const results = await Promise.all(sources);
     const beforeIso = before.toISOString();

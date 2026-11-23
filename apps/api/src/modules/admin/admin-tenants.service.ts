@@ -61,7 +61,9 @@ import type {
   AdminOnboardingDto,
   AdminTenantAdoptionDto,
   AdminTenantCustomerDto,
+  AdminTenantCustomersPageDto,
   AdminTenantDto,
+  AdminTenantFacilitiesPageDto,
   AdminTenantsListResponseDto,
   AdminTenantFacilityDto,
   AdminTenantFeaturesDto,
@@ -253,7 +255,8 @@ export class AdminTenantsService {
         },
       },
     });
-    if (!row || row.deletedAt) {
+    // Un tenant anonimizado se sigue viendo (lo que queda: historial y pagos).
+    if (!row) {
       throw new NotFoundException({
         code: 'tenant_not_found',
         message: 'Tenant no encontrado',
@@ -1286,6 +1289,172 @@ export class AdminTenantsService {
       unitCount: f._count.units,
       occupiedCount: occupiedByFacility.get(f.id) ?? 0,
     }));
+  }
+
+  /**
+   * Inquilinos del tenant por páginas, con buscador en el servidor. Marca el de
+   * prueba y los borrados, y da la deuda de cada uno con la definición del
+   * Resumen (`receivables`: emitido sin cobrar, aparte lo ya vencido).
+   */
+  async listCustomersPage(
+    tenantId: string,
+    opts: {
+      cursor?: string | undefined;
+      limit?: number | undefined;
+      search?: string | undefined;
+      maskDocuments?: boolean;
+    },
+  ): Promise<AdminTenantCustomersPageDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true },
+    });
+    if (!tenant) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const take = Math.min(Math.max(opts.limit ?? 30, 1), 100);
+    const q = opts.search?.trim();
+    const like = q ? { contains: q, mode: 'insensitive' as const } : undefined;
+    const where: Prisma.CustomerWhereInput = {
+      tenantId,
+      ...(like
+        ? {
+            OR: [
+              { firstName: like },
+              { lastName: like },
+              { companyName: like },
+              { email: like },
+              { phone: like },
+              { documentNumber: like },
+            ],
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.admin.customer.findMany({
+        where,
+        include: { _count: { select: { contracts: { where: { deletedAt: null } } } } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: take + 1,
+        ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+      }),
+      this.admin.customer.count({ where }),
+    ]);
+    const page = rows.slice(0, take);
+    const ids = page.map((c) => c.id);
+    const now = new Date();
+    const [activeContracts, invoices] = await Promise.all([
+      this.admin.contract.groupBy({
+        by: ['customerId'],
+        where: { tenantId, customerId: { in: ids }, ...LIVE_CONTRACT_WHERE },
+        _count: { _all: true },
+      }),
+      // La misma definición de «pendiente de cobro» que el Resumen.
+      this.admin.invoice.findMany({
+        where: {
+          tenantId,
+          customerId: { in: ids },
+          status: { in: ['issued', 'overdue', 'partially_refunded'] },
+          deletedAt: null,
+          kind: 'invoice',
+        },
+        select: { customerId: true, dueDate: true, total: true, amountPaid: true },
+      }),
+    ]);
+    const activeBy = new Map(activeContracts.map((c) => [c.customerId, c._count._all]));
+    const debtBy = new Map<string, { debt: number; overdue: number }>();
+    for (const inv of invoices) {
+      if (!inv.customerId) continue;
+      const pending = Number(inv.total) - Number(inv.amountPaid);
+      if (pending <= 0) continue;
+      const d = debtBy.get(inv.customerId) ?? { debt: 0, overdue: 0 };
+      d.debt += pending;
+      if (inv.dueDate && inv.dueDate < now) d.overdue += pending;
+      debtBy.set(inv.customerId, d);
+    }
+    return {
+      items: page.map((c) => {
+        const name =
+          c.customerType === 'business'
+            ? (c.companyName ?? c.email ?? '—')
+            : [c.firstName, c.lastName].filter(Boolean).join(' ').trim() || c.email || '—';
+        const d = debtBy.get(c.id);
+        return {
+          id: c.id,
+          name,
+          customerType: c.customerType,
+          email: c.email,
+          phone: c.phone,
+          documentType: c.documentType,
+          documentNumber:
+            opts.maskDocuments && c.documentNumber
+              ? `***${c.documentNumber.slice(-4)}`
+              : c.documentNumber,
+          kycVerified: c.kycVerified,
+          contractCount: c._count.contracts,
+          activeContractCount: activeBy.get(c.id) ?? 0,
+          createdAt: c.createdAt.toISOString(),
+          isTest: c.isTest,
+          deletedAt: c.deletedAt?.toISOString() ?? null,
+          debt: round2(d?.debt ?? 0),
+          overdueDebt: round2(d?.overdue ?? 0),
+        };
+      }),
+      nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
+      total,
+    };
+  }
+
+  /** Locales del tenant por páginas, con buscador en el servidor. */
+  async listFacilitiesPage(
+    tenantId: string,
+    opts: { cursor?: string | undefined; limit?: number | undefined; search?: string | undefined },
+  ): Promise<AdminTenantFacilitiesPageDto> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true },
+    });
+    if (!tenant) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const take = Math.min(Math.max(opts.limit ?? 30, 1), 100);
+    const q = opts.search?.trim();
+    const like = q ? { contains: q, mode: 'insensitive' as const } : undefined;
+    const where: Prisma.FacilityWhereInput = {
+      tenantId,
+      deletedAt: null,
+      ...(like ? { OR: [{ name: like }, { city: like }, { address: like }] } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.admin.facility.findMany({
+        where,
+        include: { _count: { select: { units: true } } },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        take: take + 1,
+        ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+      }),
+      this.admin.facility.count({ where }),
+    ]);
+    const page = rows.slice(0, take);
+    const occupied = await this.admin.unit.groupBy({
+      by: ['facilityId'],
+      where: { tenantId, status: 'occupied', facilityId: { in: page.map((f) => f.id) } },
+      _count: { _all: true },
+    });
+    const occupiedBy = new Map(occupied.map((o) => [o.facilityId, o._count._all]));
+    return {
+      items: page.map((f) => ({
+        id: f.id,
+        name: f.name,
+        city: f.city,
+        address: f.address,
+        unitCount: f._count.units,
+        occupiedCount: occupiedBy.get(f.id) ?? 0,
+        isActive: f.isActive,
+      })),
+      nextCursor: rows.length > take ? (page[page.length - 1]?.id ?? null) : null,
+      total,
+    };
   }
 
   /** Trasteros (units) de un local del tenant, con m², precio, estado y tipo. */
@@ -2799,8 +2968,18 @@ export class AdminTenantsService {
           customDomain: null,
           customDomainVerifiedAt: null,
           customDomainReadyAt: null,
+          // Lo programado ya no hace falta.
+          cancelScheduledAt: null,
+          cancelScheduledReason: null,
+          cancelScheduledNote: null,
+          cancelScheduledBy: null,
+          anonymizeScheduledAt: null,
+          anonymizeScheduledReason: null,
+          anonymizeScheduledBy: null,
         },
       });
+      // Las exportaciones hechas (Excel con sus datos) también se borran.
+      await tx.tenantDataExport.deleteMany({ where: { tenantId } });
 
       return {
         customers: liveCustomers,
@@ -2828,6 +3007,11 @@ export class AdminTenantsService {
       anonymizedWhatsappConversations: counts.whatsappConversations,
     };
     await this.files.deleteObjects('uploads', counts.fileKeys);
+    await this.files
+      .deleteByPrefix('reports', `${tenantId}/exports/`)
+      .catch((err: unknown) =>
+        this.logger.warn(`anonymize: no se pudo borrar exports/ de ${tenantId}: ${String(err)}`),
+      );
     // Documentos de los inquilinos y adjuntos que quedaran sueltos (las facturas
     // y los contratos firmados se conservan, como en el RGPD de un inquilino).
     for (const prefix of ANONYMIZE_FILE_PREFIXES) {
@@ -2897,6 +3081,13 @@ export class AdminTenantsService {
     billingCity: string | null;
     billingPostalCode: string | null;
     createdAt: Date;
+    deletedAt?: Date | null;
+    canceledAt?: Date | null;
+    churnReason?: string | null;
+    cancelScheduledAt?: Date | null;
+    cancelScheduledReason?: string | null;
+    cancelScheduledNote?: string | null;
+    anonymizeScheduledAt?: Date | null;
     subscription: null | {
       status: string;
       currentPeriodEnd: Date | null;
@@ -2931,6 +3122,13 @@ export class AdminTenantsService {
         country: row.country,
       }),
       createdAt: row.createdAt.toISOString(),
+      anonymizedAt: row.deletedAt?.toISOString() ?? null,
+      canceledAt: row.canceledAt?.toISOString() ?? null,
+      churnReason: row.churnReason ?? null,
+      cancelScheduledAt: row.cancelScheduledAt?.toISOString() ?? null,
+      cancelScheduledReason: row.cancelScheduledReason ?? null,
+      cancelScheduledNote: row.cancelScheduledNote ?? null,
+      anonymizeScheduledAt: row.anonymizeScheduledAt?.toISOString() ?? null,
       userCount: row._count.users,
       customerCount: row._count.customers,
       contractCount: row._count.contracts,

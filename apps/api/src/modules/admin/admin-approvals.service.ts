@@ -73,6 +73,8 @@ export class AdminApprovalsService {
         action: input.request.action,
         payload: input.request.payload as Prisma.InputJsonValue,
         reason: input.reason,
+        // Cómo estaba el tenant al pedirla: al decidir se avisa si cambió.
+        snapshot: (await this.snapshotOf(input.tenantId)) as unknown as Prisma.InputJsonValue,
       },
       include: INCLUDE,
     });
@@ -428,7 +430,56 @@ export class AdminApprovalsService {
       });
       for (const a of assigned) names.set(a.id, a.addon.name);
     }
-    return rows.map((r) => this.toDto(r, names, prices));
+    // Estado actual de los tenants con solicitudes pendientes (una vez por tenant).
+    const pendingTenants = [
+      ...new Set(rows.filter((r) => r.status === 'pending').map((r) => r.tenantId)),
+    ];
+    const nowBy = new Map<string, TenantSnapshot>();
+    for (const id of pendingTenants) {
+      const snap = await this.snapshotOf(id).catch(() => null);
+      if (snap) nowBy.set(id, snap);
+    }
+    return rows.map((r) => {
+      const dto = this.toDto(r, names, prices);
+      const now = nowBy.get(r.tenantId);
+      if (r.status !== 'pending' || !now) return dto;
+      const then = (r.snapshot ?? null) as TenantSnapshot | null;
+      return {
+        ...dto,
+        currentState: describeSnapshot(now),
+        changedSinceRequest: then ? snapshotChanges(then, now) : [],
+      };
+    });
+  }
+
+  /** Estado del tenant que puede cambiar lo que se pidió. */
+  private async snapshotOf(tenantId: string): Promise<TenantSnapshot | null> {
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        status: true,
+        billingExempt: true,
+        trialEndsAt: true,
+        subscription: {
+          select: { status: true, billingMode: true, plan: { select: { slug: true, name: true } } },
+        },
+      },
+    });
+    if (!t) return null;
+    const features = await this.tenants
+      .getFeatures(tenantId)
+      .then((f) => [...f.effective].sort())
+      .catch(() => [] as string[]);
+    return {
+      status: t.status,
+      billingExempt: t.billingExempt,
+      trialEndsAt: t.trialEndsAt?.toISOString().slice(0, 10) ?? null,
+      planSlug: t.subscription?.plan.slug ?? null,
+      planName: t.subscription?.plan.name ?? null,
+      subscriptionStatus: t.subscription?.status ?? null,
+      billingMode: t.subscription?.billingMode ?? null,
+      features,
+    };
   }
 
   private toDto(
@@ -454,6 +505,74 @@ export class AdminApprovalsService {
       createdAt: r.createdAt.toISOString(),
     };
   }
+}
+
+interface TenantSnapshot {
+  status: string;
+  billingExempt: boolean;
+  trialEndsAt: string | null;
+  planSlug: string | null;
+  planName: string | null;
+  subscriptionStatus: string | null;
+  billingMode: string | null;
+  features: string[];
+}
+
+const STATUS_ES: Record<string, string> = {
+  trial: 'en prueba',
+  active: 'activo',
+  suspended: 'suspendido',
+  cancelled: 'de baja',
+};
+const MODE_ES: Record<string, string> = {
+  manual: 'pago manual',
+  stripe: 'Stripe',
+  sepa: 'SEPA',
+  redsys: 'tarjeta (Redsys)',
+};
+
+function describeSnapshot(s: TenantSnapshot): string {
+  return [
+    STATUS_ES[s.status] ?? s.status,
+    s.planName ? `plan ${s.planName}` : null,
+    s.billingExempt ? 'exenta' : s.billingMode ? (MODE_ES[s.billingMode] ?? s.billingMode) : null,
+    s.trialEndsAt ? `prueba hasta el ${s.trialEndsAt.split('-').reverse().join('/')}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Lo que cambió en el tenant desde que se pidió la aprobación. */
+export function snapshotChanges(then: TenantSnapshot, now: TenantSnapshot): string[] {
+  const out: string[] = [];
+  if (then.status !== now.status) {
+    out.push(
+      `Estado: ${STATUS_ES[then.status] ?? then.status} → ${STATUS_ES[now.status] ?? now.status}`,
+    );
+  }
+  if (then.planSlug !== now.planSlug) {
+    out.push(`Plan: ${then.planName ?? '—'} → ${now.planName ?? '—'}`);
+  }
+  if (then.billingMode !== now.billingMode) {
+    out.push(
+      `Cobro: ${MODE_ES[then.billingMode ?? ''] ?? then.billingMode ?? '—'} → ${MODE_ES[now.billingMode ?? ''] ?? now.billingMode ?? '—'}`,
+    );
+  }
+  if (then.billingExempt !== now.billingExempt) {
+    out.push(now.billingExempt ? 'Ahora es exenta' : 'Ya no es exenta');
+  }
+  if (then.trialEndsAt !== now.trialEndsAt) {
+    out.push(`Fin de la prueba: ${then.trialEndsAt ?? '—'} → ${now.trialEndsAt ?? '—'}`);
+  }
+  const added = now.features.filter((f) => !then.features.includes(f));
+  const removed = then.features.filter((f) => !now.features.includes(f));
+  if (added.length || removed.length) {
+    const label = (f: string) => FEATURE_LABELS[f as keyof typeof FEATURE_LABELS] ?? f;
+    out.push(
+      `Funciones: ${[...added.map((f) => `+${label(f)}`), ...removed.map((f) => `−${label(f)}`)].join(', ')}`,
+    );
+  }
+  return out;
 }
 
 function errorMessage(err: unknown): string {
