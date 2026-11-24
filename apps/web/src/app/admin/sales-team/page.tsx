@@ -165,6 +165,7 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
     repTrialExtensionDays: settings.repTrialExtensionDays,
     repAddonTrialDays: settings.repAddonTrialDays,
     lifecycleFromRep: settings.lifecycleFromRep,
+    firstContactAlertDays: settings.firstContactAlertDays,
   });
   const [months, setMonths] = useState(settings.recoverMonths);
   const monthsKey = JSON.stringify(settings.recoverMonths);
@@ -179,6 +180,7 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
       repTrialExtensionDays: settings.repTrialExtensionDays,
       repAddonTrialDays: settings.repAddonTrialDays,
       lifecycleFromRep: settings.lifecycleFromRep,
+      firstContactAlertDays: settings.firstContactAlertDays,
     });
   }, [
     settings.signupExtraTrialDays,
@@ -186,6 +188,7 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
     settings.repTrialExtensionDays,
     settings.repAddonTrialDays,
     settings.lifecycleFromRep,
+    settings.firstContactAlertDays,
   ]);
   const num = (k: keyof typeof form, max: number) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: Math.max(0, Math.min(max, e.target.valueAsNumber || 0)) }));
@@ -233,6 +236,20 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
               max={730}
               value={form.leadReleaseDays}
               onChange={num('leadReleaseDays', 730)}
+            />
+          </Field>
+          <Field
+            id="ss-first-contact"
+            label="Avisarte si no llaman a un prospecto que repartiste en (días)"
+            hint="Te llega un aviso con la lista, una vez por prospecto. 0 = nunca."
+          >
+            <Input
+              id="ss-first-contact"
+              type="number"
+              min={0}
+              max={90}
+              value={form.firstContactAlertDays}
+              onChange={num('firstContactAlertDays', 90)}
             />
           </Field>
           <Field

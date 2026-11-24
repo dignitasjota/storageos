@@ -148,8 +148,9 @@ export const LEAD_INCLUDE = {
   },
   // Las notas automáticas (reparto, propuesta abierta, secuencias) no son actividad
   // del equipo: si contaran, un prospecto recién repartido saldría «contactado hoy».
+  // Tampoco lo que deja la dirección desde Carteras (no es contacto con el cliente).
   activities: {
-    where: { type: { not: 'system' } },
+    where: { type: { notIn: ['system', 'direction'] } },
     orderBy: { occurredAt: 'desc' },
     take: 1,
     select: { occurredAt: true },
@@ -503,6 +504,8 @@ export class PlatformLeadsService {
       let best: Date | null = null;
       for (const [t, d] of m ?? []) {
         if (types && !types.includes(t)) continue;
+        // Lo que deja la dirección (Carteras) no es actividad con el cliente.
+        if (t === 'direction') continue;
         if (!best || d > best) best = d;
       }
       return best;

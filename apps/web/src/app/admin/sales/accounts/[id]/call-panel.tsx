@@ -11,6 +11,7 @@ import {
   type SalesAccountDto,
   type SalesCallOutcome,
   type SalesContactChannel,
+  type UpdateSalesProfileInput,
 } from '@storageos/shared';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -191,8 +192,23 @@ export function OutcomeCard({
 }
 
 /** La ficha: lo que el comercial quiere ver de un vistazo antes de llamar. */
-export function ProfileCard({ account }: { account: SalesAccountDto }) {
-  const save = useSalesProfile(account.lead.id);
+/** Guardar la ficha por otra vía (la dirección, desde Carteras). */
+export interface ProfileSaver {
+  mutateAsync: (input: UpdateSalesProfileInput) => Promise<unknown>;
+  isPending: boolean;
+}
+
+export function ProfileCard({
+  account,
+  saver,
+  description,
+}: {
+  account: SalesAccountDto;
+  saver?: ProfileSaver;
+  description?: string;
+}) {
+  const own = useSalesProfile(account.lead.id);
+  const save: ProfileSaver = saver ?? own;
   const p = account.profile;
   const [form, setForm] = useState({
     pinnedNote: p?.pinnedNote ?? '',
@@ -258,9 +274,10 @@ export function ProfileCard({ account }: { account: SalesAccountDto }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Ficha</CardTitle>
         <CardDescription>
-          {p?.lastContactAt
-            ? `Último contacto: ${new Date(p.lastContactAt).toLocaleDateString('es-ES')}`
-            : 'Aún no hay contactos anotados.'}
+          {description ??
+            (p?.lastContactAt
+              ? `Último contacto: ${new Date(p.lastContactAt).toLocaleDateString('es-ES')}`
+              : 'Aún no hay contactos anotados.')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

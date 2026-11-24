@@ -89,6 +89,7 @@ export class SalesAssignmentService {
       repTrialExtensionDays: s.repTrialExtensionDays,
       repAddonTrialDays: s.repAddonTrialDays,
       lifecycleFromRep: s.lifecycleFromRep,
+      firstContactAlertDays: s.firstContactAlertDays,
       recoverMonths: parseRecoverMonths(s.recoverMonths),
       demo: {
         tenantId: demo && !demo.deletedAt ? demo.id : null,
@@ -120,6 +121,9 @@ export class SalesAssignmentService {
           : {}),
         ...(input.lifecycleFromRep !== undefined
           ? { lifecycleFromRep: input.lifecycleFromRep }
+          : {}),
+        ...(input.firstContactAlertDays !== undefined
+          ? { firstContactAlertDays: input.firstContactAlertDays }
           : {}),
         ...(input.demoResetEnabled !== undefined
           ? { demoResetEnabled: input.demoResetEnabled }
@@ -634,9 +638,14 @@ export class SalesAssignmentService {
         OR: [{ salesRecoverOn: { not: null } }, { doNotContact: true }],
       },
       salesAssignedAt: { lt: cutoff },
-      // Una nota con fecha futura no cuenta como actividad.
+      // Una nota con fecha futura no cuenta como actividad, ni lo que deja la
+      // dirección desde Carteras (notas al comercial, cambios de ficha o fase).
       activities: {
-        none: { occurredAt: { gte: cutoff, lte: now }, superAdminId: { not: null } },
+        none: {
+          occurredAt: { gte: cutoff, lte: now },
+          superAdminId: { not: null },
+          type: { not: 'direction' },
+        },
       },
       // Un seguimiento programado (hasta un año vista) lo mantiene en su cartera.
       followups: {

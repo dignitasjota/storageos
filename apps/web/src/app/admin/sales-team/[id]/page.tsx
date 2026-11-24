@@ -3,7 +3,6 @@
 import {
   SALES_COMMISSION_KIND_LABELS,
   SALES_COMMISSION_STATUS_LABELS,
-  SALES_SOURCE_LABELS,
   type SalesCommissionConceptDto,
   type SalesRepDetailDto,
 } from '@storageos/shared';
@@ -31,10 +30,10 @@ import {
   relativeDays,
   SalesPage,
   Stat,
-  TenantStatusBadge,
   todayInSpain,
 } from '@/components/admin/sales/common';
 import { DistributeDialog } from '@/components/admin/sales/distribute-dialog';
+import { PortfoliosView } from '@/components/admin/sales/portfolios-view';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -937,7 +936,6 @@ function CommissionsTab({ rep }: { rep: SalesRepDetailDto }) {
 }
 
 function PortfolioTab({ rep }: { rep: SalesRepDetailDto }) {
-  const accounts = useSalesRepAccounts(rep.id);
   const team = useSalesTeam();
   const reassign = useReassignPortfolio(rep.id);
   const confirm = useConfirm();
@@ -962,10 +960,13 @@ function PortfolioTab({ rep }: { rep: SalesRepDetailDto }) {
     }
   }
 
-  const leads = accounts.data?.leads ?? [];
-  const clients = accounts.data?.clients ?? [];
   return (
     <div className="space-y-4">
+      <PortfoliosView
+        key={rep.id}
+        fixedRep={rep.id}
+        csvName={`cartera-${rep.salesCode ?? rep.id.slice(0, 8)}`}
+      />
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Pasar su cartera a otro</CardTitle>
@@ -1005,72 +1006,6 @@ function PortfolioTab({ rep }: { rep: SalesRepDetailDto }) {
           </Button>
         </CardContent>
       </Card>
-
-      <div>
-        <p className="mb-2 text-sm font-medium">Clientes ({clients.length})</p>
-        {clients.length === 0 ? (
-          <Empty>Sin clientes.</Empty>
-        ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableBody>
-                {clients.map((c) => (
-                  <TableRow key={c.tenantId}>
-                    <TableCell>
-                      <Link
-                        href={`/admin/tenants/${c.tenantId}`}
-                        className="font-medium hover:underline"
-                      >
-                        {c.name}
-                      </Link>
-                      <span className="block text-xs text-muted-foreground">
-                        {c.salesSource ? (SALES_SOURCE_LABELS[c.salesSource] ?? c.salesSource) : ''}
-                        {c.assignedAt && ` · desde ${formatDate(c.assignedAt)}`}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <TenantStatusBadge status={c.status} pastDue={c.pastDue} />
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatEur(c.monthly)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
-
-      <div>
-        <p className="mb-2 text-sm font-medium">
-          Prospectos ({leads.filter((l) => !l.tenant).length})
-        </p>
-        {leads.filter((l) => !l.tenant).length === 0 ? (
-          <Empty>Sin prospectos.</Empty>
-        ) : (
-          <ul className="divide-y rounded-md border text-sm">
-            {leads
-              .filter((l) => !l.tenant)
-              .map((l) => (
-                <li key={l.id} className="flex flex-wrap justify-between gap-2 px-3 py-2">
-                  <span>
-                    {l.displayName}
-                    {l.salesProfile?.status && (
-                      <span className="block text-xs text-muted-foreground">
-                        {l.salesProfile.status}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    último contacto{' '}
-                    {relativeDays(l.salesProfile?.lastContactAt ?? l.lastActivityAt)}
-                  </span>
-                </li>
-              ))}
-          </ul>
-        )}
-      </div>
     </div>
   );
 }

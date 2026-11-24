@@ -151,7 +151,12 @@ export class SalesPortfolioService {
                     ],
                   },
                   {
-                    activities: { none: { occurredAt: { gte: cutoff }, type: { not: 'system' } } },
+                    activities: {
+                      none: {
+                        occurredAt: { gte: cutoff },
+                        type: { notIn: ['system', 'direction'] },
+                      },
+                    },
                   },
                 ],
               },
@@ -327,7 +332,7 @@ export class SalesPortfolioService {
   }
 
   /** Fichas de la lista en el orden de `ids`, con su ficha comercial y su cuenta. */
-  private async dtosInOrder(ids: string[]): Promise<SalesLeadDto[]> {
+  async dtosInOrder(ids: string[]): Promise<SalesLeadDto[]> {
     if (ids.length === 0) return [];
     const dtos = await this.leads.listDtos({ id: { in: ids } }, ids.length);
     const enriched = await this.enrich(dtos);

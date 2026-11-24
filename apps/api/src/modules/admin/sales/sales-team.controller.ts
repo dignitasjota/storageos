@@ -20,6 +20,15 @@ import {
 import {
   AdminCreateSalesAppointmentSchema,
   AssignSalesAccountSchema,
+  MovePlatformLeadSchema,
+  SalesArchiveLeadSchema,
+  SalesDirectionNoteSchema,
+  SalesDirectionReassignSchema,
+  SalesPortfoliosQuerySchema,
+  UpdateSalesProfileSchema,
+  type SalesPortfolioDetailDto,
+  type SalesPortfolioListDto,
+  type SalesPortfolioRowDto,
   UpdateSalesAppointmentSchema,
   type SalesAppointmentDto,
   CreateSalesCommissionItemSchema,
@@ -71,6 +80,7 @@ import { SalesContentService } from './sales-content.service';
 import { SalesDemoService } from './sales-demo.service';
 import { SalesDistributionService } from './sales-distribution.service';
 import { SalesInsightsService } from './sales-insights.service';
+import { SalesPortfoliosService, type DirectionActor } from './sales-portfolios.service';
 import { SalesRecoveryService } from './sales-recovery.service';
 import { SalesTeamService } from './sales-team.service';
 
@@ -100,9 +110,33 @@ class TemplateDto extends createZodDto(UpsertSalesTemplateSchema) {}
 class CadenceDto extends createZodDto(UpsertSalesCadenceSchema) {}
 class BulkImportDto extends createZodDto(SalesBulkImportSchema) {}
 class DistributeLeadsDto extends createZodDto(SalesDistributeLeadsSchema) {}
+class DirectionNoteDto extends createZodDto(SalesDirectionNoteSchema) {}
+class DirectionReassignDto extends createZodDto(SalesDirectionReassignSchema) {}
+class DirectionProfileDto extends createZodDto(UpdateSalesProfileSchema) {}
+class DirectionMoveDto extends createZodDto(MovePlatformLeadSchema) {}
+class DirectionArchiveDto extends createZodDto(SalesArchiveLeadSchema) {}
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
+
+function portfoliosQuery(query: Record<string, string>) {
+  const parsed = SalesPortfoliosQuerySchema.safeParse(query ?? {});
+  if (!parsed.success) {
+    throw new BadRequestException({
+      code: 'invalid_query',
+      message: parsed.error.issues[0]?.message ?? 'Filtro no válido',
+    });
+  }
+  return parsed.data;
+}
+
+function directionActor(byId: string, req: Request): DirectionActor {
+  return {
+    superAdminId: byId,
+    ipAddress: req.ip ?? null,
+    userAgent: req.headers['user-agent'] ?? null,
+  };
+}
 
 /**
  * Dirección comercial (`/admin/sales-team/*`): solo el rol superadmin. El
@@ -124,7 +158,96 @@ export class SalesTeamController {
     private readonly appointments: SalesAppointmentsService,
     private readonly distribution: SalesDistributionService,
     private readonly recovery: SalesRecoveryService,
+    private readonly portfolios: SalesPortfoliosService,
   ) {}
+
+  // ---------------------------------------------------------------- carteras
+
+  /** Prospectos y clientes de todos los comerciales (`rep=none`: sin comercial). */
+  @Get('portfolios')
+  portfoliosList(@Query() query: Record<string, string>): Promise<SalesPortfolioListDto> {
+    return this.portfolios.list(portfoliosQuery(query));
+  }
+
+  /** Las mismas filas para el CSV (hasta 5.000, sin paginar). */
+  @Get('portfolios/export')
+  portfoliosExport(@Query() query: Record<string, string>): Promise<SalesPortfolioRowDto[]> {
+    return this.portfolios.exportRows(portfoliosQuery(query));
+  }
+
+  /** Ficha completa con la cronología. */
+  @Get('portfolios/:leadId')
+  portfolioDetail(
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+  ): Promise<SalesPortfolioDetailDto> {
+    return this.portfolios.detail(leadId);
+  }
+
+  /** Nota de la dirección al comercial (le llega un aviso). */
+  @Post('portfolios/:leadId/notes')
+  portfolioNote(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Body() body: DirectionNoteDto,
+  ): Promise<SalesPortfolioDetailDto> {
+    return this.portfolios.addNote(leadId, body, directionActor(byId, req));
+  }
+
+  @Post('portfolios/:leadId/reassign')
+  @HttpCode(HttpStatus.OK)
+  portfolioReassign(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Body() body: DirectionReassignDto,
+  ): Promise<SalesPortfolioDetailDto> {
+    return this.portfolios.reassign(leadId, body, directionActor(byId, req));
+  }
+
+  /** Editar la ficha comercial (no cambia el último contacto). */
+  @Patch('portfolios/:leadId/profile')
+  portfolioProfile(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Body() body: DirectionProfileDto,
+  ): Promise<SalesPortfolioDetailDto> {
+    return this.portfolios.updateProfile(leadId, body, directionActor(byId, req));
+  }
+
+  @Post('portfolios/:leadId/move')
+  @HttpCode(HttpStatus.OK)
+  portfolioMove(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Body() body: DirectionMoveDto,
+  ): Promise<SalesPortfolioDetailDto> {
+    return this.portfolios.move(leadId, body, directionActor(byId, req));
+  }
+
+  /** «No interesado»: lo archiva en la cartera de su comercial. */
+  @Post('portfolios/:leadId/archive')
+  @HttpCode(HttpStatus.OK)
+  portfolioArchive(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Body() body: DirectionArchiveDto,
+  ): Promise<SalesPortfolioDetailDto> {
+    return this.portfolios.archive(leadId, body, directionActor(byId, req));
+  }
+
+  @Post('portfolios/:leadId/recover')
+  @HttpCode(HttpStatus.OK)
+  portfolioRecover(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+  ): Promise<SalesPortfolioDetailDto> {
+    return this.portfolios.recover(leadId, directionActor(byId, req));
+  }
 
   // ------------------------------------------------------------------ citas
 
