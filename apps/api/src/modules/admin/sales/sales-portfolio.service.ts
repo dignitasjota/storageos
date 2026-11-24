@@ -159,10 +159,10 @@ export class SalesPortfolioService {
     return where;
   }
 
-  /** Abierto y sin que el comercial haya hablado nunca con él. */
+  /** Prospecto abierto (sin cuenta) con el que el comercial aún no ha hablado. */
   private untouchedWhere(repId: string): Prisma.PlatformLeadWhereInput {
     return {
-      status: { notIn: ['customer', 'lost'] },
+      status: { in: ['new', 'contacted', 'interested'] },
       OR: [{ salesProfile: { is: null } }, { salesProfile: { is: { lastContactAt: null } } }],
       activities: { none: { type: { in: CONTACT_ACTIVITY_TYPES }, superAdminId: repId } },
     };
