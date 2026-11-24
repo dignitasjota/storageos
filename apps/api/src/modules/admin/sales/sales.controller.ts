@@ -27,8 +27,9 @@ import {
   CreatePlatformLeadFollowupSchema,
   CreateSalesProspectSchema,
   EnrollSalesCadenceSchema,
-  LosePlatformLeadSchema,
   MovePlatformLeadSchema,
+  SalesArchiveLeadSchema,
+  UpdateSalesArchiveSchema,
   RequestSalesConceptSchema,
   SalesAddonOfferSchema,
   SalesApprovalRequestSchema,
@@ -100,7 +101,8 @@ class CreateProspectDto extends createZodDto(CreateSalesProspectSchema) {}
 class UpdateLeadDto extends createZodDto(UpdateSalesLeadSchema) {}
 class ProfileDto extends createZodDto(UpdateSalesProfileSchema) {}
 class MoveDto extends createZodDto(MovePlatformLeadSchema) {}
-class LoseDto extends createZodDto(LosePlatformLeadSchema) {}
+class LoseDto extends createZodDto(SalesArchiveLeadSchema) {}
+class ArchiveDto extends createZodDto(UpdateSalesArchiveSchema) {}
 class ActivityDto extends createZodDto(CreatePlatformLeadActivitySchema) {}
 class OutcomeDto extends createZodDto(SalesCallOutcomeSchema) {}
 class FollowupDto extends createZodDto(CreatePlatformLeadFollowupSchema) {}
@@ -309,6 +311,30 @@ export class SalesController {
   ): Promise<SalesAccountDto> {
     const actor = this.actor(admin, req);
     return this.accounts.lose(actor.repId, leadId, body, actor);
+  }
+
+  /** «Recuperar» un archivado: vuelve a su cartera activa con todo su historial. */
+  @Post('accounts/:leadId/recover')
+  @HttpCode(HttpStatus.OK)
+  recover(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+  ): Promise<SalesAccountDto> {
+    const actor = this.actor(admin, req);
+    return this.accounts.recover(actor.repId, leadId, actor);
+  }
+
+  /** Fecha de volver a intentarlo o «No volver a contactar» de un archivado. */
+  @Patch('accounts/:leadId/archive')
+  updateArchive(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Param('leadId', new ParseUUIDPipe()) leadId: string,
+    @Body() body: ArchiveDto,
+  ): Promise<SalesAccountDto> {
+    const actor = this.actor(admin, req);
+    return this.accounts.updateArchive(actor.repId, leadId, body, actor);
   }
 
   @Post('accounts/:leadId/reopen')

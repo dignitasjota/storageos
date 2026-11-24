@@ -7,6 +7,8 @@ import {
 } from '../admin/leads';
 import { parseLeadCount } from '../admin/leads-insights';
 
+import { SalesArchiveFilterEnum } from './recovery';
+
 import type { SalesLeadDto } from './index';
 
 /**
@@ -106,6 +108,12 @@ export const SalesLeadsQuerySchema = z.object({
   dir: z.enum(['asc', 'desc']).optional(),
   cursor: optionalQueryText(200),
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  /** Archivados («No interesado», bajas) en vez de la cartera activa. */
+  archived: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+  archive: SalesArchiveFilterEnum.optional(),
 });
 export type SalesLeadsQuery = z.infer<typeof SalesLeadsQuerySchema>;
 
@@ -117,6 +125,7 @@ export const SALES_QUEUE_REASONS = [
   'new_untouched',
   'hot_no_contact',
   'trial_ending',
+  'recover',
 ] as const;
 export type SalesQueueReason = (typeof SALES_QUEUE_REASONS)[number];
 export const SALES_QUEUE_REASON_LABELS: Record<SalesQueueReason, string> = {
@@ -125,6 +134,7 @@ export const SALES_QUEUE_REASON_LABELS: Record<SalesQueueReason, string> = {
   new_untouched: 'Nuevo sin tocar',
   hot_no_contact: 'Caliente sin contacto reciente',
   trial_ending: 'Prueba que acaba',
+  recover: 'Para recuperar',
 };
 /** Días sin hablar con un caliente para que vuelva a la cola. */
 export const SALES_HOT_NO_CONTACT_DAYS = 7;
@@ -162,11 +172,14 @@ export const SalesBulkLeadActionSchema = z.object({
     }),
     z.object({ type: z.literal('cadence'), cadenceId: z.string().uuid() }),
     z.object({ type: z.literal('move'), status: PlatformLeadManualStageEnum }),
-    // «No interesado» de momento es perderlo con su motivo.
+    // «No interesado»: archivado con la fecha de volver a intentarlo (sin
+    // fecha, la que toca por el motivo) o «No volver a contactar».
     z.object({
       type: z.literal('lose'),
       reasonCode: PlatformLeadManualLostReasonEnum,
       reason: z.string().trim().max(1000).optional(),
+      recoverOn: isoDate.nullable().optional(),
+      doNotContact: z.boolean().optional(),
     }),
   ]),
 });

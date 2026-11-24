@@ -3,6 +3,7 @@ import { randomInt } from 'node:crypto';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   normalizeSalesCode,
+  parseRecoverMonths,
   platformLeadName,
   SALES_SOURCE_LABELS,
   type PlatformSalesSettingsDto,
@@ -88,6 +89,7 @@ export class SalesAssignmentService {
       repTrialExtensionDays: s.repTrialExtensionDays,
       repAddonTrialDays: s.repAddonTrialDays,
       lifecycleFromRep: s.lifecycleFromRep,
+      recoverMonths: parseRecoverMonths(s.recoverMonths),
       demo: {
         tenantId: demo && !demo.deletedAt ? demo.id : null,
         tenantName: demo && !demo.deletedAt ? demo.name : null,
@@ -121,6 +123,14 @@ export class SalesAssignmentService {
           : {}),
         ...(input.demoResetEnabled !== undefined
           ? { demoResetEnabled: input.demoResetEnabled }
+          : {}),
+        ...(input.recoverMonths
+          ? {
+              recoverMonths: {
+                ...parseRecoverMonths(s.recoverMonths),
+                ...input.recoverMonths,
+              },
+            }
           : {}),
         updatedById: byId,
       },
@@ -616,6 +626,13 @@ export class SalesAssignmentService {
       tenantId: null,
       discardedAt: null,
       status: { in: ['new', 'contacted', 'interested', 'lost'] },
+      // Los archivados con fecha de volver a intentarlo (y «No volver a
+      // contactar») siguen siendo suyos.
+      NOT: {
+        status: 'lost',
+        salesArchivedAt: { not: null },
+        OR: [{ salesRecoverOn: { not: null } }, { doNotContact: true }],
+      },
       salesAssignedAt: { lt: cutoff },
       // Una nota con fecha futura no cuenta como actividad.
       activities: {

@@ -74,6 +74,8 @@ interface ExistingLead {
   companyName: string | null;
   contactName: string | null;
   email: string | null;
+  /** «No volver a contactar»: no se reparte. */
+  doNotContact: boolean;
 }
 
 /**
@@ -188,6 +190,7 @@ export class SalesDistributionService {
           contactName: true,
           email: true,
           phone: true,
+          doNotContact: true,
           salesRep: { select: { fullName: true } },
         },
       }),
@@ -214,6 +217,14 @@ export class SalesDistributionService {
     lead: ExistingLead | null,
     accountName: string | null,
   ): Pick<PlannedRow, 'status' | 'repId' | 'repName' | 'message'> | null {
+    if (lead?.doNotContact && !lead.salesRepId) {
+      return {
+        status: 'error',
+        repId: null,
+        repName: null,
+        message: 'Pidió que no le volvamos a contactar: se omite',
+      };
+    }
     if (lead?.tenantId || accountName) {
       return {
         status: 'customer',
@@ -382,6 +393,7 @@ export class SalesDistributionService {
         phone: true,
         city: true,
         createdAt: true,
+        doNotContact: true,
         salesRep: { select: { fullName: true } },
       },
     });
