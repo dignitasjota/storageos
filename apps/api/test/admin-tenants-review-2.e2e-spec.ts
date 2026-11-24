@@ -249,6 +249,8 @@ const KEPT_ON_ANONYMIZE = [
   'sales_addon_claims',
   'sales_assignments',
   'sales_commission_items',
+  // Archivos y recuperaciones de comerciales: ids, motivo y fechas (comisiones).
+  'sales_recoveries',
   'sales_wins',
   'tenant_addon_trials',
   'tenant_feature_overrides',
