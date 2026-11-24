@@ -245,7 +245,7 @@ export function ListView({
     !!state.temperature;
 
   return (
-    <div className="space-y-4">
+    <div className={cn('space-y-4', selected.size > 0 && 'pb-20 md:pb-0')}>
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
         <button
           type="button"
