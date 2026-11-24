@@ -212,6 +212,8 @@ export interface SalesLeadDto extends PlatformLeadDto {
   salesProfile: SalesAccountProfileDto | null;
   /** Estado de su cuenta si ya la tiene (trial, active, past_due…). */
   tenantStatus: string | null;
+  /** Cuándo pasó a su cartera. */
+  salesAssignedAt: string | null;
 }
 
 export interface SalesLeadListDto {

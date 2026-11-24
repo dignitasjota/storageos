@@ -47,8 +47,17 @@ const CHANNEL_LABELS: Record<SalesContactChannel, string> = {
 };
 
 /** Lo que pasó en la llamada: deja la nota, la temperatura y el siguiente seguimiento. */
-export function OutcomeCard({ account }: { account: SalesAccountDto }) {
-  const save = useSalesOutcome(account.lead.id);
+export function OutcomeCard({
+  leadId,
+  onSaved,
+  title = '¿Cómo ha ido?',
+}: {
+  leadId: string;
+  /** Tras guardar (el modo llamadas pasa al siguiente). */
+  onSaved?: () => void;
+  title?: string;
+}) {
+  const save = useSalesOutcome(leadId);
   const [outcome, setOutcome] = useState<SalesCallOutcome | null>(null);
   const [channel, setChannel] = useState<SalesContactChannel>('call');
   const [note, setNote] = useState('');
@@ -74,6 +83,7 @@ export function OutcomeCard({ account }: { account: SalesAccountDto }) {
       setOutcome(null);
       setNote('');
       setDate('');
+      onSaved?.();
     } catch (err) {
       toast.error(errorText(err));
     }
@@ -83,7 +93,7 @@ export function OutcomeCard({ account }: { account: SalesAccountDto }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">¿Cómo ha ido?</CardTitle>
+        <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>
           Anota el resultado y queda el siguiente paso en tu agenda.
         </CardDescription>

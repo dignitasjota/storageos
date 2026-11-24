@@ -8,6 +8,12 @@ import type {
   AdminAddonOpportunityDto,
   AdminApprovalRequestDto,
   AdminQuoteDto,
+  AdminSavedViewDto,
+  SalesBulkLeadActionInput,
+  SalesBulkLeadResultDto,
+  SalesClientsQuery,
+  SalesLeadsQuery,
+  SalesQueueDto,
   CreatePlatformLeadActivityInput,
   CreatePlatformLeadFollowupInput,
   CreateSalesProspectInput,
@@ -95,22 +101,55 @@ export function useSalesToday() {
   });
 }
 
-export function useSalesLeads(q: {
-  search?: string;
-  status?: string;
-  filter?: string;
-  batch?: string;
-}) {
-  return useQuery({
-    queryKey: [...ROOT, 'leads', q] as const,
-    queryFn: () => adminApiFetch<SalesLeadListDto>(`/admin/sales/leads${qs(q)}`),
+export type SalesLeadsParams = Omit<SalesLeadsQuery, 'cursor' | 'limit'>;
+
+function leadsQs(q: SalesLeadsParams, extra: Record<string, string | undefined> = {}): string {
+  const p: Record<string, string | undefined> = { ...extra };
+  for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== null) p[k] = String(v);
+  return qs(p);
+}
+
+/** Su cartera por páginas («Cargar más»), con orden y filtros en el servidor. */
+export function useSalesLeads(
+  q: SalesLeadsParams,
+  opts: { limit?: number; enabled?: boolean } = {},
+) {
+  return useInfiniteQuery({
+    queryKey: [...ROOT, 'leads', q, opts.limit ?? 50] as const,
+    queryFn: ({ pageParam }) =>
+      adminApiFetch<SalesLeadListDto>(
+        `/admin/sales/leads${leadsQs(q, {
+          cursor: pageParam ?? undefined,
+          limit: String(opts.limit ?? 50),
+        })}`,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    enabled: opts.enabled ?? true,
   });
 }
 
-export function useSalesClients(filter?: string) {
+/** «Por hacer»: la cola del día con su motivo. */
+export function useSalesQueue() {
   return useQuery({
-    queryKey: [...ROOT, 'clients', filter ?? ''] as const,
-    queryFn: () => adminApiFetch<SalesClientRowDto[]>(`/admin/sales/clients${qs({ filter })}`),
+    queryKey: [...ROOT, 'queue'] as const,
+    queryFn: () => adminApiFetch<SalesQueueDto>('/admin/sales/queue'),
+  });
+}
+
+export function useSalesClients(q: SalesClientsQuery & { opportunities?: boolean } = {}) {
+  const { opportunities, ...rest } = q;
+  return useQuery({
+    queryKey: [...ROOT, 'clients', q] as const,
+    queryFn: () =>
+      adminApiFetch<SalesClientRowDto[]>(
+        `/admin/sales/clients${qs({
+          ...Object.fromEntries(
+            Object.entries(rest).map(([k, v]) => [k, v === undefined ? undefined : String(v)]),
+          ),
+          opportunities: opportunities ? '1' : undefined,
+        })}`,
+      ),
   });
 }
 
@@ -501,6 +540,54 @@ export function useSalesRequestConcept() {
         json: input,
       }),
     onSuccess: invalidate,
+  });
+}
+
+/** La misma acción a varios de su cartera. */
+export function useSalesBulk() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: (input: SalesBulkLeadActionInput) =>
+      adminApiFetch<SalesBulkLeadResultDto>('/admin/sales/leads/bulk', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+const VIEWS_ROOT = ['admin', 'saved-views'] as const;
+
+/** Vistas guardadas del comercial (las suyas) de Prospectos o Clientes. */
+export function useSalesViews(page: 'sales_leads' | 'sales_clients') {
+  return useQuery({
+    queryKey: [...VIEWS_ROOT, page] as const,
+    queryFn: () => adminApiFetch<AdminSavedViewDto[]>(`/admin/saved-views?page=${page}`),
+  });
+}
+
+export function useSaveSalesView(page: 'sales_leads' | 'sales_clients') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      name: string;
+      filters: Record<string, unknown>;
+      sort?: { key: string; dir: 1 | -1 } | null;
+    }) =>
+      adminApiFetch<AdminSavedViewDto>('/admin/saved-views', {
+        method: 'POST',
+        json: { page, ...input },
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: [...VIEWS_ROOT, page] }),
+  });
+}
+
+export function useDeleteSalesView(page: 'sales_leads' | 'sales_clients') {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch<void>(`/admin/saved-views/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: [...VIEWS_ROOT, page] }),
   });
 }
 

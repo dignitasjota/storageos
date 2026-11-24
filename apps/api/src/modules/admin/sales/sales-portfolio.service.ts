@@ -296,7 +296,7 @@ export class SalesPortfolioService {
   async enrich(dtos: PlatformLeadDto[]): Promise<SalesLeadDto[]> {
     const ids = dtos.map((d) => d.id);
     const tenantIds = dtos.map((d) => d.tenant?.id).filter((x): x is string => !!x);
-    const [profiles, tenants] = await Promise.all([
+    const [profiles, tenants, assigned] = await Promise.all([
       ids.length ? this.admin.salesAccountProfile.findMany({ where: { leadId: { in: ids } } }) : [],
       tenantIds.length
         ? this.admin.tenant.findMany({
@@ -304,13 +304,21 @@ export class SalesPortfolioService {
             select: { id: true, status: true },
           })
         : [],
+      ids.length
+        ? this.admin.platformLead.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, salesAssignedAt: true },
+          })
+        : [],
     ]);
+    const assignedOf = new Map(assigned.map((a) => [a.id, a.salesAssignedAt]));
     const profileOf = new Map(profiles.map((p) => [p.leadId, p]));
     const tenantOf = new Map(tenants.map((t) => [t.id, t]));
     return dtos.map((d) => ({
       ...d,
       salesProfile: profileDto(profileOf.get(d.id)),
       tenantStatus: d.tenant ? (tenantOf.get(d.tenant.id)?.status ?? null) : null,
+      salesAssignedAt: assignedOf.get(d.id)?.toISOString() ?? null,
     }));
   }
 
