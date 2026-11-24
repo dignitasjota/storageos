@@ -3144,3 +3144,14 @@ Migración `20270303100000_sales_bulk_assign` (se aplica sola): en `platform_lea
 - **Duplicados** (decisión de Jota): sin comercial → se asigna; de otro comercial → no se toca (sale en la vista previa con su nombre); con cuenta → se omite.
 - **Avisos**: un solo aviso por comercial y reparto, en su panel y por correo (remitente de «avisos al equipo»). Los prospectos le salen como «Nuevo para ti» hasta que los abre.
 - **Cambia la liberación por inactividad** (decisión de Jota): también se liberan los que repartió la dirección, contando desde el reparto, pero **antes se avisa a la dirección** (campana del panel, con la lista) hasta 7 días antes. Tras el despliegue, los prospectos que ya estaban pasados del plazo no se liberan esa noche: primero se avisa y quedan libres a los 7 días.
+
+## 190. Comerciales: cartera manejable (2026-11-24)
+
+Sin migración ni variables nuevas. Redesplegar api y web (va apilada sobre el §189).
+
+- **Prospectos del comercial en tres vistas** (`/admin/sales/leads`): «Por hacer» (la cola del día con su motivo: seguimientos atrasados y de hoy, nuevos sin tocar por cuota prevista, calientes sin hablar en 7 días y pruebas que acaban en 7 días), «Lista» y «Tablero» por fases. El aviso de un reparto (`?filter=new_for_you&batch=…`) abre la lista.
+- **Modo llamadas** (`/admin/sales/leads/calls`, también desde «Hoy»): recorre la cola ficha a ficha; anotar el resultado (con su siguiente seguimiento) pasa al siguiente.
+- **Lista sin corte de 500**: por páginas («Cargar más»), orden por prioridad, cuota prevista, último contacto o asignación, filtros por lote, ciudad, tamaño, temperatura, «sin tocar» y «nuevos para ti», vistas guardadas propias y acciones en lote (seguimiento, cadencia, fase y «no interesado», que de momento lo pierde con su motivo). En el móvil, tarjetas.
+- **Clientes**: filtros (prueba que acaba, con deuda, con algo que ofrecer…), búsqueda, temperatura, lote, orden y vistas guardadas.
+- Las vistas guardadas de los comerciales usan la misma tabla que las del panel (`super_admin_saved_views`, páginas `sales_leads` y `sales_clients`): un comercial solo ve y guarda las suyas de esas dos pantallas.
+- Tras desplegar, mirar como comercial en el móvil «Prospectos» (las tres vistas) y el modo llamadas.

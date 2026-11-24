@@ -2802,7 +2802,8 @@ export interface TenantPlatformMessagesPageDto {
 /** Vista guardada de una lista del panel admin. */
 export interface AdminSavedViewDto {
   id: string;
-  page: 'tenants';
+  /** Lista a la que pertenece (`tenants`, `leads`, `sales_leads`…). */
+  page: string;
   name: string;
   filters: Record<string, unknown>;
   /** Columnas visibles y orden de la lista (null = los de siempre). */

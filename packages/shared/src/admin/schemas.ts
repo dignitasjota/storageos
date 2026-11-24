@@ -126,7 +126,16 @@ export const AdminSavedViewPageEnum = z.enum([
   'adoption',
   'usage',
   'leads',
+  // Las del comercial (cada uno las suyas).
+  'sales_leads',
+  'sales_clients',
 ]);
+export type AdminSavedViewPage = z.infer<typeof AdminSavedViewPageEnum>;
+/** Las vistas que puede guardar un comercial. */
+export const SALES_SAVED_VIEW_PAGES: readonly AdminSavedViewPage[] = [
+  'sales_leads',
+  'sales_clients',
+];
 export const CreateAdminSavedViewSchema = z.object({
   page: AdminSavedViewPageEnum,
   name: z.string().trim().min(1).max(80),

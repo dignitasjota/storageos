@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -31,7 +32,12 @@ import {
   RequestSalesConceptSchema,
   SalesAddonOfferSchema,
   SalesApprovalRequestSchema,
+  SalesBulkLeadActionSchema,
   SalesCallOutcomeSchema,
+  SalesClientsQuerySchema,
+  SalesLeadsQuerySchema,
+  type SalesBulkLeadResultDto,
+  type SalesQueueDto,
   SalesClaimNoteSchema,
   SalesCreateTenantSchema,
   SalesExtendTrialSchema,
@@ -69,6 +75,7 @@ import {
   type SuperAdminNotificationDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { AdminGuard } from '../admin.guard';
@@ -83,6 +90,7 @@ import { SalesContentService } from './sales-content.service';
 import { SalesDemoService } from './sales-demo.service';
 import { SalesInsightsService } from './sales-insights.service';
 import { SalesNotifyService } from './sales-notify.service';
+import { SalesPortfolioService } from './sales-portfolio.service';
 import { SalesSellingService, type SalesCatalogDto } from './sales-selling.service';
 
 import type { SalesActor } from './sales-common';
@@ -112,6 +120,19 @@ class ImportDto extends createZodDto(SalesImportSchema) {}
 class MeDto extends createZodDto(UpdateSalesMeSchema) {}
 class AppointmentDto extends createZodDto(CreateSalesAppointmentSchema) {}
 class UpdateAppointmentDto extends createZodDto(UpdateSalesAppointmentSchema) {}
+class BulkDto extends createZodDto(SalesBulkLeadActionSchema) {}
+
+/** Parámetros de una lista validados con su esquema (400 con el motivo si no). */
+function parseQuery<T extends z.ZodTypeAny>(schema: T, query: Record<string, string>): z.infer<T> {
+  const parsed = schema.safeParse(query ?? {});
+  if (!parsed.success) {
+    throw new BadRequestException({
+      code: 'invalid_query',
+      message: parsed.error.issues[0]?.message ?? 'Filtro no válido',
+    });
+  }
+  return parsed.data;
+}
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
@@ -135,6 +156,7 @@ export class SalesController {
     private readonly assignment: SalesAssignmentService,
     private readonly insights: SalesInsightsService,
     private readonly appointments: SalesAppointmentsService,
+    private readonly portfolio: SalesPortfolioService,
   ) {}
 
   private actor(admin: AuthenticatedSuperAdmin, req: Request): SalesActor {
@@ -184,17 +206,31 @@ export class SalesController {
   leads(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Req() req: Request,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('filter') filter?: string,
-    @Query('batch') batch?: string,
+    @Query() query: Record<string, string>,
   ): Promise<SalesLeadListDto> {
-    return this.accounts.listLeads(this.actor(admin, req).repId, {
-      ...(search?.trim() ? { search: search.trim().slice(0, 120) } : {}),
-      ...(status ? { status } : {}),
-      ...(filter ? { filter } : {}),
-      ...(batch?.trim() ? { batch: batch.trim().slice(0, 120) } : {}),
-    });
+    const repId = this.actor(admin, req).repId;
+    return this.portfolio.listLeads(repId, parseQuery(SalesLeadsQuerySchema, query));
+  }
+
+  /** «Por hacer»: lo que toca hoy, en orden y con su motivo. */
+  @Get('queue')
+  queue(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+  ): Promise<SalesQueueDto> {
+    return this.portfolio.queue(this.actor(admin, req).repId);
+  }
+
+  /** La misma acción a varios de su cartera (cada uno por su lado). */
+  @Post('leads/bulk')
+  @HttpCode(HttpStatus.OK)
+  bulk(
+    @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
+    @Req() req: Request,
+    @Body() body: BulkDto,
+  ): Promise<SalesBulkLeadResultDto> {
+    const actor = this.actor(admin, req);
+    return this.portfolio.bulk(actor.repId, body, actor);
   }
 
   @Post('leads')
@@ -465,9 +501,13 @@ export class SalesController {
   clients(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Req() req: Request,
-    @Query('filter') filter?: string,
+    @Query() query: Record<string, string>,
   ): Promise<SalesClientRowDto[]> {
-    return this.accounts.listClients(this.actor(admin, req).repId, filter);
+    const { opportunities, ...rest } = query;
+    return this.accounts.listClients(this.actor(admin, req).repId, {
+      ...parseQuery(SalesClientsQuerySchema, rest),
+      withOpportunities: opportunities === '1' || opportunities === 'true',
+    });
   }
 
   @Post('clients/:tenantId/addon-offer')

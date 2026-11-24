@@ -6,6 +6,7 @@ import type { PlatformQuoteOfferDto } from '../admin/catalog';
 
 export * from './appointments';
 export * from './distribution';
+export * from './portfolio';
 
 /**
  * Comerciales del panel de administración (rol `sales`): su código y enlace,
@@ -211,6 +212,8 @@ export interface SalesLeadDto extends PlatformLeadDto {
   salesProfile: SalesAccountProfileDto | null;
   /** Estado de su cuenta si ya la tiene (trial, active, past_due…). */
   tenantStatus: string | null;
+  /** Cuándo pasó a su cartera. */
+  salesAssignedAt: string | null;
 }
 
 export interface SalesLeadListDto {
@@ -220,6 +223,12 @@ export interface SalesLeadListDto {
   newForYou: number;
   /** Lotes de su cartera con cuántos tiene de cada uno. */
   batches: { name: string; count: number }[];
+  /** Ciudades de su cartera con cuántos tiene de cada una. */
+  cities: { name: string; count: number }[];
+  /** Cuántos cumplen los filtros (todas las páginas). */
+  total: number;
+  /** Para pedir la página siguiente (null = no hay más). */
+  nextCursor: string | null;
 }
 
 // ----------------------------------------------------------------- clientes
@@ -249,6 +258,10 @@ export interface SalesClientRowDto {
   assignedAt: string | null;
   nextFollowup: { id: string; title: string; dueDate: string } | null;
   profile: SalesAccountProfileDto | null;
+  /** Lote del reparto con el que llegó su prospecto. */
+  batch: string | null;
+  /** Extras que le podría vender (de Oportunidades; vacío si no se han pedido). */
+  opportunities: string[];
 }
 
 /** Lo que ve el comercial de la cuenta de un cliente (nunca sus inquilinos ni su facturación). */

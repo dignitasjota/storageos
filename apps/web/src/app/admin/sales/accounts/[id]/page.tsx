@@ -164,7 +164,7 @@ export default function SalesAccountPage() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr),minmax(0,1fr)]">
         <div className="space-y-4">
-          <OutcomeCard account={a} />
+          <OutcomeCard leadId={a.lead.id} />
           <SummaryCard account={a} />
           <ProfileCard account={a} />
           <DataCard account={a} />

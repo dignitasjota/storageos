@@ -1,7 +1,7 @@
 'use client';
 
 import { SALES_APPOINTMENT_KIND_LABELS, type SalesTodayRowDto } from '@storageos/shared';
-import { CheckCircle2, Loader2, Plus } from 'lucide-react';
+import { CheckCircle2, ListTodo, Loader2, PhoneCall, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -104,10 +104,24 @@ export default function SalesTodayPage() {
         title="Hoy"
         description={data ? formatDate(data.date) : undefined}
         actions={
-          <Button onClick={() => setNewOpen(true)}>
-            <Plus className="mr-1.5 size-4" />
-            Nuevo prospecto
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/admin/sales/leads?view=queue">
+                <ListTodo className="mr-1.5 size-4" />
+                Por hacer
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/admin/sales/leads/calls">
+                <PhoneCall className="mr-1.5 size-4" />
+                Modo llamadas
+              </Link>
+            </Button>
+            <Button onClick={() => setNewOpen(true)}>
+              <Plus className="mr-1.5 size-4" />
+              Nuevo prospecto
+            </Button>
+          </>
         }
       />
       <NewProspectDialog open={newOpen} onClose={() => setNewOpen(false)} />

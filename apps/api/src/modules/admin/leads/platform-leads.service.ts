@@ -143,7 +143,14 @@ export const LEAD_INCLUDE = {
     take: 1,
     select: { id: true, title: true, dueDate: true },
   },
-  activities: { orderBy: { occurredAt: 'desc' }, take: 1, select: { occurredAt: true } },
+  // Las notas automáticas (reparto, propuesta abierta, secuencias) no son actividad
+  // del equipo: si contaran, un prospecto recién repartido saldría «contactado hoy».
+  activities: {
+    where: { type: { not: 'system' } },
+    orderBy: { occurredAt: 'desc' },
+    take: 1,
+    select: { occurredAt: true },
+  },
 } satisfies Prisma.PlatformLeadInclude;
 export type LeadRow = Prisma.PlatformLeadGetPayload<{ include: typeof LEAD_INCLUDE }>;
 
@@ -422,6 +429,86 @@ export class PlatformLeadsService {
       take,
     });
     return this.toDtos(rows);
+  }
+
+  /**
+   * Puntuación, cuota prevista y última actividad de muchos leads sin cargar
+   * sus fichas (lo usa la cartera del comercial para ordenar todas las
+   * páginas). Mismo cálculo que `toDtos`.
+   */
+  async rankRows(
+    rows: {
+      id: string;
+      status: string;
+      source: string;
+      units: string | null;
+      facilities: string | null;
+      planSlug: string | null;
+      createdAt: Date;
+    }[],
+    now = new Date(),
+  ): Promise<Map<string, { score: number; monthly: number | null; lastActivityAt: Date | null }>> {
+    const out = new Map<
+      string,
+      { score: number; monthly: number | null; lastActivityAt: Date | null }
+    >();
+    if (rows.length === 0) return out;
+    const context = await this.insightContext();
+    const actsOf = new Map<string, Map<string, Date>>();
+    const opensOf = new Map<string, number>();
+    // Por tandas: la consulta no admite listas enormes de parámetros.
+    for (let i = 0; i < rows.length; i += 5000) {
+      const ids = rows.slice(i, i + 5000).map((r) => r.id);
+      const [acts, opens] = await Promise.all([
+        this.admin.platformLeadActivity.groupBy({
+          by: ['leadId', 'type'],
+          where: { leadId: { in: ids } },
+          _max: { occurredAt: true },
+        }),
+        this.admin.platformQuoteOffer.groupBy({
+          by: ['leadId'],
+          where: { leadId: { in: ids } },
+          _sum: { openCount: true },
+        }),
+      ]);
+      for (const a of acts) {
+        if (!a.leadId || !a._max.occurredAt) continue;
+        const m = actsOf.get(a.leadId) ?? new Map<string, Date>();
+        m.set(a.type, a._max.occurredAt);
+        actsOf.set(a.leadId, m);
+      }
+      for (const o of opens) if (o.leadId) opensOf.set(o.leadId, o._sum.openCount ?? 0);
+    }
+    const latest = (m: Map<string, Date> | undefined, types?: readonly string[]) => {
+      let best: Date | null = null;
+      for (const [t, d] of m ?? []) {
+        if (types && !types.includes(t)) continue;
+        if (!best || d > best) best = d;
+      }
+      return best;
+    };
+    for (const r of rows) {
+      const a = actsOf.get(r.id);
+      const lastActivityAt = latest(a);
+      const scored = scorePlatformLead(
+        {
+          status: r.status as PlatformLeadStage,
+          source: r.source,
+          units: r.units,
+          facilities: r.facilities,
+          replied: ['email_in', 'call', 'demo', 'meeting'].some((t) => a?.has(t)),
+          proposalOpens: opensOf.get(r.id) ?? 0,
+          lastActivityAt,
+          lastOutboundAt: latest(a, ['email_out', 'quote']),
+          lastInboundAt: latest(a, ['web_form', 'email_in']),
+          createdAt: r.createdAt,
+        },
+        now,
+      );
+      const value = estimatePlatformLeadValue(r, context.value);
+      out.set(r.id, { score: scored.score, monthly: value?.monthly ?? null, lastActivityAt });
+    }
+    return out;
   }
 
   /** Planes, precios y ajustes para la cuota prevista y los parados (una vez por petición). */

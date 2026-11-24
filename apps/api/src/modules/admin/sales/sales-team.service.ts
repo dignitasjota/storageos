@@ -23,6 +23,7 @@ import { SalesAccountsService } from './sales-accounts.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { clean, DAY, round2 } from './sales-common';
+import { SalesPortfolioService } from './sales-portfolio.service';
 
 import type { Env } from '../../../config/env.schema';
 
@@ -42,6 +43,7 @@ export class SalesTeamService {
     private readonly accounts: SalesAccountsService,
     private readonly audit: SuperAdminAuditService,
     private readonly config: ConfigService<Env, true>,
+    private readonly portfolio: SalesPortfolioService,
   ) {}
 
   private async summaries(
@@ -293,8 +295,8 @@ export class SalesTeamService {
 
   async repAccounts(repId: string): Promise<SalesRepAccountsDto> {
     const [leads, clients] = await Promise.all([
-      this.accounts.listLeads(repId, {}),
-      this.accounts.listClients(repId, undefined),
+      this.portfolio.listLeads(repId, {}, new Date(), 500),
+      this.accounts.listClients(repId),
     ]);
     return { leads: leads.items, clients };
   }
