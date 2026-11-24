@@ -187,11 +187,13 @@ export class SalesController {
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('filter') filter?: string,
+    @Query('batch') batch?: string,
   ): Promise<SalesLeadListDto> {
     return this.accounts.listLeads(this.actor(admin, req).repId, {
       ...(search?.trim() ? { search: search.trim().slice(0, 120) } : {}),
       ...(status ? { status } : {}),
       ...(filter ? { filter } : {}),
+      ...(batch?.trim() ? { batch: batch.trim().slice(0, 120) } : {}),
     });
   }
 

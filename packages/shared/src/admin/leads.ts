@@ -510,6 +510,10 @@ export const PlatformLeadListQuerySchema = z.object({
   sizeMax: z.number().int().min(0).max(1_000_000).optional(),
   city: z.string().trim().max(120).optional(),
   campaign: z.string().trim().max(120).optional(),
+  /** Lote del reparto a comerciales. */
+  batch: z.string().trim().max(120).optional(),
+  /** Sin comercial (para repartirlos). */
+  noSalesRep: z.boolean().optional(),
   /** Sin actividad en al menos estos días. */
   inactiveDays: z.number().int().min(1).max(365).optional(),
   /** Solo los parados. */
@@ -686,6 +690,10 @@ export interface PlatformLeadDto {
   discardedAt: string | null;
   /** Comercial que lleva la cuenta (cartera y comisiones). */
   salesRepName: string | null;
+  /** Lote del reparto de la dirección (p. ej. «Feria Valencia»). */
+  salesBatch: string | null;
+  /** Su comercial aún no lo ha abierto («Nuevo para ti»). */
+  salesNew: boolean;
   /**
    * Comercial de su cuenta de cliente si no es quien lo lleva en el tablero:
    * la cuenta (y sus comisiones) sigue siendo suya.

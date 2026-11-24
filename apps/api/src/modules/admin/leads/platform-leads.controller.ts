@@ -125,6 +125,8 @@ function listQuery(raw: Record<string, string | undefined>) {
     ...(num(raw.sizeMax) !== undefined ? { sizeMax: num(raw.sizeMax) } : {}),
     ...(raw.city?.trim() ? { city: raw.city.trim() } : {}),
     ...(raw.campaign?.trim() ? { campaign: raw.campaign.trim() } : {}),
+    ...(raw.batch?.trim() ? { batch: raw.batch.trim() } : {}),
+    ...(raw.noSalesRep === '1' || raw.noSalesRep === 'true' ? { noSalesRep: true } : {}),
     ...(num(raw.inactiveDays) ? { inactiveDays: num(raw.inactiveDays) } : {}),
     ...(raw.stale === '1' || raw.stale === 'true' ? { stale: true } : {}),
     ...(raw.discarded === '1' || raw.discarded === 'true' ? { discarded: true } : {}),

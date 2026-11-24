@@ -53,9 +53,9 @@ const PHOTO_EXT: Record<string, string> = {
 };
 const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 /** Tope de filas de un fichero de leads. */
-const IMPORT_MAX_ROWS = 2000;
+export const IMPORT_MAX_ROWS = 2000;
 
-type ImportField =
+export type ImportField =
   | 'companyName'
   | 'contactName'
   | 'email'
@@ -70,7 +70,7 @@ type ImportField =
   | 'utmCampaign';
 
 /** Cabeceras que se entienden (sin tildes, espacios ni mayúsculas). */
-const IMPORT_ALIASES: Record<string, ImportField> = {
+export const IMPORT_ALIASES: Record<string, ImportField> = {
   empresa: 'companyName',
   compania: 'companyName',
   company: 'companyName',
@@ -124,7 +124,7 @@ const IMPORT_ALIASES: Record<string, ImportField> = {
 const emailOk = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
 /** Origen escrito en el fichero (su código o su nombre en español), o null. */
-function sourceFrom(text: string): PlatformLeadSource | null {
+export function sourceFrom(text: string): PlatformLeadSource | null {
   const t = normalizeHeader(text);
   if (!t) return null;
   return (
@@ -169,6 +169,11 @@ export class PlatformLeadToolsService {
     if (q.status?.length) where.status = { in: q.status };
     if (q.city) where.city = { contains: q.city, mode: 'insensitive' };
     if (q.campaign) where.utmCampaign = { contains: q.campaign, mode: 'insensitive' };
+    if (q.batch) where.salesBatch = { equals: q.batch, mode: 'insensitive' };
+    if (q.noSalesRep) {
+      where.salesRepId = null;
+      where.tenantId = null;
+    }
     const rows = await this.admin.platformLead.findMany({
       where,
       include: LEAD_INCLUDE,

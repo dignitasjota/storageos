@@ -27,6 +27,8 @@ import {
   CreateSalesSettlementSchema,
   DecideSalesSchema,
   ReassignSalesPortfolioSchema,
+  SalesBulkImportSchema,
+  SalesDistributeLeadsSchema,
   SalesMaterialUploadSchema,
   UpdatePlatformSalesSettingsSchema,
   UpdateSalesCommissionPlanSchema,
@@ -41,6 +43,8 @@ import {
   type PlatformSalesSettingsDto,
   type SalesAccountRepDto,
   type SalesAddonClaimDto,
+  type SalesBatchDto,
+  type SalesDistributionResultDto,
   type SalesCadenceDto,
   type SalesCommissionItemDto,
   type SalesCommissionPlanDto,
@@ -65,6 +69,7 @@ import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesContentService } from './sales-content.service';
 import { SalesDemoService } from './sales-demo.service';
+import { SalesDistributionService } from './sales-distribution.service';
 import { SalesInsightsService } from './sales-insights.service';
 import { SalesTeamService } from './sales-team.service';
 
@@ -88,6 +93,8 @@ class MaterialDto extends createZodDto(UpsertSalesMaterialSchema) {}
 class MaterialUploadDto extends createZodDto(SalesMaterialUploadSchema) {}
 class TemplateDto extends createZodDto(UpsertSalesTemplateSchema) {}
 class CadenceDto extends createZodDto(UpsertSalesCadenceSchema) {}
+class BulkImportDto extends createZodDto(SalesBulkImportSchema) {}
+class DistributeLeadsDto extends createZodDto(SalesDistributeLeadsSchema) {}
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -110,6 +117,7 @@ export class SalesTeamController {
     private readonly demo: SalesDemoService,
     private readonly insights: SalesInsightsService,
     private readonly appointments: SalesAppointmentsService,
+    private readonly distribution: SalesDistributionService,
   ) {}
 
   // ------------------------------------------------------------------ citas
@@ -273,6 +281,44 @@ export class SalesTeamController {
     if (tenantId && UUID_RE.test(tenantId)) return this.assignment.accountRep({ tenantId });
     if (leadId && UUID_RE.test(leadId)) return this.assignment.accountRep({ leadId });
     throw new BadRequestException({ code: 'account_required', message: 'Indica la cuenta' });
+  }
+
+  // ------------------------------------------------------- reparto masivo
+
+  /** Importar un fichero de prospectos y repartirlo (sin `commit`, vista previa). */
+  @Post('distribute/import')
+  @HttpCode(HttpStatus.OK)
+  distributeImport(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Body() body: BulkImportDto,
+  ): Promise<SalesDistributionResultDto> {
+    return this.distribution.importAndDistribute(body, {
+      superAdminId: byId,
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
+  }
+
+  /** Repartir leads de la lista entre comerciales (sin `commit`, vista previa). */
+  @Post('distribute/leads')
+  @HttpCode(HttpStatus.OK)
+  distributeLeads(
+    @CurrentSuperAdmin('sub') byId: string,
+    @Req() req: Request,
+    @Body() body: DistributeLeadsDto,
+  ): Promise<SalesDistributionResultDto> {
+    return this.distribution.distributeLeads(body, {
+      superAdminId: byId,
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
+  }
+
+  /** Lotes repartidos y en qué fase están sus prospectos. */
+  @Get('batches')
+  batches(): Promise<SalesBatchDto[]> {
+    return this.distribution.batches();
   }
 
   // ------------------------------------------------------------- comisiones

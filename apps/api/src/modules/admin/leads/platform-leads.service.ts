@@ -587,6 +587,8 @@ export class PlatformLeadsService {
           (r.status === 'new' && !r.firstResponseAt ? r.createdAt.toISOString() : null),
         discardedAt: r.discardedAt?.toISOString() ?? null,
         salesRepName: r.salesRep?.fullName ?? null,
+        salesBatch: r.salesBatch,
+        salesNew: !!r.salesRepId && !r.salesSeenAt,
         accountKeptBy:
           r.tenant?.salesRep && !r.tenant.deletedAt && r.tenant.salesRep.id !== r.assignedToId
             ? { id: r.tenant.salesRep.id, name: r.tenant.salesRep.fullName }

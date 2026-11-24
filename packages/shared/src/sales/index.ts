@@ -5,6 +5,7 @@ import type { SalesAppointmentDto } from './appointments';
 import type { PlatformQuoteOfferDto } from '../admin/catalog';
 
 export * from './appointments';
+export * from './distribution';
 
 /**
  * Comerciales del panel de administración (rol `sales`): su código y enlace,
@@ -215,6 +216,10 @@ export interface SalesLeadDto extends PlatformLeadDto {
 export interface SalesLeadListDto {
   items: SalesLeadDto[];
   counts: Record<string, number>;
+  /** Asignados que aún no ha abierto («Nuevos para ti»). */
+  newForYou: number;
+  /** Lotes de su cartera con cuántos tiene de cada uno. */
+  batches: { name: string; count: number }[];
 }
 
 // ----------------------------------------------------------------- clientes
@@ -892,6 +897,7 @@ export const SALES_SOURCE_LABELS: Record<string, string> = {
   lead: 'Prospecto del comercial',
   manual: 'Asignada por la dirección',
   import: 'Importado por el comercial',
+  direction: 'Repartido por la dirección',
 };
 
 export interface PlatformSalesSettingsDto {
