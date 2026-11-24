@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { adminApiFetch } from './api';
 
@@ -10,6 +10,15 @@ import type {
   CreateSalesRepInput,
   CreateSalesSettlementInput,
   ImpersonationTokenDto,
+  MovePlatformLeadInput,
+  SalesArchiveLeadInput,
+  SalesDirectionNoteInput,
+  SalesDirectionReassignInput,
+  SalesPortfolioDetailDto,
+  SalesPortfolioListDto,
+  SalesPortfolioRowDto,
+  SalesPortfoliosQuery,
+  UpdateSalesProfileInput,
   SalesDemoPortalLinkDto,
   PlatformSalesSettingsDto,
   ReassignSalesPortfolioInput,
@@ -477,4 +486,110 @@ export function useSalesBatches(enabled = true) {
     queryFn: () => adminApiFetch<SalesBatchDto[]>('/admin/sales-team/batches'),
     enabled,
   });
+}
+
+// ---------------------------------------------------------------- carteras
+
+/** Filtros de Carteras tal como van en la URL (sin el cursor ni el tamaño). */
+export type SalesPortfoliosParams = Partial<
+  Record<Exclude<keyof SalesPortfoliosQuery, 'cursor' | 'limit'>, string>
+>;
+
+function portfoliosQs(
+  params: SalesPortfoliosParams,
+  extra: Record<string, string | undefined> = {},
+) {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...params, ...extra })) if (v) p.set(k, v);
+  const s = p.toString();
+  return s ? `?${s}` : '';
+}
+
+/** Prospectos y clientes de todos los comerciales, por páginas («Cargar más»). */
+export function useSalesPortfolios(params: SalesPortfoliosParams, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: [...ROOT, 'portfolios', params] as const,
+    queryFn: ({ pageParam }) =>
+      adminApiFetch<SalesPortfolioListDto>(
+        `/admin/sales-team/portfolios${portfoliosQs(params, {
+          cursor: pageParam ?? undefined,
+          limit: '50',
+        })}`,
+      ),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    enabled,
+  });
+}
+
+/** Todas las filas con esos filtros (para el CSV). */
+export function fetchSalesPortfoliosExport(
+  params: SalesPortfoliosParams,
+): Promise<SalesPortfolioRowDto[]> {
+  return adminApiFetch<SalesPortfolioRowDto[]>(
+    `/admin/sales-team/portfolios/export${portfoliosQs(params)}`,
+  );
+}
+
+export function useSalesPortfolio(leadId: string | null) {
+  return useQuery({
+    queryKey: [...ROOT, 'portfolio', leadId] as const,
+    queryFn: () => adminApiFetch<SalesPortfolioDetailDto>(`/admin/sales-team/portfolios/${leadId}`),
+    enabled: !!leadId,
+  });
+}
+
+/** Acciones de la dirección sobre una cuenta: refrescan la ficha y la tabla. */
+function usePortfolioMutation<T>(
+  leadId: string,
+  run: (input: T) => Promise<SalesPortfolioDetailDto>,
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: (detail) => {
+      qc.setQueryData([...ROOT, 'portfolio', leadId], detail);
+      void qc.invalidateQueries({ queryKey: [...ROOT, 'portfolios'] });
+      void qc.invalidateQueries({ queryKey: [...ROOT, 'overview'] });
+    },
+  });
+}
+
+const portfolioPath = (leadId: string, action: string) =>
+  `/admin/sales-team/portfolios/${leadId}/${action}`;
+
+export function usePortfolioNote(leadId: string) {
+  return usePortfolioMutation<SalesDirectionNoteInput>(leadId, (body) =>
+    adminApiFetch(portfolioPath(leadId, 'notes'), { method: 'POST', json: body }),
+  );
+}
+
+export function usePortfolioReassign(leadId: string) {
+  return usePortfolioMutation<SalesDirectionReassignInput>(leadId, (body) =>
+    adminApiFetch(portfolioPath(leadId, 'reassign'), { method: 'POST', json: body }),
+  );
+}
+
+export function usePortfolioProfile(leadId: string) {
+  return usePortfolioMutation<UpdateSalesProfileInput>(leadId, (body) =>
+    adminApiFetch(portfolioPath(leadId, 'profile'), { method: 'PATCH', json: body }),
+  );
+}
+
+export function usePortfolioMove(leadId: string) {
+  return usePortfolioMutation<MovePlatformLeadInput>(leadId, (body) =>
+    adminApiFetch(portfolioPath(leadId, 'move'), { method: 'POST', json: body }),
+  );
+}
+
+export function usePortfolioArchive(leadId: string) {
+  return usePortfolioMutation<SalesArchiveLeadInput>(leadId, (body) =>
+    adminApiFetch(portfolioPath(leadId, 'archive'), { method: 'POST', json: body }),
+  );
+}
+
+export function usePortfolioRecover(leadId: string) {
+  return usePortfolioMutation<void>(leadId, () =>
+    adminApiFetch(portfolioPath(leadId, 'recover'), { method: 'POST' }),
+  );
 }
