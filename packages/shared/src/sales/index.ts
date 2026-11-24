@@ -10,6 +10,7 @@ import type { PlatformQuoteOfferDto } from '../admin/catalog';
 export * from './appointments';
 export * from './distribution';
 export * from './portfolio';
+export * from './portfolios';
 export * from './recovery';
 
 /**
@@ -939,6 +940,11 @@ export interface PlatformSalesSettingsDto {
   repTrialExtensionDays: number;
   repAddonTrialDays: number;
   lifecycleFromRep: boolean;
+  /**
+   * Días sin primer contacto de un prospecto que repartió la dirección para
+   * avisarla (0 = nunca).
+   */
+  firstContactAlertDays: number;
   /** Meses hasta volver a intentarlo un archivado, por motivo. */
   recoverMonths: Record<PlatformLeadLostReason, number>;
   demo: {
@@ -956,6 +962,7 @@ export const UpdatePlatformSalesSettingsSchema = z.object({
   repTrialExtensionDays: z.number().int().min(0).max(90).optional(),
   repAddonTrialDays: z.number().int().min(0).max(90).optional(),
   lifecycleFromRep: z.boolean().optional(),
+  firstContactAlertDays: z.number().int().min(0).max(90).optional(),
   demoResetEnabled: z.boolean().optional(),
   /** Solo los motivos que cambian. */
   recoverMonths: z.record(PlatformLeadLostReasonEnum, z.number().int().min(1).max(36)).optional(),

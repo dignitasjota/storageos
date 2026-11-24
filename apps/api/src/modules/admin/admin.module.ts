@@ -115,6 +115,7 @@ import { SalesDistributionService } from './sales/sales-distribution.service';
 import { SalesInsightsService } from './sales/sales-insights.service';
 import { SalesNotifyService } from './sales/sales-notify.service';
 import { SalesPortfolioService } from './sales/sales-portfolio.service';
+import { SalesPortfoliosService } from './sales/sales-portfolios.service';
 import { QuoteOfferOpenController, SalesPublicController } from './sales/sales-public.controller';
 import { SalesRecoveryService } from './sales/sales-recovery.service';
 import { SalesSellingService } from './sales/sales-selling.service';
@@ -259,6 +260,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SalesInsightsService,
     SalesAccountsService,
     SalesPortfolioService,
+    SalesPortfoliosService,
     SalesRecoveryService,
     SalesSellingService,
     SalesTeamService,

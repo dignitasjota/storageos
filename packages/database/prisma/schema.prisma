@@ -9029,6 +9029,8 @@ model PlatformLead {
   salesSeenAt          DateTime? @map("sales_seen_at") @db.Timestamptz(6)
   /// Aviso a la dirección de que va a quedar libre por inactividad.
   salesReleaseWarnedAt DateTime? @map("sales_release_warned_at") @db.Timestamptz(6)
+  /// Aviso a la dirección de que su comercial aún no ha llamado (por reparto).
+  salesFirstContactWarnedAt DateTime? @map("sales_first_contact_warned_at") @db.Timestamptz(6)
   /// «No interesado» o cliente dado de baja: archivado en la cartera de su
   /// comercial (solo cuenta con el lead perdido).
   salesArchivedAt      DateTime? @map("sales_archived_at") @db.Timestamptz(6)
@@ -9626,6 +9628,8 @@ model PlatformSalesSettings {
   leadReleaseDays       Int       @default(90) @map("lead_release_days")
   repTrialExtensionDays Int       @default(14) @map("rep_trial_extension_days")
   repAddonTrialDays     Int       @default(14) @map("rep_addon_trial_days")
+  /// Días sin primer contacto de un prospecto repartido por la dirección para avisarla (0 = nunca).
+  firstContactAlertDays Int       @default(5) @map("first_contact_alert_days")
   lifecycleFromRep      Boolean   @default(true) @map("lifecycle_from_rep")
   demoTenantId          String?   @map("demo_tenant_id") @db.Uuid
   demoResetEnabled      Boolean   @default(true) @map("demo_reset_enabled")

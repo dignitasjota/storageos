@@ -1102,7 +1102,7 @@ export class SalesAccountsService {
 
   // ---------------------------------------------------------------- cadencias
 
-  private async enrollmentOf(leadId: string): Promise<SalesCadenceEnrollmentDto | null> {
+  async enrollmentOf(leadId: string): Promise<SalesCadenceEnrollmentDto | null> {
     const row = await this.admin.salesCadenceEnrollment.findFirst({
       where: { leadId },
       orderBy: { startedAt: 'desc' },

@@ -133,6 +133,8 @@ export const PLATFORM_LEAD_ACTIVITY_TYPES = [
   'signup',
   'quote',
   'system',
+  /** Nota o cambio de la dirección comercial (Carteras): no es contacto con el cliente. */
+  'direction',
 ] as const;
 export type PlatformLeadActivityType = (typeof PLATFORM_LEAD_ACTIVITY_TYPES)[number];
 
@@ -148,6 +150,7 @@ export const PLATFORM_LEAD_ACTIVITY_LABELS: Record<PlatformLeadActivityType, str
   signup: 'Se registró',
   quote: 'Propuesta enviada',
   system: 'Automático',
+  direction: 'Dirección',
 };
 
 /** Lo que el equipo anota a mano. */

@@ -10,6 +10,7 @@ import { SalesAppointmentsService } from './sales-appointments.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesDemoService } from './sales-demo.service';
+import { SalesPortfoliosService } from './sales-portfolios.service';
 import { SalesRecoveryService } from './sales-recovery.service';
 
 /**
@@ -28,6 +29,7 @@ export class SalesCron {
     private readonly demo: SalesDemoService,
     private readonly appointments: SalesAppointmentsService,
     private readonly recovery: SalesRecoveryService,
+    private readonly portfolios: SalesPortfoliosService,
   ) {}
 
   /**
@@ -83,7 +85,11 @@ export class SalesCron {
     }
   }
 
-  /** Cada noche: libera prospectos sin actividad y reinicia la cuenta de demostración. */
+  /**
+   * Cada noche: libera prospectos sin actividad, avisa a la dirección de los
+   * que repartió y siguen sin primer contacto, y reinicia la cuenta de
+   * demostración.
+   */
   @Cron('40 3 * * *', { name: 'sales.daily', timeZone: 'Europe/Madrid' })
   async daily(): Promise<void> {
     if (!(await claimDailyCronRun(this.admin, 'sales.daily'))) return;
@@ -93,6 +99,12 @@ export class SalesCron {
       this.logger.log(`[sales] liberados ${released} · demo reiniciada: ${demo}`);
     } catch (err) {
       this.logger.error(`[sales] tarea diaria: ${String(err)}`);
+    }
+    try {
+      const unattended = await this.portfolios.warnFirstContact();
+      if (unattended) this.logger.log(`[sales] sin primer contacto: ${unattended}`);
+    } catch (err) {
+      this.logger.error(`[sales] aviso de primer contacto: ${String(err)}`);
     }
   }
 }
