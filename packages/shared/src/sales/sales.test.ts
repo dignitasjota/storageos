@@ -6,6 +6,9 @@ import {
   normalizeSalesCode,
   renderSalesTemplate,
   revenueCommission,
+  SalesBulkLeadActionSchema,
+  salesLeadSize,
+  SalesLeadsQuerySchema,
   salesSignupUrl,
   saleTierAmount,
   saleTierExtra,
@@ -103,5 +106,37 @@ describe('tramos y previsión de comisiones', () => {
         months,
       }),
     ).toEqual([10, 10, 10]);
+  });
+});
+
+describe('cartera del comercial', () => {
+  it('saca el tamaño de lo que escribió en trasteros', () => {
+    expect(salesLeadSize('300')).toBe('large');
+    expect(salesLeadSize('unos 150')).toBe('large');
+    expect(salesLeadSize('entre 50 y 80')).toBe('medium');
+    expect(salesLeadSize('20')).toBe('small');
+    expect(salesLeadSize('muchos')).toBe('unknown');
+    expect(salesLeadSize(null)).toBe('unknown');
+  });
+
+  it('valida la lista: orden, filtros y límite', () => {
+    expect(SalesLeadsQuerySchema.parse({ sort: 'priority', limit: '20', search: '' })).toEqual({
+      sort: 'priority',
+      limit: 20,
+    });
+    expect(SalesLeadsQuerySchema.safeParse({ sort: 'otro' }).success).toBe(false);
+    expect(SalesLeadsQuerySchema.safeParse({ limit: '500' }).success).toBe(false);
+    expect(
+      SalesBulkLeadActionSchema.safeParse({
+        leadIds: [],
+        action: { type: 'move', status: 'contacted' },
+      }).success,
+    ).toBe(false);
+    expect(
+      SalesBulkLeadActionSchema.safeParse({
+        leadIds: ['00000000-0000-4000-8000-000000000000'],
+        action: { type: 'move', status: 'customer' },
+      }).success,
+    ).toBe(false);
   });
 });
