@@ -196,7 +196,9 @@ export function DistributeDialog({
                 <SelectContent>
                   {reps.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
-                      {r.fullName} · {plural(r.prospects, 'prospecto', 'prospectos')}
+                      {r.fullName}
+                      {r.salesCode ? ` (${r.salesCode})` : ''} ·{' '}
+                      {plural(r.prospects, 'prospecto', 'prospectos')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -225,7 +227,8 @@ export function DistributeDialog({
                     <span>
                       {r.fullName}{' '}
                       <span className="text-muted-foreground">
-                        · {plural(r.prospects, 'prospecto', 'prospectos')}
+                        {r.salesCode ? `(${r.salesCode}) ` : ''}·{' '}
+                        {plural(r.prospects, 'prospecto', 'prospectos')}
                       </span>
                     </span>
                   </label>
@@ -309,7 +312,8 @@ function DistributionSummary({ result }: { result: SalesDistributionResultDto })
         </p>
       ) : (
         <p className="text-sm">
-          Se repartirán <strong>{plural(s.toAssign, 'prospecto', 'prospectos')}</strong>
+          {s.toAssign === 1 ? 'Se repartirá' : 'Se repartirán'}{' '}
+          <strong>{plural(s.toAssign, 'prospecto', 'prospectos')}</strong>
           {result.batch ? ` en el lote «${result.batch}»` : ''}. Los que ya lleva un comercial no se
           tocan y los clientes se omiten.
         </p>

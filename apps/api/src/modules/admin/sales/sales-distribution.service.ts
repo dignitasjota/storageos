@@ -532,7 +532,7 @@ export class SalesDistributionService {
     await this.notify.rep(repId, {
       type: 'sales.batch_assigned',
       title,
-      body: 'Los tienes en «Mis leads», marcados como «Nuevos para ti» hasta que los abras.',
+      body: 'Los tienes en «Prospectos», marcados como «Nuevos para ti» hasta que los abras.',
       link,
     });
     const rep = await this.admin.superAdmin.findUnique({
@@ -547,7 +547,7 @@ export class SalesDistributionService {
         `Hola${hello ? ` ${hello}` : ''}:`,
         '',
         `La dirección te ha pasado ${count === 1 ? 'un prospecto nuevo' : `${count} prospectos nuevos`}${batch ? ` del lote «${batch}»` : ''}.`,
-        'Te salen en «Mis leads» marcados como «Nuevos para ti» hasta que los abras.',
+        'Te salen en «Prospectos» marcados como «Nuevos para ti» hasta que los abras.',
         '',
         `[[boton: Ver mis prospectos nuevos | ${site}${link}]]`,
       ].join('\n'),

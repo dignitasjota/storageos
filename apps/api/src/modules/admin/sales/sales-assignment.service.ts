@@ -349,7 +349,7 @@ export class SalesAssignmentService {
       await this.notify.rep(args.repId, {
         type: 'sales.assigned',
         title: `Te asignan ${platformLeadName(lead)}`,
-        body: tenantId ? 'Ya tiene cuenta: la tienes en «Mis clientes».' : 'Está en «Mis leads».',
+        body: tenantId ? 'Ya tiene cuenta: la tienes en «Clientes».' : 'Está en «Prospectos».',
         link: `/admin/sales/accounts/${leadId}`,
       });
     }
@@ -505,7 +505,7 @@ export class SalesAssignmentService {
       await this.notify.rep(rep.id, {
         type: 'sales.signup',
         title: `${platformLeadName(lead)} te ha escrito desde la web`,
-        body: 'Ha llegado con tu código. Está en «Mis leads».',
+        body: 'Ha llegado con tu código. Está en «Prospectos».',
         link: `/admin/sales/accounts/${leadId}`,
       });
     } catch (err) {
