@@ -25,6 +25,7 @@ import {
   type CreatePlatformLeadActivityInput,
   type CreatePlatformLeadFollowupInput,
   type CreateSalesProspectInput,
+  type PlatformLeadLostReason,
   type SalesArchiveLeadInput,
   type MovePlatformLeadInput,
   type PlatformLeadFollowupDto,
@@ -688,8 +689,18 @@ export class SalesAccountsService {
     input: SalesCallOutcomeInput,
     actor: SalesActor,
   ): Promise<SalesAccountDto> {
-    const lead = await this.assignment.leadOf(repId, leadId);
+    let lead = await this.assignment.leadOf(repId, leadId);
     const label = SALES_CALL_OUTCOME_LABELS[input.outcome];
+    // Un archivado con el que se vuelve a hablar: si hay interés, se recupera;
+    // si sigue sin interesarle, se aplaza a la fecha que toca por su motivo.
+    const archivedBefore = lead.status === 'lost' && !!lead.salesArchivedAt;
+    if (
+      archivedBefore &&
+      ['interested', 'demo_booked', 'call_later', 'won'].includes(input.outcome)
+    ) {
+      await this.recovery.recover(repId, leadId, actor);
+      lead = await this.assignment.leadOf(repId, leadId);
+    }
     const type = input.channel === 'email' ? 'note' : input.channel;
     const prefix =
       input.channel === 'email' ? 'Correo: ' : input.channel === 'whatsapp' ? 'WhatsApp: ' : '';
@@ -703,7 +714,16 @@ export class SalesAccountsService {
     );
     const today = madridToday();
     // «No interesado» lo archiva: la fecha que pida es la de volver a intentarlo.
-    let archived = false;
+    let archived = lead.status === 'lost' && !!lead.salesArchivedAt;
+    if (archived && input.outcome === 'not_interested' && !lead.doNotContact) {
+      const recoverOn =
+        input.followupDate && input.followupDate > today
+          ? input.followupDate
+          : await this.leads.proposedRecoverOn(
+              (lead.lostReasonCode as PlatformLeadLostReason | null) ?? 'other',
+            );
+      await this.recovery.updateArchive(repId, leadId, { recoverOn }, actor);
+    }
     if (input.outcome === 'not_interested' && !lead.tenantId && lead.status !== 'lost') {
       const recoverOn =
         input.followupDate && input.followupDate > today ? input.followupDate : undefined;

@@ -225,12 +225,8 @@ export class SalesRecoveryService {
         leadId: r.id,
         tenantId: r.tenantId,
         name: platformLeadName(r),
-        detail: [
-          day ? `Volver a intentarlo desde el ${dayLabel(day)}` : 'Para recuperar',
-          reason ? PLATFORM_LEAD_LOST_REASON_LABELS[reason] : null,
-        ]
-          .filter(Boolean)
-          .join(' · '),
+        // La fecha va aparte (la pinta el «Hoy»).
+        detail: reason ? PLATFORM_LEAD_LOST_REASON_LABELS[reason] : 'Archivado',
         date: day,
       };
     });

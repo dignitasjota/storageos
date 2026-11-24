@@ -216,6 +216,24 @@ describe('Comerciales: no interesados y recuperación (e2e)', () => {
     // Otro comercial no puede tocarlo.
     const other = await http().post(`/admin/sales/accounts/${c.id}/recover`).set(auth(tokens.repB));
     expect(other.status).toBe(404);
+
+    // Una llamada con interés lo recupera; sin interés, se aplaza (sin seguimiento).
+    const called = await http()
+      .post(`/admin/sales/accounts/${c.id}/outcome`)
+      .set(auth(tokens.repA))
+      .send({ outcome: 'interested', channel: 'call' });
+    expect(called.status).toBe(201);
+    expect(called.body.lead.status).toBe('interested');
+    expect(called.body.lead.salesArchivedAt).toBeNull();
+    const again = await http()
+      .post(`/admin/sales/accounts/${b.id}/outcome`)
+      .set(auth(tokens.repA))
+      .send({ outcome: 'not_interested', channel: 'call' });
+    expect(again.body.lead.salesArchivedAt).not.toBeNull();
+    expect(again.body.lead.salesRecoverOn).toBe(madridMonths(6));
+    expect(
+      (again.body.lead.followups as { status: string }[]).filter((f) => f.status === 'pending'),
+    ).toHaveLength(0);
   });
 
   it('los archivados con fecha no quedan libres por inactividad', async () => {
