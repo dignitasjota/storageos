@@ -1,6 +1,6 @@
 'use client';
 
-import { ExternalLink, Loader2, MonitorPlay, Plus, RotateCcw } from 'lucide-react';
+import { ExternalLink, Loader2, MonitorPlay, Plus, RotateCcw, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import {
   Stat,
 } from '@/components/admin/sales/common';
 import { DemoExtraLinks } from '@/components/admin/sales/demo-links';
+import { DistributeDialog } from '@/components/admin/sales/distribute-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -51,6 +52,7 @@ import {
   useDemoAction,
   useOpenDemoAsAdmin,
   useOpenDemoPortalAsAdmin,
+  useSalesBatches,
   useSalesSettings,
   useSalesTeam,
   useSaveSalesSettings,
@@ -58,7 +60,7 @@ import {
   useTeamForecast,
 } from '@/lib/admin/sales-team-hooks';
 import { openImpersonationTab } from '@/lib/auth/impersonation';
-import { formatDateTime, formatEur } from '@/lib/format';
+import { formatDate, formatDateTime, formatEur } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 function NewRepDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -469,6 +471,81 @@ function ComparisonCard() {
   );
 }
 
+/** Lotes repartidos por la dirección: cuántos y en qué fase están ahora. */
+function BatchesCard() {
+  const data = useSalesBatches();
+  const rows = data.data ?? [];
+  if (rows.length === 0) return null;
+  const pct = (n: number, total: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Lotes repartidos</CardTitle>
+        <CardDescription>
+          Cómo van los prospectos de cada reparto. «Sin abrir» son los que su comercial aún no ha
+          mirado.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Lote</TableHead>
+                <TableHead className="text-right">Prospectos</TableHead>
+                <TableHead className="text-right">Sin abrir</TableHead>
+                <TableHead className="text-right">Contactados</TableHead>
+                <TableHead className="text-right">Interesados</TableHead>
+                <TableHead className="text-right">En prueba</TableHead>
+                <TableHead className="text-right">Clientes</TableHead>
+                <TableHead className="text-right">Perdidos</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((b) => (
+                <TableRow key={b.name}>
+                  <TableCell className="text-sm">
+                    <Link
+                      href={`/admin/leads?view=list&batch=${encodeURIComponent(b.name)}`}
+                      className="font-medium hover:underline"
+                    >
+                      {b.name}
+                    </Link>
+                    <span className="block text-xs text-muted-foreground">
+                      {b.reps === 1 ? '1 comercial' : `${b.reps} comerciales`}
+                      {b.lastAssignedAt && ` · ${formatDate(b.lastAssignedAt)}`}
+                      {b.withRep < b.total && ` · ${b.total - b.withRep} ya sin comercial`}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{b.total}</TableCell>
+                  <TableCell
+                    className={cn(
+                      'text-right tabular-nums',
+                      b.unseen > 0 && 'text-amber-700 dark:text-amber-300',
+                    )}
+                  >
+                    {b.unseen}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{b.contacted}</TableCell>
+                  <TableCell className="text-right tabular-nums">{b.interested}</TableCell>
+                  <TableCell className="text-right tabular-nums">{b.trial}</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {b.customer}
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      ({pct(b.customer, b.total)} %)
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{b.lost}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Lo que costarán las comisiones del % los próximos meses (con la cartera de hoy). */
 function TeamForecastCard() {
   const data = useTeamForecast();
@@ -538,6 +615,7 @@ export default function SalesTeamPage() {
   const team = useSalesTeam();
   const settings = useSalesSettings();
   const [newOpen, setNewOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const data = team.data;
   const reps = data?.reps ?? [];
   const active = reps.filter((r) => r.isActive);
@@ -548,13 +626,26 @@ export default function SalesTeamPage() {
         title="Equipo comercial"
         description="Tus comerciales, su cartera y lo que llevan ganado."
         actions={
-          <Button onClick={() => setNewOpen(true)}>
-            <Plus className="mr-1.5 size-4" />
-            Nuevo comercial
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={active.length === 0}
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="mr-1.5 size-4" />
+              Importar y repartir prospectos
+            </Button>
+            <Button onClick={() => setNewOpen(true)}>
+              <Plus className="mr-1.5 size-4" />
+              Nuevo comercial
+            </Button>
+          </div>
         }
       />
       <NewRepDialog open={newOpen} onClose={() => setNewOpen(false)} />
+      {importOpen && (
+        <DistributeDialog source={{ kind: 'file' }} onClose={() => setImportOpen(false)} />
+      )}
 
       {data && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -656,6 +747,7 @@ export default function SalesTeamPage() {
         </div>
       )}
 
+      <BatchesCard />
       <ComparisonCard />
       <TeamForecastCard />
 

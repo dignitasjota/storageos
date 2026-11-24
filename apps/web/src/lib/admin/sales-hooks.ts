@@ -95,7 +95,12 @@ export function useSalesToday() {
   });
 }
 
-export function useSalesLeads(q: { search?: string; status?: string; filter?: string }) {
+export function useSalesLeads(q: {
+  search?: string;
+  status?: string;
+  filter?: string;
+  batch?: string;
+}) {
   return useQuery({
     queryKey: [...ROOT, 'leads', q] as const,
     queryFn: () => adminApiFetch<SalesLeadListDto>(`/admin/sales/leads${qs(q)}`),

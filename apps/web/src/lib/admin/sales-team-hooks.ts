@@ -15,6 +15,10 @@ import type {
   ReassignSalesPortfolioInput,
   SalesAccountRepDto,
   SalesAddonClaimDto,
+  SalesBatchDto,
+  SalesBulkImportInput,
+  SalesDistributeLeadsInput,
+  SalesDistributionResultDto,
   SalesCadenceDto,
   SalesCommissionItemDto,
   SalesCommissionPlanDto,
@@ -428,4 +432,49 @@ export function useDeleteCadence() {
   return useTeamMutation((id: string) =>
     adminApiFetch<void>(`/admin/sales-team/cadences/${id}`, { method: 'DELETE' }),
   );
+}
+
+// ------------------------------------------------------- reparto masivo
+
+/** Importar un fichero y repartirlo (con `commit: false`, solo la vista previa). */
+export function useDistributeImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Omit<SalesBulkImportInput, 'commit'> & { commit: boolean }) =>
+      adminApiFetch<SalesDistributionResultDto>('/admin/sales-team/distribute/import', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: (res) => {
+      if (!res.committed) return;
+      void qc.invalidateQueries({ queryKey: ROOT });
+      void qc.invalidateQueries({ queryKey: ['admin', 'leads'] });
+    },
+  });
+}
+
+/** Repartir leads de la lista (con `commit: false`, solo la vista previa). */
+export function useDistributeLeads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Omit<SalesDistributeLeadsInput, 'commit'> & { commit: boolean }) =>
+      adminApiFetch<SalesDistributionResultDto>('/admin/sales-team/distribute/leads', {
+        method: 'POST',
+        json: input,
+      }),
+    onSuccess: (res) => {
+      if (!res.committed) return;
+      void qc.invalidateQueries({ queryKey: ROOT });
+      void qc.invalidateQueries({ queryKey: ['admin', 'leads'] });
+    },
+  });
+}
+
+/** Lotes repartidos y en qué fase están sus prospectos. */
+export function useSalesBatches(enabled = true) {
+  return useQuery({
+    queryKey: [...ROOT, 'batches'] as const,
+    queryFn: () => adminApiFetch<SalesBatchDto[]>('/admin/sales-team/batches'),
+    enabled,
+  });
 }
