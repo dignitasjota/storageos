@@ -1,7 +1,9 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -16,6 +18,8 @@ import {
   AdminCreateTenantSchema,
   AdminSavedViewPageEnum,
   CreateAdminSavedViewSchema,
+  SALES_SAVED_VIEW_PAGES,
+  type AdminSavedViewPage,
   SnoozeRiskSchema,
   type AdminAeatActionResultDto,
   type AdminAnonymizePreviewDto,
@@ -31,13 +35,23 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AdminTenantToolsService } from './admin-tenant-tools.service';
 import { AdminGuard } from './admin.guard';
 import { type AuthenticatedSuperAdmin, CurrentSuperAdmin } from './current-super-admin.decorator';
-import { RequireSuperadmin } from './require-superadmin.decorator';
+import { RequireSuperadmin, SalesAccess } from './require-superadmin.decorator';
 
 import type { Request } from 'express';
 
 class AdminCreateTenantDto extends createZodDto(AdminCreateTenantSchema) {}
 class SnoozeRiskDto extends createZodDto(SnoozeRiskSchema) {}
 class CreateAdminSavedViewDto extends createZodDto(CreateAdminSavedViewSchema) {}
+
+/** Un comercial solo guarda (y ve) las vistas de sus pantallas. */
+function assertViewPage(admin: AuthenticatedSuperAdmin, page: AdminSavedViewPage): void {
+  if (admin.role === 'sales' && !SALES_SAVED_VIEW_PAGES.includes(page)) {
+    throw new ForbiddenException({
+      code: 'sales_not_allowed',
+      message: 'Esta sección no está disponible para los comerciales',
+    });
+  }
+}
 
 const meta = (admin: AuthenticatedSuperAdmin, req: Request) => ({
   superAdminId: admin.sub,
@@ -143,23 +157,33 @@ export class AdminTenantToolsController {
     return this.tools.revokeUserSession(id, userId, sessionId, meta(admin, req));
   }
 
-  /** Vistas guardadas de cada super admin (las suyas). */
+  /** Vistas guardadas de cada super admin (las suyas; un comercial, las de sus pantallas). */
+  @SalesAccess()
   @Get('saved-views')
   views(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Query('page') page?: string,
   ): Promise<AdminSavedViewDto[]> {
-    return this.tools.listViews(admin.sub, AdminSavedViewPageEnum.parse(page ?? 'tenants'));
+    const parsed = AdminSavedViewPageEnum.safeParse(page ?? 'tenants');
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'invalid_page', message: 'Lista no válida' });
+    }
+    assertViewPage(admin, parsed.data);
+    return this.tools.listViews(admin.sub, parsed.data);
   }
 
+  @SalesAccess()
   @Post('saved-views')
   saveView(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Body() body: CreateAdminSavedViewDto,
   ): Promise<AdminSavedViewDto> {
+    assertViewPage(admin, body.page);
     return this.tools.saveView(admin.sub, body);
   }
 
+  /** Borra una vista suya (de cualquier lista: solo puede tener las suyas). */
+  @SalesAccess()
   @Delete('saved-views/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteView(

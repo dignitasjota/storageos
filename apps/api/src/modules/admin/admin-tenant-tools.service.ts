@@ -465,7 +465,7 @@ export class AdminTenantToolsService {
   }): AdminSavedViewDto {
     return {
       id: r.id,
-      page: 'tenants',
+      page: r.page,
       name: r.name,
       filters: (r.filters ?? {}) as Record<string, unknown>,
       columns: Array.isArray(r.columns) ? (r.columns as string[]) : null,

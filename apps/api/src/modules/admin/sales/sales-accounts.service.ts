@@ -33,11 +33,12 @@ import {
   type SalesCallOutcomeInput,
   type SalesClientRowDto,
   type SalesClientSheetDto,
+  type SalesClientsQuery,
+  type SalesClientSort,
+  SALES_CLIENT_SORT_DEFAULT_DIR,
   type SalesImportInput,
   type SalesImportResultDto,
   type SalesImportRowDto,
-  type SalesLeadDto,
-  type SalesLeadListDto,
   type SalesRepProfileDto,
   type SalesTodayDto,
   type SalesTodayRowDto,
@@ -110,6 +111,45 @@ const IMPORT_ALIASES: Record<
   notes: 'note',
   observaciones: 'note',
 };
+
+/** Orden de la lista de clientes (los vacíos, al final). */
+function sortClients(
+  rows: SalesClientRowDto[],
+  sort: SalesClientSort,
+  dir?: 'asc' | 'desc',
+): SalesClientRowDto[] {
+  const sign = (dir ?? SALES_CLIENT_SORT_DEFAULT_DIR[sort]) === 'asc' ? 1 : -1;
+  const time = (v: string | null | undefined) => (v ? new Date(v).getTime() : null);
+  const key = (r: SalesClientRowDto): number | string | null => {
+    switch (sort) {
+      case 'trial_end':
+        return time(r.trialEndsAt);
+      case 'monthly':
+        return r.monthly;
+      case 'last_contact':
+        // Sin contacto anotado cuenta como el más antiguo.
+        return time(r.profile?.lastContactAt) ?? 0;
+      case 'last_login':
+        return time(r.lastLoginAt) ?? 0;
+      case 'health':
+        return r.healthScore;
+      default:
+        return r.name.toLocaleLowerCase('es');
+    }
+  };
+  return [...rows].sort((a, b) => {
+    const ka = key(a);
+    const kb = key(b);
+    if (ka === null && kb === null) return a.name.localeCompare(b.name, 'es');
+    if (ka === null) return 1;
+    if (kb === null) return -1;
+    const cmp =
+      typeof ka === 'string' && typeof kb === 'string'
+        ? ka.localeCompare(kb, 'es')
+        : (ka as number) - (kb as number);
+    return cmp !== 0 ? cmp * sign : a.name.localeCompare(b.name, 'es');
+  });
+}
 
 /**
  * La cartera de un comercial: sus leads (prospectos y cuentas), sus clientes,
@@ -208,111 +248,6 @@ export class SalesAccountsService {
   }
 
   // ----------------------------------------------------------------- leads
-
-  async listLeads(
-    repId: string,
-    q: { search?: string; status?: string; filter?: string; batch?: string },
-    now = new Date(),
-  ): Promise<SalesLeadListDto> {
-    const where: Prisma.PlatformLeadWhereInput = { salesRepId: repId };
-    if (q.status) where.status = q.status;
-    if (q.batch) where.salesBatch = { equals: q.batch, mode: 'insensitive' };
-    if (q.filter === 'new_for_you') where.salesSeenAt = null;
-    if (q.search) {
-      const contains = { contains: q.search, mode: 'insensitive' as const };
-      where.OR = [
-        { companyName: contains },
-        { contactName: contains },
-        { email: contains },
-        { phone: contains },
-        { city: contains },
-      ];
-    }
-    // Los filtros van en la consulta: con más de 500 leads no se quedan cortos.
-    const cutoffDate = new Date(now.getTime() - NO_CONTACT_DAYS * DAY);
-    if (q.filter === 'no_contact') {
-      where.AND = [
-        { status: { notIn: ['customer', 'lost'] } },
-        {
-          OR: [
-            { salesProfile: { is: { lastContactAt: { lt: cutoffDate } } } },
-            {
-              AND: [
-                {
-                  OR: [
-                    { salesProfile: { is: null } },
-                    { salesProfile: { is: { lastContactAt: null } } },
-                  ],
-                },
-                { activities: { none: { occurredAt: { gte: cutoffDate } } } },
-              ],
-            },
-          ],
-        },
-      ];
-    } else if (q.filter === 'trial_ending') {
-      where.tenant = { status: 'trial', trialEndsAt: { lte: new Date(now.getTime() + 7 * DAY) } };
-    } else if (q.filter === 'pending') {
-      where.tenantId = { not: null };
-      where.tenant = { OR: [{ salesRepId: null }, { salesRepId: { not: repId } }] };
-    }
-    const [dtos, groups, newForYou, batchRows] = await Promise.all([
-      this.leads.listDtos(where, 500),
-      this.admin.platformLead.groupBy({
-        by: ['status'],
-        where: { salesRepId: repId, discardedAt: null },
-        _count: { _all: true },
-      }),
-      this.admin.platformLead.count({
-        where: { salesRepId: repId, discardedAt: null, salesSeenAt: null },
-      }),
-      this.admin.platformLead.groupBy({
-        by: ['salesBatch'],
-        where: { salesRepId: repId, discardedAt: null, salesBatch: { not: null } },
-        _count: { _all: true },
-      }),
-    ]);
-    const batches = batchRows
-      .map((b) => ({ name: b.salesBatch!, count: b._count._all }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'es'));
-    const ids = dtos.map((d) => d.id);
-    const tenantIds = dtos.map((d) => d.tenant?.id).filter((x): x is string => !!x);
-    const [profiles, tenants] = await Promise.all([
-      ids.length ? this.admin.salesAccountProfile.findMany({ where: { leadId: { in: ids } } }) : [],
-      tenantIds.length
-        ? this.admin.tenant.findMany({
-            where: { id: { in: tenantIds } },
-            select: { id: true, status: true, trialEndsAt: true, salesRepId: true },
-          })
-        : [],
-    ]);
-    const profileOf = new Map(profiles.map((p) => [p.leadId, p]));
-    const tenantOf = new Map(tenants.map((t) => [t.id, t]));
-    let items: SalesLeadDto[] = dtos.map((d) => ({
-      ...d,
-      salesProfile: profileDto(profileOf.get(d.id)),
-      tenantStatus: d.tenant ? (tenantOf.get(d.tenant.id)?.status ?? null) : null,
-    }));
-    const cutoff = now.getTime() - NO_CONTACT_DAYS * DAY;
-    if (q.filter === 'no_contact') {
-      items = items.filter((l) => {
-        if (l.status === 'customer' || l.status === 'lost') return false;
-        const last = l.salesProfile?.lastContactAt ?? l.lastActivityAt;
-        return !last || new Date(last).getTime() < cutoff;
-      });
-    } else if (q.filter === 'trial_ending') {
-      items = items.filter((l) => {
-        const t = l.tenant ? tenantOf.get(l.tenant.id) : null;
-        const left = daysUntil(t?.trialEndsAt, now);
-        return t?.status === 'trial' && left !== null && left <= 7;
-      });
-    } else if (q.filter === 'pending') {
-      items = items.filter((l) => l.tenant && tenantOf.get(l.tenant.id)?.salesRepId !== repId);
-    }
-    const counts: Record<string, number> = {};
-    for (const g of groups) counts[g.status] = g._count._all;
-    return { items, counts, newForYou, batches };
-  }
 
   async createProspect(
     repId: string,
@@ -958,9 +893,10 @@ export class SalesAccountsService {
 
   async listClients(
     repId: string,
-    filter: string | undefined,
+    q: SalesClientsQuery & { withOpportunities?: boolean } = {},
     now = new Date(),
   ): Promise<SalesClientRowDto[]> {
+    const filter = q.filter;
     const tenants = await this.admin.tenant.findMany({
       where: { salesRepId: repId, deletedAt: null },
       select: {
@@ -979,6 +915,7 @@ export class SalesAccountsService {
         platformLead: {
           select: {
             id: true,
+            salesBatch: true,
             salesProfile: true,
             followups: {
               where: { status: 'pending' },
@@ -997,7 +934,8 @@ export class SalesAccountsService {
     }
     const ids = tenants.map((t) => t.id);
     if (ids.length === 0) return [];
-    const [monthly, firstPaid, units, contracts, logins, health, effectiveLimits] =
+    const wantOpportunities = !!q.withOpportunities || filter === 'opportunity';
+    const [monthly, firstPaid, units, contracts, logins, health, effectiveLimits, opportunities] =
       await Promise.all([
         this.commissions.monthlyByTenant(ids),
         this.commissions.firstPaidByTenant(ids),
@@ -1014,7 +952,16 @@ export class SalesAccountsService {
         lastTeamActivityByTenant(this.admin, ids),
         this.tenants.getTenantsHealth().catch(() => []),
         Promise.all(ids.map(async (id) => [id, await this.limits.resolveLimits(id)] as const)),
+        wantOpportunities
+          ? this.opportunities.opportunities(now, ids).catch(() => [])
+          : Promise.resolve([]),
       ]);
+    const opportunitiesOf = new Map<string, string[]>();
+    for (const o of opportunities) {
+      for (const c of o.candidates) {
+        opportunitiesOf.set(c.tenantId, [...(opportunitiesOf.get(c.tenantId) ?? []), o.addonName]);
+      }
+    }
     const leadIds = await this.admin.platformLead.findMany({
       where: { tenantId: { in: ids } },
       select: { id: true, tenantId: true },
@@ -1053,6 +1000,8 @@ export class SalesAccountsService {
           ? { id: f.id, title: f.title, dueDate: f.dueDate.toISOString().slice(0, 10) }
           : null,
         profile: profileDto(t.platformLead?.salesProfile ?? null),
+        batch: t.platformLead?.salesBatch ?? null,
+        opportunities: opportunitiesOf.get(t.id) ?? [],
       };
     });
     const cutoff = now.getTime() - NO_CONTACT_DAYS * DAY;
@@ -1069,8 +1018,27 @@ export class SalesAccountsService {
         const last = r.profile?.lastContactAt;
         return !last || new Date(last).getTime() < cutoff;
       });
+    } else if (filter === 'opportunity') rows = rows.filter((r) => r.opportunities.length > 0);
+    if (q.search) {
+      const needle = q.search.toLowerCase();
+      rows = rows.filter((r) =>
+        [r.name, r.slug, r.planName, r.profile?.pinnedNote, r.profile?.status]
+          .filter(Boolean)
+          .some((v) => v!.toLowerCase().includes(needle)),
+      );
     }
-    return rows;
+    if (q.temperature) {
+      rows = rows.filter((r) =>
+        q.temperature === 'none'
+          ? !r.profile?.temperature
+          : r.profile?.temperature === q.temperature,
+      );
+    }
+    if (q.batch) {
+      const b = q.batch.toLowerCase();
+      rows = rows.filter((r) => r.batch?.toLowerCase() === b);
+    }
+    return sortClients(rows, q.sort ?? 'name', q.dir);
   }
 
   // ---------------------------------------------------------------- cadencias
@@ -1122,6 +1090,17 @@ export class SalesAccountsService {
     cadenceId: string,
     actor: SalesActor,
   ): Promise<SalesAccountDto> {
+    await this.startCadence(repId, leadId, cadenceId, actor);
+    return this.account(repId, leadId);
+  }
+
+  /** Mete el lead en la cadencia (sus seguimientos); también para las acciones en lote. */
+  async startCadence(
+    repId: string,
+    leadId: string,
+    cadenceId: string,
+    actor: SalesActor,
+  ): Promise<void> {
     await this.assignment.leadOf(repId, leadId);
     const cadence = await this.admin.salesCadence.findFirst({
       where: { id: cadenceId, isActive: true },
@@ -1176,7 +1155,6 @@ export class SalesAccountsService {
       }
       throw err;
     }
-    return this.account(repId, leadId);
   }
 
   async stopCadence(repId: string, leadId: string): Promise<SalesAccountDto> {
@@ -1454,7 +1432,7 @@ export class SalesAccountsService {
           take: 100,
           include: { lead: { select: { companyName: true, contactName: true, email: true } } },
         }),
-        this.listClients(repId, undefined, now),
+        this.listClients(repId, {}, now),
         this.admin.platformLead.groupBy({
           by: ['status'],
           where: { salesRepId: repId, discardedAt: null },
