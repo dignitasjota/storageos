@@ -431,7 +431,8 @@ describe('Comerciales (e2e)', () => {
       .send({ outcome: 'no_answer', followupDate: null })
       .expect(201);
     expect(await db.platformLeadFollowup.count({ where: { leadId, status: 'pending' } })).toBe(0);
-    // Con «No interesado», la fecha elegida sí cuenta.
+    // Con «No interesado», la fecha elegida es la de volver a intentarlo: queda
+    // archivado (sin recordatorios) hasta ese día.
     const inAWeek = new Date(Date.now() + 7 * 86_400_000).toLocaleDateString('sv-SE', {
       timeZone: 'Europe/Madrid',
     });
@@ -440,7 +441,18 @@ describe('Comerciales (e2e)', () => {
       .set(auth(repAToken))
       .send({ outcome: 'not_interested', followupDate: inAWeek })
       .expect(201);
-    expect(await db.platformLeadFollowup.count({ where: { leadId, status: 'pending' } })).toBe(1);
+    expect(await db.platformLeadFollowup.count({ where: { leadId, status: 'pending' } })).toBe(0);
+    const archived = await db.platformLead.findUniqueOrThrow({ where: { id: leadId } });
+    expect(archived.salesArchivedAt).not.toBeNull();
+    expect(archived.salesRecoverOn?.toISOString().slice(0, 10)).toBe(inAWeek);
+    // Archivado con fecha no se libera por inactividad: se recupera para seguir
+    // probando la liberación de un prospecto activo, con un seguimiento.
+    await http().post(`/admin/sales/accounts/${leadId}/recover`).set(auth(repAToken)).expect(200);
+    await http()
+      .post(`/admin/sales/accounts/${leadId}/followups`)
+      .set(auth(repAToken))
+      .send({ title: 'Volver a llamar', dueDate: inAWeek })
+      .expect(201);
 
     // Una nota con fecha futura no se admite.
     const future = await http()
