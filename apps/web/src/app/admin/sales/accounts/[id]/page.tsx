@@ -22,6 +22,7 @@ import { CreateTenantDialog, EmailDialog, QuoteDialog, WhatsappDialog } from './
 import { ActivityCard, CadenceCard, FollowupsCard, OffersCard, StageCard } from './pipeline-panel';
 
 import { AccountAppointmentsCard } from '@/components/admin/sales/appointments-views';
+import { ArchiveBanner } from '@/components/admin/sales/archive';
 import {
   CopyButton,
   Empty,
@@ -160,7 +161,14 @@ export default function SalesAccountPage() {
             ves sus datos de cliente.
           </p>
         )}
+        {lead.doNotContact && !lead.salesArchivedAt && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            Pidió que no le volvamos a contactar: sin correos ni recordatorios.
+          </p>
+        )}
       </div>
+
+      <ArchiveBanner account={a} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr),minmax(0,1fr)]">
         <div className="space-y-4">

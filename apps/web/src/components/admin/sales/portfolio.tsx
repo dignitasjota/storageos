@@ -84,6 +84,7 @@ const REASON_CLASS: Record<SalesQueueReason, string> = {
   new_untouched: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
   hot_no_contact: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',
   trial_ending: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300',
+  recover: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300',
 };
 
 export function QueueReasonBadge({ reason }: { reason: SalesQueueReason }) {

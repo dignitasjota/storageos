@@ -327,6 +327,7 @@ model Tenant {
   salesAddonClaims  SalesAddonClaim[]
   salesCommissionItems SalesCommissionItem[]
   salesWin          SalesWin?
+  salesRecoveries   SalesRecovery[]
   salesDemoSettings PlatformSalesSettings[] @relation("SalesDemoTenant")
   /// Comisión propia por cobros con tarjeta (Stripe Connect); null = la general.
   applicationFeePct Decimal? @map("application_fee_pct") @db.Decimal(5, 2)
@@ -5235,6 +5236,7 @@ model SuperAdmin {
   salesTargets            SalesTarget[]
   salesWins               SalesWin[]
   salesCadenceEnrollments SalesCadenceEnrollment[]
+  salesRecoveries         SalesRecovery[]          @relation("SalesRecoveryRep")
 
   securityBlocks SecurityBlock[] @relation("SecurityBlockAuthor")
   todaySnoozes   AdminTodaySnooze[] @relation("TodaySnoozeAuthor")
@@ -9027,6 +9029,15 @@ model PlatformLead {
   salesSeenAt          DateTime? @map("sales_seen_at") @db.Timestamptz(6)
   /// Aviso a la dirección de que va a quedar libre por inactividad.
   salesReleaseWarnedAt DateTime? @map("sales_release_warned_at") @db.Timestamptz(6)
+  /// «No interesado» o cliente dado de baja: archivado en la cartera de su
+  /// comercial (solo cuenta con el lead perdido).
+  salesArchivedAt      DateTime? @map("sales_archived_at") @db.Timestamptz(6)
+  /// Cuándo volver a intentarlo (null = sin fecha).
+  salesRecoverOn       DateTime? @map("sales_recover_on") @db.Date
+  /// Aviso de que ya toca recuperarlo (una vez por fecha).
+  salesRecoverNotifiedAt DateTime? @map("sales_recover_notified_at") @db.Timestamptz(6)
+  /// «No volver a contactar»: sin correos, recordatorios, secuencias ni cadencias.
+  doNotContact         Boolean   @default(false) @map("do_not_contact")
   /// «No es un lead»: spam · supplier · support · existing_customer · merged · other
   discardReasonCode    String?   @map("discard_reason_code")
   discardReason        String?   @map("discard_reason")
@@ -9054,6 +9065,7 @@ model PlatformLead {
   salesProfile    SalesAccountProfile?
   salesAssignments SalesAssignment[]
   salesCadenceEnrollments SalesCadenceEnrollment[]
+  salesRecoveries SalesRecovery[]
   assignedTo  SuperAdmin?            @relation("PlatformLeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
   createdBy   SuperAdmin?            @relation("PlatformLeadCreator", fields: [createdById], references: [id], onDelete: SetNull)
   tenant      Tenant?                @relation(fields: [tenantId], references: [id], onDelete: SetNull)
@@ -9522,6 +9534,8 @@ model SalesCommissionItem {
   /// pending · approved · rejected
   status        String    @default("approved")
   settlementId  String?   @map("settlement_id") @db.Uuid
+  /// Recuperación de un cliente dado de baja (comisiona a la mitad).
+  recoveryId    String?   @map("recovery_id") @db.Uuid
   requestedById String?   @map("requested_by_id") @db.Uuid
   decidedById   String?   @map("decided_by_id") @db.Uuid
   decidedAt     DateTime? @map("decided_at") @db.Timestamptz(6)
@@ -9535,6 +9549,7 @@ model SalesCommissionItem {
   concept    SalesCommissionConcept?    @relation(fields: [conceptId], references: [id], onDelete: SetNull)
   settlement SalesSettlement?           @relation(fields: [settlementId], references: [id], onDelete: SetNull)
   related    SalesCommissionItem?       @relation("SalesItemCorrection", fields: [relatedItemId], references: [id], onDelete: SetNull)
+  recovery   SalesRecovery?             @relation(fields: [recoveryId], references: [id], onDelete: SetNull)
   corrections SalesCommissionItem[]     @relation("SalesItemCorrection")
 
   @@index([repId, month], map: "sales_commission_items_rep_month_idx")
@@ -9577,6 +9592,33 @@ model SalesWin {
   @@map("sales_wins")
 }
 
+/// Un archivado de la cartera de un comercial y su recuperación.
+model SalesRecovery {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  leadId      String    @map("lead_id") @db.Uuid
+  repId       String    @map("rep_id") @db.Uuid
+  tenantId    String?   @map("tenant_id") @db.Uuid
+  /// prospect · client (cliente que se dio de baja)
+  kind        String
+  reasonCode  String?   @map("reason_code")
+  archivedAt  DateTime  @map("archived_at") @db.Timestamptz(6)
+  recoverOn   DateTime? @map("recover_on") @db.Date
+  /// Vuelve a su cartera activa (o vuelve a pagar, si era cliente).
+  recoveredAt DateTime? @map("recovered_at") @db.Timestamptz(6)
+  /// Paga (otra vez) tras recuperarlo.
+  wonAt       DateTime? @map("won_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  lead   PlatformLead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  rep    SuperAdmin            @relation("SalesRecoveryRep", fields: [repId], references: [id], onDelete: Cascade)
+  tenant Tenant?               @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  items  SalesCommissionItem[]
+
+  @@index([leadId, archivedAt(sort: Desc)], map: "sales_recoveries_lead_idx")
+  @@index([repId, recoveredAt], map: "sales_recoveries_rep_idx")
+  @@map("sales_recoveries")
+}
+
 /// Ajustes del equipo comercial (un registro).
 model PlatformSalesSettings {
   id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
@@ -9590,6 +9632,8 @@ model PlatformSalesSettings {
   demoResetAt           DateTime? @map("demo_reset_at") @db.Timestamptz(6)
   /// Reinicio de la demo en marcha (uno a la vez; caduca a los 15 minutos).
   demoResettingAt DateTime? @map("demo_resetting_at") @db.Timestamptz(6)
+  /// Meses hasta volver a intentarlo, por motivo de pérdida.
+  recoverMonths         Json      @default("{\"not_now\":6,\"price\":12,\"competitor\":12,\"no_response\":3,\"own_software\":12,\"missing_feature\":12,\"no_conversion\":12,\"churned\":12,\"other\":12}") @map("recover_months")
   updatedById           String?   @map("updated_by_id") @db.Uuid
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

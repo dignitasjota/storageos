@@ -1,11 +1,15 @@
 'use client';
 
+import {
+  PLATFORM_LEAD_LOST_REASON_LABELS,
+  PLATFORM_LEAD_LOST_REASONS,
+  SALES_RECOVER_MONTHS_MAX,
+  type PlatformSalesSettingsDto,
+} from '@storageos/shared';
 import { ExternalLink, Loader2, MonitorPlay, Plus, RotateCcw, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-
-import type { PlatformSalesSettingsDto } from '@storageos/shared';
 
 import {
   Empty,
@@ -162,6 +166,11 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
     repAddonTrialDays: settings.repAddonTrialDays,
     lifecycleFromRep: settings.lifecycleFromRep,
   });
+  const [months, setMonths] = useState(settings.recoverMonths);
+  const monthsKey = JSON.stringify(settings.recoverMonths);
+  useEffect(() => {
+    setMonths(JSON.parse(monthsKey) as PlatformSalesSettingsDto['recoverMonths']);
+  }, [monthsKey]);
   // Solo cuando cambian estas reglas (no al tocar la demo, que comparte ajustes).
   useEffect(() => {
     setForm({
@@ -183,7 +192,7 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
 
   async function submit() {
     try {
-      await save.mutateAsync(form);
+      await save.mutateAsync({ ...form, recoverMonths: months });
       toast.success('Ajustes guardados.');
     } catch (err) {
       toast.error(errorText(err));
@@ -267,6 +276,36 @@ function SettingsCard({ settings }: { settings: PlatformSalesSettingsDto }) {
             nombre del comercial y las respuestas le llegan a él.
           </span>
         </label>
+        <div className="space-y-2 rounded-md border p-3">
+          <p className="text-sm font-medium">Volver a intentarlo un archivado (meses)</p>
+          <p className="text-xs text-muted-foreground">
+            Al marcar «No interesado», se propone esta fecha según el motivo (el comercial puede
+            cambiarla). Los archivados con fecha siguen siendo de su comercial y no se liberan por
+            inactividad.
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {PLATFORM_LEAD_LOST_REASONS.map((r) => (
+              <Field key={r} id={`ss-rec-${r}`} label={PLATFORM_LEAD_LOST_REASON_LABELS[r]}>
+                <Input
+                  id={`ss-rec-${r}`}
+                  type="number"
+                  min={1}
+                  max={SALES_RECOVER_MONTHS_MAX}
+                  value={months[r]}
+                  onChange={(e) =>
+                    setMonths((m) => ({
+                      ...m,
+                      [r]: Math.max(
+                        1,
+                        Math.min(SALES_RECOVER_MONTHS_MAX, e.target.valueAsNumber || 1),
+                      ),
+                    }))
+                  }
+                />
+              </Field>
+            ))}
+          </div>
+        </div>
         <div className="flex justify-end">
           <Button size="sm" disabled={save.isPending} onClick={() => void submit()}>
             {save.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
@@ -390,8 +429,8 @@ function ComparisonCard() {
         <div>
           <CardTitle className="text-base">Comparativa del equipo</CardTitle>
           <CardDescription>
-            Prospectos, pruebas, ventas y bajas de cada comercial en el periodo; las cuotas, las de
-            hoy.
+            Prospectos, pruebas, ventas, bajas y recuperados de cada comercial en el periodo; las
+            cuotas, las de hoy.
           </CardDescription>
         </div>
         <Select value={months} onValueChange={setMonths}>
@@ -424,6 +463,7 @@ function ComparisonCard() {
                   <TableHead className="text-right">Conversión</TableHead>
                   <TableHead className="text-right">Días hasta pagar</TableHead>
                   <TableHead className="text-right">Bajas</TableHead>
+                  <TableHead className="text-right">Recuperados</TableHead>
                   <TableHead className="text-right">Cuotas al mes</TableHead>
                   <TableHead className="text-right">Comisiones</TableHead>
                 </TableRow>
@@ -455,6 +495,14 @@ function ComparisonCard() {
                       )}
                     >
                       {r.churned}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {r.recovered}
+                      {r.recoveredWon > 0 && (
+                        <span className="block text-xs text-emerald-700 dark:text-emerald-400">
+                          {r.recoveredWon} {r.recoveredWon === 1 ? 'paga' : 'pagan'}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{formatEur(r.mrr)}</TableCell>
                     <TableCell className="text-right tabular-nums">

@@ -215,6 +215,7 @@ export class SalesInsightsService {
         select: { id: true, salesRepId: true },
       }),
     ]);
+    const recovered = await this.commissions.recoveriesByRep(ids, from);
     const firstPaid = await this.commissions.firstPaidByTenant(paying.map((t) => t.id));
     const monthly = await this.commissions.monthlyByTenant(
       paying.filter((t) => firstPaid.has(t.id)).map((t) => t.id),
@@ -239,6 +240,8 @@ export class SalesInsightsService {
           ? Math.round(days.reduce((s, d) => s + Math.max(0, d), 0) / days.length)
           : null,
         churned: churned.find((x) => x.salesRepId === r.id)?._count._all ?? 0,
+        recovered: recovered.get(r.id)?.recovered ?? 0,
+        recoveredWon: recovered.get(r.id)?.won ?? 0,
         mrr: round2(mrr),
         commission: round2(Number(commissions.find((c) => c.repId === r.id)?._sum.amount ?? 0)),
       };

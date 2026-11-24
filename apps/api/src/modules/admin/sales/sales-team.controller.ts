@@ -71,9 +71,14 @@ import { SalesContentService } from './sales-content.service';
 import { SalesDemoService } from './sales-demo.service';
 import { SalesDistributionService } from './sales-distribution.service';
 import { SalesInsightsService } from './sales-insights.service';
+import { SalesRecoveryService } from './sales-recovery.service';
 import { SalesTeamService } from './sales-team.service';
 
-import type { SalesTeamComparisonDto, SalesTeamForecastDto } from '@storageos/shared';
+import type {
+  SalesRecoveryDto,
+  SalesTeamComparisonDto,
+  SalesTeamForecastDto,
+} from '@storageos/shared';
 import type { Request, Response } from 'express';
 
 class CreateRepDto extends createZodDto(CreateSalesRepSchema) {}
@@ -118,6 +123,7 @@ export class SalesTeamController {
     private readonly insights: SalesInsightsService,
     private readonly appointments: SalesAppointmentsService,
     private readonly distribution: SalesDistributionService,
+    private readonly recovery: SalesRecoveryService,
   ) {}
 
   // ------------------------------------------------------------------ citas
@@ -457,6 +463,21 @@ export class SalesTeamController {
   @Get('comparison')
   comparison(@Query('months') months?: string): Promise<SalesTeamComparisonDto> {
     return this.insights.comparison(Number(months ?? 3));
+  }
+
+  /** Archivados y recuperaciones del equipo (`repId` para uno). */
+  @Get('recoveries')
+  recoveries(
+    @Query('repId') repId?: string,
+    @Query('take') take?: string,
+  ): Promise<SalesRecoveryDto[]> {
+    if (repId && !/^[0-9a-f-]{36}$/i.test(repId)) {
+      throw new BadRequestException({ code: 'invalid_rep', message: 'Comercial no válido' });
+    }
+    return this.recovery.list({
+      ...(repId ? { repId } : {}),
+      ...(take ? { take: Number(take) || 200 } : {}),
+    });
   }
 
   // ----------------------------------------------------------------- ajustes

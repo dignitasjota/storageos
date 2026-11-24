@@ -695,6 +695,14 @@ export interface PlatformLeadDto {
   /** Su comercial aún no lo ha abierto («Nuevo para ti»). */
   salesNew: boolean;
   /**
+   * Archivado en la cartera de su comercial («No interesado» o cliente que se
+   * dio de baja): cuándo y la fecha de volver a intentarlo (null = sin fecha).
+   */
+  salesArchivedAt: string | null;
+  salesRecoverOn: string | null;
+  /** «No volver a contactar»: sin correos, recordatorios, secuencias ni cadencias. */
+  doNotContact: boolean;
+  /**
    * Comercial de su cuenta de cliente si no es quien lo lleva en el tablero:
    * la cuenta (y sus comisiones) sigue siendo suya.
    */

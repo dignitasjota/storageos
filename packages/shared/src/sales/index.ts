@@ -1,12 +1,16 @@
 import { z } from 'zod';
 
+import { PlatformLeadLostReasonEnum, type PlatformLeadLostReason } from '../admin/leads';
+
 import type { AdminAddonOpportunityDto, PlatformLeadDetailDto, PlatformLeadDto } from '../admin';
 import type { SalesAppointmentDto } from './appointments';
+import type { SalesArchiveCountsDto, SalesRecoveryStatsDto } from './recovery';
 import type { PlatformQuoteOfferDto } from '../admin/catalog';
 
 export * from './appointments';
 export * from './distribution';
 export * from './portfolio';
+export * from './recovery';
 
 /**
  * Comerciales del panel de administración (rol `sales`): su código y enlace,
@@ -229,6 +233,8 @@ export interface SalesLeadListDto {
   total: number;
   /** Para pedir la página siguiente (null = no hay más). */
   nextCursor: string | null;
+  /** Sus archivados («No interesado» y bajas), fuera de la cartera activa. */
+  archived: SalesArchiveCountsDto;
 }
 
 // ----------------------------------------------------------------- clientes
@@ -362,6 +368,8 @@ export interface SalesTodayDto {
   stuckOnboarding: SalesTodayRowDto[];
   offersPending: SalesTodayRowDto[];
   noContact: SalesTodayRowDto[];
+  /** Archivados cuya fecha de volver a intentarlo ya ha llegado. */
+  toRecover: SalesTodayRowDto[];
   /** Sus citas de hoy (pendientes), por hora. */
   appointments: SalesAppointmentDto[];
   kpis: {
@@ -437,6 +445,7 @@ export const SALES_COMMISSION_KINDS = [
   'adjustment',
   'tier',
   'bonus',
+  'recovery',
 ] as const;
 export type SalesCommissionKind = (typeof SALES_COMMISSION_KINDS)[number];
 export const SALES_COMMISSION_KIND_LABELS: Record<SalesCommissionKind, string> = {
@@ -447,6 +456,7 @@ export const SALES_COMMISSION_KIND_LABELS: Record<SalesCommissionKind, string> =
   adjustment: 'Ajuste',
   tier: 'Tramo del mes',
   bonus: 'Bonus por objetivo',
+  recovery: 'Recuperación',
 };
 export const SALES_COMMISSION_STATUSES = ['pending', 'approved', 'rejected'] as const;
 export type SalesCommissionStatus = (typeof SALES_COMMISSION_STATUSES)[number];
@@ -543,6 +553,8 @@ export interface SalesCommissionItemDto {
   requestedByName: string | null;
   decidedAt: string | null;
   decisionNote: string | null;
+  /** De un cliente recuperado tras darse de baja (cuenta a la mitad). */
+  recovery: boolean;
   createdAt: string;
 }
 
@@ -559,6 +571,8 @@ export interface SalesCommissionsDto {
     /** Ya liquidadas (total histórico). */
     settled: number;
   };
+  /** Sus recuperados (prospectos archivados y clientes que vuelven). */
+  recovery: SalesRecoveryStatsDto;
 }
 
 /** El comercial pide cobrar un concepto (p. ej. migración de datos) por un cliente. */
@@ -716,6 +730,10 @@ export interface SalesTeamComparisonRowDto {
   avgDaysToClose: number | null;
   /** Clientes suyos que se dieron de baja en el periodo. */
   churned: number;
+  /** Archivados que volvió a trabajar (o clientes que volvieron) en el periodo. */
+  recovered: number;
+  /** Recuperados que pagaron en el periodo. */
+  recoveredWon: number;
   /** Lo que aportan al mes sus clientes de pago hoy. */
   mrr: number;
   /** Comisiones aprobadas del periodo. */
@@ -841,6 +859,8 @@ export interface SalesRepProfileDto {
   landingUrl: string;
   extraTrialDays: number;
   limits: { trialExtensionDays: number; addonTrialDays: number };
+  /** Meses hasta volver a intentarlo, por motivo (para proponer la fecha). */
+  recoverMonths: Record<PlatformLeadLostReason, number>;
 }
 
 export interface SalesRepDetailDto extends SalesRepSummaryDto {
@@ -919,6 +939,8 @@ export interface PlatformSalesSettingsDto {
   repTrialExtensionDays: number;
   repAddonTrialDays: number;
   lifecycleFromRep: boolean;
+  /** Meses hasta volver a intentarlo un archivado, por motivo. */
+  recoverMonths: Record<PlatformLeadLostReason, number>;
   demo: {
     tenantId: string | null;
     tenantName: string | null;
@@ -935,6 +957,8 @@ export const UpdatePlatformSalesSettingsSchema = z.object({
   repAddonTrialDays: z.number().int().min(0).max(90).optional(),
   lifecycleFromRep: z.boolean().optional(),
   demoResetEnabled: z.boolean().optional(),
+  /** Solo los motivos que cambian. */
+  recoverMonths: z.record(PlatformLeadLostReasonEnum, z.number().int().min(1).max(36)).optional(),
 });
 export type UpdatePlatformSalesSettingsInput = z.infer<typeof UpdatePlatformSalesSettingsSchema>;
 

@@ -5,9 +5,11 @@ import {
   SALES_COMMISSION_KIND_LABELS,
   SALES_COMMISSION_STATUS_LABELS,
   type SalesAddonClaimDto,
+  type SalesRecoveryStatsDto,
   type SalesSettlementDto,
 } from '@storageos/shared';
 import { Download, Loader2 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -181,6 +183,41 @@ function ForecastCard() {
   );
 }
 
+/** Recuperados: archivados que ha vuelto a trabajar y clientes que han vuelto. */
+function RecoveryCard({ recovery }: { recovery: SalesRecoveryStatsDto }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Recuperados</CardTitle>
+        <CardDescription>
+          Archivados que has vuelto a trabajar y clientes que han vuelto a contratar. Un cliente que
+          vuelve tras darse de baja te deja la mitad de la comisión (venta y cuota).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Stat label="Recuperados este mes" value={String(recovery.recoveredMonth)} />
+          <Stat label="Han pagado este mes" value={String(recovery.wonMonth)} tone="good" />
+          <Stat label="Recuperados en 12 meses" value={String(recovery.recovered12m)} />
+          <Stat label="Han pagado en 12 meses" value={String(recovery.won12m)} />
+        </div>
+        {recovery.due > 0 && (
+          <p className="text-sm">
+            Tienes <strong>{recovery.due}</strong>{' '}
+            {recovery.due === 1 ? 'archivado para recuperar' : 'archivados para recuperar'}.{' '}
+            <Link
+              href="/admin/sales/leads?view=archived&archive=due"
+              className="text-primary hover:underline"
+            >
+              Verlos
+            </Link>
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SalesResultsPage() {
   const commissions = useSalesCommissions();
   const claims = useSalesClaims();
@@ -280,6 +317,8 @@ export default function SalesResultsPage() {
         </>
       )}
 
+      {data && <RecoveryCard recovery={data.recovery} />}
+
       <ForecastCard />
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -316,6 +355,11 @@ export default function SalesResultsPage() {
                       <TableCell className="text-sm">{i.tenantName ?? '—'}</TableCell>
                       <TableCell className="text-sm">
                         {SALES_COMMISSION_KIND_LABELS[i.kind]}
+                        {i.recovery && i.kind !== 'recovery' && (
+                          <Badge variant="outline" className="ml-1.5 text-[10px]">
+                            Recuperación
+                          </Badge>
+                        )}
                         <span className="block text-xs text-muted-foreground">{i.description}</span>
                         {i.decisionNote && (
                           <span className="block text-xs">Nota: {i.decisionNote}</span>

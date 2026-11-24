@@ -2,12 +2,9 @@
 
 import {
   PLATFORM_LEAD_ACTIVITY_LABELS,
-  PLATFORM_LEAD_LOST_REASON_LABELS,
-  PLATFORM_LEAD_MANUAL_LOST_REASONS,
   PLATFORM_LEAD_MANUAL_STAGES,
   PLATFORM_LEAD_STAGE_LABELS,
   SALES_CADENCE_CHANNEL_LABELS,
-  type PlatformLeadLostReason,
   type SalesAccountDto,
 } from '@storageos/shared';
 import { CheckCircle2, Circle, Loader2, Trash2 } from 'lucide-react';
@@ -15,12 +12,12 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 
 import {
-  addDaysIso,
-  errorText,
-  Field,
-  relativeDays,
-  todayInSpain,
-} from '@/components/admin/sales/common';
+  ArchiveFields,
+  archivePayload,
+  EMPTY_ARCHIVE,
+  type ArchiveFormValue,
+} from '@/components/admin/sales/archive';
+import { addDaysIso, errorText, relativeDays, todayInSpain } from '@/components/admin/sales/common';
 import { useConfirm } from '@/components/confirm-provider';
 import { DateSelect } from '@/components/month-year-select';
 import { Badge } from '@/components/ui/badge';
@@ -384,15 +381,17 @@ export function CadenceCard({ account }: { account: SalesAccountDto }) {
 
 function LoseDialog({ account, onClose }: { account: SalesAccountDto; onClose: () => void }) {
   const lose = useSalesLose(account.lead.id);
-  const [reasonCode, setReasonCode] = useState<Exclude<PlatformLeadLostReason, 'churned'> | ''>('');
-  const [reason, setReason] = useState('');
-  const [recontactOn, setRecontactOn] = useState('');
+  const [value, setValue] = useState<ArchiveFormValue>(EMPTY_ARCHIVE);
 
   async function submit() {
-    if (!reasonCode) return;
+    if (!value.reasonCode) return;
     try {
-      await lose.mutateAsync({ reasonCode, reason, recontactOn });
-      toast.success('Marcado como perdido.');
+      await lose.mutateAsync(archivePayload(value));
+      toast.success(
+        value.doNotContact
+          ? 'Archivado: no volver a contactar.'
+          : 'Archivado: te avisaremos cuando toque volver a intentarlo.',
+      );
       onClose();
     } catch (err) {
       toast.error(errorText(err));
@@ -403,64 +402,24 @@ function LoseDialog({ account, onClose }: { account: SalesAccountDto; onClose: (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Marcar como perdido</DialogTitle>
+          <DialogTitle>No interesado</DialogTitle>
           <DialogDescription>
-            Queda en tu cartera por si vuelve; puedes reabrirlo cuando quieras.
+            Sale de tu cartera activa a «Archivados» y sigue siendo tuyo. Cuando llegue la fecha, te
+            saldrá en «Para recuperar».
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <Field label="Motivo">
-            <Select
-              value={reasonCode}
-              onValueChange={(v) => setReasonCode(v as Exclude<PlatformLeadLostReason, 'churned'>)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Elige el motivo" />
-              </SelectTrigger>
-              <SelectContent>
-                {PLATFORM_LEAD_MANUAL_LOST_REASONS.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {PLATFORM_LEAD_LOST_REASON_LABELS[r]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field id="lo-reason" label="Detalle (opcional)">
-            <Textarea
-              id="lo-reason"
-              rows={2}
-              value={reason}
-              maxLength={1000}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
-          <Field label="Volver a contactar (opcional)">
-            <div className="flex items-center gap-2">
-              <DateSelect
-                value={recontactOn || undefined}
-                onChange={(v) => setRecontactOn(v ?? '')}
-                future
-              />
-              {recontactOn && (
-                <Button size="sm" variant="ghost" onClick={() => setRecontactOn('')}>
-                  Quitar
-                </Button>
-              )}
-            </div>
-          </Field>
-        </div>
+        <ArchiveFields value={value} onChange={setValue} idPrefix="lo" />
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
           <Button
             variant="destructive"
-            disabled={!reasonCode || lose.isPending}
+            disabled={!value.reasonCode || lose.isPending}
             onClick={() => void submit()}
           >
             {lose.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
-            Marcar perdido
+            Archivar
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -485,7 +444,11 @@ export function StageCard({ account }: { account: SalesAccountDto }) {
         )}
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
-        {status === 'lost' ? (
+        {status === 'lost' && account.lead.salesArchivedAt ? (
+          <p className="text-sm text-muted-foreground">
+            Archivado: lo recuperas desde el aviso de arriba.
+          </p>
+        ) : status === 'lost' ? (
           <Button
             size="sm"
             variant="outline"
@@ -519,7 +482,7 @@ export function StageCard({ account }: { account: SalesAccountDto }) {
                 className="text-destructive"
                 onClick={() => setLoseOpen(true)}
               >
-                Perdido
+                No interesado
               </Button>
             )}
           </>

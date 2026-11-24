@@ -11,6 +11,7 @@ import { Prisma } from '@storageos/database';
 import {
   cadenceDueDates,
   FEATURE_LABELS,
+  parseRecoverMonths,
   platformLeadName,
   SALES_CADENCE_CHANNEL_LABELS,
   SALES_CALL_OUTCOME_LABELS,
@@ -24,7 +25,8 @@ import {
   type CreatePlatformLeadActivityInput,
   type CreatePlatformLeadFollowupInput,
   type CreateSalesProspectInput,
-  type LosePlatformLeadInput,
+  type PlatformLeadLostReason,
+  type SalesArchiveLeadInput,
   type MovePlatformLeadInput,
   type PlatformLeadFollowupDto,
   type SalesAccountDto,
@@ -74,6 +76,7 @@ import {
   round2,
   type SalesActor,
 } from './sales-common';
+import { SalesRecoveryService } from './sales-recovery.service';
 
 import type { Env } from '../../../config/env.schema';
 
@@ -172,6 +175,7 @@ export class SalesAccountsService {
     private readonly config: ConfigService<Env, true>,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     private readonly appointments: SalesAppointmentsService,
+    private readonly recovery: SalesRecoveryService,
   ) {}
 
   private actor(a: SalesActor) {
@@ -232,6 +236,7 @@ export class SalesAccountsService {
         trialExtensionDays: settings.repTrialExtensionDays,
         addonTrialDays: settings.repAddonTrialDays,
       },
+      recoverMonths: parseRecoverMonths(settings.recoverMonths),
     };
   }
 
@@ -401,15 +406,45 @@ export class SalesAccountsService {
     return this.account(repId, leadId, actor);
   }
 
-  async lose(repId: string, leadId: string, input: LosePlatformLeadInput, actor: SalesActor) {
+  /**
+   * «No interesado»: sale de su cartera activa a sus archivados, con la fecha
+   * de volver a intentarlo (la que toca por el motivo si no la elige) o como
+   * «No volver a contactar».
+   */
+  async lose(repId: string, leadId: string, input: SalesArchiveLeadInput, actor: SalesActor) {
     await this.assignment.leadOf(repId, leadId);
-    await this.leads.lose(leadId, input, this.actor(actor));
+    await this.leads.lose(
+      leadId,
+      { reasonCode: input.reasonCode, ...(input.reason ? { reason: input.reason } : {}) },
+      this.actor(actor),
+      { recoverOn: input.recoverOn, doNotContact: input.doNotContact ?? false },
+    );
     return this.account(repId, leadId, actor);
   }
 
+  /** Reabre un perdido; si está archivado, es «Recuperar». */
   async reopen(repId: string, leadId: string, actor: SalesActor) {
-    await this.assignment.leadOf(repId, leadId);
-    await this.leads.reopen(leadId, this.actor(actor));
+    const lead = await this.assignment.leadOf(repId, leadId);
+    if (lead.status === 'lost' && lead.salesArchivedAt) {
+      await this.recovery.recover(repId, leadId, actor);
+    } else {
+      await this.leads.reopen(leadId, this.actor(actor));
+    }
+    return this.account(repId, leadId, actor);
+  }
+
+  async recover(repId: string, leadId: string, actor: SalesActor) {
+    await this.recovery.recover(repId, leadId, actor);
+    return this.account(repId, leadId, actor);
+  }
+
+  async updateArchive(
+    repId: string,
+    leadId: string,
+    input: { recoverOn?: string | null | undefined; doNotContact?: boolean | undefined },
+    actor: SalesActor,
+  ) {
+    await this.recovery.updateArchive(repId, leadId, input, actor);
     return this.account(repId, leadId, actor);
   }
 
@@ -654,8 +689,18 @@ export class SalesAccountsService {
     input: SalesCallOutcomeInput,
     actor: SalesActor,
   ): Promise<SalesAccountDto> {
-    const lead = await this.assignment.leadOf(repId, leadId);
+    let lead = await this.assignment.leadOf(repId, leadId);
     const label = SALES_CALL_OUTCOME_LABELS[input.outcome];
+    // Un archivado con el que se vuelve a hablar: si hay interés, se recupera;
+    // si sigue sin interesarle, se aplaza a la fecha que toca por su motivo.
+    const archivedBefore = lead.status === 'lost' && !!lead.salesArchivedAt;
+    if (
+      archivedBefore &&
+      ['interested', 'demo_booked', 'call_later', 'won'].includes(input.outcome)
+    ) {
+      await this.recovery.recover(repId, leadId, actor);
+      lead = await this.assignment.leadOf(repId, leadId);
+    }
     const type = input.channel === 'email' ? 'note' : input.channel;
     const prefix =
       input.channel === 'email' ? 'Correo: ' : input.channel === 'whatsapp' ? 'WhatsApp: ' : '';
@@ -667,15 +712,29 @@ export class SalesAccountsService {
       },
       this.actor(actor),
     );
-    // Perderlo cierra lo pendiente; el seguimiento que se pida ahora va después.
+    const today = madridToday();
+    // «No interesado» lo archiva: la fecha que pida es la de volver a intentarlo.
+    let archived = lead.status === 'lost' && !!lead.salesArchivedAt;
+    if (archived && input.outcome === 'not_interested' && !lead.doNotContact) {
+      const recoverOn =
+        input.followupDate && input.followupDate > today
+          ? input.followupDate
+          : await this.leads.proposedRecoverOn(
+              (lead.lostReasonCode as PlatformLeadLostReason | null) ?? 'other',
+            );
+      await this.recovery.updateArchive(repId, leadId, { recoverOn }, actor);
+    }
     if (input.outcome === 'not_interested' && !lead.tenantId && lead.status !== 'lost') {
+      const recoverOn =
+        input.followupDate && input.followupDate > today ? input.followupDate : undefined;
       await this.leads.lose(
         leadId,
         { reasonCode: 'other', reason: input.note ?? 'No le interesa' },
         this.actor(actor),
+        { recoverOn },
       );
+      archived = true;
     }
-    const today = madridToday();
     // Lo que tocaba hasta hoy queda hecho.
     await this.admin.platformLeadFollowup.updateMany({
       where: {
@@ -691,7 +750,7 @@ export class SalesAccountsService {
       input.followupDate === null
         ? null
         : (input.followupDate ?? (days != null ? addDaysIso(today, days) : null));
-    if (date) {
+    if (date && !archived) {
       await this.leads.createFollowup(
         leadId,
         {
@@ -1101,7 +1160,14 @@ export class SalesAccountsService {
     cadenceId: string,
     actor: SalesActor,
   ): Promise<void> {
-    await this.assignment.leadOf(repId, leadId);
+    const lead = await this.assignment.leadOf(repId, leadId);
+    this.leads.assertContactable(lead);
+    if (lead.status === 'lost' && lead.salesArchivedAt) {
+      throw new BadRequestException({
+        code: 'lead_archived',
+        message: 'Está archivado: recupéralo antes de meterlo en una cadencia',
+      });
+    }
     const cadence = await this.admin.salesCadence.findFirst({
       where: { id: cadenceId, isActive: true },
     });
@@ -1538,7 +1604,10 @@ export class SalesAccountsService {
     const counts: Record<string, number> = {};
     for (const g of leadsCount) counts[g.status] = g._count._all;
     const mine = achieved.get(repId) ?? { newClients: 0, newMrr: 0 };
-    const appointments = await this.appointments.todayForRep(repId, now);
+    const [appointments, toRecover] = await Promise.all([
+      this.appointments.todayForRep(repId, now),
+      this.recovery.todayRows(repId, now),
+    ]);
     return {
       date: today,
       appointments,
@@ -1563,6 +1632,7 @@ export class SalesAccountsService {
       stuckOnboarding: stuck,
       offersPending,
       noContact,
+      toRecover,
       kpis: {
         prospects: (counts.new ?? 0) + (counts.contacted ?? 0) + (counts.interested ?? 0),
         trials: clients.filter((c) => c.status === 'trial').length,

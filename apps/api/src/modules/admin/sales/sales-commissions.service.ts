@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@storageos/database';
 import {
   revenueCommission,
+  SALES_RECOVERY_COMMISSION_FACTOR,
   saleTierExtra,
   SalesSaleTierSchema,
   salesMonth,
@@ -21,6 +22,7 @@ import {
   type SalesCommissionPlanDto,
   type SalesCommissionsDto,
   type SalesCommissionStatus,
+  type SalesRecoveryStatsDto,
   type SalesSettlementDto,
   type SalesTargetDto,
   type UpdateSalesCommissionPlanInput,
@@ -39,7 +41,15 @@ import {
   splitPaymentForCommission,
   type SplitAddon,
 } from './commission-split';
-import { addMonths, DAY, monthNameEs, monthOf, monthRange, round2 } from './sales-common';
+import {
+  addMonths,
+  DAY,
+  madridToday,
+  monthNameEs,
+  monthOf,
+  monthRange,
+  round2,
+} from './sales-common';
 import { SalesNotifyService } from './sales-notify.service';
 import { renderSettlementReceipt } from './settlement-receipt';
 
@@ -663,8 +673,17 @@ export class SalesCommissionsService {
     ).map((a) => ({ repId: a.repId, startedAt: a.startedAt, endedAt: a.endedAt }));
     if (assignments.length === 0) return 0;
 
-    const repIds = [...new Set(assignments.map((a) => a.repId))];
+    const assignedRepIds = assignments.map((a) => a.repId);
     const since = new Date(now.getTime() - RECHECK_DAYS * DAY);
+    // Vuelve a pagar tras darse de baja: desde ese cobro, la mitad (decisión de la dirección).
+    const recoveries = await this.admin.salesRecovery.findMany({
+      where: { tenantId, kind: 'client', wonAt: { not: null } },
+      orderBy: { wonAt: 'asc' },
+      select: { id: true, repId: true, wonAt: true },
+    });
+    const recoveryAt = (at: Date) =>
+      [...recoveries].reverse().find((r) => r.wonAt!.getTime() <= at.getTime()) ?? null;
+    const repIds = [...new Set([...assignedRepIds, ...recoveries.map((r) => r.repId)])];
     const [tenant, payments, allPaid, items, claims, plans, reps, settings] = await Promise.all([
       this.admin.tenant.findUnique({
         where: { id: tenantId },
@@ -735,23 +754,31 @@ export class SalesCommissionsService {
       const existing = items.filter(
         (i) => i.paymentId === p.id && i.kind === 'revenue' && i.status !== 'rejected',
       );
-      const repId = existing[0]?.repId ?? repAt(assignments, paidAt);
+      const recovery = recoveryAt(paidAt);
+      const repId = existing[0]?.repId ?? recovery?.repId ?? repAt(assignments, paidAt);
       if (!repId) continue;
       const plan = planOf.get(repId);
+      // Cliente recuperado: la mitad de su %, y sus meses cuentan desde que volvió.
       const rate =
-        existing[0]?.rate != null ? Number(existing[0].rate) : Number(plan?.revenuePct ?? 0);
+        existing[0]?.rate != null
+          ? Number(existing[0].rate)
+          : round2(
+              Number(plan?.revenuePct ?? 0) * (recovery ? SALES_RECOVERY_COMMISSION_FACTOR : 1),
+            );
+      const windowStart = recovery ? recovery.wonAt! : firstPaidAt;
       const isNew = existing.length === 0;
       if (isNew) {
         if (!(rate > 0) || !activeRep.has(repId)) continue;
         if (paidAt.getTime() < now.getTime() - NEW_ITEM_WINDOW_DAYS * DAY) continue;
         if (
           plan?.revenueMonths &&
-          firstPaidAt &&
-          paidAt.getTime() > addMonths(firstPaidAt, plan.revenueMonths).getTime()
+          windowStart &&
+          paidAt.getTime() > addMonths(windowStart, plan.revenueMonths).getTime()
         ) {
           continue;
         }
       }
+      const recoveryId = existing[0]?.recoveryId ?? recovery?.id ?? null;
       const gross = Number(p.amount);
       const kept = Math.max(0, gross - Number(p.refundedAmount ?? 0)) / gross;
       const stored = existing.map((i) => parseSplit(i.split)).find((x) => x !== null) ?? null;
@@ -795,8 +822,9 @@ export class SalesCommissionsService {
           kind: 'revenue',
           paymentId: p.id,
           description: isNew
-            ? `${rate} % de ${money(base)} cobrados a ${tenant.name}`
+            ? `${recoveryId ? 'Recuperación: ' : ''}${rate} % de ${money(base)} cobrados a ${tenant.name}`
             : `Ajuste del cobro de ${tenant.name} (${delta < 0 ? 'devolución o extra no aprobado' : 'extra aprobado'})`,
+          recoveryId,
           month: isNew ? monthOf(paidAt) : salesMonth(now),
           baseAmount: base,
           rate,
@@ -870,6 +898,68 @@ export class SalesCommissionsService {
         );
       }
     }
+    created += await this.syncRecoveryFixed(
+      tenantId,
+      tenant.name,
+      recoveries,
+      planOf,
+      activeRep,
+      now,
+    );
+    return created;
+  }
+
+  /**
+   * Fijo por recuperar un cliente que se dio de baja: la mitad del fijo por
+   * venta de su plan, una vez por recuperación, con su aviso.
+   */
+  private async syncRecoveryFixed(
+    tenantId: string,
+    tenantName: string,
+    recoveries: { id: string; repId: string; wonAt: Date | null }[],
+    planOf: Map<string, { perSaleAmount: Prisma.Decimal }>,
+    activeRep: Set<string>,
+    now: Date,
+  ): Promise<number> {
+    let created = 0;
+    for (const r of recoveries) {
+      if (!r.wonAt || r.wonAt.getTime() < now.getTime() - NEW_ITEM_WINDOW_DAYS * DAY) continue;
+      if (!activeRep.has(r.repId)) continue;
+      const exists = await this.admin.salesCommissionItem.findFirst({
+        where: { recoveryId: r.id, kind: 'recovery' },
+        select: { id: true },
+      });
+      if (exists) continue;
+      const fixed = round2(
+        Number(planOf.get(r.repId)?.perSaleAmount ?? 0) * SALES_RECOVERY_COMMISSION_FACTOR,
+      );
+      if (fixed > 0) {
+        try {
+          await this.admin.salesCommissionItem.create({
+            data: {
+              repId: r.repId,
+              tenantId,
+              kind: 'recovery',
+              recoveryId: r.id,
+              description: `Recuperación: ${tenantName} vuelve a contratar (la mitad de la venta)`,
+              month: monthOf(r.wonAt),
+              amount: fixed,
+              status: 'approved',
+            },
+          });
+          created += 1;
+        } catch (err) {
+          if (!isUniqueViolation(err)) throw err;
+          continue;
+        }
+      }
+      await this.notify.repOnce(r.repId, `recovery:${r.id}`, 60 * 24 * 365 * 5, {
+        type: 'sales.recovered',
+        title: `¡Recuperado! ${tenantName} vuelve a contratar`,
+        body: 'Por esta recuperación cobras la mitad de la comisión de venta y de cuota.',
+        link: '/admin/sales/results',
+      });
+    }
     return created;
   }
 
@@ -925,6 +1015,7 @@ export class SalesCommissionsService {
       requestedByName: r.requestedById ? (names.get(r.requestedById) ?? null) : null,
       decidedAt: r.decidedAt?.toISOString() ?? null,
       decisionNote: r.decisionNote,
+      recovery: !!r.recoveryId,
       createdAt: r.createdAt.toISOString(),
     }));
   }
@@ -986,7 +1077,63 @@ export class SalesCommissionsService {
         month: round2(Number(monthSum._sum.amount ?? 0)),
         settled: round2(Number(settled._sum.amount ?? 0)),
       },
+      recovery: await this.recoveryStats(repId, now),
     };
+  }
+
+  // ------------------------------------------------------------ recuperados
+
+  /**
+   * Recuperados de un comercial: archivados que volvió a trabajar (o clientes
+   * que volvieron a pagar) y los que acabaron pagando, del mes y de 12 meses.
+   */
+  async recoveryStats(repId: string, now = new Date()): Promise<SalesRecoveryStatsDto> {
+    const month = monthRange(salesMonth(now)).from;
+    const year = new Date(now.getTime() - 365 * DAY);
+    const today = new Date(`${madridToday(now)}T00:00:00Z`);
+    const [recoveredMonth, wonMonth, recovered12m, won12m, due] = await Promise.all([
+      this.admin.salesRecovery.count({ where: { repId, recoveredAt: { gte: month } } }),
+      this.admin.salesRecovery.count({ where: { repId, wonAt: { gte: month } } }),
+      this.admin.salesRecovery.count({ where: { repId, recoveredAt: { gte: year } } }),
+      this.admin.salesRecovery.count({ where: { repId, wonAt: { gte: year } } }),
+      this.admin.platformLead.count({
+        where: {
+          salesRepId: repId,
+          discardedAt: null,
+          status: 'lost',
+          salesArchivedAt: { not: null },
+          salesRecoverOn: { lte: today },
+        },
+      }),
+    ]);
+    return { recoveredMonth, wonMonth, recovered12m, won12m, due };
+  }
+
+  /** Recuperados y ganados por comercial desde `from` (comparativa del equipo). */
+  async recoveriesByRep(
+    repIds: string[],
+    from: Date,
+  ): Promise<Map<string, { recovered: number; won: number }>> {
+    const [recovered, won] = await Promise.all([
+      this.admin.salesRecovery.groupBy({
+        by: ['repId'],
+        where: { repId: { in: repIds }, recoveredAt: { gte: from } },
+        _count: { _all: true },
+      }),
+      this.admin.salesRecovery.groupBy({
+        by: ['repId'],
+        where: { repId: { in: repIds }, wonAt: { gte: from } },
+        _count: { _all: true },
+      }),
+    ]);
+    const out = new Map<string, { recovered: number; won: number }>();
+    for (const id of repIds) {
+      out.set(id, {
+        recovered: recovered.find((r) => r.repId === id)?._count._all ?? 0,
+        won: won.find((r) => r.repId === id)?._count._all ?? 0,
+      });
+    }
+    return out;
   }
 
   /** El comercial pide cobrar un concepto (p. ej. una migración) por un cliente suyo. */

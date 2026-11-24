@@ -26,7 +26,9 @@ import {
   estimatePlatformLeadValue,
   findTaxId,
   isRealIsoDay,
+  parseRecoverMonths,
   platformLeadName,
+  proposeRecoverOn,
   scorePlatformLead,
   similarCompanyNames,
   staleDaysOf,
@@ -35,6 +37,7 @@ import {
   type MessageAttachmentInput,
   type PlatformLeadDiscardReason,
   type PlatformLeadDuplicateDto,
+  type PlatformLeadLostReason as LostReason,
   type PlatformLeadStaleDays,
   type PlatformLeadValueContext,
 } from '@storageos/shared';
@@ -193,6 +196,23 @@ export interface LeadActor {
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 const madridToday = (now = new Date()) => isoDate(todayInTimezone('Europe/Madrid', now));
 export const clean = (v: string | null | undefined) => (v && v.trim() ? v.trim() : null);
+
+/** Sin las marcas de archivado: el lead vuelve a la cartera activa (o se pierde sin archivar). */
+export const ARCHIVE_CLEAR = {
+  salesArchivedAt: null,
+  salesRecoverOn: null,
+  salesRecoverNotifiedAt: null,
+} as const;
+
+/** Cómo queda archivado un perdido de un comercial. */
+export interface LeadArchiveOptions {
+  /** Volver a intentarlo ese día (undefined = la fecha que toca por el motivo; null = sin fecha). */
+  recoverOn?: string | null | undefined;
+  /** «No volver a contactar»: sin fecha, sin correos ni recordatorios. */
+  doNotContact?: boolean | undefined;
+}
+
+const dayLabel = (iso: string) => iso.split('-').reverse().join('/');
 export const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
 
 /**
@@ -676,6 +696,13 @@ export class PlatformLeadsService {
         salesRepName: r.salesRep?.fullName ?? null,
         salesBatch: r.salesBatch,
         salesNew: !!r.salesRepId && !r.salesSeenAt,
+        salesArchivedAt:
+          r.status === 'lost' && r.salesArchivedAt ? r.salesArchivedAt.toISOString() : null,
+        salesRecoverOn:
+          r.status === 'lost' && r.salesArchivedAt && r.salesRecoverOn
+            ? isoDate(r.salesRecoverOn)
+            : null,
+        doNotContact: r.doNotContact,
         accountKeptBy:
           r.tenant?.salesRep && !r.tenant.deletedAt && r.tenant.salesRep.id !== r.assignedToId
             ? { id: r.tenant.salesRep.id, name: r.tenant.salesRep.fullName }
@@ -716,6 +743,16 @@ export class PlatformLeadsService {
     const row = await this.admin.platformLead.findUnique({ where: { id } });
     if (!row || row.discardedAt) throw this.notFound();
     return row;
+  }
+
+  /** Un lead que pidió no volver a ser contactado no recibe correos ni recordatorios. */
+  assertContactable(lead: { doNotContact: boolean }): void {
+    if (lead.doNotContact) {
+      throw new BadRequestException({
+        code: 'do_not_contact',
+        message: 'Pidió que no le volvamos a contactar: quita esa marca antes',
+      });
+    }
   }
 
   private async assertAssignee(id: string | null | undefined): Promise<void> {
@@ -967,7 +1004,9 @@ export class PlatformLeadsService {
             }
           : {}),
         ...(input.status === 'interested' ? { interestedAt: lead.interestedAt ?? now } : {}),
-        ...(lead.status === 'lost' ? { lostAt: null, lostReasonCode: null, lostReason: null } : {}),
+        ...(lead.status === 'lost'
+          ? { lostAt: null, lostReasonCode: null, lostReason: null, ...ARCHIVE_CLEAR }
+          : {}),
       },
     });
     await this.addActivity(
@@ -995,10 +1034,149 @@ export class PlatformLeadsService {
     return count;
   }
 
+  // --------------------------------------------------------------- archivados
+
+  /** Fecha de volver a intentarlo: que exista y sea posterior a hoy (hora de España). */
+  assertRecoverDay(value: string, now = new Date()): void {
+    if (!isRealIsoDay(value)) {
+      throw new BadRequestException({ code: 'invalid_date', message: 'Esa fecha no existe' });
+    }
+    if (value <= madridToday(now)) {
+      throw new BadRequestException({
+        code: 'date_not_future',
+        message: 'Elige un día a partir de mañana para volver a intentarlo',
+      });
+    }
+  }
+
+  /** La fecha de volver a intentarlo que toca por el motivo (Reglas del equipo). */
+  async proposedRecoverOn(reason: LostReason, now = new Date()): Promise<string> {
+    const settings = await this.assignment.settings();
+    return proposeRecoverOn(madridToday(now), reason, parseRecoverMonths(settings.recoverMonths));
+  }
+
+  /**
+   * Deja un perdido archivado en la cartera de su comercial: sigue siendo suyo,
+   * sin recordatorios ni cadencia, con la fecha de volver a intentarlo (o
+   * «No volver a contactar»). Queda anotado para medir sus recuperaciones.
+   */
+  async archiveForRep(
+    leadId: string,
+    a: {
+      repId: string;
+      tenantId: string | null;
+      kind: 'prospect' | 'client';
+      reasonCode: LostReason;
+      recoverOn: string | null | undefined;
+      doNotContact: boolean;
+      byId: string | null;
+      now: Date;
+    },
+  ): Promise<void> {
+    const recoverOn = a.doNotContact
+      ? null
+      : a.recoverOn === undefined
+        ? await this.proposedRecoverOn(a.reasonCode, a.now)
+        : a.recoverOn;
+    const recoverDate = recoverOn ? new Date(`${recoverOn}T00:00:00Z`) : null;
+    await this.admin.platformLead.update({
+      where: { id: leadId },
+      data: {
+        salesArchivedAt: a.now,
+        salesRecoverOn: recoverDate,
+        salesRecoverNotifiedAt: null,
+        doNotContact: a.doNotContact,
+        ...(a.doNotContact ? { sequenceOptOut: true } : {}),
+      },
+    });
+    await this.admin.salesRecovery.create({
+      data: {
+        leadId,
+        repId: a.repId,
+        tenantId: a.tenantId,
+        kind: a.kind,
+        reasonCode: a.reasonCode,
+        archivedAt: a.now,
+        recoverOn: recoverDate,
+      },
+    });
+    await this.stopSalesCadence(leadId, a.now);
+    if (a.doNotContact) await this.stopSequence(leadId, 'manual');
+    await this.addActivity(
+      leadId,
+      'system',
+      a.doNotContact
+        ? 'Archivado: no volver a contactar'
+        : recoverOn
+          ? `Archivado: volver a intentarlo el ${dayLabel(recoverOn)}`
+          : 'Archivado sin fecha para volver a intentarlo',
+      a.byId,
+    );
+  }
+
+  /** Para la cadencia del comercial (sus seguimientos ya se cerraron o se cierran aparte). */
+  async stopSalesCadence(leadId: string, now = new Date()): Promise<void> {
+    const active = await this.admin.salesCadenceEnrollment.findMany({
+      where: { leadId, status: 'active' },
+      select: { id: true, followupIds: true },
+    });
+    for (const e of active) {
+      await this.admin.platformLeadFollowup.updateMany({
+        where: { id: { in: e.followupIds }, status: 'pending' },
+        data: { status: 'done', completedAt: now },
+      });
+    }
+    if (active.length) {
+      await this.admin.salesCadenceEnrollment.updateMany({
+        where: { id: { in: active.map((e) => e.id) } },
+        data: { status: 'stopped', finishedAt: now },
+      });
+    }
+  }
+
+  /**
+   * Paga tras archivarse: la última recuperación abierta queda ganada (un
+   * cliente que vuelve cuenta como recuperado aunque nadie pulsara
+   * «Recuperar»; un prospecto, solo si su comercial lo recuperó).
+   */
+  private async markRecoveryWon(leadId: string, tenantId: string, now: Date): Promise<void> {
+    const open = await this.admin.salesRecovery.findFirst({
+      where: { leadId, wonAt: null },
+      orderBy: { archivedAt: 'desc' },
+    });
+    if (!open) return;
+    if (open.kind !== 'client' && !open.recoveredAt) return;
+    // El primer cobro después de archivarse.
+    const paid = await this.admin.tenantSubscriptionPayment.findFirst({
+      where: {
+        tenantId,
+        status: 'paid',
+        amount: { gt: 0 },
+        OR: [
+          { paidAt: { gt: open.archivedAt } },
+          { paidAt: null, createdAt: { gt: open.archivedAt } },
+        ],
+      },
+      orderBy: [{ paidAt: 'asc' }, { createdAt: 'asc' }],
+      select: { paidAt: true, createdAt: true },
+    });
+    const wonAt = paid ? (paid.paidAt ?? paid.createdAt) : now;
+    await this.admin.salesRecovery.update({
+      where: { id: open.id },
+      data: { wonAt, recoveredAt: open.recoveredAt ?? wonAt },
+    });
+  }
+
+  /**
+   * Perdido. Si es de un comercial, queda archivado en su cartera con la fecha
+   * de volver a intentarlo (la que toca por el motivo si no se indica) o como
+   * «No volver a contactar».
+   */
   async lose(
     id: string,
     input: LosePlatformLeadInput,
     actor: LeadActor,
+    archive: LeadArchiveOptions = {},
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
     if (lead.status === 'customer') {
@@ -1009,6 +1187,7 @@ export class PlatformLeadsService {
     }
     const recontactOn = clean(input.recontactOn);
     if (recontactOn) assertUpcomingDay(recontactOn);
+    if (archive.recoverOn) this.assertRecoverDay(archive.recoverOn);
     const now = new Date();
     await this.admin.platformLead.update({
       where: { id },
@@ -1018,6 +1197,7 @@ export class PlatformLeadsService {
         lostReasonCode: input.reasonCode,
         lostReason: clean(input.reason),
         awaitingReplySince: null,
+        ...ARCHIVE_CLEAR,
       },
     });
     const closed = await this.closePendingFollowups(id, now);
@@ -1028,6 +1208,18 @@ export class PlatformLeadsService {
       `Perdido: ${PLATFORM_LEAD_LOST_REASON_LABELS[input.reasonCode]}${clean(input.reason) ? ` — ${clean(input.reason)}` : ''}`,
       actor.superAdminId,
     );
+    if (lead.salesRepId) {
+      await this.archiveForRep(id, {
+        repId: lead.salesRepId,
+        tenantId: lead.tenantId,
+        kind: 'prospect',
+        reasonCode: input.reasonCode,
+        recoverOn: archive.recoverOn,
+        doNotContact: archive.doNotContact ?? false,
+        byId: actor.superAdminId,
+        now,
+      });
+    }
     if (recontactOn) {
       await this.admin.platformLeadFollowup.create({
         data: {
@@ -1056,7 +1248,13 @@ export class PlatformLeadsService {
     if (lead.tenantId) {
       await this.admin.platformLead.update({
         where: { id },
-        data: { status: 'trial', lostAt: null, lostReasonCode: null, lostReason: null },
+        data: {
+          status: 'trial',
+          lostAt: null,
+          lostReasonCode: null,
+          lostReason: null,
+          ...ARCHIVE_CLEAR,
+        },
       });
       await this.addActivity(id, 'system', 'Reabierto', actor.superAdminId);
       await this.record(actor, 'reopened', id, { from: 'lost', to: 'trial' });
@@ -1270,6 +1468,7 @@ export class PlatformLeadsService {
     actor: LeadActor,
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
+    this.assertContactable(lead);
     const assignedToId =
       input.assignedToId === undefined
         ? (lead.assignedToId ?? actor.superAdminId)
@@ -1374,6 +1573,7 @@ export class PlatformLeadsService {
     to?: { email: string; name: string | null },
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
+    this.assertContactable(lead);
     const email = to?.email ?? lead.email;
     if (!email) {
       throw new BadRequestException({
@@ -1607,6 +1807,7 @@ export class PlatformLeadsService {
     sender?: LeadEmailSender,
   ): Promise<PlatformLeadDetailDto> {
     const lead = await this.leadOrThrow(id);
+    this.assertContactable(lead);
     const meta = {
       superAdminId: actor.superAdminId,
       ipAddress: actor.ipAddress ?? null,
@@ -1924,8 +2125,10 @@ export class PlatformLeadsService {
         status: true,
         lostReasonCode: true,
         assignedToId: true,
+        salesRepId: true,
         tenant: {
           select: {
+            name: true,
             trialEndedAt: true,
             deletedAt: true,
             status: true,
@@ -1969,6 +2172,7 @@ export class PlatformLeadsService {
             lostReasonCode: 'churned',
             lostReason: null,
             awaitingReplySince: null,
+            ...ARCHIVE_CLEAR,
           },
         });
         if (count !== 1) continue;
@@ -1981,6 +2185,9 @@ export class PlatformLeadsService {
           `Perdido: ${PLATFORM_LEAD_LOST_REASON_LABELS.churned}`,
           null,
         );
+        // Dado de baja (no una suspensión por impago): lo intenta recuperar el
+        // mismo comercial que lo trajo, desde sus archivados.
+        if (gone && c.salesRepId) await this.archiveChurned(c, now);
         continue;
       }
 
@@ -1995,10 +2202,12 @@ export class PlatformLeadsService {
             lostAt: null,
             lostReasonCode: null,
             lostReason: null,
+            ...ARCHIVE_CLEAR,
           },
         });
         if (count === 1) {
           customers += 1;
+          await this.markRecoveryWon(c.id, c.tenantId!, now);
           await this.addActivity(
             c.id,
             'system',
@@ -2041,6 +2250,7 @@ export class PlatformLeadsService {
           lostReasonCode: 'no_conversion',
           lostReason: null,
           awaitingReplySince: null,
+          ...ARCHIVE_CLEAR,
         },
       });
       if (count !== 1) continue;
@@ -2065,6 +2275,42 @@ export class PlatformLeadsService {
       });
     }
     return { customers, lost, churned };
+  }
+
+  /** Cliente de un comercial que se da de baja: a sus archivados, con su recordatorio. */
+  private async archiveChurned(
+    c: {
+      id: string;
+      tenantId: string | null;
+      salesRepId: string | null;
+      tenant: { name: string } | null;
+    },
+    now: Date,
+  ): Promise<void> {
+    try {
+      const recoverOn = await this.proposedRecoverOn('churned', now);
+      await this.archiveForRep(c.id, {
+        repId: c.salesRepId!,
+        tenantId: c.tenantId,
+        kind: 'client',
+        reasonCode: 'churned',
+        recoverOn,
+        doNotContact: false,
+        byId: null,
+        now,
+      });
+      await this.admin.superAdminNotification.create({
+        data: {
+          type: 'sales.client_churned',
+          title: `${c.tenant?.name ?? 'Un cliente tuyo'} se ha dado de baja`,
+          body: `Lo tienes en tus archivados de «Prospectos» para volver a intentarlo el ${dayLabel(recoverOn)}. Si vuelve a contratar, cobras la mitad de la comisión.`,
+          link: `/admin/sales/accounts/${c.id}`,
+          recipientId: c.salesRepId!,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(`[leads] archivar la baja ${c.id}: ${String(err)}`);
+    }
   }
 
   /**
@@ -2277,8 +2523,9 @@ export class PlatformLeadsService {
     input: { enabled: boolean; sequenceId?: string | undefined },
     actor: LeadActor,
   ): Promise<PlatformLeadDetailDto> {
-    await this.leadOrThrow(id);
+    const lead = await this.leadOrThrow(id);
     if (input.enabled) {
+      this.assertContactable(lead);
       await this.sequences.start(id, {
         sequenceId: input.sequenceId ?? null,
         byId: actor.superAdminId,

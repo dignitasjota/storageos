@@ -202,9 +202,18 @@ export class PlatformLeadSequencesService {
     };
     const lead = await this.admin.platformLead.findUnique({
       where: { id: leadId },
-      select: { status: true, email: true, discardedAt: true, sequenceOptOut: true },
+      select: {
+        status: true,
+        email: true,
+        discardedAt: true,
+        sequenceOptOut: true,
+        doNotContact: true,
+      },
     });
     if (!lead || lead.discardedAt) return fail('lead_not_found', 'Lead no encontrado');
+    if (lead.doNotContact) {
+      return fail('do_not_contact', 'Pidió que no le volvamos a contactar');
+    }
     if (!lead.email) return fail('lead_without_email', 'Este lead no tiene email');
     if (!OPEN_FOR_SEQUENCE.has(lead.status)) {
       return fail(
@@ -285,13 +294,14 @@ export class PlatformLeadSequencesService {
       email: string | null;
       discardedAt: Date | null;
       sequenceOptOut: boolean;
+      doNotContact: boolean;
       mergedIntoId: string | null;
     },
   ): Promise<SequenceStopReason | null> {
     if (lead.mergedIntoId) return 'merged';
     if (lead.discardedAt) return 'discarded';
     if (!OPEN_FOR_SEQUENCE.has(lead.status)) return 'stage';
-    if (lead.sequenceOptOut) return 'manual';
+    if (lead.sequenceOptOut || lead.doNotContact) return 'manual';
     if (!lead.email) return 'no_email';
     const replied = await this.admin.platformLeadActivity.count({
       where: {
@@ -318,6 +328,7 @@ export class PlatformLeadSequencesService {
             email: true,
             discardedAt: true,
             sequenceOptOut: true,
+            doNotContact: true,
             mergedIntoId: true,
             companyName: true,
             contactName: true,

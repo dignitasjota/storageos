@@ -10,6 +10,7 @@ import { SalesAppointmentsService } from './sales-appointments.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { SalesCommissionsService } from './sales-commissions.service';
 import { SalesDemoService } from './sales-demo.service';
+import { SalesRecoveryService } from './sales-recovery.service';
 
 /**
  * Tareas del equipo comercial. Corren en el API (son ligeras) y cada ejecución
@@ -26,6 +27,7 @@ export class SalesCron {
     private readonly alerts: SalesAlertsService,
     private readonly demo: SalesDemoService,
     private readonly appointments: SalesAppointmentsService,
+    private readonly recovery: SalesRecoveryService,
   ) {}
 
   /**
@@ -64,6 +66,20 @@ export class SalesCron {
       }
     } catch (err) {
       this.logger.error(`[sales] tarea horaria: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Cada mañana: avisa de los archivados a los que ya toca volver a intentarlo
+   * (a su comercial o, si ya no está activo, a la dirección).
+   */
+  @Cron('10 8 * * *', { name: 'sales.recovery', timeZone: 'Europe/Madrid' })
+  async recoveryDue(): Promise<void> {
+    if (!(await claimDailyCronRun(this.admin, 'sales.recovery'))) return;
+    try {
+      await this.recovery.notifyDue();
+    } catch (err) {
+      this.logger.error(`[sales] archivados para recuperar: ${String(err)}`);
     }
   }
 

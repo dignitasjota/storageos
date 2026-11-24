@@ -8,7 +8,10 @@ import {
   SALES_QUEUE_REASONS,
   SALES_TRIAL_ENDING_DAYS,
   salesLeadSize,
+  PLATFORM_LEAD_LOST_REASON_LABELS,
   type PlatformLeadDto,
+  type PlatformLeadLostReason,
+  type SalesArchiveCountsDto,
   type SalesBulkLeadActionInput,
   type SalesBulkLeadResultDto,
   type SalesLeadDto,
@@ -27,6 +30,7 @@ import { SuperAdminAuditService } from '../super-admin-audit.service';
 import { SalesAccountsService } from './sales-accounts.service';
 import { SalesAssignmentService } from './sales-assignment.service';
 import { DAY, daysUntil, madridToday, profileDto, type SalesActor } from './sales-common';
+import { archivedWhere, dueWhere } from './sales-recovery.service';
 
 /** Sin contacto anotado en estos días: «Sin contacto hace tiempo». */
 const NO_CONTACT_DAYS = 14;
@@ -38,6 +42,11 @@ const QUEUE_MAX = 150;
 /** Nuevos sin tocar que entran en la cola (los de más valor). */
 const QUEUE_UNTOUCHED_MAX = 50;
 const CURSOR_RE = /^(\d{1,7})_([0-9a-f-]{36})$/i;
+
+/** Su cartera activa: todo menos los archivados. */
+const ACTIVE_WHERE: Prisma.PlatformLeadWhereInput = {
+  NOT: { status: 'lost', salesArchivedAt: { not: null } },
+};
 
 interface LightRow {
   id: string;
@@ -86,7 +95,18 @@ export class SalesPortfolioService {
   private leadWhere(repId: string, q: SalesLeadsQuery, now: Date): Prisma.PlatformLeadWhereInput {
     const and: Prisma.PlatformLeadWhereInput[] = [];
     const where: Prisma.PlatformLeadWhereInput = { salesRepId: repId, discardedAt: null };
-    if (q.status) where.status = q.status;
+    if (q.archived) {
+      // Sus archivados: «No interesado» y clientes que se dieron de baja.
+      and.push(archivedWhere(repId));
+      const today = new Date(`${madridToday(now)}T00:00:00Z`);
+      if (q.archive === 'due') and.push(dueWhere(madridToday(now), repId));
+      else if (q.archive === 'scheduled') {
+        and.push({ doNotContact: false, salesRecoverOn: { gt: today } });
+      } else if (q.archive === 'do_not_contact') and.push({ doNotContact: true });
+    } else {
+      and.push(ACTIVE_WHERE);
+      if (q.status) where.status = q.status;
+    }
     if (q.batch) where.salesBatch = { equals: q.batch, mode: 'insensitive' };
     if (q.city) where.city = { equals: q.city, mode: 'insensitive' };
     if (q.temperature === 'none') {
@@ -184,11 +204,11 @@ export class SalesPortfolioService {
     const sort: SalesLeadSort = q.sort ?? 'updated';
     const dir = q.dir ?? SALES_LEAD_SORT_DEFAULT_DIR[sort];
     const where = this.leadWhere(repId, q, now);
-    const [rows, groups, newForYou, batchRows, cityRows] = await Promise.all([
+    const [rows, groups, newForYou, batchRows, cityRows, archived] = await Promise.all([
       this.admin.platformLead.findMany({ where, select: LIGHT_SELECT }),
       this.admin.platformLead.groupBy({
         by: ['status'],
-        where: { salesRepId: repId, discardedAt: null },
+        where: { salesRepId: repId, discardedAt: null, ...ACTIVE_WHERE },
         _count: { _all: true },
       }),
       this.admin.platformLead.count({
@@ -204,6 +224,7 @@ export class SalesPortfolioService {
         where: { salesRepId: repId, discardedAt: null, city: { not: null } },
         _count: { _all: true },
       }),
+      this.archiveCounts(repId, now),
     ]);
     let matching: LightRow[] = rows;
     if (q.size) matching = matching.filter((r) => salesLeadSize(r.units) === q.size);
@@ -231,7 +252,26 @@ export class SalesPortfolioService {
       cities: mergeCities(cityRows.map((c) => ({ name: c.city!, count: c._count._all }))),
       total: ordered.length,
       nextCursor: end < ordered.length && last ? `${end}_${last.id}` : null,
+      archived,
     };
+  }
+
+  /** Cuántos archivados tiene, de cada clase. */
+  async archiveCounts(repId: string, now = new Date()): Promise<SalesArchiveCountsDto> {
+    const today = madridToday(now);
+    const [total, due, scheduled, doNotContact] = await Promise.all([
+      this.admin.platformLead.count({ where: archivedWhere(repId) }),
+      this.admin.platformLead.count({ where: dueWhere(today, repId) }),
+      this.admin.platformLead.count({
+        where: {
+          ...archivedWhere(repId),
+          doNotContact: false,
+          salesRecoverOn: { gt: new Date(`${today}T00:00:00Z`) },
+        },
+      }),
+      this.admin.platformLead.count({ where: { ...archivedWhere(repId), doNotContact: true } }),
+    ]);
+    return { total, due, scheduled, doNotContact };
   }
 
   private async sortRows(
@@ -337,7 +377,7 @@ export class SalesPortfolioService {
     const hotCutoff = new Date(now.getTime() - SALES_HOT_NO_CONTACT_DAYS * DAY);
     const trialLimit = new Date(now.getTime() + SALES_TRIAL_ENDING_DAYS * DAY);
     const mine = { salesRepId: repId, discardedAt: null } satisfies Prisma.PlatformLeadWhereInput;
-    const [followups, untouched, hot, trials] = await Promise.all([
+    const [followups, untouched, hot, trials, recover] = await Promise.all([
       this.admin.platformLeadFollowup.findMany({
         where: { status: 'pending', dueDate: { lte: todayDate }, lead: mine },
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
@@ -374,6 +414,12 @@ export class SalesPortfolioService {
           },
         },
         select: { id: true, tenant: { select: { trialEndsAt: true } } },
+        take: 500,
+      }),
+      this.admin.platformLead.findMany({
+        where: dueWhere(today, repId),
+        orderBy: [{ salesRecoverOn: 'asc' }, { id: 'asc' }],
+        select: { id: true, salesRecoverOn: true, lostReasonCode: true },
         take: 500,
       }),
     ]);
@@ -475,6 +521,26 @@ export class SalesPortfolioService {
       });
     }
 
+    for (const r of recover) {
+      const day = r.salesRecoverOn?.toISOString().slice(0, 10) ?? null;
+      const reason = r.lostReasonCode as PlatformLeadLostReason | null;
+      push({
+        leadId: r.id,
+        reason: 'recover',
+        detail: label(
+          'recover',
+          [
+            day ? `desde el ${day.split('-').reverse().join('/')}` : '',
+            reason ? PLATFORM_LEAD_LOST_REASON_LABELS[reason].toLowerCase() : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        ),
+        date: day,
+        followupId: null,
+      });
+    }
+
     const kept = entries.slice(0, QUEUE_MAX);
     const leads = await this.dtosInOrder(kept.map((e) => e.leadId));
     const byId = new Map(leads.map((l) => [l.id, l]));
@@ -519,6 +585,9 @@ export class SalesPortfolioService {
         });
       }
     }
+    if (action.type === 'lose' && action.recoverOn && !action.doNotContact) {
+      this.leads.assertRecoverDay(action.recoverOn);
+    }
     const ids = [...new Set(input.leadIds)];
     let done = 0;
     const failed: SalesBulkLeadResultDto['failed'] = [];
@@ -554,6 +623,7 @@ export class SalesPortfolioService {
                 ...(action.reason ? { reason: action.reason } : {}),
               },
               leadActor,
+              { recoverOn: action.recoverOn, doNotContact: action.doNotContact ?? false },
             );
             break;
         }
