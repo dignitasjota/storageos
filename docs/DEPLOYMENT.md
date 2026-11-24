@@ -3135,3 +3135,12 @@ Migración `20270302100000_admin_tenants_improvements` (se aplica sola): bajas y
 - **Dar de baja ≠ suspender**: «Dar de baja» corta todos los cobros y cuenta como baja; «Suspender» sigue siendo cortar el acceso un tiempo.
 - **Anonimizar** pasa a cuatro pasos y, por defecto, con 30 días de gracia y aviso al propietario (0 = ahora).
 - **Cambia a propósito**: la lista de Tenants incluye los anonimizados (pestaña «Bajas»), su ficha se abre con lo que queda y el rol soporte puede cortar las impersonaciones que abrió él.
+
+## 189. Comerciales: reparto masivo de prospectos (2026-11-24)
+
+Migración `20270303100000_sales_bulk_assign` (se aplica sola): en `platform_leads`, el lote del reparto (`sales_batch`), cuándo abrió el comercial el prospecto (`sales_seen_at`; lo que ya llevaban los comerciales queda como visto) y el aviso previo a la liberación (`sales_release_warned_at`). Sin variables nuevas. Redesplegar api y web.
+
+- **Reparto desde la dirección**: «Importar y repartir prospectos» en Equipo comercial y en la ficha de cada comercial (CSV o Excel con vista previa), y «Repartir entre comerciales» en la selección de Tenants → Leads (lista). Solo el rol superadmin.
+- **Duplicados** (decisión de Jota): sin comercial → se asigna; de otro comercial → no se toca (sale en la vista previa con su nombre); con cuenta → se omite.
+- **Avisos**: un solo aviso por comercial y reparto, en su panel y por correo (remitente de «avisos al equipo»). Los prospectos le salen como «Nuevo para ti» hasta que los abre.
+- **Cambia la liberación por inactividad** (decisión de Jota): también se liberan los que repartió la dirección, contando desde el reparto, pero **antes se avisa a la dirección** (campana del panel, con la lista) hasta 7 días antes. Tras el despliegue, los prospectos que ya estaban pasados del plazo no se liberan esa noche: primero se avisa y quedan libres a los 7 días.
