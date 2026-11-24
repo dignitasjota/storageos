@@ -3155,3 +3155,15 @@ Sin migración ni variables nuevas. Redesplegar api y web (va apilada sobre el �
 - **Clientes**: filtros (prueba que acaba, con deuda, con algo que ofrecer…), búsqueda, temperatura, lote, orden y vistas guardadas.
 - Las vistas guardadas de los comerciales usan la misma tabla que las del panel (`super_admin_saved_views`, páginas `sales_leads` y `sales_clients`): un comercial solo ve y guarda las suyas de esas dos pantallas.
 - Tras desplegar, mirar como comercial en el móvil «Prospectos» (las tres vistas) y el modo llamadas.
+
+## 191. Comerciales: no interesados y recuperación (2026-11-24)
+
+Migración `20270305100000_sales_recovery` (se aplica sola): `platform_leads.sales_archived_at`, `sales_recover_on`, `sales_recover_notified_at` y `do_not_contact`; `platform_sales_settings.recover_months`; tabla `sales_recoveries` (global, sin acceso del rol de la app) y `sales_commission_items.recovery_id`. Los perdidos que ya tenían los comerciales pasan a sus archivados, sin fecha. Sin variables nuevas. Redesplegar api y web (va apilada sobre el §190).
+
+- **«No interesado»** (en la ficha, en lote y al anotar una llamada): el prospecto sale de la cartera activa a «Archivados» con la fecha de volver a intentarlo (propuesta por el motivo y editable) o como «No volver a contactar». Sigue siendo del comercial y, con fecha (o «No volver a contactar»), no se libera por inactividad.
+- **Plazos por motivo** en Equipo comercial → Reglas del equipo (por defecto: no es el momento 6 meses, caro u otro programa 12, no responde 3, el resto y las bajas 12).
+- **Al llegar la fecha**: «Para recuperar» en «Hoy» y en «Por hacer», y un aviso cada mañana (tarea `sales.recovery`, 08:10, en el API) al comercial; si ya no está activo, a la dirección. «Recuperar» lo devuelve activo con su historial.
+- **«No volver a contactar»**: sin recordatorios, correos, secuencias ni cadencias; el reparto no lo da a nadie.
+- **Clientes que se dan de baja**: pasan solos a los archivados de su comercial con recordatorio a 12 meses; si vuelven a contratar, el comercial cobra la mitad de la comisión (venta y cuota según su plan), marcada «Recuperación».
+- **Recuperados** por comercial en «Mis comisiones» y en la comparativa del equipo; lista para la dirección en `GET /admin/sales-team/recoveries`.
+- Tras desplegar, mirar como comercial (escritorio y móvil) «No interesado» en una ficha, «Prospectos» → «Archivados» y «Hoy»; como dirección, las Reglas del equipo y la comparativa.
