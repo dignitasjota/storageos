@@ -130,7 +130,9 @@ export class SalesPortfolioService {
                       { salesProfile: { is: { lastContactAt: null } } },
                     ],
                   },
-                  { activities: { none: { occurredAt: { gte: cutoff } } } },
+                  {
+                    activities: { none: { occurredAt: { gte: cutoff }, type: { not: 'system' } } },
+                  },
                 ],
               },
             ],

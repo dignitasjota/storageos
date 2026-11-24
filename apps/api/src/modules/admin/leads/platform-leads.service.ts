@@ -143,7 +143,14 @@ export const LEAD_INCLUDE = {
     take: 1,
     select: { id: true, title: true, dueDate: true },
   },
-  activities: { orderBy: { occurredAt: 'desc' }, take: 1, select: { occurredAt: true } },
+  // Las notas automáticas (reparto, propuesta abierta, secuencias) no son actividad
+  // del equipo: si contaran, un prospecto recién repartido saldría «contactado hoy».
+  activities: {
+    where: { type: { not: 'system' } },
+    orderBy: { occurredAt: 'desc' },
+    take: 1,
+    select: { occurredAt: true },
+  },
 } satisfies Prisma.PlatformLeadInclude;
 export type LeadRow = Prisma.PlatformLeadGetPayload<{ include: typeof LEAD_INCLUDE }>;
 
