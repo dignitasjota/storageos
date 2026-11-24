@@ -461,6 +461,15 @@ describe('Comerciales (e2e)', () => {
       repAId,
     );
     await db.platformLeadFollowup.updateMany({ where: { leadId }, data: { status: 'done' } });
+    // Antes de liberarlo se avisa a la dirección; queda libre pasados los días de aviso.
+    await app.get(SalesAssignmentService).releaseStale();
+    const warned = await db.platformLead.findUniqueOrThrow({ where: { id: leadId } });
+    expect(warned.salesRepId).toBe(repAId);
+    expect(warned.salesReleaseWarnedAt).not.toBeNull();
+    await db.platformLead.update({
+      where: { id: leadId },
+      data: { salesReleaseWarnedAt: new Date(Date.now() - 8 * 86_400_000) },
+    });
     await app.get(SalesAssignmentService).releaseStale();
     expect(
       (await db.platformLead.findUniqueOrThrow({ where: { id: leadId } })).salesRepId,

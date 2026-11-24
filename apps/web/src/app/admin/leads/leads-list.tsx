@@ -15,7 +15,8 @@ import {
   type PlatformLeadSource,
   type PlatformLeadStage,
 } from '@storageos/shared';
-import { ArrowDown, ArrowUp, Download, Loader2, Save, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, Loader2, Save, Trash2, Users } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -23,6 +24,7 @@ import { DiscardLeadDialog } from './lead-extra-dialogs';
 import { STAGE_BADGE } from './lead-sheet';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { DistributeDialog } from '@/components/admin/sales/distribute-dialog';
 import { useConfirm } from '@/components/confirm-provider';
 import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
@@ -56,6 +58,8 @@ import {
   useLeadsBulk,
   type LeadListFilters,
 } from '@/lib/admin/leads-hooks';
+import { useSalesBatches } from '@/lib/admin/sales-team-hooks';
+import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
 import { formatDate, formatEur, plural } from '@/lib/format';
@@ -102,13 +106,20 @@ export function LeadsList({ onOpen }: { onOpen: (id: string) => void }) {
   const saveView = useSaveListView('leads');
   const removeView = useDeleteListView('leads');
   const bulk = useLeadsBulk();
-  const [state, setState] = useState<ViewState>(EMPTY);
+  const isSuperadmin = useIsSuperadmin();
+  const batches = useSalesBatches(isSuperadmin);
+  const params = useSearchParams();
+  // Desde «Lotes repartidos» de Equipo comercial llega con `?batch=`.
+  const [state, setState] = useState<ViewState>(() => {
+    const batch = params.get('batch');
+    return batch ? { ...EMPTY, filters: { batch } } : EMPTY;
+  });
   const [search, setSearch] = useState('');
   const [city, setCity] = useState('');
   const [cursor, setCursor] = useState<string | null>(null);
   const [history, setHistory] = useState<(string | null)[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [dialog, setDialog] = useState<null | 'lose' | 'discard' | 'followup'>(null);
+  const [dialog, setDialog] = useState<null | 'lose' | 'discard' | 'followup' | 'distribute'>(null);
 
   // Buscar y ciudad, con un respiro al escribir.
   useEffect(() => {
@@ -329,6 +340,32 @@ export function LeadsList({ onOpen }: { onOpen: (id: string) => void }) {
             ))}
           </SelectContent>
         </Select>
+        {isSuperadmin && (batches.data?.length ?? 0) > 0 && (
+          <Select
+            value={state.filters.batch ?? ALL}
+            onValueChange={(v) => setFilter({ batch: v === ALL ? undefined : v })}
+          >
+            <SelectTrigger className="h-9 w-[180px]" aria-label="Lote">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Todos los lotes</SelectItem>
+              {batches.data?.map((b) => (
+                <SelectItem key={b.name} value={b.name}>
+                  {b.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <label className="flex items-center gap-1.5 text-sm">
+          <input
+            type="checkbox"
+            checked={!!state.filters.noSalesRep}
+            onChange={(e) => setFilter({ noSalesRep: e.target.checked || undefined })}
+          />
+          Sin comercial
+        </label>
         <label className="flex items-center gap-1.5 text-sm">
           <input
             type="checkbox"
@@ -473,6 +510,11 @@ export function LeadsList({ onOpen }: { onOpen: (id: string) => void }) {
               ))}
             </SelectContent>
           </Select>
+          {isSuperadmin && (
+            <Button size="sm" variant="outline" onClick={() => setDialog('distribute')}>
+              <Users className="mr-1 size-3.5" aria-hidden /> Repartir entre comerciales…
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setDialog('followup')}>
             Seguimiento…
           </Button>
@@ -597,6 +639,13 @@ export function LeadsList({ onOpen }: { onOpen: (id: string) => void }) {
           }}
         />
       )}
+      {dialog === 'distribute' && (
+        <DistributeDialog
+          source={{ kind: 'leads', leadIds: selectedIds }}
+          onClose={() => setDialog(null)}
+          onDone={() => setSelected(new Set())}
+        />
+      )}
       {dialog === 'lose' && (
         <BulkLoseDialog
           count={selectedIds.length}
@@ -647,6 +696,11 @@ function Row({
         <button type="button" onClick={onOpen} className="text-left font-medium hover:underline">
           {lead.contactName ?? lead.displayName}
         </button>
+        {lead.salesBatch && (
+          <span className="ml-1.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] text-sky-800 dark:bg-sky-950 dark:text-sky-300">
+            {lead.salesBatch}
+          </span>
+        )}
         {lead.staleDays !== null && (
           <span className="ml-1.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] text-amber-800 dark:bg-amber-950 dark:text-amber-300">
             Parado {lead.staleDays} d

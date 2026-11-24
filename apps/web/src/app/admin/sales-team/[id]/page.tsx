@@ -7,7 +7,16 @@ import {
   type SalesCommissionConceptDto,
   type SalesRepDetailDto,
 } from '@storageos/shared';
-import { ArrowLeft, Download, Loader2, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Download,
+  Loader2,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -25,6 +34,7 @@ import {
   TenantStatusBadge,
   todayInSpain,
 } from '@/components/admin/sales/common';
+import { DistributeDialog } from '@/components/admin/sales/distribute-dialog';
 import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -1072,6 +1082,7 @@ export default function SalesRepPage() {
   const update = useUpdateSalesRep(params.id);
   const confirm = useConfirm();
   const [editOpen, setEditOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   if (!rep.data) {
     return (
@@ -1161,6 +1172,12 @@ export default function SalesRepPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {r.isActive && (
+            <Button size="sm" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-1.5 size-4" />
+              Importar y repartir prospectos
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
             <Pencil className="mr-1.5 size-4" />
             Editar
@@ -1187,6 +1204,14 @@ export default function SalesRepPage() {
         </div>
       </div>
       {editOpen && <EditRepDialog rep={r} onClose={() => setEditOpen(false)} />}
+      {importOpen && (
+        <DistributeDialog
+          source={{ kind: 'file' }}
+          defaultRepId={r.id}
+          onClose={() => setImportOpen(false)}
+          onDone={() => void rep.refetch()}
+        />
+      )}
       {r.signupUrl && (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="text-muted-foreground">Su enlace:</span>

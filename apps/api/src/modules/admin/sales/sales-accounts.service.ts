@@ -211,11 +211,13 @@ export class SalesAccountsService {
 
   async listLeads(
     repId: string,
-    q: { search?: string; status?: string; filter?: string },
+    q: { search?: string; status?: string; filter?: string; batch?: string },
     now = new Date(),
   ): Promise<SalesLeadListDto> {
     const where: Prisma.PlatformLeadWhereInput = { salesRepId: repId };
     if (q.status) where.status = q.status;
+    if (q.batch) where.salesBatch = { equals: q.batch, mode: 'insensitive' };
+    if (q.filter === 'new_for_you') where.salesSeenAt = null;
     if (q.search) {
       const contains = { contains: q.search, mode: 'insensitive' as const };
       where.OR = [
@@ -254,14 +256,25 @@ export class SalesAccountsService {
       where.tenantId = { not: null };
       where.tenant = { OR: [{ salesRepId: null }, { salesRepId: { not: repId } }] };
     }
-    const [dtos, groups] = await Promise.all([
+    const [dtos, groups, newForYou, batchRows] = await Promise.all([
       this.leads.listDtos(where, 500),
       this.admin.platformLead.groupBy({
         by: ['status'],
         where: { salesRepId: repId, discardedAt: null },
         _count: { _all: true },
       }),
+      this.admin.platformLead.count({
+        where: { salesRepId: repId, discardedAt: null, salesSeenAt: null },
+      }),
+      this.admin.platformLead.groupBy({
+        by: ['salesBatch'],
+        where: { salesRepId: repId, discardedAt: null, salesBatch: { not: null } },
+        _count: { _all: true },
+      }),
     ]);
+    const batches = batchRows
+      .map((b) => ({ name: b.salesBatch!, count: b._count._all }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'));
     const ids = dtos.map((d) => d.id);
     const tenantIds = dtos.map((d) => d.tenant?.id).filter((x): x is string => !!x);
     const [profiles, tenants] = await Promise.all([
@@ -298,7 +311,7 @@ export class SalesAccountsService {
     }
     const counts: Record<string, number> = {};
     for (const g of groups) counts[g.status] = g._count._all;
-    return { items, counts };
+    return { items, counts, newForYou, batches };
   }
 
   async createProspect(
@@ -469,6 +482,8 @@ export class SalesAccountsService {
 
   async account(repId: string, leadId: string, actor?: SalesActor): Promise<SalesAccountDto> {
     const lead = await this.assignment.leadOf(repId, leadId);
+    // Abrirlo (o tocarlo) lo quita de «Nuevos para ti».
+    if (!lead.salesSeenAt) await this.assignment.markSeen(repId, leadId);
     const [detail, profile, tenant, cadence] = await Promise.all([
       this.leads.detail(leadId),
       this.admin.salesAccountProfile.findUnique({ where: { leadId } }),

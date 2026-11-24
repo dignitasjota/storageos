@@ -17,12 +17,23 @@ import { SuperAdminAuditService } from '../super-admin-audit.service';
 import { DAY, profileDto } from './sales-common';
 import { SalesNotifyService } from './sales-notify.service';
 
-import type { PlatformSalesSettings } from '@storageos/database';
+import type { PlatformSalesSettings, Prisma } from '@storageos/database';
 
 /** Letras y cifras sin las que se confunden (0/O, 1/I/L). */
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
-export type SalesSource = 'link' | 'code' | 'created' | 'lead' | 'manual' | 'import';
+export type SalesSource =
+  | 'link'
+  | 'code'
+  | 'created'
+  | 'lead'
+  | 'manual'
+  | 'import'
+  /** Reparto masivo de la dirección. */
+  | 'direction';
+
+/** Días antes de quedar libre en que se avisa a la dirección (como mucho). */
+export const RELEASE_WARNING_DAYS = 7;
 
 export interface AssignArgs {
   leadId?: string | null;
@@ -35,6 +46,8 @@ export interface AssignArgs {
   endedReason?: 'reassigned' | 'released' | 'unassigned';
   /** No avisar al comercial (p. ej. si la crea él). */
   quiet?: boolean;
+  /** Lote del reparto (undefined = no se toca). */
+  batch?: string | null;
 }
 
 /**
@@ -298,6 +311,10 @@ export class SalesAssignmentService {
         data: {
           salesRepId: args.repId,
           salesAssignedAt: args.repId ? now : null,
+          // «Nuevo para ti» hasta que lo abra, salvo que se lo asigne él mismo.
+          salesSeenAt: args.repId && args.byId === args.repId ? now : null,
+          salesReleaseWarnedAt: null,
+          ...(args.batch !== undefined ? { salesBatch: args.batch } : {}),
           // Quien lo lleva en el tablero de leads: el comercial.
           ...(args.repId
             ? { assignedToId: args.repId }
@@ -332,7 +349,7 @@ export class SalesAssignmentService {
       await this.notify.rep(args.repId, {
         type: 'sales.assigned',
         title: `Te asignan ${platformLeadName(lead)}`,
-        body: tenantId ? 'Ya tiene cuenta: la tienes en «Mis clientes».' : 'Está en «Mis leads».',
+        body: tenantId ? 'Ya tiene cuenta: la tienes en «Clientes».' : 'Está en «Prospectos».',
         link: `/admin/sales/accounts/${leadId}`,
       });
     }
@@ -488,7 +505,7 @@ export class SalesAssignmentService {
       await this.notify.rep(rep.id, {
         type: 'sales.signup',
         title: `${platformLeadName(lead)} te ha escrito desde la web`,
-        body: 'Ha llegado con tu código. Está en «Mis leads».',
+        body: 'Ha llegado con tu código. Está en «Prospectos».',
         link: `/admin/sales/accounts/${leadId}`,
       });
     } catch (err) {
@@ -573,34 +590,115 @@ export class SalesAssignmentService {
     };
   }
 
+  /** El comercial abre (o toca) el prospecto: deja de ser «Nuevo para ti». */
+  async markSeen(repId: string, leadId: string, now = new Date()): Promise<void> {
+    await this.admin.platformLead.updateMany({
+      where: { id: leadId, salesRepId: repId, salesSeenAt: null },
+      data: { salesSeenAt: now },
+    });
+  }
+
   // ------------------------------------------------------------ liberación
+
+  /** Días de aviso antes de quedar libre (como mucho una semana). */
+  static warningDays(releaseDays: number): number {
+    return Math.min(RELEASE_WARNING_DAYS, Math.max(1, releaseDays - 1));
+  }
+
+  /**
+   * Prospectos (sin cuenta) del comercial sin actividad suya desde `cutoff`:
+   * da igual quién los asignó (él, el enlace o la dirección), se cuenta desde
+   * la asignación o su última actividad.
+   */
+  private staleWhere(cutoff: Date, now: Date): Prisma.PlatformLeadWhereInput {
+    return {
+      salesRepId: { not: null },
+      tenantId: null,
+      discardedAt: null,
+      status: { in: ['new', 'contacted', 'interested', 'lost'] },
+      salesAssignedAt: { lt: cutoff },
+      // Una nota con fecha futura no cuenta como actividad.
+      activities: {
+        none: { occurredAt: { gte: cutoff, lte: now }, superAdminId: { not: null } },
+      },
+      // Un seguimiento programado (hasta un año vista) lo mantiene en su cartera.
+      followups: {
+        none: {
+          status: 'pending',
+          dueDate: { gte: cutoff, lte: new Date(now.getTime() + 365 * DAY) },
+        },
+      },
+    };
+  }
+
+  /**
+   * Aviso a la dirección, unos días antes, de los prospectos que van a quedar
+   * libres por inactividad, con la lista. Cada prospecto se avisa una vez por
+   * racha de inactividad. Devuelve cuántos.
+   */
+  async warnBeforeRelease(now = new Date()): Promise<number> {
+    const s = await this.settings();
+    if (s.leadReleaseDays <= 0) return 0;
+    const warnDays = SalesAssignmentService.warningDays(s.leadReleaseDays);
+    const releaseCutoff = new Date(now.getTime() - s.leadReleaseDays * DAY);
+    const warnCutoff = new Date(now.getTime() - (s.leadReleaseDays - warnDays) * DAY);
+    const leads = await this.admin.platformLead.findMany({
+      where: {
+        ...this.staleWhere(warnCutoff, now),
+        OR: [{ salesReleaseWarnedAt: null }, { salesReleaseWarnedAt: { lt: releaseCutoff } }],
+      },
+      select: {
+        id: true,
+        companyName: true,
+        contactName: true,
+        email: true,
+        salesRep: { select: { fullName: true } },
+      },
+      orderBy: { salesAssignedAt: 'asc' },
+      take: 500,
+    });
+    if (leads.length === 0) return 0;
+    await this.admin.platformLead.updateMany({
+      where: { id: { in: leads.map((l) => l.id) } },
+      data: { salesReleaseWarnedAt: now },
+    });
+    const shown = leads
+      .slice(0, 15)
+      .map((l) => `· ${platformLeadName(l)} (${l.salesRep?.fullName ?? 'sin comercial'})`);
+    const more = leads.length > shown.length ? [`… y ${leads.length - shown.length} más.`] : [];
+    await this.notify.team({
+      type: 'sales.leads_release_soon',
+      title:
+        leads.length === 1
+          ? `Un prospecto de un comercial quedará libre en ${warnDays} días`
+          : `${leads.length} prospectos de comerciales quedarán libres en ${warnDays} días`,
+      body: [
+        `Llevan ${s.leadReleaseDays - warnDays} días sin actividad de su comercial. Si nadie los trabaja, dejarán de ser suyos:`,
+        ...shown,
+        ...more,
+      ].join('\n'),
+      link: '/admin/sales-team',
+    });
+    return leads.length;
+  }
 
   /**
    * Un prospecto (sin cuenta) sin actividad en los días de la dirección deja
-   * de ser del comercial. Devuelve cuántos.
+   * de ser del comercial, también los que repartió la dirección (contando
+   * desde el día del reparto). Antes se avisa a la dirección: solo se liberan
+   * los avisados hace al menos los días de aviso. Devuelve cuántos.
    */
   async releaseStale(now = new Date()): Promise<number> {
     const s = await this.settings();
     if (s.leadReleaseDays <= 0) return 0;
+    await this.warnBeforeRelease(now);
+    const warnDays = SalesAssignmentService.warningDays(s.leadReleaseDays);
     const cutoff = new Date(now.getTime() - s.leadReleaseDays * DAY);
     const leads = await this.admin.platformLead.findMany({
       where: {
-        salesRepId: { not: null },
-        tenantId: null,
-        discardedAt: null,
-        status: { in: ['new', 'contacted', 'interested', 'lost'] },
-        salesAssignedAt: { lt: cutoff },
-        // Una nota con fecha futura no cuenta como actividad.
-        activities: {
-          none: { occurredAt: { gte: cutoff, lte: now }, superAdminId: { not: null } },
-        },
-        // Un seguimiento programado (hasta un año vista) lo mantiene en su cartera.
-        followups: {
-          none: {
-            status: 'pending',
-            dueDate: { gte: cutoff, lte: new Date(now.getTime() + 365 * DAY) },
-          },
-        },
+        ...this.staleWhere(cutoff, now),
+        // Avisado en esta racha de inactividad y con los días de aviso cumplidos.
+        salesReleaseWarnedAt: { gte: cutoff, lte: new Date(now.getTime() - warnDays * DAY) },
       },
       select: { id: true, salesRepId: true, companyName: true, contactName: true, email: true },
       take: 500,

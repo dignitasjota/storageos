@@ -9021,6 +9021,12 @@ model PlatformLead {
   /// Comercial que lo lleva.
   salesRepId           String?   @map("sales_rep_id") @db.Uuid
   salesAssignedAt      DateTime? @map("sales_assigned_at") @db.Timestamptz(6)
+  /// Lote del reparto de la dirección (p. ej. «Feria Valencia»).
+  salesBatch           String?   @map("sales_batch")
+  /// Cuándo lo abrió (o tocó) su comercial; null = «Nuevo para ti».
+  salesSeenAt          DateTime? @map("sales_seen_at") @db.Timestamptz(6)
+  /// Aviso a la dirección de que va a quedar libre por inactividad.
+  salesReleaseWarnedAt DateTime? @map("sales_release_warned_at") @db.Timestamptz(6)
   /// «No es un lead»: spam · supplier · support · existing_customer · merged · other
   discardReasonCode    String?   @map("discard_reason_code")
   discardReason        String?   @map("discard_reason")
@@ -9328,7 +9334,7 @@ model SalesAssignment {
   repId        String    @map("rep_id") @db.Uuid
   tenantId     String?   @map("tenant_id") @db.Uuid
   leadId       String?   @map("lead_id") @db.Uuid
-  /// link · code · created · lead · manual · import
+  /// link · code · created · lead · manual · import · direction
   source       String
   assignedById String?   @map("assigned_by_id") @db.Uuid
   startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)

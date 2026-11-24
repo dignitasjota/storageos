@@ -102,6 +102,8 @@ function listQueryString(
   if (f.sizeMax !== undefined) p.set('sizeMax', String(f.sizeMax));
   if (f.city) p.set('city', f.city);
   if (f.campaign) p.set('campaign', f.campaign);
+  if (f.batch) p.set('batch', f.batch);
+  if (f.noSalesRep) p.set('noSalesRep', '1');
   if (f.inactiveDays) p.set('inactiveDays', String(f.inactiveDays));
   if (f.stale) p.set('stale', '1');
   if (f.discarded) p.set('discarded', '1');

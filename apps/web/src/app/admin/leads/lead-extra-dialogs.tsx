@@ -59,6 +59,7 @@ import {
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { plural } from '@/lib/format';
+import { readImportFile } from '@/lib/import-file';
 
 const NONE = '-';
 type ManualDiscard = Exclude<PlatformLeadDiscardReason, 'merged'>;
@@ -206,26 +207,6 @@ export function MergeLeadDialog({
 
 // --------------------------------------------------------------- importar
 
-function readFile(file: File): Promise<{ content: string; format: 'csv' | 'xlsx' }> {
-  const isXlsx = /\.xlsx?$/i.test(file.name);
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('read_failed'));
-    reader.onload = () => {
-      if (isXlsx) {
-        const bytes = new Uint8Array(reader.result as ArrayBuffer);
-        let bin = '';
-        for (const b of bytes) bin += String.fromCharCode(b);
-        resolve({ content: btoa(bin), format: 'xlsx' });
-      } else {
-        resolve({ content: String(reader.result ?? ''), format: 'csv' });
-      }
-    };
-    if (isXlsx) reader.readAsArrayBuffer(file);
-    else reader.readAsText(file);
-  });
-}
-
 const STATUS_LABEL = { valid: 'Se crea', duplicate: 'Ya existe', error: 'Error' } as const;
 
 /** Importar leads de un CSV o Excel: vista previa con lo que pasa con cada fila. */
@@ -311,7 +292,7 @@ export function ImportLeadsDialog({ onClose }: { onClose: () => void }) {
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (!f) return;
-                void readFile(f)
+                void readImportFile(f)
                   .then((r) => setFile({ name: f.name, ...r }))
                   .catch(() => toast.error('No se ha podido leer el fichero.'));
               }}
