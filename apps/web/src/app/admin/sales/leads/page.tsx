@@ -1,11 +1,17 @@
 'use client';
 
-import { SALES_LEAD_FILTERS, type SalesLeadFilter } from '@storageos/shared';
-import { Columns3, FileUp, List, ListTodo, Loader2, PhoneCall, Plus } from 'lucide-react';
+import {
+  SALES_ARCHIVE_FILTERS,
+  SALES_LEAD_FILTERS,
+  type SalesArchiveFilter,
+  type SalesLeadFilter,
+} from '@storageos/shared';
+import { Archive, Columns3, FileUp, List, ListTodo, Loader2, PhoneCall, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 
+import { ArchivedView } from './archived-view';
 import { BoardView } from './board-view';
 import { ImportDialog } from './import-dialog';
 import { EMPTY_LIST_STATE, ListView, type LeadListState } from './list-view';
@@ -16,12 +22,13 @@ import { NewProspectDialog } from '@/components/admin/sales/new-prospect-dialog'
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-type View = 'queue' | 'list' | 'board';
+type View = 'queue' | 'list' | 'board' | 'archived';
 
 const VIEWS: { value: View; label: string; icon: typeof List }[] = [
   { value: 'queue', label: 'Por hacer', icon: ListTodo },
   { value: 'list', label: 'Lista', icon: List },
   { value: 'board', label: 'Tablero', icon: Columns3 },
+  { value: 'archived', label: 'Archivados', icon: Archive },
 ];
 
 export default function SalesLeadsPage() {
@@ -54,7 +61,10 @@ function SalesLeads() {
   });
   const requested = params.get('view');
   const view: View =
-    requested === 'list' || requested === 'board' || requested === 'queue'
+    requested === 'list' ||
+    requested === 'board' ||
+    requested === 'queue' ||
+    requested === 'archived'
       ? requested
       : params.get('filter') || params.get('batch')
         ? 'list'
@@ -98,7 +108,7 @@ function SalesLeads() {
       <div
         role="tablist"
         aria-label="Vista"
-        className="grid grid-cols-3 rounded-lg border p-1 sm:inline-grid sm:w-auto"
+        className="grid grid-cols-2 rounded-lg border p-1 sm:inline-grid sm:w-auto sm:grid-cols-4"
       >
         {VIEWS.map(({ value, label, icon: Icon }) => (
           <button
@@ -123,6 +133,15 @@ function SalesLeads() {
       {view === 'queue' && <QueueView />}
       {view === 'list' && <ListView state={list} onChange={setList} />}
       {view === 'board' && <BoardView state={EMPTY_LIST_STATE} />}
+      {view === 'archived' && (
+        <ArchivedView
+          initial={
+            SALES_ARCHIVE_FILTERS.includes(params.get('archive') as SalesArchiveFilter)
+              ? (params.get('archive') as SalesArchiveFilter)
+              : null
+          }
+        />
+      )}
     </SalesPage>
   );
 }

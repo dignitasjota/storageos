@@ -1,8 +1,6 @@
 'use client';
 
 import {
-  PLATFORM_LEAD_LOST_REASON_LABELS,
-  PLATFORM_LEAD_MANUAL_LOST_REASONS,
   PLATFORM_LEAD_MANUAL_STAGES,
   PLATFORM_LEAD_STAGE_LABELS,
   type SalesBulkLeadAction,
@@ -12,6 +10,11 @@ import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  ArchiveFields,
+  archivePayload,
+  type ArchiveFormValue,
+} from '@/components/admin/sales/archive';
 import { addDaysIso, errorText, Field, todayInSpain } from '@/components/admin/sales/common';
 import { DateSelect } from '@/components/month-year-select';
 import { Button } from '@/components/ui/button';
@@ -63,9 +66,12 @@ export function BulkDialog({
   const [note, setNote] = useState('');
   const [cadenceId, setCadenceId] = useState('');
   const [status, setStatus] = useState<(typeof PLATFORM_LEAD_MANUAL_STAGES)[number]>('contacted');
-  const [reasonCode, setReasonCode] =
-    useState<(typeof PLATFORM_LEAD_MANUAL_LOST_REASONS)[number]>('not_now');
-  const [reason, setReason] = useState('');
+  const [archive, setArchive] = useState<ArchiveFormValue>({
+    reasonCode: 'not_now',
+    reason: '',
+    recoverOn: null,
+    doNotContact: false,
+  });
   const [result, setResult] = useState<SalesBulkLeadResultDto | null>(null);
 
   function close() {
@@ -89,11 +95,7 @@ export function BulkDialog({
       case 'move':
         return { type: 'move', status };
       case 'lose':
-        return {
-          type: 'lose',
-          reasonCode,
-          ...(reason.trim() ? { reason: reason.trim() } : {}),
-        };
+        return archive.reasonCode ? { type: 'lose', ...archivePayload(archive) } : null;
       default:
         return null;
     }
@@ -225,34 +227,10 @@ export function BulkDialog({
             )}
             {kind === 'lose' && (
               <>
-                <Field label="Motivo">
-                  <Select
-                    value={reasonCode}
-                    onValueChange={(v) => setReasonCode(v as typeof reasonCode)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PLATFORM_LEAD_MANUAL_LOST_REASONS.map((r) => (
-                        <SelectItem key={r} value={r}>
-                          {PLATFORM_LEAD_LOST_REASON_LABELS[r]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field id="bulk-reason" label="Detalle (opcional)">
-                  <Textarea
-                    id="bulk-reason"
-                    rows={2}
-                    maxLength={1000}
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
-                </Field>
+                <ArchiveFields value={archive} onChange={setArchive} idPrefix="bulk" />
                 <p className="text-xs text-muted-foreground">
-                  Salen de tus prospectos activos (fase «Perdido») y se cierran sus seguimientos.
+                  Pasan a tus «Archivados» (siguen siendo tuyos) y se cierran sus seguimientos y
+                  cadencias.
                 </p>
               </>
             )}

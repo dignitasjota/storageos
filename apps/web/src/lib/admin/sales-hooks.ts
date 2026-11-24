@@ -19,7 +19,8 @@ import type {
   CreateSalesProspectInput,
   ImpersonationTokenDto,
   SalesDemoPortalLinkDto,
-  LosePlatformLeadInput,
+  SalesArchiveLeadInput,
+  UpdateSalesArchiveInput,
   MovePlatformLeadInput,
   PlatformLeadFollowupDto,
   RequestSalesConceptInput,
@@ -390,9 +391,26 @@ export function useSalesMove(leadId: string) {
 }
 
 export function useSalesLose(leadId: string) {
-  return useAccountAction((input: LosePlatformLeadInput) =>
+  return useAccountAction((input: SalesArchiveLeadInput) =>
     adminApiFetch<SalesAccountDto>(`/admin/sales/accounts/${leadId}/lose`, {
       method: 'POST',
+      json: input,
+    }),
+  );
+}
+
+/** «Recuperar» un archivado: vuelve a su cartera activa. */
+export function useSalesRecover(leadId: string) {
+  return useAccountAction(() =>
+    adminApiFetch<SalesAccountDto>(`/admin/sales/accounts/${leadId}/recover`, { method: 'POST' }),
+  );
+}
+
+/** Fecha de volver a intentarlo o «No volver a contactar» de un archivado. */
+export function useSalesArchive(leadId: string) {
+  return useAccountAction((input: UpdateSalesArchiveInput) =>
+    adminApiFetch<SalesAccountDto>(`/admin/sales/accounts/${leadId}/archive`, {
+      method: 'PATCH',
       json: input,
     }),
   );

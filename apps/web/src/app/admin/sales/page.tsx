@@ -27,11 +27,14 @@ function RowList({
   rows,
   empty,
   tone,
+  more,
 }: {
   title: string;
   rows: SalesTodayRowDto[];
   empty: string;
   tone?: 'warn' | 'bad';
+  /** Enlace a la lista completa. */
+  more?: { href: string; label: string };
 }) {
   return (
     <Card>
@@ -77,6 +80,11 @@ function RowList({
               <li className="pt-2 text-xs text-muted-foreground">Y {rows.length - 8} más.</li>
             )}
           </ul>
+        )}
+        {more && rows.length > 0 && (
+          <Link href={more.href} className="mt-2 inline-block text-xs text-primary hover:underline">
+            {more.label}
+          </Link>
         )}
       </CardContent>
     </Card>
@@ -250,6 +258,18 @@ export default function SalesTodayPage() {
           </Card>
 
           <div className="grid gap-4 md:grid-cols-2">
+            {data.toRecover.length > 0 && (
+              <RowList
+                title="Para recuperar"
+                rows={data.toRecover}
+                empty=""
+                tone="warn"
+                more={{
+                  href: '/admin/sales/leads?view=archived&archive=due',
+                  label: 'Ver los archivados',
+                }}
+              />
+            )}
             <RowList
               title="Altas con tu código"
               rows={data.newSignups}
