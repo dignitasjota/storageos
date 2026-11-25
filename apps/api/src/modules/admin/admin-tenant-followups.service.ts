@@ -131,6 +131,8 @@ export class AdminTenantFollowupsService {
       dueDate?: string | undefined;
       assignedToId?: string | null | undefined;
     },
+    /** Quién lo marca hecho (queda como «lo cerró»). */
+    actorId: string | null = null,
   ): Promise<TenantFollowupDto> {
     const row = await this.admin.tenantFollowup.findUnique({ where: { id }, select: { id: true } });
     if (!row) {
@@ -143,7 +145,12 @@ export class AdminTenantFollowupsService {
       where: { id },
       data: {
         ...(input.status
-          ? { status: input.status, completedAt: input.status === 'done' ? new Date() : null }
+          ? {
+              status: input.status,
+              completedAt: input.status === 'done' ? new Date() : null,
+              completedById: input.status === 'done' ? actorId : null,
+              ...(input.status === 'pending' ? { outcome: null } : {}),
+            }
           : {}),
         ...(input.dueDate ? { dueDate: new Date(`${input.dueDate}T00:00:00.000Z`) } : {}),
         ...(input.assignedToId !== undefined

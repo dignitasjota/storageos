@@ -245,6 +245,9 @@ const KEPT_ON_ANONYMIZE = [
   'business_reminder_notices',
   'campaign_automation_sends',
   'impersonation_logs',
+  // Propuestas de extras y candidatos descartados (Oportunidades).
+  'platform_addon_offers',
+  'platform_opportunity_dismissals',
   'platform_quote_offers',
   'sales_addon_claims',
   'sales_assignments',

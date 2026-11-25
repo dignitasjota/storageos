@@ -19,3 +19,4 @@ export * from './today';
 export * from './metrics-insights';
 export * from './health-insights';
 export * from './tenant-lifecycle';
+export * from './tenant-ops';

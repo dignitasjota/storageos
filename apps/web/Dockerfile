@@ -84,6 +84,9 @@ ENV MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# La compilación del web ya pasa del límite de memoria por defecto de Node: sin
+# subirlo el build puede abortar («exit code: 134»), como el del API.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 RUN pnpm --filter @storageos/shared build \
  && pnpm --filter web build
 

@@ -7202,6 +7202,10 @@ model TenantFollowup {
   completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
   /// Super admin que se encarga.
   assignedToId String?   @map("assigned_to_id") @db.Uuid
+  /// «Qué pasó» al marcarlo hecho.
+  outcome      String?
+  /// Super admin que lo marcó hecho (sin relación: el nombre se busca aparte).
+  completedById String?  @map("completed_by_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -9113,6 +9117,10 @@ model PlatformLeadFollowup {
   /// pending · done
   status       String    @default("pending")
   completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
+  /// «Qué pasó» al marcarlo hecho.
+  outcome      String?
+  /// Super admin que lo marcó hecho (sin relación: el nombre se busca aparte).
+  completedById String?  @map("completed_by_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -9718,4 +9726,39 @@ model SalesCadenceEnrollment {
 
   @@index([repId, status], map: "sales_cadence_enrollments_rep_idx")
   @@map("sales_cadence_enrollments")
+}
+
+/// Candidato a un extra descartado desde Oportunidades («no le interesa»).
+/// Sin relaciones en Prisma: las claves ajenas viven en SQL.
+model PlatformOpportunityDismissal {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  addonId     String    @map("addon_id") @db.Uuid
+  /// Hasta cuándo (null = siempre).
+  until       DateTime? @db.Timestamptz(6)
+  reason      String
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, addonId], map: "platform_opportunity_dismissals_tenant_addon_key")
+  @@map("platform_opportunity_dismissals")
+}
+
+/// Cada propuesta de un extra enviada a un tenant (estado y tasa de aceptación).
+model PlatformAddonOffer {
+  id           String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  addonId      String    @map("addon_id") @db.Uuid
+  superAdminId String?   @map("super_admin_id") @db.Uuid
+  trialDays    Int?      @map("trial_days")
+  trialUntil   DateTime? @map("trial_until") @db.Timestamptz(6)
+  /// Correos encolados (null en las anteriores a este registro).
+  recipients   Int?
+  /// single · bulk
+  source       String    @default("single")
+  sentAt       DateTime  @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  @@index([addonId, sentAt(sort: Desc)], map: "platform_addon_offers_addon_sent_idx")
+  @@index([tenantId, addonId, sentAt(sort: Desc)], map: "platform_addon_offers_tenant_addon_idx")
+  @@map("platform_addon_offers")
 }

@@ -143,6 +143,10 @@ jobs:
 
       - name: Build web (standalone)
         run: pnpm -F web build
+        # La compilación del web ya pasa del límite de memoria por defecto de
+        # Node: sin subirlo aborta («JavaScript heap out of memory»).
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
 
       # Arrancamos API + web en background con logs a fichero. Las esperas
       # FALLAN (exit 1) si el servicio no responde a tiempo: como gate
