@@ -96,6 +96,8 @@ const TREATED_ON_ANONYMIZE = [
   'search_console_days',
   'search_console_devices',
   'search_console_rows',
+  'seo_gsc_import_rows',
+  'seo_gsc_imports',
   'seo_gsc_metrics',
   'seo_project_domains',
   'seo_projects',

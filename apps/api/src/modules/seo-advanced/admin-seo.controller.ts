@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -10,19 +11,31 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   CreateSeoDomainSchema,
   CreateSeoProjectSchema,
+  SEO_IMPORT_MAX_BYTES,
   UpdateSeoDomainSchema,
   UpdateSeoProjectSchema,
+  type SeoCrossDto,
+  type SeoDashboardDto,
+  type SeoImportDetailDto,
+  type SeoImportDto,
+  type SeoImportPreviewDto,
+  type SeoProjectOverviewDto,
+  type SeoTablePageDto,
   type SeoGscPropertiesDto,
   type SeoProjectDto,
   type SeoSummaryDto,
   type SeoSyncRunDto,
   type SeoTenantProjectRowDto,
 } from '@storageos/shared';
+import { memoryStorage } from 'multer';
 import { createZodDto } from 'nestjs-zod';
 
 import { Public } from '../../common/decorators/public.decorator';
@@ -31,8 +44,21 @@ import { AdminGuard } from '../admin/admin.guard';
 import { CurrentSuperAdmin } from '../admin/current-super-admin.decorator';
 import { RequireSuperadmin } from '../admin/require-superadmin.decorator';
 
-import { parseSeoDays } from './seo-days';
+import {
+  parseCrossDimension,
+  parsePanelQuery,
+  parseSeoDays,
+  parseTableQuery,
+  parseUploadDomainId,
+} from './seo-days';
+import { SeoImportsService, type SeoUploadedFile } from './seo-imports.service';
+import { SeoPanelService } from './seo-panel.service';
 import { SeoProjectsService } from './seo-projects.service';
+
+const UPLOAD = FileInterceptor('file', {
+  storage: memoryStorage(),
+  limits: { fileSize: SEO_IMPORT_MAX_BYTES, files: 1 },
+});
 
 class CreateProjectDto extends createZodDto(CreateSeoProjectSchema) {}
 class UpdateProjectDto extends createZodDto(UpdateSeoProjectSchema) {}
@@ -48,7 +74,17 @@ class UpdateDomainDto extends createZodDto(UpdateSeoDomainSchema) {}
 @UseGuards(AdminGuard)
 @Controller('admin/seo')
 export class AdminSeoController {
-  constructor(private readonly projects: SeoProjectsService) {}
+  constructor(
+    private readonly projects: SeoProjectsService,
+    private readonly panel: SeoPanelService,
+    private readonly imports: SeoImportsService,
+  ) {}
+
+  /** Vista global: cada proyecto (plataforma y tenants) con sus últimos 28 días. */
+  @Get('overview')
+  overview(): Promise<SeoProjectOverviewDto[]> {
+    return this.panel.overview();
+  }
 
   @Get('projects')
   list(): Promise<SeoProjectDto[]> {
@@ -170,5 +206,119 @@ export class AdminSeoController {
     @Query('domainId', new ParseUUIDPipe({ optional: true })) domainId?: string,
   ): Promise<SeoSummaryDto> {
     return this.projects.summary(undefined, id, { days: parseSeoDays(days), domainId });
+  }
+
+  // ------------------------------------------------------------------ panel
+
+  @Get('projects/:id/dashboard')
+  dashboard(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoDashboardDto> {
+    return this.panel.dashboard(undefined, id, parsePanelQuery(query));
+  }
+
+  @Get('projects/:id/queries')
+  queries(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoTablePageDto> {
+    return this.panel.table(undefined, id, 'query', parseTableQuery(query));
+  }
+
+  @Get('projects/:id/queries/csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="busquedas.csv"')
+  queriesCsv(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<string> {
+    return this.panel.tableCsv(undefined, id, 'query', parseTableQuery(query));
+  }
+
+  @Get('projects/:id/pages')
+  pages(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoTablePageDto> {
+    return this.panel.table(undefined, id, 'page', parseTableQuery(query));
+  }
+
+  @Get('projects/:id/pages/csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="paginas.csv"')
+  pagesCsv(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<string> {
+    return this.panel.tableCsv(undefined, id, 'page', parseTableQuery(query));
+  }
+
+  @Get('projects/:id/cross')
+  cross(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoCrossDto> {
+    return this.panel.cross(
+      undefined,
+      id,
+      parseCrossDimension(query.dimension),
+      (query.value ?? '').slice(0, 2000),
+      parsePanelQuery(query),
+    );
+  }
+
+  // --------------------------------------------------- importar histórico
+
+  @Get('projects/:id/imports')
+  listImports(@Param('id', ParseUUIDPipe) id: string): Promise<SeoImportDto[]> {
+    return this.imports.list(undefined, id);
+  }
+
+  @Get('projects/:id/imports/:importId')
+  importDetail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('importId', ParseUUIDPipe) importId: string,
+  ): Promise<SeoImportDetailDto> {
+    return this.imports.detail(undefined, id, importId);
+  }
+
+  /** Solo en los proyectos de la plataforma (los de los tenants, en lectura). */
+  @Post('projects/:id/imports/preview')
+  @RequireSuperadmin()
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(UPLOAD)
+  previewImport(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: SeoUploadedFile | undefined,
+    @Body() body: Record<string, unknown>,
+  ): Promise<SeoImportPreviewDto> {
+    return this.imports.preview(null, id, parseUploadDomainId(body.domainId), file);
+  }
+
+  @Post('projects/:id/imports')
+  @RequireSuperadmin()
+  @AdminAudit('admin.seo.import_created')
+  @UseInterceptors(UPLOAD)
+  createImport(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: SeoUploadedFile | undefined,
+    @Body() body: Record<string, unknown>,
+    @CurrentSuperAdmin('sub') superAdminId: string,
+  ): Promise<SeoImportDto> {
+    return this.imports.create(null, id, parseUploadDomainId(body.domainId), file, {
+      superAdminId,
+    });
+  }
+
+  @Delete('projects/:id/imports/:importId')
+  @RequireSuperadmin()
+  @AdminAudit('admin.seo.import_deleted')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeImport(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('importId', ParseUUIDPipe) importId: string,
+  ): Promise<void> {
+    await this.imports.remove(null, id, importId);
   }
 }

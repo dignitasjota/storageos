@@ -22,7 +22,7 @@ export interface RowEval {
 export type RowEvaluator = (raw: Record<string, string>, index: number) => RowEval;
 
 /** Valor de celda de exceljs → texto plano (resuelve fórmulas, fechas, hyperlinks…). */
-function cellToText(value: ExcelJS.CellValue): string {
+export function cellToText(value: ExcelJS.CellValue): string {
   if (value == null) return '';
   if (value instanceof Date) {
     // Fecha → YYYY-MM-DD (los importadores ya normalizan formatos).
@@ -66,6 +66,31 @@ export async function xlsxBase64ToCsv(base64: string): Promise<string> {
   });
   if (rows.length === 0) return '';
   return Papa.unparse(rows);
+}
+
+/**
+ * Todas las hojas de un XLSX como filas de texto (las filas vacías fuera). Lo
+ * usa la importación de los Excel de Search Console, que trae varias pestañas.
+ */
+export async function xlsxSheets(buffer: Buffer): Promise<{ name: string; rows: string[][] }[]> {
+  const arrayBuffer = buffer.buffer.slice(
+    buffer.byteOffset,
+    buffer.byteOffset + buffer.byteLength,
+  ) as ArrayBuffer;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(arrayBuffer);
+  return wb.worksheets.map((ws) => {
+    const rows: string[][] = [];
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const cells: string[] = [];
+      const count = Math.max(row.cellCount, (row.values as unknown[]).length - 1);
+      for (let col = 1; col <= count; col++) {
+        cells.push(cellToText(row.getCell(col).value).trim());
+      }
+      if (cells.some((c) => c !== '')) rows.push(cells);
+    });
+    return { name: ws.name, rows };
+  });
 }
 
 /**

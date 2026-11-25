@@ -3,22 +3,36 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   CreateSeoDomainSchema,
   CreateTenantSeoProjectSchema,
+  SEO_IMPORT_MAX_BYTES,
   UpdateSeoDomainSchema,
   UpdateSeoProjectSchema,
+  type SeoCrossDto,
+  type SeoDashboardDto,
+  type SeoImportDetailDto,
+  type SeoImportDto,
+  type SeoImportPreviewDto,
   type SeoProjectDto,
   type SeoSummaryDto,
   type SeoSyncRunDto,
+  type SeoTablePageDto,
   type SeoWorkspaceDto,
 } from '@storageos/shared';
+import { memoryStorage } from 'multer';
 import { createZodDto } from 'nestjs-zod';
 
 import {
@@ -28,8 +42,21 @@ import {
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 
-import { parseSeoDays } from './seo-days';
+import {
+  parseCrossDimension,
+  parsePanelQuery,
+  parseSeoDays,
+  parseTableQuery,
+  parseUploadDomainId,
+} from './seo-days';
+import { SeoImportsService, type SeoUploadedFile } from './seo-imports.service';
+import { SeoPanelService } from './seo-panel.service';
 import { SeoProjectsService } from './seo-projects.service';
+
+const UPLOAD = FileInterceptor('file', {
+  storage: memoryStorage(),
+  limits: { fileSize: SEO_IMPORT_MAX_BYTES, files: 1 },
+});
 
 class CreateProjectDto extends createZodDto(CreateTenantSeoProjectSchema) {}
 class UpdateProjectDto extends createZodDto(UpdateSeoProjectSchema) {}
@@ -44,7 +71,11 @@ class UpdateDomainDto extends createZodDto(UpdateSeoDomainSchema) {}
 @RequireFeature('seo_advanced')
 @Controller('seo-advanced')
 export class SeoAdvancedController {
-  constructor(private readonly projects: SeoProjectsService) {}
+  constructor(
+    private readonly projects: SeoProjectsService,
+    private readonly panel: SeoPanelService,
+    private readonly imports: SeoImportsService,
+  ) {}
 
   @RequirePermission('analytics:read')
   @Get()
@@ -148,6 +179,155 @@ export class SeoAdvancedController {
       days: parseSeoDays(days),
       domainId,
     });
+  }
+
+  // ------------------------------------------------------------------ panel
+
+  @RequirePermission('analytics:read')
+  @Get('dashboard')
+  async dashboard(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoDashboardDto> {
+    return this.panel.dashboard(user.tenantId, await this.projectId(user), parsePanelQuery(query));
+  }
+
+  @RequirePermission('analytics:read')
+  @Get('queries')
+  async queries(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoTablePageDto> {
+    return this.panel.table(
+      user.tenantId,
+      await this.projectId(user),
+      'query',
+      parseTableQuery(query),
+    );
+  }
+
+  @RequirePermission('analytics:read')
+  @Get('queries/csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="busquedas.csv"')
+  async queriesCsv(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<string> {
+    return this.panel.tableCsv(
+      user.tenantId,
+      await this.projectId(user),
+      'query',
+      parseTableQuery(query),
+    );
+  }
+
+  @RequirePermission('analytics:read')
+  @Get('pages')
+  async pages(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoTablePageDto> {
+    return this.panel.table(
+      user.tenantId,
+      await this.projectId(user),
+      'page',
+      parseTableQuery(query),
+    );
+  }
+
+  @RequirePermission('analytics:read')
+  @Get('pages/csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="paginas.csv"')
+  async pagesCsv(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<string> {
+    return this.panel.tableCsv(
+      user.tenantId,
+      await this.projectId(user),
+      'page',
+      parseTableQuery(query),
+    );
+  }
+
+  /** Una búsqueda → sus páginas, o una página → sus búsquedas. */
+  @RequirePermission('analytics:read')
+  @Get('cross')
+  async cross(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: Record<string, string | undefined>,
+  ): Promise<SeoCrossDto> {
+    return this.panel.cross(
+      user.tenantId,
+      await this.projectId(user),
+      parseCrossDimension(query.dimension),
+      (query.value ?? '').slice(0, 2000),
+      parsePanelQuery(query),
+    );
+  }
+
+  // --------------------------------------------------- importar histórico
+
+  @RequirePermission('analytics:read')
+  @Get('imports')
+  async listImports(@CurrentUser() user: AuthenticatedUser): Promise<SeoImportDto[]> {
+    return this.imports.list(user.tenantId, await this.projectId(user));
+  }
+
+  @RequirePermission('analytics:read')
+  @Get('imports/:importId')
+  async importDetail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('importId', ParseUUIDPipe) importId: string,
+  ): Promise<SeoImportDetailDto> {
+    return this.imports.detail(user.tenantId, await this.projectId(user), importId);
+  }
+
+  /** Lo que haría la importación (no guarda nada). */
+  @RequirePermission('settings:manage')
+  @Post('imports/preview')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(UPLOAD)
+  async previewImport(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: SeoUploadedFile | undefined,
+    @Body() body: Record<string, unknown>,
+  ): Promise<SeoImportPreviewDto> {
+    return this.imports.preview(
+      user.tenantId,
+      await this.projectId(user),
+      parseUploadDomainId(body.domainId),
+      file,
+    );
+  }
+
+  @RequirePermission('settings:manage')
+  @Post('imports')
+  @UseInterceptors(UPLOAD)
+  async createImport(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: SeoUploadedFile | undefined,
+    @Body() body: Record<string, unknown>,
+  ): Promise<SeoImportDto> {
+    return this.imports.create(
+      user.tenantId,
+      await this.projectId(user),
+      parseUploadDomainId(body.domainId),
+      file,
+      { userId: user.sub },
+    );
+  }
+
+  @RequirePermission('settings:manage')
+  @Delete('imports/:importId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeImport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('importId', ParseUUIDPipe) importId: string,
+  ): Promise<void> {
+    await this.imports.remove(user.tenantId, await this.projectId(user), importId);
   }
 
   /** Su proyecto (404 si aún no lo ha creado). */

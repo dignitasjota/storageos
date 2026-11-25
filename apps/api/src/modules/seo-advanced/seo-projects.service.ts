@@ -22,6 +22,7 @@ import {
   type CreateTenantSeoProjectInput,
   type SeoConnectionStatus,
   type SeoDomainRole,
+  type SeoDomainVerification,
   type SeoFrequencies,
   type SeoGscPropertiesDto,
   type SeoProjectDomainDto,
@@ -75,7 +76,7 @@ const PROJECT_INCLUDE = {
   },
 } satisfies Prisma.SeoProjectInclude;
 
-type ProjectRow = Prisma.SeoProjectGetPayload<{ include: typeof PROJECT_INCLUDE }>;
+export type ProjectRow = Prisma.SeoProjectGetPayload<{ include: typeof PROJECT_INCLUDE }>;
 type RunRow = Prisma.SeoSyncRunGetPayload<{ include: { domain: { select: { domain: true } } } }>;
 
 /**
@@ -139,6 +140,21 @@ export class SeoProjectsService {
     });
     if (!row) throw this.notFound();
     return this.toDto(row);
+  }
+
+  /**
+   * El proyecto con sus dominios para los paneles e importaciones. `undefined`
+   * = el super admin leyendo cualquier proyecto (los de los tenants, solo para
+   * ver); con dueño, solo el suyo (404 si es de otro).
+   */
+  async resolveProject(owner: SeoOwner | undefined, projectId: string): Promise<ProjectRow> {
+    if (owner !== undefined) return this.findProject(owner, projectId);
+    const row = await this.admin.seoProject.findUnique({
+      where: { id: projectId },
+      include: PROJECT_INCLUDE,
+    });
+    if (!row) throw this.notFound();
+    return row;
   }
 
   private async findProject(owner: SeoOwner, projectId: string): Promise<ProjectRow> {
@@ -334,17 +350,31 @@ export class SeoProjectsService {
     const project = await this.findProject(owner, projectId);
     const property = input.gscProperty.trim();
     const domain = seoDomainOfProperty(property);
-    if (owner && !(await this.ownProperty(owner, property))) {
-      throw new BadRequestException({
-        code: 'seo_property_not_yours',
-        message: await this.notYours(owner, property),
-      });
-    }
     if (project.domains.some((d) => d.domain === domain)) {
       throw new ConflictException({
         code: 'seo_domain_exists',
         message: `${domain} ya está en este proyecto.`,
       });
+    }
+    const hasPrimary = project.domains.some((d) => d.role === 'primary');
+    const role: SeoDomainRole = input.role ?? (hasPrimary ? 'secondary' : 'primary');
+    const own = !owner || (await this.ownProperty(owner, property));
+    if (owner && !own) {
+      // El principal tiene que ser una web del negocio. Otra web solo entra como
+      // secundaria si nuestra cuenta tiene acceso a ella en Search Console.
+      if (role === 'primary') {
+        throw new BadRequestException({
+          code: 'seo_primary_not_yours',
+          message: `${await this.notYours(owner, property)} Otra web solo puede ser un dominio secundario.`,
+        });
+      }
+      this.assertRoleAllowed(owner, project.domains, role);
+      await this.assertExternalSecondary(owner, projectId, property);
+      const created = await this.insertExternalDomain(owner, projectId, property, role);
+      // Ya se comprobó el acceso: empieza la carga.
+      await this.setConnection(owner, created.id, 'connected', null);
+      await this.sync.enqueue(created.id, 'initial', actor);
+      return this.get(owner, projectId);
     }
     if (await this.propertyTaken(owner, property)) {
       throw new ConflictException({
@@ -352,8 +382,6 @@ export class SeoProjectsService {
         message: 'Esa propiedad ya está conectada en otra cuenta de TrasterOS.',
       });
     }
-    const hasPrimary = project.domains.some((d) => d.role === 'primary');
-    const role: SeoDomainRole = input.role ?? (hasPrimary ? 'secondary' : 'primary');
     this.assertRoleAllowed(owner, project.domains, role);
     const created = await this.insertDomain(owner, projectId, property, role);
     // Se comprueba el acceso al momento (y, si lo hay, empieza la carga). Si
@@ -377,6 +405,12 @@ export class SeoProjectsService {
     const domain = project.domains.find((d) => d.id === domainId);
     if (!domain) throw this.notFound();
     if (domain.role !== input.role) {
+      if (owner && input.role === 'primary' && domain.verification === 'gsc_access') {
+        throw new BadRequestException({
+          code: 'seo_primary_not_yours',
+          message: `${domain.domain} no es una web de tu negocio en TrasterOS: solo puede ser un dominio secundario.`,
+        });
+      }
       this.assertRoleAllowed(
         owner,
         project.domains.filter((d) => d.id !== domainId),
@@ -415,7 +449,14 @@ export class SeoProjectsService {
 
   private async check(
     owner: SeoOwner,
-    domain: { id: string; gscProperty: string; initialDoneAt: Date | null },
+    domain: {
+      id: string;
+      gscProperty: string;
+      initialDoneAt: Date | null;
+      role: string;
+      verification: string;
+      projectId: string;
+    },
     actor: SeoActor,
   ): Promise<void> {
     if (!this.client.available) {
@@ -424,11 +465,18 @@ export class SeoProjectsService {
         message: 'La conexión con Search Console no está disponible todavía.',
       });
     }
-    // Un dominio que dejó de ser del tenant no se vuelve a conectar.
+    // Un dominio que dejó de ser del tenant no se vuelve a conectar. Un
+    // secundario externo vuelve a pasar sus condiciones (salvo el acceso, que
+    // se mira justo después).
     if (owner && !(await this.ownProperty(owner, domain.gscProperty))) {
-      const message = await this.notYours(owner, domain.gscProperty);
-      await this.setConnection(owner, domain.id, 'error', message);
-      throw new BadRequestException({ code: 'seo_property_not_yours', message });
+      const reason =
+        domain.role === 'primary' || domain.verification !== 'gsc_access'
+          ? await this.notYours(owner, domain.gscProperty)
+          : await this.externalRejection(owner, domain.projectId, domain.gscProperty);
+      if (reason) {
+        await this.setConnection(owner, domain.id, 'error', reason);
+        throw new BadRequestException({ code: 'seo_property_not_yours', message: reason });
+      }
     }
     let access = false;
     let error: string | null = null;
@@ -683,6 +731,130 @@ export class SeoProjectsService {
   }
 
   /**
+   * Un secundario que no es «propio» (§26): la cuenta de servicio tiene acceso
+   * a su propiedad, no lo usa ningún otro proyecto (de otro tenant o de la
+   * plataforma) y no es un dominio de la plataforma. Lanza el error que toque.
+   */
+  private async assertExternalSecondary(
+    owner: string,
+    projectId: string,
+    property: string,
+  ): Promise<void> {
+    const reason = await this.externalRejection(owner, projectId, property);
+    if (reason) {
+      const platform = this.isPlatformDomain(seoDomainOfProperty(property));
+      throw platform
+        ? new BadRequestException({ code: 'seo_property_platform', message: reason })
+        : new ConflictException({ code: 'seo_property_taken', message: reason });
+    }
+    if (!this.client.available) {
+      throw new ServiceUnavailableException({
+        code: 'search_console_not_configured',
+        message: 'La conexión con Search Console no está disponible todavía.',
+      });
+    }
+    let access = false;
+    try {
+      access = await this.client.hasAccess(property);
+    } catch (err) {
+      if (isGoogleTransient(err)) throw googleUnavailable(err);
+      throw err;
+    }
+    if (!access) {
+      throw new BadRequestException({
+        code: 'seo_property_no_access',
+        message: `${property} no es una web de tu negocio en TrasterOS, así que solo se puede añadir si nuestra cuenta (${this.client.serviceAccountEmail}) tiene acceso a ella en Search Console. Pide a quien la gestione que la añada como usuario en Configuración → Usuarios y permisos y vuelve a intentarlo.`,
+      });
+    }
+  }
+
+  /** Por qué no vale como secundario externo (null si vale, sin mirar el acceso). */
+  private async externalRejection(
+    owner: string,
+    projectId: string,
+    property: string,
+  ): Promise<string | null> {
+    const domain = seoDomainOfProperty(property);
+    if (this.isPlatformDomain(domain)) {
+      return `${domain} es un dominio de TrasterOS: no se puede añadir como dominio de tu negocio.`;
+    }
+    if (await this.domainTakenAnywhere(owner, projectId, property)) {
+      return `${domain} ya lo usa otra cuenta de TrasterOS. Si es tuyo, escríbenos a soporte.`;
+    }
+    return null;
+  }
+
+  /** El dominio (o la misma propiedad) ya está en otro proyecto, de quien sea. */
+  private async domainTakenAnywhere(
+    owner: string,
+    projectId: string,
+    property: string,
+  ): Promise<boolean> {
+    const taken = await this.admin.seoProjectDomain.findFirst({
+      where: {
+        projectId: { not: projectId },
+        OR: [
+          { domain: seoDomainOfProperty(property) },
+          { gscProperty: { equals: property, mode: 'insensitive' } },
+        ],
+      },
+      select: { tenantId: true },
+    });
+    return !!taken && taken.tenantId !== owner;
+  }
+
+  /** Dominios de la plataforma: su web, su API, sus ficheros y su correo (y subdominios). */
+  private isPlatformDomain(domain: string): boolean {
+    const hosts: string[] = [];
+    for (const key of ['WEB_BASE_URL', 'API_BASE_URL', 'MINIO_PUBLIC_URL'] as const) {
+      try {
+        hosts.push(new URL(this.config.get(key, { infer: true })).hostname);
+      } catch {
+        // URL no válida: se ignora.
+      }
+    }
+    const from = this.config.get('EMAIL_FROM_ADDRESS', { infer: true }).split('@')[1];
+    if (from) hosts.push(from);
+    const d = domain.toLowerCase().replace(/^www\./, '');
+    return hosts
+      .map((h) => h.toLowerCase().replace(/^www\./, ''))
+      .filter((h) => h.includes('.'))
+      .some((h) => d === h || d.endsWith(`.${h}`) || h.endsWith(`.${d}`));
+  }
+
+  /**
+   * Alta de un secundario externo con un candado por dominio: dos negocios que
+   * lo añaden a la vez no se lo quedan los dos.
+   */
+  private async insertExternalDomain(
+    owner: string,
+    projectId: string,
+    property: string,
+    role: SeoDomainRole,
+  ) {
+    const domain = seoDomainOfProperty(property);
+    return this.db(owner, async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-domain:${domain}`}))`;
+      if (await this.domainTakenAnywhere(owner, projectId, property)) {
+        throw new ConflictException({
+          code: 'seo_property_taken',
+          message: `${domain} ya lo usa otra cuenta de TrasterOS. Si es tuyo, escríbenos a soporte.`,
+        });
+      }
+      return tx.seoProjectDomain.create({
+        data: {
+          tenantId: owner,
+          projectId,
+          domain,
+          role,
+          gscProperty: property,
+          verification: 'gsc_access',
+        },
+      });
+    });
+  }
+
+  /**
    * La propiedad ya está en el proyecto de otro tenant (la misma, o una de
    * dominio del mismo dominio). Las direcciones de la plataforma comparten
    * dominio (`trasteros.pro/s/<slug>/`), así que ahí cuenta la propiedad.
@@ -823,6 +995,7 @@ export class SeoProjectsService {
           dataDelayDays: delay,
           delayed: delay !== null && delay > SEO_GSC_DELAY_DAYS,
           initialDone: !!d.initialDoneAt,
+          verification: d.verification as SeoDomainVerification,
           activeRun: active ? (runDtos.get(active.id) ?? null) : null,
         };
       }),

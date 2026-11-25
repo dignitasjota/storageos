@@ -5,6 +5,8 @@ import { SEARCH_CONSOLE_SITE_RE, type SeoTotalsDto } from '../web/search-console
 import type { SeoChangeDto, SeoUndetailedDto } from './metrics';
 
 export * from './metrics';
+export * from './panel';
+export * from './gsc-import';
 
 /**
  * SEO Avanzado: un solo motor para dos ámbitos. Un proyecto sin tenant es de
@@ -110,6 +112,14 @@ export const SEO_DOMAIN_ROLE_LABELS: Record<SeoDomainRole, string> = {
 };
 
 export type SeoConnectionStatus = 'pending' | 'connected' | 'error';
+
+/**
+ * Cómo se sabe que un dominio es del proyecto: `own` (dominio propio, correo
+ * verificado o dirección en la plataforma) o `gsc_access` (un secundario que
+ * no es propio, pero la cuenta de servicio tiene acceso a su propiedad de
+ * Search Console y no lo usa ningún otro proyecto).
+ */
+export type SeoDomainVerification = 'own' | 'gsc_access';
 export type SeoProjectStatus = 'active' | 'paused';
 export type SeoSyncKind = 'initial' | 'daily' | 'manual';
 export type SeoSyncStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
@@ -268,6 +278,7 @@ export interface SeoProjectDomainDto {
   delayed: boolean;
   /** Ya terminó la carga de los 16 meses. */
   initialDone: boolean;
+  verification: SeoDomainVerification;
   /** Descarga en cola o en curso. */
   activeRun: SeoSyncRunDto | null;
 }

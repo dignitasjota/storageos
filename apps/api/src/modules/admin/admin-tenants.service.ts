@@ -2933,8 +2933,10 @@ export class AdminTenantsService {
       await tx.searchConsoleDevice.deleteMany({ where: { tenantId } });
       await tx.seoTrackedKeyword.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
-      // SEO Avanzado: el proyecto, sus dominios, lo descargado y las descargas.
+      // SEO Avanzado: el proyecto, sus dominios, lo descargado, lo importado y las descargas.
       await tx.seoSyncRun.deleteMany({ where: { tenantId } });
+      await tx.seoGscImportRow.deleteMany({ where: { tenantId } });
+      await tx.seoGscImport.deleteMany({ where: { tenantId } });
       await tx.seoGscMetric.deleteMany({ where: { tenantId } });
       await tx.seoProjectDomain.deleteMany({ where: { tenantId } });
       await tx.seoProject.deleteMany({ where: { tenantId } });
