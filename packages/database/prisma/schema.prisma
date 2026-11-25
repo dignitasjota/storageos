@@ -9858,12 +9858,16 @@ model SeoProject {
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// Proyecto de tenant que usa la conexión de SISTRIX de la plataforma (solo superadmin).
   usePlatformSistrix Boolean @default(false) @map("use_platform_sistrix")
+  /// Umbrales del motor de oportunidades (los pesos, en `weights`).
+  opportunitySettings       Json      @default("{}") @map("opportunity_settings")
+  opportunitiesCalculatedAt DateTime? @map("opportunities_calculated_at") @db.Timestamptz(6)
 
-  domains     SeoProjectDomain[]
-  runs        SeoSyncRun[]
-  imports     SeoGscImport[]
-  competitors SeoCompetitor[]
-  keywords    SeoProjectKeyword[]
+  domains       SeoProjectDomain[]
+  runs          SeoSyncRun[]
+  imports       SeoGscImport[]
+  competitors   SeoCompetitor[]
+  keywords      SeoProjectKeyword[]
+  opportunities SeoOpportunity[]
 
   @@map("seo_projects")
 }
@@ -10314,6 +10318,49 @@ model SeoAiVisibility {
 
   @@index([tenantId], map: "seo_ai_visibility_tenant_idx")
   @@map("seo_ai_visibility")
+}
+
+/// Oportunidad del motor propio (PR 4). Recalcular no pisa estado, notas ni asignación.
+model SeoOpportunity {
+  id                      String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                String?   @map("tenant_id") @db.Uuid
+  projectId               String    @map("project_id") @db.Uuid
+  domainId                String?   @map("domain_id") @db.Uuid
+  domain                  String
+  type                    String
+  /// sha1 de tipo + dominio + búsqueda.
+  key                     String
+  query                   String
+  page                    String?
+  targetUrl               String?   @map("target_url")
+  score                   Int       @default(0)
+  confidence              Decimal   @default(0) @db.Decimal(3, 2)
+  factors                 Json      @default("[]")
+  metrics                 Json      @default("{}")
+  sources                 String[]  @default([])
+  reason                  String    @default("")
+  action                  String    @default("")
+  /// new · seen · in_progress · done · dismissed
+  status                  String    @default("new")
+  dismissReason           String?   @map("dismiss_reason")
+  dismissedScore          Int?      @map("dismissed_score")
+  notes                   String?
+  assignedToUserId        String?   @map("assigned_to_user_id") @db.Uuid
+  assignedToSuperAdminId  String?   @map("assigned_to_super_admin_id") @db.Uuid
+  active                  Boolean   @default(true)
+  returnedAt              DateTime? @map("returned_at") @db.Timestamptz(6)
+  detectedAt              DateTime  @default(now()) @map("detected_at") @db.Timestamptz(6)
+  lastSeenAt              DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  resolvedAt              DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, key], map: "seo_opportunities_project_key_key")
+  @@index([projectId, status, score(sort: Desc)], map: "seo_opportunities_list_idx")
+  @@index([tenantId], map: "seo_opportunities_tenant_idx")
+  @@map("seo_opportunities")
 }
 
 /// Petición a un proveedor de pago (sin secretos).

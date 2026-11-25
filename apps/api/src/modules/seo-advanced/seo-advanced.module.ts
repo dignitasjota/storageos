@@ -6,6 +6,8 @@ import { PlatformAlertLogService } from '../admin/platform-alert-log.service';
 import { PlatformAlertsService } from '../admin/platform-alerts.service';
 import { SearchConsoleModule } from '../search-console/search-console.module';
 
+import { SeoOpportunityEngineService } from './opportunities/seo-opportunity-engine.service';
+import { SeoOpportunityScheduler } from './opportunities/seo-opportunity-scheduler';
 import {
   GscSeoProvider,
   ManualImportProvider,
@@ -35,7 +37,8 @@ import type { Env } from '../../config/env.schema';
 /**
  * SEO Avanzado, el núcleo: proyectos, dominios y descargas de Search Console de
  * la plataforma y de los tenants con el extra, y SISTRIX (MCP de la plataforma
- * y API clásica) con su arquitectura de proveedores y sus tandas. Las colas
+ * y API clásica) con su arquitectura de proveedores y sus tandas, y el motor
+ * de oportunidades (se recalcula tras cada descarga). Las colas
  * `seo` y `seo-sistrix` y las tareas programadas corren en el worker
  * (`WORKERS_ENABLED_IN_API`). Las rutas, el panel, la importación de Excel y
  * el OAuth de SISTRIX van en `SeoAdvancedHttpModule` (solo en el API: el
@@ -67,6 +70,8 @@ import type { Env } from '../../config/env.schema';
     SeoProviderRegistry,
     SistrixFetchService,
     SistrixSyncService,
+    SeoOpportunityScheduler,
+    SeoOpportunityEngineService,
     ...(WORKERS_ENABLED_IN_API ? [SeoGscProcessor, SeoGscCron, SistrixProcessor, SistrixCron] : []),
   ],
   exports: [
@@ -78,6 +83,8 @@ import type { Env } from '../../config/env.schema';
     SistrixApiClient,
     SistrixFetchService,
     SistrixSyncService,
+    SeoOpportunityScheduler,
+    SeoOpportunityEngineService,
   ],
 })
 export class SeoAdvancedModule {}

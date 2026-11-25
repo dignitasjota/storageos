@@ -21,6 +21,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { JOB_SEO_GSC_SYNC, QUEUE_SEO } from '../queues/queue-names';
 import { SearchConsoleClient, type GscRow } from '../search-console/search-console.client';
 
+import { SeoOpportunityScheduler } from './opportunities/seo-opportunity-scheduler';
+
 import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
 
@@ -66,6 +68,7 @@ export class SeoGscSyncService {
     private readonly client: SearchConsoleClient,
     private readonly config: ConfigService<Env, true>,
     @InjectQueue(QUEUE_SEO) private readonly queue: Queue,
+    private readonly opportunities: SeoOpportunityScheduler,
   ) {}
 
   private get initialDays(): number {
@@ -280,6 +283,8 @@ export class SeoGscSyncService {
         },
       });
       await this.finish(runId, 'done', null);
+      // Con datos nuevos, las oportunidades se recalculan aparte (no bloquea la descarga).
+      await this.opportunities.schedule(run.projectId);
     } catch (err) {
       // El dominio se borró mientras se descargaba: no queda nada que anotar.
       if (!(await this.admin.seoSyncRun.findUnique({ where: { id: runId } }))) return;

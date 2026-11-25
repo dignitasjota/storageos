@@ -108,6 +108,7 @@ const TREATED_ON_ANONYMIZE = [
   'seo_gsc_imports',
   'seo_gsc_metrics',
   'seo_keyword_metrics',
+  'seo_opportunities',
   'seo_project_domains',
   'seo_project_keywords',
   'seo_projects',
