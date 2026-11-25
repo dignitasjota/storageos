@@ -7,7 +7,7 @@ import {
   type SeoProjectKeywordDto,
   type UpdateSeoProjectKeywordInput,
 } from '@storageos/shared';
-import { Loader2, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -15,7 +15,6 @@ import { seoErrorMessage } from '../seo-errors';
 
 import { SeoOrigin } from './seo-origin';
 
-import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,20 +37,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { formatCount, formatEur } from '@/lib/format';
-import {
-  type SistrixScope,
-  useAddKeywords,
-  useRemoveKeyword,
-  useSistrixKeywords,
-  useSistrixSerp,
-  useUpdateKeyword,
-} from '@/lib/seo-advanced/sistrix-hooks';
+import { type SistrixScope, useSistrixSerp } from '@/lib/seo-advanced/sistrix-hooks';
 import { cn } from '@/lib/utils';
 
 const NO_INTENT = 'none';
 
-function SerpDialog({
+/** Los resultados de Google de una palabra según SISTRIX. */
+export function SerpDialog({
   scope,
   keyword,
   onClose,
@@ -113,7 +105,8 @@ function SerpDialog({
   );
 }
 
-function EditKeywordDialog({
+/** Lo que se decide a mano de una palabra (grupo, intención, URL objetivo, prioridad, notas). */
+export function EditKeywordDialog({
   keyword,
   onClose,
   onSave,
@@ -242,180 +235,5 @@ function EditKeywordDialog({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-/** Palabras del proyecto: grupo, intención, página, prioridad, métricas y resultados de Google. */
-export function KeywordsPanel({
-  scope,
-  canEdit,
-  limit,
-}: {
-  scope: SistrixScope;
-  canEdit: boolean;
-  limit: number;
-}) {
-  const confirm = useConfirm();
-  const keywords = useSistrixKeywords(scope);
-  const add = useAddKeywords(scope);
-  const update = useUpdateKeyword(scope);
-  const remove = useRemoveKeyword(scope);
-  const [text, setText] = useState('');
-  const [serpOf, setSerpOf] = useState<SeoProjectKeywordDto | null>(null);
-  const [editing, setEditing] = useState<SeoProjectKeywordDto | null>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const list = text
-      .split(/[\n,;]/)
-      .map((k) => k.trim())
-      .filter((k) => k.length >= 2);
-    if (list.length === 0) return;
-    try {
-      await add.mutateAsync({ keywords: list });
-      setText('');
-      toast.success(list.length === 1 ? 'Palabra añadida' : `${list.length} palabras añadidas`);
-    } catch (err) {
-      toast.error(seoErrorMessage(err));
-    }
-  };
-
-  const del = async (k: SeoProjectKeywordDto) => {
-    const yes = await confirm({
-      title: `¿Quitar «${k.keyword}»?`,
-      description: 'Se pierden el grupo, la página y las notas que le hayas puesto.',
-      confirmLabel: 'Quitar',
-      destructive: true,
-    });
-    if (!yes) return;
-    try {
-      await remove.mutateAsync(k.id);
-    } catch (err) {
-      toast.error(seoErrorMessage(err));
-    }
-  };
-
-  const rows = keywords.data ?? [];
-  return (
-    <div className="space-y-4">
-      {canEdit && (
-        <form onSubmit={(e) => void submit(e)} className="space-y-2">
-          <Label htmlFor="kw-new">Añadir palabras (una por línea)</Label>
-          <Textarea
-            id="kw-new"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={3}
-            placeholder={'trasteros valencia\nguardamuebles mislata'}
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">
-              {rows.length} de {formatCount(limit)} palabras
-            </span>
-            <Button type="submit" size="sm" disabled={add.isPending || !text.trim()}>
-              <Plus className="mr-1 size-4" aria-hidden /> Añadir
-            </Button>
-          </div>
-        </form>
-      )}
-      {keywords.isError ? (
-        <SectionError onRetry={() => void keywords.refetch()} />
-      ) : keywords.isLoading ? (
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Aún no hay palabras. Añádelas a mano o desde las ideas y oportunidades de SISTRIX.
-        </p>
-      ) : (
-        <ul className="divide-y rounded-md border">
-          {rows.map((k) => (
-            <li key={k.id} className={cn('space-y-1 p-3', !k.isActive && 'opacity-60')}>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{k.keyword}</span>
-                    <Badge variant="outline">{SEO_KEYWORD_PRIORITY_LABELS[k.priority]}</Badge>
-                    {k.groupName && <Badge variant="secondary">{k.groupName}</Badge>}
-                    {k.intent && (
-                      <span className="text-xs text-muted-foreground">
-                        {SEO_KEYWORD_INTENT_LABELS[k.intent]}
-                      </span>
-                    )}
-                    {k.strategyLocked && (
-                      <Lock
-                        className="size-3.5 text-muted-foreground"
-                        aria-label="Decisión fijada"
-                      />
-                    )}
-                  </div>
-                  {k.targetUrl && (
-                    <span className="block break-all text-xs text-muted-foreground">
-                      {k.targetUrl}
-                    </span>
-                  )}
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button variant="outline" size="sm" onClick={() => setSerpOf(k)}>
-                    Ver Google
-                  </Button>
-                  {canEdit && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Editar ${k.keyword}`}
-                        onClick={() => setEditing(k)}
-                      >
-                        <Pencil className="size-4" aria-hidden />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Quitar ${k.keyword}`}
-                        onClick={() => void del(k)}
-                      >
-                        <Trash2 className="size-4" aria-hidden />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                {k.metrics ? (
-                  <>
-                    <span>Búsquedas {formatCount(k.metrics.traffic)}</span>
-                    <span>CPC {k.metrics.cpc !== null ? formatEur(k.metrics.cpc) : '—'}</span>
-                    <span>Competencia {k.metrics.competition ?? '—'}/100</span>
-                    {k.metrics.intent.do !== null && (
-                      <span>
-                        Contratar {k.metrics.intent.do} % · Ir {k.metrics.intent.visit ?? 0} %
-                      </span>
-                    )}
-                    <SeoOrigin origin={k.metrics} />
-                  </>
-                ) : (
-                  <span className="text-muted-foreground">Sin métricas de SISTRIX aún.</span>
-                )}
-              </div>
-              {k.serp && (
-                <div className="flex flex-wrap gap-x-4 text-xs">
-                  <span>
-                    Tu posición: {k.serp.ownPosition ?? 'no sale en los 10 primeros'}
-                    {k.serp.competitors > 0 ? ` · ${k.serp.competitors} competidor(es) arriba` : ''}
-                  </span>
-                  <SeoOrigin origin={k.serp} />
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      <SerpDialog scope={scope} keyword={serpOf} onClose={() => setSerpOf(null)} />
-      <EditKeywordDialog
-        keyword={editing}
-        onClose={() => setEditing(null)}
-        onSave={(input) => update.mutateAsync({ id: editing!.id, ...input })}
-      />
-    </div>
   );
 }
