@@ -465,6 +465,13 @@ const GROUPS: NavGroup[] = [
           },
         ],
       },
+      // Sin `feature`: quien no tiene el extra ve qué ofrece (la página lo explica).
+      {
+        href: '/seo-advanced',
+        labelKey: 'seoAdvanced',
+        icon: SearchCheck,
+        permission: 'analytics:read',
+      },
       { href: '/reports', labelKey: 'reports', icon: FileSpreadsheet, permission: 'reports:read' },
       {
         href: '/assistant',

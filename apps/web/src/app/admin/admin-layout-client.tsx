@@ -39,6 +39,7 @@ import {
   Ticket,
   Trash2,
   TrendingUp,
+  SearchCheck,
   Wallet,
   MessageCircle,
   Target,
@@ -177,6 +178,11 @@ const ADMIN_NAV: AdminNavGroup[] = [
       { href: '/admin/nps', label: 'Encuestas NPS', icon: Gauge },
       { href: '/admin/help-topics', label: 'Guías de ayuda', icon: BookOpen },
     ],
+  },
+  {
+    label: 'SEO',
+    icon: SearchCheck,
+    children: [{ href: '/admin/seo', label: 'Proyectos', icon: SearchCheck }],
   },
   {
     label: 'Plataforma',
