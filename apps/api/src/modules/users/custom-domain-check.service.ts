@@ -165,7 +165,10 @@ export class CustomDomainCheckService {
     return { ...r, httpsOk };
   }
 
-  async check(tenantId: string): Promise<CustomDomainCheckDto> {
+  async check(
+    tenantId: string,
+    opts: { recordActive?: boolean } = {},
+  ): Promise<CustomDomainCheckDto> {
     const t = await this.admin.tenant.findUnique({
       where: { id: tenantId },
       select: {
@@ -186,7 +189,11 @@ export class CustomDomainCheckService {
     let readyAt = t.customDomainReadyAt;
     const active = !!t.customDomainVerifiedAt || !!t.customDomainPausedVerifiedAt;
     if (active) {
-      await this.recordCheck(tenantId, t.name, t.customDomain, r);
+      // La comprobación completa (admin-domains-ops) guarda ella misma el resultado.
+      if (opts.recordActive !== false) {
+        // En pausa se guarda el estado pero no se avisa: sus enlaces ya usan la plataforma.
+        await this.recordCheck(tenantId, t.name, t.customDomain, r, !!t.customDomainVerifiedAt);
+      }
     } else if (r.ok && !readyAt) {
       readyAt = await this.markReady(tenantId, t.name, t.customDomain);
     } else if (!r.ok && readyAt) {
@@ -209,20 +216,45 @@ export class CustomDomainCheckService {
   }
 
   /**
-   * Guarda el resultado de comprobar un dominio activo y avisa al super admin
-   * una vez por episodio cuando deja de responder (de «bien» o «sin
-   * comprobar» a «mal»).
+   * Guarda el resultado de comprobar un dominio activo (DNS + https).
+   * Ver `recordResult`.
    */
   async recordCheck(
     tenantId: string,
     name: string,
     domain: string,
     r: DomainInspection,
-  ): Promise<void> {
+    notify = true,
+  ): Promise<boolean> {
     const ok = r.ok && r.httpsOk !== false;
-    const issue = ok ? null : !r.ok ? 'dns' : 'https';
+    return this.recordResult(tenantId, name, domain, {
+      ok,
+      issue: ok ? null : !r.ok ? 'dns' : 'https',
+      notify,
+    });
+  }
+
+  /**
+   * Guarda el estado de un dominio activo o en pausa (`custom_domain_checked_at`,
+   * `check_ok`, `check_issue`) y avisa al super admin UNA vez por episodio
+   * (`custom_domain.broken`) cuando deja de responder (de «bien» o «sin
+   * comprobar» a «mal»). Es el único sitio que lo hace: lo usan «Comprobar
+   * ahora», la activación y la vigilancia diaria completa
+   * (`custom-domains.full-check`).
+   *
+   * Un dominio en pausa (`notify: false`) guarda su estado pero no avisa: sus
+   * enlaces ya usan la plataforma.
+   *
+   * Devuelve `true` si este resultado abre un episodio nuevo de fallo.
+   */
+  async recordResult(
+    tenantId: string,
+    name: string,
+    domain: string,
+    r: { ok: boolean; issue: 'dns' | 'https' | 'tls' | null; notify?: boolean },
+  ): Promise<boolean> {
     const now = new Date();
-    if (ok) {
+    if (r.ok) {
       await this.admin.tenant.updateMany({
         where: { id: tenantId, customDomain: domain },
         data: {
@@ -231,7 +263,7 @@ export class CustomDomainCheckService {
           customDomainCheckIssue: null,
         },
       });
-      return;
+      return false;
     }
     // Reserva del episodio: solo el que pasa de bien/sin comprobar a mal avisa.
     const claimed = await this.admin.tenant.updateMany({
@@ -243,27 +275,32 @@ export class CustomDomainCheckService {
       data: {
         customDomainCheckedAt: now,
         customDomainCheckOk: false,
-        customDomainCheckIssue: issue,
+        customDomainCheckIssue: r.issue,
       },
     });
     if (claimed.count === 0) {
       await this.admin.tenant.updateMany({
         where: { id: tenantId, customDomain: domain },
-        data: { customDomainCheckedAt: now, customDomainCheckIssue: issue },
+        data: { customDomainCheckedAt: now, customDomainCheckIssue: r.issue },
       });
-      return;
+      return false;
     }
-    await this.admin.superAdminNotification.create({
-      data: {
-        type: 'custom_domain.broken',
-        title: `${name}: ${domain} ya no responde`,
-        body:
-          issue === 'dns'
-            ? 'El DNS del dominio ya no apunta a la plataforma: su web, la reserva y los enlaces de sus correos están rotos.'
-            : 'El dominio apunta a la plataforma pero no responde por https (revisa el Proxy Host y su certificado).',
-        link: '/admin/custom-domains',
-      },
-    });
+    if (r.notify !== false) {
+      await this.admin.superAdminNotification.create({
+        data: {
+          type: 'custom_domain.broken',
+          title: `${name}: ${domain} ya no responde`,
+          body:
+            r.issue === 'dns'
+              ? 'El DNS del dominio ya no apunta a la plataforma: su web, la reserva y los enlaces de sus correos están rotos.'
+              : r.issue === 'tls'
+                ? 'El dominio responde pero su certificado no es válido o ha caducado (revisa el certificado en Nginx Proxy Manager).'
+                : 'El dominio apunta a la plataforma pero no responde por https (revisa el Proxy Host y su certificado).',
+          link: '/admin/custom-domains',
+        },
+      });
+    }
+    return true;
   }
 
   /** Marca el dominio como listo y avisa al super admin (una sola vez). */
@@ -316,37 +353,6 @@ export class CustomDomainCheckService {
         this.logger.warn(`custom-domain check ${t.customDomain}: ${(err as Error).message}`);
       }
     }
-  }
-
-  /**
-   * Cada día, los dominios ACTIVOS (y los que están en pausa por plan): si el
-   * DNS deja de apuntar o el https no responde, avisa al super admin una vez
-   * por episodio. Su estado queda en el panel («Responde», «Ya no apunta»).
-   */
-  @Cron('40 6 * * *', { name: 'custom-domains.active-check' })
-  async checkActive(): Promise<number> {
-    const active = await this.admin.tenant.findMany({
-      where: {
-        customDomain: { not: null },
-        deletedAt: null,
-        OR: [
-          { customDomainVerifiedAt: { not: null } },
-          { customDomainPausedVerifiedAt: { not: null } },
-        ],
-      },
-      select: { id: true, name: true, customDomain: true },
-      take: 500,
-    });
-    let checked = 0;
-    for (const t of active) {
-      try {
-        await this.recordCheck(t.id, t.name, t.customDomain!, await this.inspect(t.customDomain!));
-        checked += 1;
-      } catch (err) {
-        this.logger.warn(`custom-domain active ${t.customDomain}: ${(err as Error).message}`);
-      }
-    }
-    return checked;
   }
 
   /**

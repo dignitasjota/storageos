@@ -4,6 +4,28 @@ import type { PrismaAdminService } from '../modules/database/prisma-admin.servic
 
 export type CustomDomainPauseChange = 'paused' | 'resumed' | null;
 
+/** Deja constancia en el historial del dominio (nunca rompe el cambio de plan). */
+async function traceChange(
+  admin: PrismaAdminService,
+  tenantId: string,
+  domain: string,
+  action: 'admin.domain.paused' | 'admin.domain.resumed',
+): Promise<void> {
+  try {
+    await admin.superAdminAuditLog.create({
+      data: {
+        action,
+        targetType: 'tenant',
+        targetId: tenantId,
+        targetTenantId: tenantId,
+        changes: { customDomain: domain },
+      },
+    });
+  } catch {
+    // Solo es historial.
+  }
+}
+
 /**
  * Sincroniza el dominio propio de un negocio con su plan.
  *
@@ -42,7 +64,9 @@ export async function reconcileCustomDomainPause(
         customDomainVerifiedAt: null,
       },
     });
-    return claimed.count > 0 ? 'paused' : null;
+    if (claimed.count === 0) return null;
+    await traceChange(admin, tenantId, t.customDomain, 'admin.domain.paused');
+    return 'paused';
   }
   if (included && !t.customDomainVerifiedAt && t.customDomainPausedVerifiedAt) {
     const claimed = await admin.tenant.updateMany({
@@ -56,7 +80,9 @@ export async function reconcileCustomDomainPause(
         customDomainPausedVerifiedAt: null,
       },
     });
-    return claimed.count > 0 ? 'resumed' : null;
+    if (claimed.count === 0) return null;
+    await traceChange(admin, tenantId, t.customDomain, 'admin.domain.resumed');
+    return 'resumed';
   }
   return null;
 }

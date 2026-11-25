@@ -82,7 +82,7 @@ export interface DomainCleanupDto {
 
 export interface DomainHistoryItemDto {
   at: string;
-  kind: 'activated' | 'revoked' | 'check' | 'notice' | 'other';
+  kind: 'activated' | 'revoked' | 'paused' | 'check' | 'notice' | 'other';
   title: string;
   detail: string | null;
   /** Quién lo hizo (null = automático). */

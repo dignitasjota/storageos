@@ -121,8 +121,8 @@ export default function AdminBillingHealthPage() {
             <CardHeader>
               <CardTitle className="text-base">Por tenant</CardTitle>
               <CardDescription>
-                Con «Solo con problemas» desmarcado se ven también los tenants con Veri*Factu activado,
-                certificado o Holded que van bien.
+                Con «Solo con problemas» desmarcado se ven también los tenants con Veri*Factu
+                activado, certificado o Holded que van bien.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">

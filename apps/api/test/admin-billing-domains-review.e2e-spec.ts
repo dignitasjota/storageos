@@ -3,6 +3,7 @@ import { hash as argonHash } from '@node-rs/argon2';
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { AdminDomainsOpsService } from '../src/modules/admin/admin-domains-ops.service';
 import { CustomDomainCheckService } from '../src/modules/users/custom-domain-check.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
@@ -458,7 +459,8 @@ describe('Problemas de facturación y dominios propios: arreglos (e2e)', () => {
   });
 
   it('D3/D5: vigila los dominios activos y limpia «DNS listo» si deja de apuntar', async () => {
-    const svc = app.get(CustomDomainCheckService);
+    // La vigilancia diaria es la comprobación completa de admin-domains-ops (una sola).
+    const watch = app.get(AdminDomainsOpsService);
     // Activo cuyo DNS ya no apunta: aviso una sola vez.
     const domain = deadDomain();
     const owner = await tenantWithDomain('bdrwatch', domain);
@@ -471,8 +473,8 @@ describe('Problemas de facturación y dominios propios: arreglos (e2e)', () => {
         where: { type: 'custom_domain.broken', title: { contains: domain } },
       });
     expect(await count()).toBe(1);
-    await svc.checkActive();
-    await svc.checkActive();
+    await watch.fullCheck(owner.tenantId, 'cron');
+    await watch.fullCheck(owner.tenantId, 'cron');
     expect(await count()).toBe(1);
 
     // Vuelve a apuntar: queda «Responde» y un nuevo fallo avisaría otra vez.
@@ -480,7 +482,7 @@ describe('Problemas de facturación y dominios propios: arreglos (e2e)', () => {
       where: { id: owner.tenantId },
       data: { customDomain: readyDomain() },
     });
-    await svc.checkActive();
+    await watch.fullCheck(owner.tenantId, 'cron');
     expect((await listRow(owner.tenantId)).checkOk).toBe(true);
 
     // D5: «DNS listo desde…» se limpia si deja de apuntar antes de activarse.

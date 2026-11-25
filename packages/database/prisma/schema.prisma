@@ -1127,7 +1127,6 @@ model PlatformBusinessGoals {
   @@map("platform_business_goals")
 }
 
-/// Foto mensual del score de salud de cada tenant (para la tendencia). Global, REVOKE.
 /// Cada comprobación completa de un dominio propio (DNS, https y certificado).
 model PlatformDomainCheck {
   id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
@@ -1193,6 +1192,7 @@ model PlatformDomainSettings {
   @@map("platform_domain_settings")
 }
 
+/// Foto mensual del score de salud de cada tenant (para la tendencia). Global, REVOKE.
 model TenantHealthSnapshot {
   id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid

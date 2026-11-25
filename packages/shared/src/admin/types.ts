@@ -1469,7 +1469,7 @@ export interface AdminCustomDomainDto {
   checkedAt: string | null;
   /** null = sin comprobar aún. */
   checkOk: boolean | null;
-  /** dns | https cuando la última comprobación falló. */
+  /** dns | https | tls cuando la última comprobación falló. */
   checkIssue: string | null;
 }
 

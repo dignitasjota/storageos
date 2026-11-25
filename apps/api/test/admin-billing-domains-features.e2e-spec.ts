@@ -2,7 +2,9 @@ import { hash as argonHash } from '@node-rs/argon2';
 import { PrismaClient } from '@storageos/database';
 import request from 'supertest';
 
+import { reconcileCustomDomainPause } from '../src/common/custom-domain-pause';
 import { AdminDomainsOpsService } from '../src/modules/admin/admin-domains-ops.service';
+import { PrismaAdminService } from '../src/modules/database/prisma-admin.service';
 
 import { registerVerifiedUser } from './helpers/auth-flow';
 import {
@@ -154,6 +156,19 @@ describe('Problemas de facturación y dominios propios: mejoras (e2e)', () => {
       expect(byProblem[ids.stale]).toBe('stale');
       expect(byProblem[ids.unsent]).toBe('unsent');
       expect(all.body.nextCursor).toBeNull();
+      // Un único criterio: la lista paginada suma lo mismo que el total del resumen.
+      const health = (await http().get('/admin/billing-health').set(supp).expect(200)).body;
+      let total = 0;
+      let cursor: string | null = null;
+      do {
+        const page: { body: { items: unknown[]; nextCursor: string | null } } = await http()
+          .get(`/admin/billing-ops/issues?limit=200${cursor ? `&cursor=${cursor}` : ''}`)
+          .set(supp)
+          .expect(200);
+        total += page.body.items.length;
+        cursor = page.body.nextCursor;
+      } while (cursor);
+      expect(total).toBe(health.invoicesTotal);
       const rejected = all.body.items.find(
         (i: { invoiceId: string }) => i.invoiceId === ids.rejected,
       );
@@ -534,7 +549,7 @@ describe('Problemas de facturación y dominios propios: mejoras (e2e)', () => {
       await setDomain(`notready${tag}.com`, true);
       await service.checkAll({ byId: null, onlyActive: true });
       const down = await db.superAdminNotification.findMany({
-        where: { type: 'custom_domain.down', title: { contains: `notready${tag}` } },
+        where: { type: 'custom_domain.broken', title: { contains: `notready${tag}` } },
       });
       expect(down).toHaveLength(1);
       await http()
@@ -622,8 +637,53 @@ describe('Problemas de facturación y dominios propios: mejoras (e2e)', () => {
       expect(after.body.some((c: { id: string }) => c.id === mine[0].id)).toBe(false);
     });
 
+    it('un dominio en pausa por plan es un estado propio: historial y sin avisos de caída', async () => {
+      const dead = `notready${tag}pause.com`;
+      await setDomain(dead, true);
+      await db.tenant.update({
+        where: { id: tenantId },
+        data: { customDomainCheckOk: null, customDomainCheckIssue: null },
+      });
+      await db.tenantFeatureOverride.upsert({
+        where: { tenantId_feature: { tenantId, feature: 'custom_domain' } },
+        create: { tenantId, feature: 'custom_domain', enabled: false },
+        update: { enabled: false },
+      });
+      expect(await reconcileCustomDomainPause(app.get(PrismaAdminService), tenantId)).toBe(
+        'paused',
+      );
+      const row = (
+        await http().get('/admin/tenants/custom-domains').set(supp).expect(200)
+      ).body.find((d: { tenantId: string }) => d.tenantId === tenantId);
+      expect(row).toMatchObject({ pausedByPlan: true, verifiedAt: null });
+
+      // La comprobación completa guarda el estado de la fila, pero un dominio en pausa no avisa.
+      await http().post(`/admin/domains/${tenantId}/check`).set(sup).expect(200);
+      const after = await db.tenant.findUnique({ where: { id: tenantId } });
+      expect(after).toMatchObject({ customDomainCheckOk: false, customDomainCheckIssue: 'dns' });
+      expect(
+        await db.superAdminNotification.count({
+          where: { type: 'custom_domain.broken', title: { contains: dead } },
+        }),
+      ).toBe(0);
+
+      const h = await http().get(`/admin/domains/${tenantId}/history`).set(supp).expect(200);
+      expect(h.body.map((i: { kind: string }) => i.kind)).toContain('paused');
+
+      // «Comprobar todos» y la vigilancia diaria incluyen los dominios en pausa.
+      const all = await app.get(AdminDomainsOpsService).checkAll({ byId: null, onlyActive: true });
+      expect(all.checked).toBeGreaterThanOrEqual(1);
+      await db.tenantFeatureOverride.deleteMany({ where: { tenantId, feature: 'custom_domain' } });
+    });
+
     it('historial del dominio: activaciones, comprobaciones y avisos', async () => {
       await setDomain(`ready${tag}.com`, false);
+      // Activar comprueba el plan (arreglos): se le da la función por cortesía.
+      await db.tenantFeatureOverride.upsert({
+        where: { tenantId_feature: { tenantId, feature: 'custom_domain' } },
+        create: { tenantId, feature: 'custom_domain', enabled: true },
+        update: { enabled: true },
+      });
       await http().post(`/admin/tenants/${tenantId}/custom-domain/verify`).set(sup).expect(200);
       await http().post(`/admin/domains/${tenantId}/check`).set(sup).expect(200);
       await http().post(`/admin/tenants/${tenantId}/custom-domain/revoke`).set(sup).expect(200);

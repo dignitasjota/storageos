@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import {
   aeatErrorGuide,
   BILLING_INVOICE_PROBLEMS,
-  BILLING_STALE_HOURS,
   extractAeatErrorCode,
   type BillingBatchResultDto,
   type BillingCertificateRowDto,
@@ -25,6 +24,13 @@ import { emitterKey } from '../billing/verifactu-flow';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import {
+  aeatProblemTypeWhere,
+  failingEmitters,
+  liveVerifactuTenantWhere,
+  staleBefore,
+  type FailingEmitter,
+} from './aeat-problems';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 
 import type { Env } from '../../config/env.schema';
@@ -38,13 +44,6 @@ export interface BillingActionMeta {
   ipAddress?: string | null;
   userAgent?: string | null;
 }
-
-/** Tenants vivos con Veri*Factu activado: los únicos que tienen problemas de envío. */
-const LIVE_VERIFACTU_TENANT: Prisma.TenantWhereInput = {
-  deletedAt: null,
-  status: { not: 'cancelled' },
-  verifactuEnabled: true,
-};
 
 function messageOf(response: unknown): string | null {
   if (!response || typeof response !== 'object') return null;
@@ -79,31 +78,16 @@ export class AdminBillingOpsHealthService {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  private staleCut(now: Date): Date {
-    return new Date(now.getTime() - BILLING_STALE_HOURS * HOUR_MS);
-  }
-
-  /** Factura con este tipo de problema. */
-  private problemWhere(type: BillingInvoiceProblem, now: Date): Prisma.InvoiceWhereInput {
-    const cut = this.staleCut(now);
-    switch (type) {
-      case 'rejected':
-        return { aeatStatus: 'rejected' };
-      case 'error':
-        return { aeatStatus: 'error' };
-      case 'warnings':
-        return { aeatStatus: 'accepted_with_warnings' };
-      case 'stale':
-        return { aeatStatus: 'pending', aeatSentAt: { lt: cut } };
-      case 'unsent':
-        return {
-          aeatStatus: 'pending',
-          aeatSentAt: null,
-          verifactuRecords: {
-            some: { status: { in: ['pending', 'error'] }, sentAt: null, createdAt: { lt: cut } },
-          },
-        };
-    }
+  /**
+   * Factura con este tipo de problema. El criterio es el MISMO del resumen y de
+   * «Hoy» (`aeat-problems.ts`): así los conteos y la lista coinciden.
+   */
+  private problemWhere(
+    type: BillingInvoiceProblem,
+    now: Date,
+    failing: FailingEmitter[],
+  ): Prisma.InvoiceWhereInput {
+    return aeatProblemTypeWhere(type, staleBefore(now), failing);
   }
 
   private problemOf(aeatStatus: string | null, sentAt: Date | null): BillingInvoiceProblem {
@@ -126,7 +110,7 @@ export class AdminBillingOpsHealthService {
   ): Promise<BillingStuckSubmissionDto[]> {
     const groups = await this.admin.verifactuRecord.groupBy({
       by: ['tenantId', 'ownerId'],
-      where: { status: { in: ['pending', 'error'] }, tenant: LIVE_VERIFACTU_TENANT },
+      where: { status: { in: ['pending', 'error'] }, tenant: liveVerifactuTenantWhere() },
       _count: { _all: true },
       _min: { createdAt: true },
     });
@@ -208,7 +192,7 @@ export class AdminBillingOpsHealthService {
     const search = opts.search?.trim();
     const tenants = await this.admin.tenant.findMany({
       where: {
-        ...LIVE_VERIFACTU_TENANT,
+        ...liveVerifactuTenantWhere(),
         ...(search
           ? {
               OR: [
@@ -224,6 +208,7 @@ export class AdminBillingOpsHealthService {
     if (tenants.length === 0) return [];
     const ids = tenants.map((t) => t.id);
     const invoiceBase = { tenantId: { in: ids }, deletedAt: null } as const;
+    const failing = await failingEmitters(this.admin);
     const [byStatus, stale, unsent, pendingRecords, accepted, creds, holdedOn] = await Promise.all([
       this.admin.invoice.groupBy({
         by: ['tenantId', 'aeatStatus'],
@@ -235,12 +220,12 @@ export class AdminBillingOpsHealthService {
       }),
       this.admin.invoice.groupBy({
         by: ['tenantId'],
-        where: { ...invoiceBase, ...this.problemWhere('stale', now) },
+        where: { ...invoiceBase, ...this.problemWhere('stale', now, failing) },
         _count: { _all: true },
       }),
       this.admin.invoice.groupBy({
         by: ['tenantId'],
-        where: { ...invoiceBase, ...this.problemWhere('unsent', now) },
+        where: { ...invoiceBase, ...this.problemWhere('unsent', now, failing) },
         _count: { _all: true },
       }),
       this.admin.verifactuRecord.groupBy({
@@ -254,7 +239,8 @@ export class AdminBillingOpsHealthService {
         _max: { sentAt: true },
       }),
       this.admin.tenantAeatCredential.findMany({
-        where: { tenantId: { in: ids }, revokedAt: null },
+        // El certificado del propio negocio: los de propietarios van en el calendario.
+        where: { tenantId: { in: ids }, revokedAt: null, ownerId: null },
         select: { tenantId: true, certValidTo: true },
       }),
       this.admin.holdedSettings.findMany({
@@ -338,12 +324,13 @@ export class AdminBillingOpsHealthService {
   ): Promise<BillingIssuesPageDto> {
     const limit = Math.min(Math.max(opts.limit ?? 25, 1), 200);
     const types = opts.type ? [opts.type] : [...BILLING_INVOICE_PROBLEMS];
+    const failing = await failingEmitters(this.admin);
     const rows = await this.admin.invoice.findMany({
       where: {
         deletedAt: null,
-        tenant: LIVE_VERIFACTU_TENANT,
+        tenant: liveVerifactuTenantWhere(),
         ...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
-        OR: types.map((t) => this.problemWhere(t, now)),
+        OR: types.map((t) => this.problemWhere(t, now, failing)),
       },
       orderBy: { id: 'desc' },
       take: limit + 1,

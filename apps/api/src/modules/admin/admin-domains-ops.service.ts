@@ -133,13 +133,19 @@ export class AdminDomainsOpsService {
   ): Promise<DomainFullCheckDto> {
     const tenant = await this.admin.tenant.findFirst({
       where: { id: tenantId, deletedAt: null },
-      select: { customDomain: true },
+      select: {
+        name: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        customDomainPausedVerifiedAt: true,
+      },
     });
     if (!tenant?.customDomain) {
       throw new NotFoundException({ code: 'no_custom_domain', message: 'Sin dominio propio' });
     }
     const domain = tenant.customDomain;
-    const dns = await this.dns.check(tenantId);
+    // El resultado de un dominio activo o en pausa lo guarda esta comprobación completa (una sola vez).
+    const dns = await this.dns.check(tenantId, { recordActive: false });
     const root = dns.hosts.find((h) => h.purpose === 'primary');
     const www = dns.hosts.find((h) => h.purpose === 'alternate') ?? null;
     const probe = await probeDomain(domain);
@@ -170,6 +176,15 @@ export class AdminDomainsOpsService {
         } as Prisma.InputJsonValue,
       },
     });
+    // Mismas columnas y mismo aviso (`custom_domain.broken`, una vez por episodio) que la comprobación
+    // rápida: un dominio en pausa guarda su estado pero no avisa.
+    if (tenant.customDomainVerifiedAt || tenant.customDomainPausedVerifiedAt) {
+      await this.dns.recordResult(tenantId, tenant.name, domain, {
+        ok,
+        issue: ok ? null : !dnsOk ? 'dns' : !probe.https.ok ? 'https' : 'tls',
+        notify: !!tenant.customDomainVerifiedAt,
+      });
+    }
     void this.prune(tenantId);
     return checkToDto(row, dns.expected);
   }
@@ -203,7 +218,15 @@ export class AdminDomainsOpsService {
       where: {
         customDomain: { not: null },
         deletedAt: null,
-        ...(onlyActive ? { customDomainVerifiedAt: { not: null } } : {}),
+        // Activos y en pausa por plan (los pendientes solo se comprueban a mano).
+        ...(onlyActive
+          ? {
+              OR: [
+                { customDomainVerifiedAt: { not: null } },
+                { customDomainPausedVerifiedAt: { not: null } },
+              ],
+            }
+          : {}),
       },
       select: { id: true },
       take: 200,
@@ -234,7 +257,7 @@ export class AdminDomainsOpsService {
 
   // ----------------------------------------------- vigilancia de los activos
 
-  /** Avisos tras comprobar un dominio activo (solo los llama el cron). */
+  /** Avisos del certificado y correo al tenant tras comprobar un dominio activo (solo los llama el cron). */
   private async alertAfterCheck(tenantId: string, r: DomainFullCheckDto): Promise<void> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -242,22 +265,13 @@ export class AdminDomainsOpsService {
     });
     if (!tenant?.customDomainVerifiedAt) return;
     const link = '/admin/custom-domains';
+    // El aviso al super admin (`custom_domain.broken`) ya lo ha dado `recordResult`, una vez por episodio.
     if (!r.ok) {
       const reason = !r.dns.root.ok
         ? 'ya no apunta a la plataforma'
         : !r.https.ok
           ? (r.https.error ?? 'no responde por https')
           : (r.tls.error ?? 'tiene un problema con el certificado');
-      if (await claimAlert(this.admin, 'custom_domain.down', `${tenantId}:${r.domain}`, 24 * 60)) {
-        await this.admin.superAdminNotification.create({
-          data: {
-            type: 'custom_domain.down',
-            title: `${tenant.name}: ${r.domain} ${reason}`,
-            body: 'Los enlaces de ese tenant con su dominio propio pueden estar rotos.',
-            link,
-          },
-        });
-      }
       await this.mailTenant(tenantId, tenant.name, 'down', r.domain, reason);
       return;
     }
@@ -545,21 +559,24 @@ export class AdminDomainsOpsService {
         ? 'activated'
         : a.endsWith('custom_domain_revoked')
           ? 'revoked'
-          : a === 'admin.domain.tenant_notified'
-            ? 'notice'
-            : 'other';
+          : a === 'admin.domain.paused' || a === 'admin.domain.resumed'
+            ? 'paused'
+            : a === 'admin.domain.tenant_notified'
+              ? 'notice'
+              : 'other';
+      const titles: Record<string, string> = {
+        'admin.domain.paused': 'En pausa: su plan ya no incluye el dominio propio',
+        'admin.domain.resumed': 'Reactivado: su plan vuelve a incluir el dominio propio',
+        'admin.domain.tenant_notified': 'Aviso enviado al tenant',
+        'admin.domain.checklist_updated': 'Casillas de la guía actualizadas',
+        'admin.domain.cleanup_done': 'Proxy Host borrado',
+      };
       const title =
         kind === 'activated'
           ? 'Dominio activado'
           : kind === 'revoked'
             ? 'Dominio desactivado'
-            : kind === 'notice'
-              ? 'Aviso enviado al tenant'
-              : a === 'admin.domain.checklist_updated'
-                ? 'Casillas de la guía actualizadas'
-                : a === 'admin.domain.cleanup_done'
-                  ? 'Proxy Host borrado'
-                  : a;
+            : (titles[a] ?? a);
       const changes = l.changes as Record<string, unknown> | null;
       items.push({
         at: l.occurredAt.toISOString(),
