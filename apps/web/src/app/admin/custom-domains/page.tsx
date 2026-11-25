@@ -5,11 +5,17 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import type {
-  AdminCustomDomainBlockDto,
-  AdminCustomDomainDto,
-  CustomDomainCheckDto,
-} from '@storageos/shared';
+import {
+  CleanupsCard,
+  domainHasProblem,
+  DomainGuideDialog,
+  DomainHistoryDialog,
+  DomainStatusLine,
+  EmailDomainLine,
+  NotifySetting,
+} from './domain-extras';
+
+import type { AdminCustomDomainBlockDto, AdminCustomDomainDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
@@ -17,8 +23,19 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  useDomainCheckAll,
+  useDomainCheckNow,
+  useDomainOps,
+} from '@/lib/admin/billing-domains-hooks';
 import { useAdminCustomDomains, useCustomDomainAction } from '@/lib/admin/hooks';
-import { useCheckCustomDomain } from '@/lib/admin/tenant-tools-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { formatDate, formatDateTime } from '@/lib/format';
@@ -29,6 +46,8 @@ const TENANT_STATUS_LABEL: Record<string, string> = {
   trial: 'En prueba',
 };
 
+type Filter = 'all' | 'pending' | 'active' | 'paused' | 'problems';
+
 /** Mensaje corto de cada nombre comprobado: «raíz» o «con www». */
 function hostLabel(purpose: 'primary' | 'alternate', host: string): string {
   return purpose === 'primary' ? host : `${host} (la otra forma)`;
@@ -37,29 +56,70 @@ function hostLabel(purpose: 'primary' | 'alternate', host: string): string {
 /**
  * Dominios propios: pendientes de activar, activos y en pausa (su plan ya no
  * incluye la función). Activar comprueba el DNS, el https y el plan.
+ * «Comprobar ahora» hace la comprobación completa (DNS de la raíz y de `www`,
+ * https y certificado) y deja el resultado en la propia fila.
  */
 export default function AdminCustomDomainsPage() {
   const domains = useAdminCustomDomains();
   const verify = useCustomDomainAction('verify');
   const revoke = useCustomDomainAction('revoke');
-  const check = useCheckCustomDomain();
+  const check = useDomainCheckNow();
+  const checkAll = useDomainCheckAll();
+  const ops = useDomainOps();
   const canEdit = useIsSuperadmin();
   const ask = useConfirm();
   const [search, setSearch] = useState('');
-  const [results, setResults] = useState<Record<string, CustomDomainCheckDto>>({});
+  const [filter, setFilter] = useState<Filter>('all');
+  const [guide, setGuide] = useState<AdminCustomDomainDto | null>(null);
+  const [history, setHistory] = useState<AdminCustomDomainDto | null>(null);
+
+  const opsByTenant = useMemo(
+    () => new Map((ops.data?.rows ?? []).map((r) => [r.tenantId, r])),
+    [ops.data],
+  );
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (domains.data ?? []).filter(
-      (d) =>
-        !q || d.customDomain.toLowerCase().includes(q) || d.tenantName.toLowerCase().includes(q),
-    );
-  }, [domains.data, search]);
+    return (domains.data ?? []).filter((d) => {
+      if (q && !d.customDomain.toLowerCase().includes(q) && !d.tenantName.toLowerCase().includes(q))
+        return false;
+      switch (filter) {
+        case 'pending':
+          return !d.verifiedAt && !d.pausedByPlan;
+        case 'active':
+          return !!d.verifiedAt;
+        case 'paused':
+          return d.pausedByPlan;
+        case 'problems':
+          // Un dominio en pausa no es un problema: sus enlaces ya usan la plataforma.
+          return (
+            !!d.verifiedAt &&
+            (d.checkOk === false || domainHasProblem(opsByTenant.get(d.tenantId)?.lastCheck))
+          );
+        default:
+          return true;
+      }
+    });
+  }, [domains.data, search, filter, opsByTenant]);
 
   async function runCheck(tenantId: string) {
     try {
       const r = await check.mutateAsync(tenantId);
-      setResults((prev) => ({ ...prev, [tenantId]: r }));
+      if (r.ok) toast.success(`${r.domain}: todo en orden (DNS, https y certificado).`);
+      else if (!r.dns.root.ok)
+        toast.error(
+          `${r.domain} todavía no apunta: responde ${r.dns.root.found.join(', ') || 'nada'} y debería ser ${r.dns.expected.join(', ')}.`,
+        );
+      else toast.error(`${r.domain}: ${r.https.error ?? r.tls.error ?? 'hay un problema'}.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprobar.');
+    }
+  }
+
+  async function runCheckAll() {
+    try {
+      const r = await checkAll.mutateAsync();
+      toast.success(`${r.checked} dominio(s) comprobados, ${r.failing} con problemas.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo comprobar.');
     }
@@ -140,7 +200,6 @@ export default function AdminCustomDomainsPage() {
   const active = rows.filter((d) => d.verifiedAt);
 
   const body = (d: AdminCustomDomainDto, mode: 'pending' | 'active' | 'paused') => {
-    const result = results[d.tenantId];
     return (
       <div key={d.tenantId} className="space-y-2 rounded-md border p-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -189,7 +248,11 @@ export default function AdminCustomDomainsPage() {
               )}
               {mode !== 'pending' && d.checkOk === false && (
                 <Badge variant="destructive">
-                  {d.checkIssue === 'https' ? 'No responde por https' : 'Ya no apunta'}
+                  {d.checkIssue === 'https'
+                    ? 'No responde por https'
+                    : d.checkIssue === 'tls'
+                      ? 'Certificado con problema'
+                      : 'Ya no apunta'}
                 </Badge>
               )}
               {mode !== 'pending' && d.checkOk === null && (
@@ -210,13 +273,21 @@ export default function AdminCustomDomainsPage() {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
+            {mode === 'pending' && (
+              <Button size="sm" variant="ghost" onClick={() => setGuide(d)}>
+                Cómo se activa
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => setHistory(d)}>
+              Historial
+            </Button>
             <Button
               size="sm"
               variant="outline"
               onClick={() => void runCheck(d.tenantId)}
               disabled={check.isPending}
             >
-              {mode === 'pending' ? 'Comprobar DNS' : 'Comprobar ahora'}
+              Comprobar ahora
             </Button>
             {canEdit && mode === 'pending' && (
               <Button size="sm" onClick={() => void activate(d)} disabled={verify.isPending}>
@@ -235,30 +306,10 @@ export default function AdminCustomDomainsPage() {
             )}
           </div>
         </div>
-        {result && (
-          <div className="rounded border bg-muted/40 p-2 text-xs">
-            <p className="mb-1 font-medium">
-              {result.pointsToPlatform ? 'Responde' : 'No apunta aún'} (comprobado ahora)
-            </p>
-            <ul className="space-y-0.5">
-              {result.hosts.map((h) => (
-                <li key={h.host} className="break-all">
-                  {h.pointsToPlatform ? '✓' : '✗'} {hostLabel(h.purpose, h.host)}
-                  {!h.pointsToPlatform && (
-                    <span className="text-muted-foreground">
-                      {' '}
-                      — responde {h.found.join(', ') || 'nada'} y debería ser{' '}
-                      {result.expected.join(', ')}
-                    </span>
-                  )}
-                </li>
-              ))}
-              {result.httpsOk !== undefined && result.httpsOk !== null && (
-                <li>{result.httpsOk ? '✓ Responde por https' : '✗ No responde por https'}</li>
-              )}
-            </ul>
-          </div>
-        )}
+        <div className="space-y-1">
+          <DomainStatusLine ops={opsByTenant.get(d.tenantId)} />
+          <EmailDomainLine ops={opsByTenant.get(d.tenantId)} tenantId={d.tenantId} />
+        </div>
       </div>
     );
   };
@@ -274,12 +325,36 @@ export default function AdminCustomDomainsPage() {
         </p>
       </div>
 
-      <Input
-        placeholder="Buscar por dominio o tenant…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="w-full text-base sm:w-72 sm:text-sm"
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <Input
+          placeholder="Buscar por dominio o tenant…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full text-base sm:w-72 sm:text-sm"
+        />
+        <Select value={filter} onValueChange={(v) => setFilter(v as Filter)}>
+          <SelectTrigger className="w-full text-base sm:w-52 sm:text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="pending">Pendientes</SelectItem>
+            <SelectItem value="active">Activos</SelectItem>
+            <SelectItem value="paused">En pausa (sin función en su plan)</SelectItem>
+            <SelectItem value="problems">Con problemas</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={checkAll.isPending}
+          onClick={() => void runCheckAll()}
+        >
+          {checkAll.isPending ? 'Comprobando…' : 'Comprobar todos'}
+        </Button>
+      </div>
+      <NotifySetting enabled={ops.data?.notifyTenantEnabled ?? false} />
+      <CleanupsCard />
 
       {domains.isError ? (
         <AdminError
@@ -343,6 +418,16 @@ export default function AdminCustomDomainsPage() {
           )}
         </>
       )}
+      <DomainGuideDialog
+        tenantId={guide?.tenantId ?? null}
+        domain={guide?.customDomain ?? ''}
+        onClose={() => setGuide(null)}
+      />
+      <DomainHistoryDialog
+        tenantId={history?.tenantId ?? null}
+        domain={history?.customDomain ?? ''}
+        onClose={() => setHistory(null)}
+      />
     </div>
   );
 }

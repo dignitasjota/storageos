@@ -29,6 +29,7 @@ import {
   WEB_HERO_MIME_TYPES,
 } from '@storageos/shared';
 
+import { recordDomainCleanup } from '../../common/domain-cleanup';
 import { liveOverrideWhere } from '../../common/tenant-features';
 import { AuditService } from '../auth/audit.service';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -820,12 +821,12 @@ export class TenantSettingsService {
         tenant.customDomainPausedVerifiedAt ||
         tenant.customDomainReadyAt)
     ) {
-      await this.notifyDomainRemoved(
-        tenant.id,
-        tenant.name,
-        tenant.customDomain,
-        data.customDomain,
-      );
+      await recordDomainCleanup(this.admin, {
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        domain: tenant.customDomain,
+        newDomain: data.customDomain,
+      });
     }
 
     await this.audit.write({
@@ -848,31 +849,6 @@ export class TenantSettingsService {
     data.customDomainCheckedAt = null;
     data.customDomainCheckOk = null;
     data.customDomainCheckIssue = null;
-  }
-
-  /** Avisa al super admin para que borre el Proxy Host del dominio que el tenant ya no usa. */
-  private async notifyDomainRemoved(
-    tenantId: string,
-    tenantName: string,
-    oldDomain: string,
-    newDomain: string | null | undefined,
-  ): Promise<void> {
-    try {
-      await this.admin.superAdminNotification.create({
-        data: {
-          type: 'custom_domain.removed',
-          title: newDomain
-            ? `${tenantName} ha cambiado su dominio: borra el Proxy Host de ${oldDomain}`
-            : `${tenantName} ha quitado su dominio: borra el Proxy Host de ${oldDomain}`,
-          body: newDomain
-            ? `Su dominio nuevo es ${newDomain} y queda pendiente de activar. El anterior ya no se sirve: borra su Proxy Host y su certificado en Nginx Proxy Manager.`
-            : 'Ya no se sirve su web en ese dominio: borra su Proxy Host y su certificado en Nginx Proxy Manager.',
-          link: `/admin/tenants/${tenantId}`,
-        },
-      });
-    } catch (err) {
-      this.logger.warn(`[custom-domain] aviso de dominio quitado: ${(err as Error).message}`);
-    }
   }
 
   async getContractTemplate(tenantId: string): Promise<ContractTemplateDto> {

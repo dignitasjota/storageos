@@ -118,6 +118,7 @@ import type { Env } from '../../config/env.schema';
     InvoiceSeriesService,
     PricingRulesService,
     TenantAeatCredentialsService,
+    VerifactuDispatcher,
   ],
 })
 export class BillingModule {}

@@ -2771,6 +2771,9 @@ export class AdminTenantsService {
         select: { snapshotKey: true },
       });
       await tx.cameraEvent.deleteMany({ where: { tenantId } });
+      // Comprobaciones y casillas de su dominio propio (las tareas de limpieza del Proxy Host se conservan).
+      await tx.platformDomainCheck.deleteMany({ where: { tenantId } });
+      await tx.platformDomainChecklist.deleteMany({ where: { tenantId } });
       // Lo que se guardó de la relación con la plataforma: sin contacto ni lo hablado.
       await tx.tenantInteraction.updateMany({ where: { tenantId }, data: { content: ANON } });
       await tx.platformEmailLog.updateMany({

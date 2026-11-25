@@ -697,6 +697,9 @@ model Tenant {
   impersonationLogs       ImpersonationLog[]
   aeatCredentials         TenantAeatCredential[]
   verifactuEmitters       VerifactuEmitter[]
+  domainChecks            PlatformDomainCheck[]
+  domainChecklist         PlatformDomainChecklist?
+  domainCleanups          PlatformDomainCleanup[]
   verifactuSubmissions    VerifactuSubmission[]
   verifactuRecords        VerifactuRecord[]
   holdedSettings          HoldedSettings?
@@ -1122,6 +1125,71 @@ model PlatformBusinessGoals {
   updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("platform_business_goals")
+}
+
+/// Cada comprobación completa de un dominio propio (DNS, https y certificado).
+model PlatformDomainCheck {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  domain      String
+  /// manual | cron | activate
+  trigger     String    @default("manual")
+  checkedAt   DateTime  @default(now()) @map("checked_at") @db.Timestamptz(6)
+  ok          Boolean
+  dnsOk       Boolean   @map("dns_ok")
+  wwwOk       Boolean?  @map("www_ok")
+  httpsOk     Boolean   @map("https_ok")
+  httpsStatus Int?      @map("https_status")
+  httpsMs     Int?      @map("https_ms")
+  httpsError  String?   @map("https_error")
+  tlsValid    Boolean   @map("tls_valid")
+  tlsValidTo  DateTime? @map("tls_valid_to") @db.Timestamptz(6)
+  tlsError    String?   @map("tls_error")
+  detail      Json?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, checkedAt(sort: Desc)], map: "platform_domain_checks_tenant_idx")
+  @@map("platform_domain_checks")
+}
+
+/// Pasos de la guía de activación de un dominio propio ya hechos.
+model PlatformDomainChecklist {
+  tenantId    String   @id @map("tenant_id") @db.Uuid
+  domain      String
+  steps       Json     @default("{}")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedById String?  @map("updated_by_id") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("platform_domain_checklists")
+}
+
+/// Proxy Host de NPM pendiente de borrar porque el tenant cambió o quitó su dominio.
+model PlatformDomainCleanup {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  domain    String
+  /// changed | removed
+  reason    String
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  doneAt    DateTime? @map("done_at") @db.Timestamptz(6)
+  doneById  String?   @map("done_by_id") @db.Uuid
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([doneAt, createdAt(sort: Desc)], map: "platform_domain_cleanups_open_idx")
+  @@map("platform_domain_cleanups")
+}
+
+/// Ajustes globales de los dominios propios (un único registro).
+model PlatformDomainSettings {
+  id                  String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  notifyTenantEnabled Boolean  @default(false) @map("notify_tenant_enabled")
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("platform_domain_settings")
 }
 
 /// Foto mensual del score de salud de cada tenant (para la tendencia). Global, REVOKE.
