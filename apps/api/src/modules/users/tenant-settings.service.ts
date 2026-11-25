@@ -465,6 +465,7 @@ export class TenantSettingsService {
     portalLogoKey: string | null;
     customDomain: string | null;
     customDomainVerifiedAt: Date | null;
+    customDomainPausedVerifiedAt?: Date | null;
     googleSiteVerification: string | null;
     googleAnalyticsId: string | null;
     webFaviconKey: string | null;
@@ -476,6 +477,7 @@ export class TenantSettingsService {
       logoUploaded: tenant.portalLogoKey !== null,
       customDomain: tenant.customDomain,
       customDomainVerifiedAt: tenant.customDomainVerifiedAt?.toISOString() ?? null,
+      customDomainPaused: !!tenant.customDomainPausedVerifiedAt && !tenant.customDomainVerifiedAt,
       googleSiteVerification: tenant.googleSiteVerification,
       googleAnalyticsId: tenant.googleAnalyticsId,
       faviconUrl: tenant.webFaviconKey
@@ -642,18 +644,30 @@ export class TenantSettingsService {
     // Con y sin `www.` son el mismo sitio: otra cuenta no puede tener la otra forma.
     const taken = await this.admin.tenant.findFirst({
       where: { customDomain: { in: customDomainHosts(domain) }, id: { not: tenantId } },
-      select: { id: true, customDomain: true, customDomainVerifiedAt: true, deletedAt: true },
+      select: {
+        id: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        customDomainPausedVerifiedAt: true,
+        deletedAt: true,
+      },
     });
     if (!taken?.customDomain) return;
     // Una cuenta borrada (anonimizada) ya no lo usa: se libera.
     if (taken.deletedAt) {
       await this.admin.tenant.update({
         where: { id: taken.id },
-        data: { customDomain: null, customDomainVerifiedAt: null, customDomainReadyAt: null },
+        data: {
+          customDomain: null,
+          customDomainVerifiedAt: null,
+          customDomainPausedVerifiedAt: null,
+          customDomainReadyAt: null,
+        },
       });
       return;
     }
-    if (taken.customDomainVerifiedAt) {
+    // Activo (o en pausa por plan): sigue siendo suyo.
+    if (taken.customDomainVerifiedAt || taken.customDomainPausedVerifiedAt) {
       throw new ConflictException({
         code: 'domain_taken',
         message: 'Ese dominio ya está en uso por otra cuenta. Si es tuyo, escríbenos a soporte.',
@@ -681,7 +695,12 @@ export class TenantSettingsService {
     }
     await this.admin.tenant.update({
       where: { id: taken.id },
-      data: { customDomain: null, customDomainVerifiedAt: null, customDomainReadyAt: null },
+      data: {
+        customDomain: null,
+        customDomainVerifiedAt: null,
+        customDomainPausedVerifiedAt: null,
+        customDomainReadyAt: null,
+      },
     });
     await this.audit.write({
       tenantId: taken.id,
@@ -741,6 +760,7 @@ export class TenantSettingsService {
         data.customDomain = null;
         data.customDomainVerifiedAt = null;
         data.customDomainReadyAt = null;
+        this.resetDomainState(data);
       } else if (domain !== tenant.customDomain) {
         // Setear/cambiar el dominio requiere la feature del plan.
         if (!(await this.hasFeature(args.tenantId, 'custom_domain'))) {
@@ -769,6 +789,7 @@ export class TenantSettingsService {
         // reconfigurar el Proxy Host + SSL y reactivarlo).
         data.customDomainVerifiedAt = null;
         data.customDomainReadyAt = null;
+        this.resetDomainState(data);
       }
     }
 
@@ -789,6 +810,23 @@ export class TenantSettingsService {
     }
     // Una dirección pegada sustituye al logo subido: el fichero se borra.
     if (data.portalLogoKey === null) await this.deleteReplacedLogo(tenant.portalLogoKey, null);
+    // El Proxy Host del dominio anterior ya no hace falta: el super admin lo borra.
+    if (
+      tenant.customDomain &&
+      data.customDomain !== undefined &&
+      (typeof data.customDomain === 'string' || data.customDomain === null) &&
+      data.customDomain !== tenant.customDomain &&
+      (tenant.customDomainVerifiedAt ||
+        tenant.customDomainPausedVerifiedAt ||
+        tenant.customDomainReadyAt)
+    ) {
+      await this.notifyDomainRemoved(
+        tenant.id,
+        tenant.name,
+        tenant.customDomain,
+        data.customDomain,
+      );
+    }
 
     await this.audit.write({
       tenantId: args.tenantId,
@@ -802,6 +840,39 @@ export class TenantSettingsService {
     });
 
     return this.toBrandingResponse(updated);
+  }
+
+  /** Al quitar o cambiar el dominio, la comprobación y la pausa del anterior ya no valen. */
+  private resetDomainState(data: Prisma.TenantUpdateInput): void {
+    data.customDomainPausedVerifiedAt = null;
+    data.customDomainCheckedAt = null;
+    data.customDomainCheckOk = null;
+    data.customDomainCheckIssue = null;
+  }
+
+  /** Avisa al super admin para que borre el Proxy Host del dominio que el tenant ya no usa. */
+  private async notifyDomainRemoved(
+    tenantId: string,
+    tenantName: string,
+    oldDomain: string,
+    newDomain: string | null | undefined,
+  ): Promise<void> {
+    try {
+      await this.admin.superAdminNotification.create({
+        data: {
+          type: 'custom_domain.removed',
+          title: newDomain
+            ? `${tenantName} ha cambiado su dominio: borra el Proxy Host de ${oldDomain}`
+            : `${tenantName} ha quitado su dominio: borra el Proxy Host de ${oldDomain}`,
+          body: newDomain
+            ? `Su dominio nuevo es ${newDomain} y queda pendiente de activar. El anterior ya no se sirve: borra su Proxy Host y su certificado en Nginx Proxy Manager.`
+            : 'Ya no se sirve su web en ese dominio: borra su Proxy Host y su certificado en Nginx Proxy Manager.',
+          link: `/admin/tenants/${tenantId}`,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(`[custom-domain] aviso de dominio quitado: ${(err as Error).message}`);
+    }
   }
 
   async getContractTemplate(tenantId: string): Promise<ContractTemplateDto> {

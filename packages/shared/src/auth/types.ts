@@ -221,6 +221,8 @@ export interface TenantBrandingResponse {
   customDomain: string | null;
   /** null = pendiente de activación por el super admin; ISO = activo. */
   customDomainVerifiedAt: string | null;
+  /** Activo, pero en pausa porque su plan ya no incluye el dominio propio. */
+  customDomainPaused?: boolean;
   /** Contenido de la meta tag de verificación de Google Search Console, o null. */
   googleSiteVerification: string | null;
   /** Measurement ID de Google Analytics 4 (`G-XXXXXXXXXX`), o null. */
@@ -298,4 +300,9 @@ export interface CustomDomainCheckDto {
   expected: string[];
   /** Cuándo se avisó al equipo de TrasterOS de que ya apunta. */
   readyAt: string | null;
+  /**
+   * ¿Responde el dominio por https? Solo se comprueba si el DNS ya apunta a la
+   * plataforma; null = no se ha podido comprobar.
+   */
+  httpsOk?: boolean | null;
 }

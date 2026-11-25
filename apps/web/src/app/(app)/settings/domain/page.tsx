@@ -173,6 +173,8 @@ function DomainCard() {
 
   const savedDomain = branding.data?.customDomain ?? null;
   const verified = branding.data?.customDomainVerifiedAt != null;
+  // Activo, pero tu plan ya no incluye el dominio propio: en pausa.
+  const paused = branding.data?.customDomainPaused === true;
   // El registro DNS se enseña en cuanto el dominio escrito es válido (aunque
   // aún no se haya guardado) y, si no, el del guardado.
   const typed = domain.trim().toLowerCase();
@@ -224,7 +226,20 @@ function DomainCard() {
 
         {savedDomain && (
           <div className="rounded-md border p-3 text-sm">
-            {verified ? (
+            {paused ? (
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+                  <Clock className="size-4" /> En pausa: tu plan ya no incluye el dominio propio
+                </span>
+                <p className="text-xs text-muted-foreground">
+                  Mientras tanto, tu web y los enlaces de tus correos usan la dirección de
+                  TrasterOS. Si vuelves a tener la función, se reactiva solo.{' '}
+                  <Link href="/settings/saas-billing" className="underline">
+                    Ver mi plan
+                  </Link>
+                </p>
+              </div>
+            ) : verified ? (
               <span className="inline-flex items-center gap-1.5 text-green-600 dark:text-green-400">
                 <CheckCircle2 className="size-4" /> Activo — tu web se sirve en{' '}
                 <a
@@ -296,7 +311,7 @@ function DomainCard() {
           </Button>
           {savedDomain && (
             <Badge variant={verified ? 'default' : 'secondary'}>
-              {verified ? 'Verificado' : 'En revisión'}
+              {verified ? 'Verificado' : paused ? 'En pausa' : 'En revisión'}
             </Badge>
           )}
         </div>

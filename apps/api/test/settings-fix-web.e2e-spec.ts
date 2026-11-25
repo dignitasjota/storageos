@@ -95,7 +95,13 @@ describe('Configuración de la web y la marca (e2e)', () => {
     await setVerifiedCustomDomain(owner.slug, domain);
     await http().get('/public/landing/resolve-domain').query({ host: domain }).expect(200);
 
-    // Baja de plan: la web ya no se sirve en ese dominio.
+    // Baja de plan: la web ya no se sirve en ese dominio. (El helper da la
+    // función también como cortesía; aquí tiene que depender solo del plan.)
+    await withAdminDb((db) =>
+      db.tenantFeatureOverride.deleteMany({
+        where: { tenant: { slug: owner.slug }, feature: 'custom_domain' },
+      }),
+    );
     await setTenantPlan(owner.slug, 'starter');
     await http().get('/public/landing/resolve-domain').query({ host: domain }).expect(404);
 

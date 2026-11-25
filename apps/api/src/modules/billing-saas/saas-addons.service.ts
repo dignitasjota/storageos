@@ -21,6 +21,7 @@ import {
 } from '@storageos/shared';
 import StripeSDK from 'stripe';
 
+import { reconcileCustomDomainPause } from '../../common/custom-domain-pause';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { StripeGateway } from '../payments/stripe.gateway';
@@ -1547,6 +1548,8 @@ export class SaasAddonsService {
         where: { tenantId, feature, source: 'addon' },
       });
     }
+    // El dominio propio se pausa o se reactiva con la función.
+    if (feature === 'custom_domain') await reconcileCustomDomainPause(this.admin, tenantId);
   }
 
   private validateFeature(feature: string | undefined): void {

@@ -133,6 +133,18 @@ export const SnoozeRiskSchema = z.object({
 });
 export type SnoozeRiskInput = z.infer<typeof SnoozeRiskSchema>;
 
+/** Reenviar una factura a la AEAT desde el panel admin: el motivo es obligatorio. */
+export const AdminResendAeatSchema = z.object({
+  reason: z.string().trim().min(3, 'Indica el motivo (mínimo 3 caracteres)').max(500),
+});
+export type AdminResendAeatInput = z.infer<typeof AdminResendAeatSchema>;
+
+/** Activar un dominio propio: `force` salta las comprobaciones (solo superadmin). */
+export const VerifyCustomDomainSchema = z.object({
+  force: z.boolean().optional(),
+});
+export type VerifyCustomDomainInput = z.infer<typeof VerifyCustomDomainSchema>;
+
 /** Vista guardada de una lista del panel admin (por super admin). */
 export const AdminSavedViewPageEnum = z.enum([
   'tenants',

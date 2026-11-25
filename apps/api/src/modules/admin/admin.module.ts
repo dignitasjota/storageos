@@ -30,6 +30,7 @@ import { AdminBusinessController } from './admin-business.controller';
 import { AdminBusinessService } from './admin-business.service';
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
+import { AdminCustomDomainsService } from './admin-custom-domains.service';
 import { AdminEmailLogController } from './admin-email-log.controller';
 import { AdminEmailSettingsController } from './admin-email-settings.controller';
 import { AdminFinanceInsightsService } from './admin-finance-insights.service';
@@ -342,6 +343,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SuperAdminAuditService,
     SupportTicketsService,
     AdminOpsHealthService,
+    AdminCustomDomainsService,
     AdminTenantConfigService,
     AdminUsageService,
     SupportAgilityService,
