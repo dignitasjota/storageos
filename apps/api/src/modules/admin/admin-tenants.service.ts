@@ -469,13 +469,20 @@ export class AdminTenantsService {
 
     // Salud «en riesgo» o «dormida» que no sale ya arriba: el mismo criterio que
     // la página de Salud, para que las dos listas no se contradigan. Fuera los
-    // exentos y los borrados.
+    // exentos, los borrados y las altas de menos de 14 días (aún no han tenido
+    // tiempo de entrar: el mismo margen que «Inactivos»).
     // (Lo ignorado en otra sección tampoco cae aquí.)
     const listed = new Set([...trials, ...pastDue, ...idle, ...expiredTrials].map((t) => t.id));
     const excluded = new Set(
       (
         await this.admin.tenant.findMany({
-          where: { OR: [{ billingExempt: true }, { deletedAt: { not: null } }] },
+          where: {
+            OR: [
+              { billingExempt: true },
+              { deletedAt: { not: null } },
+              { createdAt: { gte: inactiveCutoff } },
+            ],
+          },
           select: { id: true },
         })
       ).map((t) => t.id),
