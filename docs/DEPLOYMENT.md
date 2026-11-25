@@ -3268,3 +3268,12 @@ Migración (se aplica sola): `20270315100000_seo_diagnostics` — `seo_projects.
 - **Sin variables nuevas ni dependencias.** El cálculo va en el núcleo `SeoAdvancedModule` (también en el worker) y corre en el mismo job `opportunities` de la cola `seo`, después de las oportunidades; las rutas, en `SeoAdvancedHttpModule`.
 - **Mapas del sitio**: se enseña lo que da la API de Search Console (URL enviadas, avisos y errores); no se descarga el contenido de cada mapa.
 - **Tras desplegar**: en la ficha del proyecto de trasteros.pro (y en GUÁRDALO desde su panel) pulsar «Recalcular» en «Palabras seguidas y diagnóstico» para no esperar a la descarga de mañana. Revisar con Jota las reglas de indexación por defecto (Ajustes de la tarjeta) y añadir las de cada web (por ejemplo los centros de demostración). Dar de alta las palabras desde Search Console o importar el Excel de palabras objetivo, y poner la URL objetivo de las principales (o aceptar la propuesta).
+
+## 202. SEO Avanzado, PR 6: actuaciones y tareas (2026-11-26)
+
+Migración (se aplica sola): `20270316100000_seo_plan` — tablas `seo_changes` (actuaciones: día y hora del cambio, tipo, URLs como se apuntaron y normalizadas, palabras, enlaces a la oportunidad, canibalización, hallazgo y tarea, y quién la apuntó) y `seo_tasks` (tareas: tipo, estado, prioridad, responsable, fechas límite y de publicación, URL, palabras, orden en su columna, enlaces y los avisos ya dados), con su política de filas (`tenant_id` del proyecto, nulo = la plataforma). Se borran al anonimizar un tenant. Redesplegar api, worker y web.
+
+- **Sin variables nuevas ni dependencias.** El antes y después no se guarda: se calcula al abrir la lista o la ficha desde `seo_gsc_metrics`.
+- **Cron nuevo** `seo.tasks-due` (08:00 de Madrid, en el worker): avisa de las tareas abiertas que vencen hoy o van atrasadas (una vez por tarea y día). Sale en Sistema y colas.
+- **Avisos**: en el tenant, notificaciones del panel (`seo.task_assigned`, `seo.task_due`); en la plataforma, avisos del super admin con destinatario (también por push si lo tiene activado).
+- **Tras desplegar**: en la ficha del proyecto de trasteros.pro (y en GUÁRDALO desde su panel), sección «Plan»: apuntar como actuaciones los cambios hechos en las últimas semanas (con su fecha, URL y palabras) para tener ya su comparación a 7 y 28 días, y pasar al tablero lo que haya pendiente de las oportunidades y la canibalización («Crear tarea» en su ficha).
