@@ -1,0 +1,19 @@
+{
+  "tool": "keyword_domain_seo",
+  "args": {
+    "domain": "trasterosalmirante.es",
+    "country": "es",
+    "limit": 10
+  },
+  "ms": 2053,
+  "at": "2026-11-25T19:31:28.590Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"keyword\":\"trasteros valencia perez galdos\",\"position\":1,\"url\":\"https://trasterosalmirante.es/avda-perez-galdos-95-99/\"},{\"keyword\":\"trasteros urbanos valencia\",\"position\":2,\"url\":\"https://trasterosalmirante.es/\"},{\"keyword\":\"urban trasteros valencia\",\"position\":2,\"url\":\"https://trasterosalmirante.es/\"},{\"keyword\":\"inmobiliaria almirante\",\"position\":3,\"url\":\"https://trasterosalmirante.es/\"},{\"keyword\":\"gran via fernando el catolico 70\",\"position\":3,\"url\":\"https://trasterosalmirante.es/granvia-fernando-el-catolico-70/\"},{\"keyword\":\"trasteros monteolivete\",\"position\":3,\"url\":\"https://trasterosalmirante.es/luis-oliag-59/\"},{\"keyword\":\"trasteros valencia 46022\",\"position\":3,\"url\":\"https://trasterosalmirante.es/marino-albesa-5/\"},{\"keyword\":\"trasteros burjassot\",\"position\":4,\"url\":\"https://trasterosalmirante.es/joaquin-navarro-16/\"},{\"keyword\":\"trasteros alquiler patraix valencia\",\"position\":4,\"url\":\"https://trasterosalmirante.es/salabert-3/\"},{\"keyword\":\"alquiler trasteros monteolivete\",\"position\":4,\"url\":\"https://trasterosalmirante.es/luis-oliag-59/\"}]"
+      }
+    ],
+    "isError": false
+  }
+}

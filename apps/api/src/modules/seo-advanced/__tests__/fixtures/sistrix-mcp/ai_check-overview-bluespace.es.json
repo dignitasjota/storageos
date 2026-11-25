@@ -1,0 +1,54 @@
+{
+  "tool": "ai_check",
+  "args": {
+    "view": "overview",
+    "domains": "bluespace.es",
+    "country": "es"
+  },
+  "ms": 1441,
+  "at": "2026-11-25T19:31:53.587Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"counts\":[{\"prompt_count\":312}],\"models\":[{\"model\":[{\"model\":\"aio\",\"prompt_count\":225},{\"model\":\"ai_mode\",\"prompt_count\":85},{\"model\":\"chatgpt\",\"prompt_count\":2}]}],\"countries\":[{\"country\":[{\"country\":\"es\",\"prompt_count\":312}]}]}"
+      }
+    ],
+    "structuredContent": {
+      "counts": [
+        {
+          "prompt_count": 312
+        }
+      ],
+      "models": [
+        {
+          "model": [
+            {
+              "model": "aio",
+              "prompt_count": 225
+            },
+            {
+              "model": "ai_mode",
+              "prompt_count": 85
+            },
+            {
+              "model": "chatgpt",
+              "prompt_count": 2
+            }
+          ]
+        }
+      ],
+      "countries": [
+        {
+          "country": [
+            {
+              "country": "es",
+              "prompt_count": 312
+            }
+          ]
+        }
+      ]
+    },
+    "isError": false
+  }
+}

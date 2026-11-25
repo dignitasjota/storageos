@@ -1,0 +1,19 @@
+{
+  "tool": "domain",
+  "args": {
+    "domain": "guardalobox.es",
+    "view": "kwcount",
+    "country": "es"
+  },
+  "ms": 1273,
+  "at": "2026-11-25T19:31:32.347Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "SISTRIX API Error (1000): no result"
+      }
+    ],
+    "isError": false
+  }
+}

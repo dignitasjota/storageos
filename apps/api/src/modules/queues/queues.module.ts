@@ -15,6 +15,7 @@ import {
   QUEUE_PAYMENTS,
   QUEUE_REPORTS,
   QUEUE_SEO,
+  QUEUE_SEO_SISTRIX,
   QUEUE_VERIFACTU,
   QUEUE_WEBHOOKS,
 } from './queue-names';
@@ -37,9 +38,11 @@ export {
   QUEUE_PAYMENTS,
   QUEUE_REPORTS,
   QUEUE_SEO,
+  QUEUE_SEO_SISTRIX,
   QUEUE_VERIFACTU,
   QUEUE_WEBHOOKS,
   JOB_SEO_GSC_SYNC,
+  JOB_SEO_SISTRIX_SYNC,
 } from './queue-names';
 
 /**
@@ -106,6 +109,7 @@ export const JOB_WEBHOOK_DELIVER = 'deliver';
       { name: QUEUE_REPORTS },
       { name: QUEUE_WEBHOOKS },
       { name: QUEUE_SEO },
+      { name: QUEUE_SEO_SISTRIX },
     ),
   ],
   // Heartbeat de los workers: lo escribe el proceso que los ejecuta (el

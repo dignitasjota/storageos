@@ -1,0 +1,20 @@
+{
+  "tool": "domain",
+  "args": {
+    "domain": "bluespace.es",
+    "view": "opportunities",
+    "country": "es",
+    "limit": 5
+  },
+  "ms": 2107,
+  "at": "2026-11-25T19:31:49.680Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"domain\":\"bluespace.es\",\"gain\":100,\"keyword\":\"storage\",\"position\":12,\"url\":\"https://www.bluespace.es/en/storage-facilities-rental/alicante\",\"competition\":55},{\"domain\":\"bluespace.es\",\"gain\":66,\"keyword\":\"trasteros bluespace\",\"position\":11,\"url\":\"https://www.bluespace.es/oferta/te-llamamos\",\"competition\":37},{\"domain\":\"bluespace.es\",\"gain\":66,\"keyword\":\"bluespace barakaldo\",\"position\":11,\"url\":\"https://www.bluespace.es/category/noticias/page/3\",\"competition\":22},{\"domain\":\"bluespace.es\",\"gain\":66,\"keyword\":\"mudanza\",\"position\":11,\"url\":\"https://www.bluespace.es/mudanzas/barcelona\",\"competition\":37},{\"domain\":\"bluespace.es\",\"gain\":66,\"keyword\":\"bluespace terrassa\",\"position\":11,\"url\":\"https://www.bluespace.es/category/consejos\",\"competition\":22}]"
+      }
+    ],
+    "isError": false
+  }
+}

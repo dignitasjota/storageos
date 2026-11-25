@@ -1,0 +1,29 @@
+{
+  "tool": "keyword",
+  "args": {
+    "view": "traffic",
+    "keyword": "trasteros valencia",
+    "country": "es"
+  },
+  "ms": 1248,
+  "at": "2026-11-25T19:31:21.451Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":[{\"kw\":\"trasteros valencia\",\"traffic\":300,\"clicks\":250,\"country\":\"es\"}]}"
+      }
+    ],
+    "structuredContent": {
+      "result": [
+        {
+          "kw": "trasteros valencia",
+          "traffic": 300,
+          "clicks": 250,
+          "country": "es"
+        }
+      ]
+    },
+    "isError": false
+  }
+}

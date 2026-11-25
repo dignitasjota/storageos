@@ -277,6 +277,8 @@ const envSchemaBase = z.object({
   RETENTION_VERIFACTU_SUBMISSIONS_DAYS: z.coerce.number().int().positive().default(1461),
   /** SEO Avanzado: cruces grandes de Search Console (búsqueda × página y × país), 25 meses. */
   RETENTION_SEO_GSC_DETAIL_DAYS: z.coerce.number().int().positive().default(760),
+  /** SEO Avanzado: registro de peticiones a SISTRIX (MCP y API), 90 días. */
+  RETENTION_SEO_API_REQUESTS_DAYS: z.coerce.number().int().positive().default(90),
 
   // --- Control de accesos: anti-fuerza-bruta en /access/verify ---
   //     Además del throttle por IP (60/min), lockout por DISPOSITIVO (frena el
@@ -336,6 +338,8 @@ const envSchemaBase = z.object({
   GSC_MODE: z.enum(['stub', 'live']).optional(),
   /** SEO Avanzado: días de la carga inicial de un dominio (16 meses, lo que guarda Google). */
   SEO_GSC_INITIAL_DAYS: z.coerce.number().int().min(7).max(486).default(486),
+  /** SISTRIX (MCP y API): `stub` = sin llamar a SISTRIX (desarrollo). En tests siempre simulado. */
+  SISTRIX_MODE: z.enum(['stub', 'live']).optional(),
   /** Instagram y Facebook orgánico: `stub` = sin llamar a Meta. En tests siempre simulado. */
   SOCIAL_MODE: z.enum(['stub', 'live']).optional(),
   /**

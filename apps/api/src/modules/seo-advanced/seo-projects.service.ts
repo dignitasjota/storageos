@@ -552,7 +552,8 @@ export class SeoProjectsService {
     // `undefined` = el super admin leyendo cualquier proyecto.
     if (owner !== undefined) await this.findProject(owner, projectId);
     const rows = await this.admin.seoSyncRun.findMany({
-      where: { projectId },
+      // Solo las de Search Console (las de SISTRIX tienen su propia lista).
+      where: { projectId, dataType: null },
       include: { domain: { select: { domain: true } } },
       orderBy: { createdAt: 'desc' },
       take: 30,

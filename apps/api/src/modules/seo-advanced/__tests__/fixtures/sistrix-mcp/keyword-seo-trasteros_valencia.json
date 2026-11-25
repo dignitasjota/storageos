@@ -1,0 +1,20 @@
+{
+  "tool": "keyword",
+  "args": {
+    "view": "seo",
+    "keyword": "trasteros valencia",
+    "country": "es",
+    "limit": 10
+  },
+  "ms": 1684,
+  "at": "2026-11-25T19:31:25.845Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"domain\":\"idealista.com\",\"position\":1,\"url\":\"https://www.idealista.com/alquiler-trasteros/valencia-valencia/\"},{\"domain\":\"bluespace.es\",\"position\":2,\"url\":\"https://www.bluespace.es/alquiler-trasteros/valencia\"},{\"domain\":\"trasteroom.es\",\"position\":3,\"url\":\"https://trasteroom.es/\"},{\"domain\":\"flexcube.es\",\"position\":4,\"url\":\"https://flexcube.es/\"},{\"domain\":\"storabble.com\",\"position\":5,\"url\":\"https://storabble.com/es-es/trasteros/valencia\"},{\"domain\":\"contenedorestrasteros.com\",\"position\":6,\"url\":\"https://contenedorestrasteros.com/es/blog/cuanto-cuesta-alquilar-un-trastero/\"},{\"domain\":\"wallapop.com\",\"position\":7,\"url\":\"https://es.wallapop.com/inmobiliaria/trasteros/valencia\"},{\"domain\":\"box2boxstorage.com\",\"position\":8,\"url\":\"https://www.box2boxstorage.com/es/trasteros/valencia\"},{\"domain\":\"yaencontre.com\",\"position\":9,\"url\":\"https://www.yaencontre.com/alquiler/trasteros/valencia-valencia-provincia\"},{\"domain\":\"mundoespacios.es\",\"position\":10,\"url\":\"https://mundoespacios.es/valencia/almacenaje/trasteros/\"}]"
+      }
+    ],
+    "isError": false
+  }
+}
