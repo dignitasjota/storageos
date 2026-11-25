@@ -13,7 +13,9 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
-import { formatDateLong, formatEur } from '../../common/format';
+import { formatDateLong, formatEur, todayInTimezone } from '../../common/format';
+import { platformUnsubscribeFooter } from '../../common/marketing/platform-unsubscribe';
+import { unsubscribeKey } from '../../common/marketing/unsubscribe-token';
 import { tenantReadiness } from '../../common/tenant-readiness';
 import { AuditService } from '../auth/audit.service';
 import { AuthService, TENANT_OWNER_VERIFIED } from '../auth/auth.service';
@@ -84,6 +86,9 @@ interface EmailTemplate {
 export class TenantLifecycleEmailsService {
   private readonly logger = new Logger(TenantLifecycleEmailsService.name);
   private readonly billingUrl: string;
+  private readonly webBaseUrl: string;
+  private readonly apiBaseUrl: string;
+  private readonly unsubscribeKey: Buffer;
 
   constructor(
     private readonly admin: PrismaAdminService,
@@ -95,6 +100,9 @@ export class TenantLifecycleEmailsService {
     private readonly notifications: NotificationsService,
   ) {
     this.billingUrl = `${config.get('WEB_BASE_URL', { infer: true })}/settings/saas-billing`;
+    this.webBaseUrl = config.get('WEB_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    this.apiBaseUrl = config.get('API_BASE_URL', { infer: true }).replace(/\/+$/, '');
+    this.unsubscribeKey = unsubscribeKey(config.get('MASTER_ENCRYPTION_KEY', { infer: true }));
   }
 
   /**
@@ -580,7 +588,7 @@ export class TenantLifecycleEmailsService {
       trialUntil: Date | null;
     },
   ): Promise<number> {
-    const recipients = await this.recipientsFor(tenantId);
+    const recipients = await this.commercialRecipients(tenantId);
     if (recipients.length === 0) return 0;
     const price = `${args.priceMonthly.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}/mes${
       args.pricesIncludeVat ? ' (IVA incluido)' : ' + IVA'
@@ -608,13 +616,74 @@ export class TenantLifecycleEmailsService {
       '',
       'El equipo de TrasterOS',
     ].join('\n');
-    const sent = await this.dispatch(tenantId, `addon_offer:${Date.now()}`, {
-      subject: until
-        ? `Prueba gratis de ${args.addonName} hasta el ${until}`
-        : `${args.addonName} para ${args.tenantName}`,
-      ...renderEmail(body),
+    // Es una oferta: cada propietario recibe la suya con su enlace de baja.
+    const type = `addon_offer:${Date.now()}`;
+    const subject = until
+      ? `Prueba gratis de ${args.addonName} hasta el ${until}`
+      : `${args.addonName} para ${args.tenantName}`;
+    const sender = await this.repSender(tenantId, type);
+    try {
+      await this.admin.tenantLifecycleEmail.create({ data: { tenantId, type } });
+    } catch {
+      return 0;
+    }
+    await this.emailQueue.addBulk(
+      recipients.map((r) => {
+        const unsub = platformUnsubscribeFooter({
+          key: this.unsubscribeKey,
+          webBaseUrl: this.webBaseUrl,
+          apiBaseUrl: this.apiBaseUrl,
+          userId: r.userId,
+        });
+        const { html } = renderEmail(body);
+        return {
+          name: JOB_EMAIL_SEND,
+          data: {
+            to: r.email,
+            kind: lifecycleKind(type),
+            subject,
+            html: `${html}<p style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#64748b;margin-top:24px">${unsub.footerHtml}</p>`,
+            text: `${body}\n\n—\n${unsub.footerText}`,
+            headers: unsub.headers,
+            ...(sender ? { fromName: sender.fromName, replyTo: sender.replyTo } : {}),
+          },
+        };
+      }),
+    );
+    return recipients.length;
+  }
+
+  /** A cuántos les llegaría una oferta (propietarios verificados sin la baja). */
+  async addonOfferRecipients(tenantId: string): Promise<number> {
+    return (await this.commercialRecipients(tenantId)).length;
+  }
+
+  /**
+   * Destinatarios de una comunicación comercial: propietarios verificados y
+   * activos que no se han dado de baja de las novedades y ofertas (nunca el
+   * email de facturación, que no tiene enlace de baja).
+   */
+  private async commercialRecipients(
+    tenantId: string,
+  ): Promise<{ userId: string; email: string }[]> {
+    const owners = await this.admin.user.findMany({
+      where: {
+        tenantId,
+        role: 'owner',
+        isActive: true,
+        emailVerifiedAt: { not: null },
+        platformNewsOptOutAt: null,
+      },
+      select: { id: true, email: true },
+      orderBy: { createdAt: 'asc' },
     });
-    return sent ? recipients.length : 0;
+    const seen = new Set<string>();
+    return owners.flatMap((o) => {
+      const email = o.email.toLowerCase();
+      if (seen.has(email)) return [];
+      seen.add(email);
+      return [{ userId: o.id, email }];
+    });
   }
 
   /** Propuesta de cuota (plan + extras) con su desglose y el enlace para contratar. */
@@ -729,7 +798,8 @@ export class TenantLifecycleEmailsService {
               tenantId: t.id,
               superAdminId: null,
               title: 'Llamar: lleva 12 días de prueba sin facturar',
-              dueDate: new Date(now.toISOString().slice(0, 10)),
+              // Hoy en hora de España (no el día UTC).
+              dueDate: todayInTimezone('Europe/Madrid', now),
             },
           });
         }

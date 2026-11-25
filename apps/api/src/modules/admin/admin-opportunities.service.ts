@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   DEFAULT_AI_MONTHLY_QUERY_LIMIT,
   FEATURE_LABELS,
@@ -15,6 +20,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
+import { NEAR_LIMIT_RATIO } from './adoption-rules';
 import { SuperAdminAuditService } from './super-admin-audit.service';
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
 
@@ -27,21 +33,34 @@ import type {
 
 const DAY = 86_400_000;
 const OFFER_ACTION = 'admin.saas_addon.proposed';
+/** El mismo extra no se vuelve a proponer al mismo tenant antes de estos días. */
+export const ADDON_OFFER_COOLDOWN_DAYS = 14;
 
 /** Datos de uso de un tenant para decidir a qué extras es candidato. */
 interface TenantSignals {
   facilities: number;
   units: number;
+  /** Inquilinos con algún contrato vivo (no fichas sin contrato). */
   customers: number;
+  /** Usuarios activos + invitaciones pendientes (como el límite). */
+  users: number;
+  /** Usa el control de accesos de verdad (algún dispositivo o credencial). */
+  usesAccess: boolean;
   activeContracts: number;
   oldContracts: number;
   invoices30d: number;
   overdueInvoices: number;
   hasCustomDomain: boolean;
   features: Set<TenantFeature>;
+  /** Máximos del plan con la capacidad que ya aportan sus extras. */
   maxUnits: number | null;
   maxFacilities: number | null;
+  maxUsers: number | null;
 }
+
+/** Usa casi todo (o todo) lo que le permite su plan. */
+const nearLimit = (use: number, max: number | null): max is number =>
+  max !== null && max > 0 && use >= max * NEAR_LIMIT_RATIO;
 
 type Rule = (s: TenantSignals) => string | null;
 
@@ -61,7 +80,8 @@ const RULES: Partial<Record<TenantFeature, Rule>> = {
     s.oldContracts >= 20 ? `${s.oldContracts} contratos de más de un año sin revisar precio` : null,
   insurance: (s) => (s.activeContracts >= 20 ? `${s.activeContracts} contratos activos` : null),
   access_control: (s) => (s.units >= 30 ? `${s.units} trasteros` : null),
-  cameras: (s) => (s.features.has('access_control') ? 'Ya usa control de accesos' : null),
+  cameras: (s) =>
+    s.features.has('access_control') && s.usesAccess ? 'Ya usa control de accesos' : null,
   custom_domain: (s) =>
     s.features.has('web_premium') && !s.hasCustomDomain
       ? 'Tiene Web Premium sin dominio propio'
@@ -123,6 +143,7 @@ export class AdminOpportunitiesService {
                   tenantFeatures: true,
                   maxUnits: true,
                   maxFacilities: true,
+                  maxUsers: true,
                 },
               },
             },
@@ -135,7 +156,12 @@ export class AdminOpportunitiesService {
       }),
       this.admin.tenantSubscriptionAddon.findMany({
         where: { suspendedAt: null, ...scope },
-        select: { tenantId: true, addonId: true },
+        select: {
+          tenantId: true,
+          addonId: true,
+          quantity: true,
+          addon: { select: { grantsUnits: true, grantsFacilities: true, grantsUsers: true } },
+        },
       }),
       this.admin.featureInterestEvent.groupBy({
         by: ['tenantId', 'feature'],
@@ -155,55 +181,98 @@ export class AdminOpportunitiesService {
     ]);
     const ids = tenants.map((t) => t.id);
     if (ids.length === 0) return [];
-    const [facilities, units, customers, contracts, oldContracts, invoices, overdue] =
-      await Promise.all([
-        this.admin.facility.groupBy({
-          by: ['tenantId'],
-          where: { tenantId: { in: ids }, deletedAt: null },
-          _count: { _all: true },
-        }),
-        this.admin.unit.groupBy({
-          by: ['tenantId'],
-          where: { tenantId: { in: ids } },
-          _count: { _all: true },
-        }),
-        this.admin.customer.groupBy({
-          by: ['tenantId'],
-          where: { tenantId: { in: ids }, deletedAt: null },
-          _count: { _all: true },
-        }),
-        this.admin.contract.groupBy({
-          by: ['tenantId'],
-          where: { tenantId: { in: ids }, deletedAt: null, status: { in: ['active', 'ending'] } },
-          _count: { _all: true },
-        }),
-        this.admin.contract.groupBy({
-          by: ['tenantId'],
-          where: {
-            tenantId: { in: ids },
-            deletedAt: null,
-            status: { in: ['active', 'ending'] },
-            signedAt: { lte: yearAgo },
-          },
-          _count: { _all: true },
-        }),
-        this.admin.invoice.groupBy({
-          by: ['tenantId'],
-          where: {
-            tenantId: { in: ids },
-            deletedAt: null,
-            kind: 'invoice',
-            status: { in: ['issued', 'paid', 'overdue'] },
-            issueDate: { gte: since30 },
-          },
-          _count: { _all: true },
-        }),
-        this.admin.invoice.groupBy({
-          by: ['tenantId'],
-          where: { tenantId: { in: ids }, deletedAt: null, kind: 'invoice', status: 'overdue' },
-          _count: { _all: true },
-        }),
-      ]);
+    const [
+      facilities,
+      units,
+      customers,
+      contracts,
+      oldContracts,
+      invoices,
+      overdue,
+      users,
+      invites,
+      devices,
+      credentials,
+    ] = await Promise.all([
+      this.admin.facility.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, deletedAt: null },
+        _count: { _all: true },
+      }),
+      // Sin los trasteros de locales borrados.
+      this.admin.unit.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, facility: { deletedAt: null } },
+        _count: { _all: true },
+      }),
+      // Inquilinos de verdad: con algún contrato vivo.
+      this.admin.customer.groupBy({
+        by: ['tenantId'],
+        where: {
+          tenantId: { in: ids },
+          deletedAt: null,
+          contracts: { some: { deletedAt: null, status: { in: ['active', 'ending'] } } },
+        },
+        _count: { _all: true },
+      }),
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, deletedAt: null, status: { in: ['active', 'ending'] } },
+        _count: { _all: true },
+      }),
+      this.admin.contract.groupBy({
+        by: ['tenantId'],
+        where: {
+          tenantId: { in: ids },
+          deletedAt: null,
+          status: { in: ['active', 'ending'] },
+          signedAt: { lte: yearAgo },
+        },
+        _count: { _all: true },
+      }),
+      this.admin.invoice.groupBy({
+        by: ['tenantId'],
+        where: {
+          tenantId: { in: ids },
+          deletedAt: null,
+          kind: 'invoice',
+          status: { in: ['issued', 'paid', 'overdue'] },
+          issueDate: { gte: since30 },
+        },
+        _count: { _all: true },
+      }),
+      // Facturas (sin justificantes de fianza) vencidas.
+      this.admin.invoice.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, deletedAt: null, kind: 'invoice', status: 'overdue' },
+        _count: { _all: true },
+      }),
+      this.admin.user.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, isActive: true },
+        _count: { _all: true },
+      }),
+      this.admin.invitation.groupBy({
+        by: ['tenantId'],
+        where: {
+          tenantId: { in: ids },
+          acceptedAt: null,
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+        _count: { _all: true },
+      }),
+      this.admin.accessDevice.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, isActive: true },
+        _count: { _all: true },
+      }),
+      this.admin.accessCredential.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, revokedAt: null },
+        _count: { _all: true },
+      }),
+    ]);
     const count = (rows: { tenantId: string; _count: { _all: number } }[]) =>
       new Map(rows.map((r) => [r.tenantId, r._count._all]));
     const facBy = count(facilities);
@@ -213,7 +282,22 @@ export class AdminOpportunitiesService {
     const oldBy = count(oldContracts);
     const invBy = count(invoices);
     const overBy = count(overdue);
+    const usersBy = count(users);
+    const invitesBy = count(invites);
+    const devicesBy = count(devices);
+    const credentialsBy = count(credentials);
     const ownedSet = new Set(owned.map((o) => `${o.tenantId}:${o.addonId}`));
+    // Capacidad que ya aportan los extras contratados (como el límite efectivo).
+    const grantsBy = new Map<string, { units: number; facilities: number; users: number }>();
+    for (const o of owned) {
+      const g = grantsBy.get(o.tenantId) ?? { units: 0, facilities: 0, users: 0 };
+      g.units += (o.addon.grantsUnits ?? 0) * o.quantity;
+      g.facilities += (o.addon.grantsFacilities ?? 0) * o.quantity;
+      g.users += (o.addon.grantsUsers ?? 0) * o.quantity;
+      grantsBy.set(o.tenantId, g);
+    }
+    const plusGrants = (max: number | null | undefined, extra: number): number | null =>
+      max === null || max === undefined ? null : max + extra;
     const interestBy = new Map(
       interest.map((i) => [
         `${i.tenantId}:${i.feature}`,
@@ -238,18 +322,22 @@ export class AdminOpportunitiesService {
     for (const t of tenants) {
       const plan = t.subscription?.plan;
       const base = plan ? resolvePlanFeatures(plan) : [];
+      const grants = grantsBy.get(t.id) ?? { units: 0, facilities: 0, users: 0 };
       signals.set(t.id, {
         facilities: facBy.get(t.id) ?? 0,
         units: unitsBy.get(t.id) ?? 0,
         customers: custBy.get(t.id) ?? 0,
+        users: (usersBy.get(t.id) ?? 0) + (invitesBy.get(t.id) ?? 0),
+        usesAccess: (devicesBy.get(t.id) ?? 0) + (credentialsBy.get(t.id) ?? 0) > 0,
         activeContracts: contBy.get(t.id) ?? 0,
         oldContracts: oldBy.get(t.id) ?? 0,
         invoices30d: invBy.get(t.id) ?? 0,
         overdueInvoices: overBy.get(t.id) ?? 0,
         hasCustomDomain: !!t.customDomainVerifiedAt,
         features: new Set(effectiveFeaturesFromList(base, overridesBy.get(t.id) ?? [])),
-        maxUnits: plan?.maxUnits ?? null,
-        maxFacilities: plan?.maxFacilities ?? null,
+        maxUnits: plusGrants(plan?.maxUnits, grants.units),
+        maxFacilities: plusGrants(plan?.maxFacilities, grants.facilities),
+        maxUsers: plusGrants(plan?.maxUsers, grants.users),
       });
     }
 
@@ -275,12 +363,16 @@ export class AdminOpportunitiesService {
         const rule = feature ? RULES[feature] : undefined;
         const why = rule?.(s);
         if (why) reasons.push(why);
-        // Extras de capacidad: cerca del límite del plan.
-        if (addon.grantsUnits && s.maxUnits && s.units >= s.maxUnits * 0.9) {
+        // Extras de capacidad: cerca del límite (el mismo umbral que Adopción),
+        // contando lo que ya le dan sus extras.
+        if (addon.grantsUnits && nearLimit(s.units, s.maxUnits)) {
           reasons.push(`Usa ${s.units} de ${s.maxUnits} trasteros de su plan`);
         }
-        if (addon.grantsFacilities && s.maxFacilities && s.facilities >= s.maxFacilities) {
+        if (addon.grantsFacilities && nearLimit(s.facilities, s.maxFacilities)) {
           reasons.push(`Tiene ${s.facilities} de ${s.maxFacilities} locales de su plan`);
+        }
+        if (addon.grantsUsers && nearLimit(s.users, s.maxUsers)) {
+          reasons.push(`Tiene ${s.users} de ${s.maxUsers} usuarios de su plan`);
         }
         if (reasons.length === 0) continue;
         candidates.push({
@@ -394,7 +486,7 @@ export class AdminOpportunitiesService {
     const [tenant, addon, pricing] = await Promise.all([
       this.admin.tenant.findUnique({
         where: { id: tenantId },
-        select: { id: true, name: true, deletedAt: true },
+        select: { id: true, name: true, deletedAt: true, status: true },
       }),
       this.admin.subscriptionAddon.findUnique({ where: { id: input.addonId } }),
       platformPricing(this.admin),
@@ -402,16 +494,64 @@ export class AdminOpportunitiesService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
+    // A un tenant suspendido o de baja no se le venden extras.
+    if (tenant.status !== 'active' && tenant.status !== 'trial') {
+      throw new BadRequestException({
+        code: 'tenant_not_live',
+        message: 'El tenant está suspendido o de baja: no se le proponen extras.',
+      });
+    }
     if (!addon || !addon.isActive) {
       throw new NotFoundException({ code: 'addon_not_found', message: 'Extra no encontrado' });
     }
-    const owned = await this.admin.tenantSubscriptionAddon.count({
-      where: { tenantId, addonId: addon.id, suspendedAt: null },
-    });
+    const since = new Date(Date.now() - ADDON_OFFER_COOLDOWN_DAYS * DAY);
+    const [owned, recentOffers, triedBefore] = await Promise.all([
+      this.admin.tenantSubscriptionAddon.count({
+        where: { tenantId, addonId: addon.id, suspendedAt: null },
+      }),
+      this.admin.superAdminAuditLog.findMany({
+        where: { action: OFFER_ACTION, targetTenantId: tenantId, occurredAt: { gte: since } },
+        select: { changes: true, occurredAt: true },
+        orderBy: { occurredAt: 'desc' },
+      }),
+      input.trialDays
+        ? this.admin.tenantAddonTrial.count({ where: { tenantId, addonId: addon.id } })
+        : Promise.resolve(0),
+    ]);
     if (owned > 0) {
       throw new BadRequestException({
         code: 'addon_already_assigned',
         message: 'El tenant ya tiene este extra.',
+      });
+    }
+    const lastOffer = recentOffers.find(
+      (o) => (o.changes as { addonId?: string } | null)?.addonId === addon.id,
+    );
+    if (lastOffer) {
+      throw new ConflictException({
+        code: 'addon_offer_recent',
+        message: `Ya se le propuso este extra el ${lastOffer.occurredAt.toLocaleDateString(
+          'es-ES',
+          {
+            day: 'numeric',
+            month: 'long',
+            timeZone: 'Europe/Madrid',
+          },
+        )}: espera a que pasen ${ADDON_OFFER_COOLDOWN_DAYS} días para volver a proponérselo.`,
+      });
+    }
+    if (triedBefore > 0) {
+      throw new ConflictException({
+        code: 'addon_trial_used',
+        message: 'Ya tuvo una prueba gratis de este extra: proponlo sin prueba.',
+      });
+    }
+    // Sin nadie a quien escribir, nada: ni prueba, ni conversación, ni seguimiento.
+    if ((await this.lifecycle.addonOfferRecipients(tenantId)) === 0) {
+      throw new BadRequestException({
+        code: 'no_recipients',
+        message:
+          'No tiene a quién escribir (sin propietarios verificados o se han dado de baja de las ofertas).',
       });
     }
 

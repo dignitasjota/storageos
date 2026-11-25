@@ -352,6 +352,15 @@ export class AdminHealthInsightsService {
       where: { id: { in: ids }, deletedAt: null },
       select: { id: true },
     });
+    // Sin indicar quién, lo lleva quien lo crea (si no es comercial).
+    let assignedToId = input.assignedToId ?? null;
+    if (input.assignedToId === undefined) {
+      const me = await this.admin.superAdmin.findUnique({
+        where: { id: meta.superAdminId },
+        select: { isActive: true, role: true },
+      });
+      assignedToId = me?.isActive && me.role !== 'sales' ? meta.superAdminId : null;
+    }
     if (existing.length > 0) {
       await this.admin.tenantFollowup.createMany({
         data: existing.map((t) => ({
@@ -360,7 +369,7 @@ export class AdminHealthInsightsService {
           title: input.title,
           note: input.note ?? null,
           dueDate: new Date(`${input.dueDate}T00:00:00.000Z`),
-          assignedToId: input.assignedToId ?? null,
+          assignedToId,
         })),
       });
     }

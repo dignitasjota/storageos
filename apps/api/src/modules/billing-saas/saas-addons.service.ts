@@ -735,6 +735,16 @@ export class SaasAddonsService {
         message: 'Ya la tiene activada como cortesía.',
       });
     }
+    // Una sola prueba gratis por extra y tenant (también desde el panel admin).
+    const tried = await this.admin.tenantAddonTrial.count({
+      where: { tenantId, addonId: addon.id },
+    });
+    if (tried > 0) {
+      throw new ConflictException({
+        code: 'addon_trial_used',
+        message: 'Ya tuvo una prueba gratis de este extra: no se le puede dar otra.',
+      });
+    }
     const expiresAt = new Date(Date.now() + days * 86_400_000);
     await this.admin.tenantFeatureOverride.upsert({
       where: { tenantId_feature: { tenantId, feature: addon.feature } },

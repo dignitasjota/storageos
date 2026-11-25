@@ -40,7 +40,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * toca los datos de la persona suplantada): se admiten también en solo lectura
  * para que el panel no reciba un error al abrirlas.
  */
-const NOOP_WHILE_IMPERSONATING = /^\/(?:v\d+\/)?product-updates\/seen\/?$/;
+const NOOP_WHILE_IMPERSONATING = /^\/(?:v\d+\/)?(?:product-updates\/seen|feature-interest)\/?$/;
 
 @Injectable()
 export class ImpersonationGuard implements CanActivate {

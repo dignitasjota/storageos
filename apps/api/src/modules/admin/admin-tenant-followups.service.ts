@@ -1,13 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
+import {
+  ADMIN_FOLLOWUPS_LIST_LIMIT,
+  type CreateTenantFollowupInput,
+  type TenantFollowupDto,
+  type TenantFollowupStatusValue,
+} from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
-
-import type {
-  CreateTenantFollowupInput,
-  TenantFollowupDto,
-  TenantFollowupStatusValue,
-} from '@storageos/shared';
 
 const followupInclude = {
   superAdmin: { select: { fullName: true } },
@@ -55,7 +55,10 @@ export class AdminTenantFollowupsService {
     return rows.map(toDto);
   }
 
-  /** Bandeja global de pendientes (todos los tenants), por fecha de recordatorio. */
+  /**
+   * Bandeja global de pendientes (todos los tenants), por fecha de recordatorio.
+   * Con tope: la página avisa si se llega a él (los más antiguos salen primero).
+   */
   async listPending(assignedToId: string | null = null): Promise<TenantFollowupDto[]> {
     const rows = await this.admin.tenantFollowup.findMany({
       where: {
@@ -64,7 +67,8 @@ export class AdminTenantFollowupsService {
         ...(assignedToId ? { assignedToId } : {}),
       },
       include: followupInclude,
-      orderBy: { dueDate: 'asc' },
+      orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
+      take: ADMIN_FOLLOWUPS_LIST_LIMIT,
     });
     return rows.map(toDto);
   }
@@ -89,11 +93,29 @@ export class AdminTenantFollowupsService {
         title: input.title,
         note: input.note ?? null,
         dueDate: new Date(`${input.dueDate}T00:00:00.000Z`),
-        assignedToId: await this.assignee(input.assignedToId ?? null),
+        // Sin indicar quién, lo lleva quien lo crea (si no es comercial).
+        assignedToId:
+          input.assignedToId === undefined
+            ? await this.defaultAssignee(superAdminId)
+            : await this.assignee(input.assignedToId),
       },
       include: followupInclude,
     });
     return toDto(created);
+  }
+
+  /**
+   * Quién lleva un seguimiento que crea un super admin sin decir quién: él
+   * mismo, salvo que sea comercial (no ve los seguimientos de los tenants) o
+   * esté desactivado. Los automáticos (sin autor) quedan sin asignar.
+   */
+  async defaultAssignee(superAdminId: string | null): Promise<string | null> {
+    if (!superAdminId) return null;
+    const sa = await this.admin.superAdmin.findUnique({
+      where: { id: superAdminId },
+      select: { isActive: true, role: true },
+    });
+    return sa?.isActive && sa.role !== 'sales' ? superAdminId : null;
   }
 
   /** Marca un seguimiento como hecho o lo reabre. */

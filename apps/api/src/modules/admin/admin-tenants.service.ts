@@ -14,7 +14,7 @@ import {
 } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
-import { zonedNextDayStart } from '../../common/format';
+import { todayInTimezone, zonedNextDayStart } from '../../common/format';
 import { attachmentKeysOf } from '../../common/message-attachments';
 import {
   isPayingSubscription,
@@ -55,6 +55,7 @@ import type { Prisma } from '@storageos/database';
 import type {
   AdminAdoptionDto,
   AdminAtRiskDto,
+  AtRiskKind,
   AdminCustomDomainDto,
   AdminAtRiskTenantDto,
   AdminFeatureAdoptionDto,
@@ -77,6 +78,7 @@ import type {
   AdminTenantUnitDto,
   AdminTenantUserDto,
   AdminTrialDto,
+  ExtendTrialsBatchResultDto,
   TenantFeature,
 } from '@storageos/shared';
 
@@ -284,40 +286,37 @@ export class AdminTenantsService {
 
   /**
    * Tenants en riesgo (retención), agrupados por motivo:
-   * - trials que expiran en ≤7 días,
+   * - pruebas que terminan en ≤7 días (y las ya vencidas que el cron aún no ha
+   *   cerrado),
    * - suscripciones con pago fallido (`past_due`),
-   * - activos sin actividad de usuario en 14+ días (incluye los que nunca
-   *   han accedido).
+   * - clientes de pago sin actividad del equipo en 14+ días (con más de 14
+   *   días de alta),
+   * - pruebas caducadas sin pagar (en solo lectura),
+   * - salud baja que no sale arriba.
+   *
+   * «Ignorar» oculta al tenant solo en la sección en la que se ignoró (los
+   * antiguos, sin sección guardada, en todas). `applySnooze: false` (el «Hoy»,
+   * que tiene su propio «apartar») no lo tiene en cuenta.
    */
-  async getAtRisk(): Promise<AdminAtRiskDto> {
+  async getAtRisk(opts: { applySnooze?: boolean } = {}): Promise<AdminAtRiskDto> {
+    const applySnooze = opts.applySnooze ?? true;
     const now = new Date();
     const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const inactiveCutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const planInclude = { subscription: { include: { plan: { select: { name: true } } } } };
+    const live = { deletedAt: null, billingExempt: false } as const;
 
-    // Los que el super admin ha «ignorado» unos días no salen.
-    const notSnoozed: Prisma.TenantWhereInput = {
-      OR: [{ riskSnoozedUntil: null }, { riskSnoozedUntil: { lte: now } }],
-    };
-    const [trials, pastDue, activeTenants, snoozedCount, health] = await Promise.all([
+    const [trials, pastDue, payingTenants, expiredTrials, snoozedRows, health] = await Promise.all([
       this.admin.tenant.findMany({
-        where: {
-          deletedAt: null,
-          billingExempt: false,
-          status: 'trial',
-          trialEndsAt: { gte: now, lte: in7d },
-          ...notSnoozed,
-        },
+        where: { ...live, status: 'trial', trialEndsAt: { lte: in7d } },
         include: planInclude,
         orderBy: { trialEndsAt: 'asc' },
       }),
       this.admin.tenant.findMany({
         where: {
-          deletedAt: null,
-          billingExempt: false,
+          ...live,
           status: { not: 'cancelled' },
           subscription: { status: 'past_due' },
-          ...notSnoozed,
         },
         include: {
           subscription: { include: { plan: { select: { name: true, priceMonthly: true } } } },
@@ -328,22 +327,49 @@ export class AdminTenantsService {
         },
         orderBy: { name: 'asc' },
       }),
+      // Inactivos: solo los que pagan (como «Hoy») y con más de 14 días de alta.
       this.admin.tenant.findMany({
-        where: { deletedAt: null, billingExempt: false, status: 'active', ...notSnoozed },
+        where: {
+          ...live,
+          status: 'active',
+          createdAt: { lt: inactiveCutoff },
+          subscription: { status: 'active', plan: { priceMonthly: { gt: 0 } } },
+        },
         include: planInclude,
         orderBy: { name: 'asc' },
       }),
-      this.admin.tenant.count({
-        where: { deletedAt: null, billingExempt: false, riskSnoozedUntil: { gt: now } },
+      // Pruebas caducadas sin pagar: activos en solo lectura.
+      this.admin.tenant.findMany({
+        where: { ...live, status: 'active', subscription: { status: 'expired' } },
+        include: planInclude,
+        orderBy: { name: 'asc' },
+      }),
+      this.admin.tenant.findMany({
+        where: { ...live, riskSnoozedUntil: { gt: now } },
+        select: {
+          id: true,
+          name: true,
+          riskSnoozedUntil: true,
+          riskSnoozedKind: true,
+          riskSnoozeReason: true,
+        },
+        orderBy: { riskSnoozedUntil: 'asc' },
       }),
       this.getTenantsHealth(),
     ]);
 
+    // Ignorado en esa sección (o en todas, los antiguos sin sección).
+    const hidden = (kind: AtRiskKind, id: string): boolean =>
+      applySnooze &&
+      snoozedRows.some(
+        (r) => r.id === id && (r.riskSnoozedKind === null || r.riskSnoozedKind === kind),
+      );
+
     // Último uso real del equipo (inicio de sesión o sesión renovada), acotado
-    // a los tenants activos ya cargados.
+    // a los clientes de pago ya cargados.
     const lastLoginByTenant = await lastTeamActivityByTenant(
       this.admin,
-      activeTenants.map((t) => t.id),
+      payingTenants.map((t) => t.id),
     );
 
     const toDto = (
@@ -354,7 +380,7 @@ export class AdminTenantsService {
         status: string;
         subscription: { plan: { name: string } | null } | null;
       },
-      reason: string,
+      reason: AtRiskKind,
       since: Date | null,
       detail: string,
     ): AdminAtRiskTenantDto => ({
@@ -368,15 +394,28 @@ export class AdminTenantsService {
       detail,
     });
 
-    const trialExpiring = trials.map((t) =>
-      toDto(t, 'trial_expiring', t.trialEndsAt, 'El trial expira pronto'),
-    );
+    // Una prueba ya vencida que el cron aún no ha cerrado sigue aquí, marcada.
+    const trialExpiring = trials
+      .filter((t) => !hidden('trial_expiring', t.id))
+      .map((t) => {
+        const expired = !!t.trialEndsAt && t.trialEndsAt.getTime() < now.getTime();
+        const dto = toDto(
+          t,
+          'trial_expiring',
+          t.trialEndsAt,
+          expired ? 'La prueba ya venció y aún no se ha cerrado' : 'La prueba termina pronto',
+        );
+        return expired ? { ...dto, expired: true } : dto;
+      });
     // Lo que debe de verdad: una cuota por periodo vencido (con los extras que
     // van en el mismo cargo, como en Cobros pendientes).
-    const pricing = pastDue.length ? await platformPricing(this.admin) : null;
-    const pastDueList = pastDue.map((t) => {
+    const pastDueRows = pastDue.filter((t) => !hidden('past_due', t.id));
+    const pricing = pastDueRows.length ? await platformPricing(this.admin) : null;
+    const pastDueList = pastDueRows.map((t) => {
       const sub = t.subscription;
-      if (!sub || !pricing) return toDto(t, 'past_due', null, 'Pago de la suscripción fallido');
+      if (!sub || !pricing) {
+        return toDto(t, 'past_due', null, 'La cuota no se ha podido cobrar');
+      }
       const withPlan = sub.billingMode === 'sepa' || sub.billingMode === 'redsys';
       const addons = withPlan
         ? t.subscriptionAddons
@@ -402,46 +441,54 @@ export class AdminTenantsService {
       );
       return { ...dto, owedAmount: owed, owedPeriods: periods };
     });
-    const inactive = activeTenants
-      .filter((t) => {
-        const last = lastLoginByTenant.get(t.id) ?? null;
-        return !last || last < inactiveCutoff;
-      })
+    const idle = payingTenants.filter((t) => {
+      const last = lastLoginByTenant.get(t.id) ?? null;
+      return !last || last < inactiveCutoff;
+    });
+    const inactive = idle
+      .filter((t) => !hidden('inactive', t.id))
       .map((t) => {
         const last = lastLoginByTenant.get(t.id) ?? null;
         return toDto(
           t,
           'inactive',
           last,
-          last ? 'Sin actividad reciente' : 'Ningún usuario ha accedido nunca',
+          last ? 'Paga y nadie entra desde hace 14 días o más' : 'Paga y nadie ha entrado nunca',
         );
       });
+    const trialExpired = expiredTrials
+      .filter((t) => !hidden('trial_expired', t.id))
+      .map((t) =>
+        toDto(
+          t,
+          'trial_expired',
+          t.trialEndedAt ?? t.trialEndsAt,
+          'La prueba terminó sin pagar: está en solo lectura',
+        ),
+      );
 
     // Salud «en riesgo» o «dormida» que no sale ya arriba: el mismo criterio que
-    // la página de Salud, para que las dos listas no se contradigan.
-    const listed = new Set([...trialExpiring, ...pastDueList, ...inactive].map((t) => t.id));
-    const snoozed = new Set(
+    // la página de Salud, para que las dos listas no se contradigan. Fuera los
+    // exentos y los borrados.
+    // (Lo ignorado en otra sección tampoco cae aquí.)
+    const listed = new Set([...trials, ...pastDue, ...idle, ...expiredTrials].map((t) => t.id));
+    const excluded = new Set(
       (
         await this.admin.tenant.findMany({
-          where: { riskSnoozedUntil: { gt: now } },
+          where: { OR: [{ billingExempt: true }, { deletedAt: { not: null } }] },
           select: { id: true },
         })
       ).map((t) => t.id),
     );
-    const exempt = new Set(
-      (
-        await this.admin.tenant.findMany({ where: { billingExempt: true }, select: { id: true } })
-      ).map((t) => t.id),
-    );
-    const lowHealth = health
+    const lowHealth: AdminAtRiskTenantDto[] = health
       .filter(
         (h) =>
           // Clientes (las pruebas tienen su activación y su propia lista).
           (h.segment === 'paying' || h.segment === 'unpaid') &&
           (h.level === 'at_risk' || h.level === 'dormant') &&
           !listed.has(h.tenantId) &&
-          !snoozed.has(h.tenantId) &&
-          !exempt.has(h.tenantId),
+          !excluded.has(h.tenantId) &&
+          !hidden('low_health', h.tenantId),
       )
       .map((h) => ({
         id: h.tenantId,
@@ -456,7 +503,43 @@ export class AdminTenantsService {
         }`,
       }));
 
-    return { trialExpiring, pastDue: pastDueList, inactive, lowHealth, snoozedCount };
+    // Último playbook de retención (14 días): la fila lo dice y el botón espera.
+    const shown = [...trialExpiring, ...pastDueList, ...inactive, ...trialExpired, ...lowHealth];
+    const playbooks = shown.length
+      ? await this.admin.superAdminAuditLog.groupBy({
+          by: ['targetTenantId'],
+          where: {
+            action: 'admin.tenant.retention_playbook',
+            targetTenantId: { in: [...new Set(shown.map((t) => t.id))] },
+            occurredAt: { gte: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000) },
+          },
+          _max: { occurredAt: true },
+        })
+      : [];
+    const playbookBy = new Map(
+      playbooks.map((p) => [p.targetTenantId, p._max.occurredAt?.toISOString() ?? null]),
+    );
+    const withPlaybook = (rows: AdminAtRiskTenantDto[]): AdminAtRiskTenantDto[] =>
+      rows.map((r) => {
+        const at = playbookBy.get(r.id);
+        return at ? { ...r, playbookAt: at } : r;
+      });
+
+    return {
+      trialExpiring: withPlaybook(trialExpiring),
+      pastDue: withPlaybook(pastDueList),
+      inactive: withPlaybook(inactive),
+      lowHealth: withPlaybook(lowHealth),
+      trialExpired: withPlaybook(trialExpired),
+      snoozedCount: snoozedRows.length,
+      snoozed: snoozedRows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        kind: r.riskSnoozedKind,
+        until: r.riskSnoozedUntil!.toISOString(),
+        reason: r.riskSnoozeReason,
+      })),
+    };
   }
 
   /**
@@ -498,6 +581,8 @@ export class AdminTenantsService {
     const unitBy = count(units);
     const contractBy = count(contracts);
     const DAY_MS = 24 * 60 * 60 * 1000;
+    // Días naturales en hora de España: «vence hoy» es 0 aunque queden horas.
+    const today = todayInTimezone('Europe/Madrid', now).getTime();
     return trials.map((t) => {
       const last = loginMap.get(t.id) ?? null;
       return {
@@ -507,8 +592,9 @@ export class AdminTenantsService {
         planName: t.subscription?.plan?.name ?? null,
         trialEndsAt: t.trialEndsAt?.toISOString() ?? null,
         daysLeft: t.trialEndsAt
-          ? Math.ceil((t.trialEndsAt.getTime() - now.getTime()) / DAY_MS)
+          ? Math.round((todayInTimezone('Europe/Madrid', t.trialEndsAt).getTime() - today) / DAY_MS)
           : null,
+        expired: !!t.trialEndsAt && t.trialEndsAt.getTime() < now.getTime(),
         createdAt: t.createdAt.toISOString(),
         lastActivityAt: last?.toISOString() ?? null,
         neverUsed: !last,
@@ -1873,24 +1959,41 @@ export class AdminTenantsService {
   async extendTrialsBatch(
     tenantIds: string[],
     args: ExtendTrialArgs,
-  ): Promise<{ updated: number }> {
+  ): Promise<ExtendTrialsBatchResultDto> {
     let updated = 0;
+    const skipped: ExtendTrialsBatchResultDto['skipped'] = [];
     // Solo los que están en prueba: el lote no devuelve a prueba a un tenant
     // activo en Free (eso se hace a propósito desde su ficha). Sin duplicados.
-    const inTrial = await this.admin.tenant.findMany({
-      where: { id: { in: [...new Set(tenantIds)] }, deletedAt: null, status: 'trial' },
-      select: { id: true },
+    const ids = [...new Set(tenantIds)];
+    const rows = await this.admin.tenant.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, status: true, deletedAt: true },
     });
-    for (const { id: tenantId } of inTrial) {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const tenantId of ids) {
+      const t = byId.get(tenantId);
+      if (!t || t.deletedAt) {
+        skipped.push({ tenantId, name: t?.name ?? null, reason: 'No existe o está borrado' });
+        continue;
+      }
+      if (t.status !== 'trial') {
+        skipped.push({ tenantId, name: t.name, reason: 'No está en prueba' });
+        continue;
+      }
       try {
         await this.extendTrial(tenantId, args);
         updated += 1;
       } catch (err) {
-        // Tenant inexistente/ilegible: se salta sin abortar el lote.
+        // Se salta sin abortar el lote, y se dice por qué.
         this.logger.warn(`extendTrialsBatch: no se pudo extender ${tenantId}: ${String(err)}`);
+        const message =
+          err instanceof BadRequestException || err instanceof NotFoundException
+            ? ((err.getResponse() as { message?: string }).message ?? err.message)
+            : 'No se pudo ampliar';
+        skipped.push({ tenantId, name: t.name, reason: message });
       }
     }
-    return { updated };
+    return { updated, skipped };
   }
 
   /** Añade o quita etiquetas a varios tenants (acción masiva de la lista). */
