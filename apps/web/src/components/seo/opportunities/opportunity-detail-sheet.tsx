@@ -300,8 +300,8 @@ function Body({ o }: { o: SeoOpportunityDetailDto }) {
         </ul>
         <p className="text-xs text-muted-foreground">
           Confianza del dato: {formatPct(o.confidence * 100, 0)} (más con datos reales de Google que
-          solo con estimaciones de SISTRIX). Lo que no se sabe no resta: su peso se reparte entre lo
-          demás.
+          solo con estimaciones de SISTRIX), y pesa en la puntuación: a igualdad de lo demás, gana
+          la que tiene datos reales. Lo que no se sabe cuenta como un valor bajo.
         </p>
       </Section>
 

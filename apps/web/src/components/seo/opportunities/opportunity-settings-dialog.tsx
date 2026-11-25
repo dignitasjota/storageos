@@ -130,8 +130,9 @@ export function OpportunitySettingsDialog({
         <DialogHeader>
           <DialogTitle>Cómo se puntúan las oportunidades</DialogTitle>
           <DialogDescription>
-            La puntuación (0–100) suma cada factor según su peso; lo que no se sabe no resta y su
-            peso se reparte entre lo demás. La dificultad resta. Al guardar se recalculan.
+            La puntuación (0–100) suma cada factor según su peso; lo que no se sabe cuenta como un
+            valor bajo y la dificultad resta. Después se ajusta por la confianza del dato (más con
+            datos reales de Google que solo con SISTRIX). Al guardar se recalculan.
           </DialogDescription>
         </DialogHeader>
         {settings.isError ? (

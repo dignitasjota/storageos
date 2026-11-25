@@ -715,8 +715,8 @@ Motor de oportunidades propio, con reglas y no IA (§9, §18.6 y §19.3). La ló
 
 Factores (0–1) y pesos por defecto, editables en `seo_projects.weights`:
 
-- Demanda 25 %: impresiones reales en escala logarítmica (5.000 = 1) o, sin ellas, el volumen de SISTRIX (10.000 = 1).
-- Cerca del premio 20 %: 4–10 → 1 a 0,82; 11–20 → 0,75 a 0,48; 21–50 → 0,4 a 0,11; top 3 → 0,3; más allá → 0,1.
+- Demanda 25 %: impresiones reales en escala logarítmica (5.000 = 1) o, sin ellas, lo que da SISTRIX: el volumen (10.000 = 1) o las visitas que estima ganar (1.000 = 1), el mayor de los dos.
+- Cerca del premio 20 %: 4–10 → 1 a 0,82; 11–20 → 0,75 a 0,48; 21–50 → 0,4 a 0,11; top 3 → 0,3; más allá o sin posición → 0,1.
 - Clics perdidos 20 %: (CTR esperado − CTR real) ÷ CTR esperado.
 - Intención comercial 15 %: contratar 1; ir a un sitio 0,8; buscar una web 0,3; informarse 0,2.
 - Prioridad en tus palabras 10 %: alta 1, media 0,5, baja 0,2.
@@ -724,14 +724,14 @@ Factores (0–1) y pesos por defecto, editables en `seo_projects.weights`:
 - Dificultad 10 % (resta): competencia de SISTRIX ÷ 100.
 
 ```
-base       = Σ peso·valor / Σ peso        (solo los factores que se conocen)
+base       = Σ peso·valor / Σ peso        (un factor que no se sabe vale 0,3)
 bruto      = max(0, base − peso_dificultad · dificultad)
 confianza  = 0,9 Google y SISTRIX · 0,75 solo Google · 0,45 solo SISTRIX · 0,2 nada
              (−0,15 con menos de 30 impresiones; +0,1 con periodo anterior comparable)
-puntuación = round(100 · bruto · (0,7 + 0,3 · confianza))
+puntuación = round(100 · bruto · (0,4 + 0,6 · confianza))
 ```
 
-Lo que no se sabe no penaliza: su peso se reparte entre los demás y baja la confianza, que se enseña aparte. El desglose guarda los puntos de cada factor (suman la puntuación).
+Un factor que no se sabe cuenta con un valor neutro-bajo (0,3, `SEO_UNKNOWN_FACTOR_VALUE`) en vez de desaparecer, y además baja la confianza, que pesa el 60 % del ajuste final. Así una oportunidad con pocos datos no sube por encima de una respaldada por Google: con posición e intención parecidas, la de datos reales siempre puntúa más (hay una prueba con el caso real «alquiler trasteros», Google, posición 9,3 y 700 impresiones → 48, frente a «alquiler trastero mensual», solo SISTRIX, posición 11 y 66 visitas estimadas → 38; con la regla anterior, de repartir el peso de lo desconocido, salían 54 y 70). El desglose guarda los puntos de cada factor, también los desconocidos (suman la puntuación).
 
 **Ciclo de vida**: clave estable (sha1 de tipo + dominio + búsqueda); estados nueva, vista, en curso, hecha y descartada (con motivo); asignación (equipo del tenant o super admins) y notas. Recalcular actualiza cifras, motivo y puntuación sin tocar estado, notas ni asignación; lo que deja de cumplirse queda «inactivo» (sale de pendientes). Una descartada vuelve como nueva («ha vuelto») si su puntuación sube 20 puntos (`reappearPoints`) sobre la que tenía al descartarla. Se recalcula tras cada descarga de Search Console, tras las tandas de SISTRIX de oportunidades, palabras de dominios y métricas (job `opportunities` en la cola `seo`, a los 60 s y uno por proyecto) y con «Recalcular ahora».
 

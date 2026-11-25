@@ -66,6 +66,7 @@ const base: SeoOpportunityFactorsInput = {
   impressions: 400,
   clicks: 20,
   volume: null,
+  gain: null,
   position: 6,
   ctr: 0.05,
   intent: null,
@@ -107,7 +108,7 @@ describe('intención', () => {
 });
 
 describe('scoreSeoOpportunity', () => {
-  it('reparte el peso de lo que no se sabe y la puntuación cuadra con los puntos', () => {
+  it('lo que no se sabe cuenta como bajo (no desaparece) y la puntuación cuadra con los puntos', () => {
     const r = scoreSeoOpportunity(base);
     expect(r.score).toBeGreaterThan(0);
     expect(r.score).toBeLessThanOrEqual(100);
@@ -115,12 +116,16 @@ describe('scoreSeoOpportunity', () => {
     expect(unknown).toEqual(
       expect.arrayContaining(['business', 'priority', 'trend', 'difficulty']),
     );
-    expect(r.factors.find((f) => f.key === 'priority')!.points).toBe(0);
+    // Desconocida, pero cuenta con el valor neutro-bajo y se ven sus puntos.
+    const priority = r.factors.find((f) => f.key === 'priority')!;
+    expect(priority.points).toBeGreaterThan(0);
+    expect(priority.detail).toMatch(/desconocida/);
+    expect(r.factors.find((f) => f.key === 'difficulty')!.points).toBe(0);
     const sum = r.factors.reduce((s, f) => s + f.points, 0);
     expect(Math.abs(sum - r.score)).toBeLessThan(1);
   });
 
-  it('sin ningún dato: 0 puntos y confianza baja', () => {
+  it('sin ningún dato: puntuación muy baja y confianza baja', () => {
     const r = scoreSeoOpportunity({
       ...base,
       impressions: null,
@@ -129,7 +134,7 @@ describe('scoreSeoOpportunity', () => {
       ctr: null,
       hasGsc: false,
     });
-    expect(r.score).toBe(0);
+    expect(r.score).toBeLessThan(20);
     expect(r.confidence).toBe(0.2);
   });
 
@@ -146,6 +151,47 @@ describe('scoreSeoOpportunity', () => {
     });
     expect(google.confidence).toBeGreaterThan(onlySistrix.confidence);
     expect(onlySistrix.factors.find((f) => f.key === 'impressions')!.detail).toMatch(/SISTRIX/);
+  });
+
+  it('con posición e intención parecidas, la de datos reales de Google puntúa más que la de solo SISTRIX', () => {
+    // «alquiler trasteros»: Google, posición 9,3, 700 impresiones y 28 clics.
+    const google = scoreSeoOpportunity({
+      ...base,
+      impressions: 700,
+      clicks: 28,
+      ctr: 0.04,
+      position: 9.3,
+      intent: 'do',
+    });
+    // «alquiler trastero mensual»: solo SISTRIX, posición 11 y «estima 66 visitas más».
+    const sistrix = scoreSeoOpportunity({
+      ...base,
+      impressions: null,
+      clicks: null,
+      ctr: null,
+      position: 11,
+      intent: 'do',
+      gain: 66,
+      hasGsc: false,
+      hasSistrix: true,
+    });
+    expect(sistrix.factors.find((f) => f.key === 'impressions')!.value).toBeGreaterThan(0);
+    expect(sistrix.factors.find((f) => f.key === 'impressions')!.detail).toMatch(/66 visitas/);
+    expect(google.score).toBeGreaterThan(sistrix.score);
+    // Ni con mucha ganancia estimada y volumen alto la supera.
+    const bigSistrix = scoreSeoOpportunity({
+      ...base,
+      impressions: null,
+      clicks: null,
+      ctr: null,
+      position: 9,
+      intent: 'do',
+      gain: 1000,
+      volume: 10_000,
+      hasGsc: false,
+      hasSistrix: true,
+    });
+    expect(google.score).toBeGreaterThan(bigSistrix.score);
   });
 
   it('la dificultad resta, la intención comercial y la prioridad suman', () => {

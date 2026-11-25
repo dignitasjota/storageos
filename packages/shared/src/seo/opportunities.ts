@@ -369,6 +369,8 @@ export interface SeoOpportunityFactorsInput {
   clicks: number | null;
   /** Volumen estimado de SISTRIX (búsquedas al mes). */
   volume: number | null;
+  /** Visitas que SISTRIX estima que ganarías (sus oportunidades). */
+  gain: number | null;
   position: number | null;
   ctr: number | null;
   intent: SeoKeywordIntent | null;
@@ -390,7 +392,7 @@ export interface SeoOpportunityFactorDto {
   label: string;
   /** Peso configurado (0–1). */
   weight: number;
-  /** Valor del factor (0–1); null = no se sabe (su peso se reparte entre los demás). */
+  /** Valor del factor (0–1); null = no se sabe (cuenta como `SEO_UNKNOWN_FACTOR_VALUE`). */
   value: number | null;
   /** Puntos que aporta (negativos en la dificultad). */
   points: number;
@@ -406,9 +408,20 @@ export interface SeoOpportunityScoreDto {
   factors: SeoOpportunityFactorDto[];
 }
 
-/** Demanda: de 0 a 1 en escala logarítmica (5.000 impresiones o 10.000 búsquedas = 1). */
+/**
+ * Demanda: de 0 a 1 en escala logarítmica (5.000 impresiones, 10.000 búsquedas
+ * al mes o 1.000 visitas que SISTRIX estima ganar = 1).
+ */
 export const SEO_DEMAND_IMPRESSIONS_CAP = 5000;
 export const SEO_DEMAND_VOLUME_CAP = 10_000;
+export const SEO_DEMAND_GAIN_CAP = 1000;
+/**
+ * Valor con el que cuenta un factor que no se sabe: neutro tirando a bajo. No
+ * desaparece (repartir su peso inflaría las fichas con pocos datos).
+ */
+export const SEO_UNKNOWN_FACTOR_VALUE = 0.3;
+/** Peso fijo y peso de la confianza en la puntuación: 100 · bruto · (0,4 + 0,6 · confianza). */
+export const SEO_CONFIDENCE_FLOOR = 0.4;
 
 const log01 = (n: number, cap: number) => clamp01(Math.log10(1 + n) / Math.log10(1 + cap));
 
@@ -447,19 +460,21 @@ export function seoConfidence(input: SeoOpportunityFactorsInput): number {
 /**
  * Puntuación de 0 a 100:
  *
- *   base = Σ peso·valor / Σ peso   (solo los factores que se conocen)
+ *   base = Σ peso·valor / Σ peso   (un factor que no se sabe vale 0,3)
  *   bruto = max(0, base − peso_dificultad · dificultad)
- *   puntuación = round(100 · bruto · (0,7 + 0,3 · confianza))
+ *   puntuación = round(100 · bruto · (0,4 + 0,6 · confianza))
  *
- * Un factor que no se sabe (sin volumen, sin intención…) no penaliza: su peso
- * se reparte entre los demás y baja la confianza.
+ * Un factor que no se sabe (sin volumen, sin intención…) cuenta como un valor
+ * bajo (`SEO_UNKNOWN_FACTOR_VALUE`) y además baja la confianza, que pesa
+ * mucho: con datos reales de Google una oportunidad puntúa por encima de otra
+ * parecida que solo tiene estimaciones de SISTRIX.
  */
 export function scoreSeoOpportunity(
   input: SeoOpportunityFactorsInput,
   weights: SeoWeights = SEO_DEFAULT_WEIGHTS,
 ): SeoOpportunityScoreDto {
   const confidence = seoConfidence(input);
-  const modulation = 0.7 + 0.3 * confidence;
+  const modulation = SEO_CONFIDENCE_FLOOR + (1 - SEO_CONFIDENCE_FLOOR) * confidence;
 
   let demand: { value: number | null; detail: string };
   if (input.impressions !== null && input.impressions > 0) {
@@ -467,15 +482,20 @@ export function scoreSeoOpportunity(
       value: log01(input.impressions, SEO_DEMAND_IMPRESSIONS_CAP),
       detail: `${seoFmtInt(input.impressions)} impresiones reales en el periodo`,
     };
-  } else if (input.volume !== null && input.volume > 0) {
+  } else if ((input.volume ?? 0) > 0 || (input.gain ?? 0) > 0) {
+    const byVolume = (input.volume ?? 0) > 0 ? log01(input.volume!, SEO_DEMAND_VOLUME_CAP) : 0;
+    const byGain = (input.gain ?? 0) > 0 ? log01(input.gain!, SEO_DEMAND_GAIN_CAP) : 0;
+    const parts: string[] = [];
+    if ((input.volume ?? 0) > 0) parts.push(`${seoFmtInt(input.volume!)} búsquedas al mes`);
+    if ((input.gain ?? 0) > 0) parts.push(`${seoFmtInt(input.gain!)} visitas más`);
     demand = {
-      value: log01(input.volume, SEO_DEMAND_VOLUME_CAP),
-      detail: `${seoFmtInt(input.volume)} búsquedas al mes estimadas por SISTRIX`,
+      value: Math.max(byVolume, byGain),
+      detail: `Estimación de SISTRIX: ${parts.join(' y ')}`,
     };
   } else if (input.impressions === 0 || input.volume === 0) {
     demand = { value: 0, detail: 'Sin demanda medida' };
   } else {
-    demand = { value: null, detail: 'Demanda desconocida: no cuenta' };
+    demand = { value: null, detail: 'Demanda desconocida: cuenta como baja' };
   }
 
   const position =
@@ -484,11 +504,11 @@ export function scoreSeoOpportunity(
           value: seoPositionValue(input.position),
           detail: `Posición ${fmtPos(input.position)}`,
         }
-      : { value: null, detail: 'Tu web no sale: no cuenta' };
+      : { value: 0.1, detail: 'Tu web no sale' };
 
   let ctrGap: { value: number | null; detail: string } = {
     value: null,
-    detail: 'Sin datos de clics de Google: no cuenta',
+    detail: 'Sin datos de clics de Google: desconocido, cuenta como bajo',
   };
   if (
     input.hasGsc &&
@@ -512,7 +532,7 @@ export function scoreSeoOpportunity(
         value: INTENT_VALUE[input.intent],
         detail: `Intención: ${INTENT_WORDS[input.intent]}`,
       }
-    : { value: null, detail: 'Intención desconocida: no cuenta' };
+    : { value: null, detail: 'Intención desconocida: cuenta como baja' };
 
   const priority =
     input.priority !== null && PRIORITY_VALUE[input.priority] !== undefined
@@ -520,11 +540,11 @@ export function scoreSeoOpportunity(
           value: PRIORITY_VALUE[input.priority]!,
           detail: `Prioridad ${input.priority === 1 ? 'alta' : input.priority === 2 ? 'media' : 'baja'} en tus palabras`,
         }
-      : { value: null, detail: 'No está en tus palabras: no cuenta' };
+      : { value: null, detail: 'No está en tus palabras: desconocida, cuenta como baja' };
 
   let trend: { value: number | null; detail: string } = {
     value: null,
-    detail: 'Sin periodo anterior comparable: no cuenta',
+    detail: 'Sin periodo anterior comparable: desconocida, cuenta como baja',
   };
   if (input.comparable && (input.positionDiff !== null || input.impressionsPct !== null)) {
     const pd = input.positionDiff ?? 0;
@@ -556,9 +576,10 @@ export function scoreSeoOpportunity(
     ['priority', priority],
     ['trend', trend],
   ];
-  const known = positives.filter(([k, f]) => f.value !== null && weights[k] > 0);
-  const sumW = known.reduce((s, [k]) => s + weights[k], 0);
-  const base = sumW > 0 ? known.reduce((s, [k, f]) => s + weights[k] * f.value!, 0) / sumW : 0;
+  const valueOf = (f: { value: number | null }) => f.value ?? SEO_UNKNOWN_FACTOR_VALUE;
+  const sumW = positives.reduce((s, [k]) => s + weights[k], 0);
+  const base =
+    sumW > 0 ? positives.reduce((s, [k, f]) => s + weights[k] * valueOf(f), 0) / sumW : 0;
   const penalty = difficulty.value !== null ? weights.difficulty * difficulty.value : 0;
   const raw = Math.max(0, base - penalty);
   const score = Math.max(0, Math.min(100, Math.round(100 * raw * modulation)));
@@ -570,9 +591,7 @@ export function scoreSeoOpportunity(
     weight: weights[k],
     value: f.value === null ? null : Math.round(f.value * 1000) / 1000,
     points:
-      f.value !== null && sumW > 0 && weights[k] > 0
-        ? round1((100 * weights[k] * f.value * modulation) / sumW)
-        : 0,
+      sumW > 0 && weights[k] > 0 ? round1((100 * weights[k] * valueOf(f) * modulation) / sumW) : 0,
     detail: f.detail,
   }));
   factors.push({
@@ -804,6 +823,7 @@ export function detectSeoOpportunities(
         impressions,
         clicks: parts.gsc?.clicks ?? null,
         volume,
+        gain: sistrix?.gain ?? null,
         position: parts.gsc?.position ?? sistrix?.position ?? null,
         ctr: parts.gsc?.ctr ?? null,
         intent: intent?.value ?? null,
