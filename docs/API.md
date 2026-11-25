@@ -3778,3 +3778,36 @@ Migración `20270220100000_unit_cessions_improvements`: `ends_on` admite nulo (s
 - `POST /admin/tenants/:id/addon-offers`: 409 `addon_offer_recent` si ese extra se le propuso en los últimos 14 días; 409 `addon_trial_used` si pide prueba y ya tuvo una de ese extra; 400 `tenant_not_live` si está suspendido o de baja; 400 `no_recipients` (sin efectos) si no tiene propietarios verificados que no se hayan dado de baja de las ofertas. El correo lleva el enlace de baja y `List-Unsubscribe`. `POST /admin/tenants/:id/addon-trials/:addonId` → 409 `addon_trial_used` si ya tuvo una prueba de ese extra.
 - `GET /admin/opportunities`: solo tenants activos o en prueba; reglas revisadas (cámaras con dispositivos o credenciales de acceso; SEPA y automatizaciones con inquilinos con contrato vivo; capacidad al 80 % contando la que dan sus extras; regla de usuarios con activos + invitaciones pendientes; trasteros sin locales borrados).
 - `POST /feature-interest` durante una impersonación responde `{recorded: false}` sin apuntar nada (también en solo lectura).
+
+### Seguimientos, Trials, En riesgo y Oportunidades: mejoras (2026-11-25)
+
+Panel super admin. Todo bajo `AdminGuard`; lo marcado _superadmin_ devuelve 403 al rol soporte.
+
+**Seguimientos (tenants y leads juntos)**
+
+- `GET /admin/followups/inbox?tab=today|overdue|upcoming|done&search=&assignedTo=<id|none>&mine=1&kind=tenant|lead` → `{items: AdminFollowupItemDto[], counts: {today, overdue, upcoming, done}, truncated}`. Hechos = los cerrados en 30 días. No salen los seguimientos de prospectos asignados a comerciales. Máx. 200 por pestaña (`truncated`). 400 `invalid_query`.
+- `GET /admin/followups/overdue-count` → `{count}`: vencidos antes de hoy (hora de Madrid) asignados a mí o sin asignar (aviso del menú).
+- `POST /admin/followups {kind, subjectId, title, dueDate, note?, assignedToId?}` → el seguimiento. Sin `assignedToId`, lo lleva quien lo crea (en un lead, el responsable del lead si lo tiene). 400 `date_in_past`, `invalid_assignee` (en los de tenants no puede ser un comercial); 404 `tenant_not_found`/`lead_not_found`.
+- `PATCH /admin/followups/items/:kind/:id {title?, note?, dueDate?, assignedToId?, status?, outcome?}`: editar, marcar hecho (guarda `outcome` y quién lo cerró; con `outcome`, nota en la conversación del tenant o actividad del lead) o reabrir (`status: 'pending'` borra lo de cerrado).
+- `POST /admin/followups/bulk {items: [{kind, id}], action: 'postpone'|'assign'|'done', days?, assignedToId?, outcome?}` → `{updated, skipped}` (los hechos o inexistentes y los responsables que no valen para ese tipo se saltan).
+- `PATCH /admin/followups/:id` (tenants) y `PATCH /admin/leads/followups/:id` guardan también quién lo marca hecho.
+
+**Trials**
+
+- `GET /admin/trials?search=&filter=all|this_week|expired|unused|real_use&salesRepId=&page=` → `{items, total, page, pageSize (25), counts, summary}`. Cada fila es la de `GET /admin/tenants/trials` más `progress {done, total, missing[]}` (local, trasteros, inquilinos, primer contrato, datos fiscales, forma de cobro), `conversion {level: high|medium|low, reason}`, `invoices`, comercial y lead de origen. `summary`: `inProgress`, `endedThisMonth`, `convertedThisMonth`, `conversionMonthPct`, `avgDaysToPay` (embudo de 3 meses), `extendedThisMonth`.
+- `GET /admin/trials/expired` → pruebas que terminaron sin pagar (tenant activo con la suscripción caducada) con fecha de fin, días, uso, comercial y lead. Reabrir = `POST /admin/tenants/:id/extend-trial`.
+
+**En riesgo**
+
+- `GET /admin/tenants/at-risk` (el único endpoint de la página; «Hoy» y el resumen semanal llaman al servicio sin el «ignorar») añade a cada fila `monthly` (cuota al mes sin IVA; en pruebas, la del plan), `ownerId/ownerName/ownerSource` (`followup`: responsable de su seguimiento abierto más próximo; `sales`: su comercial) y `lastContactAt/lastContactType` (última conversación anotada); dos secciones nuevas, `scheduledEnd` (baja o anonimización programadas) y `cancelAtPeriodEnd`, que respetan el «ignorar» por sección (`AtRiskKind` gana `scheduled_end` y `cancel_at_period_end`) y llevan `playbookAt`; y `monthlyAtStake`. Cada sección va de más cuota a menos.
+- `POST /admin/tenants/:id/retention-playbook/preview {reason?, message?}` → `{subject, body, recipients}`.
+- `POST /admin/tenants/:id/retention-playbook` admite `reason` (`past_due`, `trial_expiring`, `trial_expired`, `inactive`, `low_health`, `scheduled_end`, `cancel_at_period_end`) y `message` (al principio del correo). El motivo queda en el registro.
+
+**Oportunidades**
+
+- `GET /admin/opportunities/overview` → `{addons, byTenant, dismissals, totals {candidates, tenants, potentialMonthly}, pricesIncludeVat}`. Por extra: `potentialMonthly` (precio × candidatos) y `acceptance {sent, won, trialing, ratePct}` de los últimos 90 días; por candidato: `offer {status: sent|trialing|won|no_response, sentAt, trialUntil}` (sin respuesta tras 14 días) y su comercial. Los descartados no salen.
+- `POST /admin/opportunities/dismissals {tenantId, addonId, days: 30|90|180|null, reason}` (_superadmin_; `null` = siempre; repetir sustituye) y `DELETE /admin/opportunities/dismissals/:id` (_superadmin_).
+- `POST /admin/opportunities/bulk-propose/preview {addonId, tenantIds, trialDays?}` → `{willSend [{tenantId, tenantName, recipients}], skipped [{tenantId, tenantName, reason}], emails}` (se saltan los suspendidos o de baja, los que ya lo tienen, los descartados, los propuestos en 14 días —`ADDON_OFFER_COOLDOWN_DAYS`—, con prueba gratis los que ya la tuvieron, y los que no tienen propietarios verificados sin la baja de las ofertas). En el envío, `propose` vuelve a comprobarlo todo y lo que falle va a `skipped` con su mensaje.
+- `POST /admin/opportunities/bulk-propose {addonId, tenantIds (≤100), message?, trialDays?, followupDays}` (_superadmin_) → `{sent, emails, skipped}`.
+- `POST /admin/opportunities/hand-off {tenantId, addonId, note?}` (_superadmin_) → `{salesRepName, followupId}`: seguimiento para su comercial en el prospecto del tenant (si viene de uno), nota en la conversación del tenant y aviso en su campana. 400 `no_sales_rep`.
+- Cada propuesta (suelta o en lote) queda en `platform_addon_offers`.
