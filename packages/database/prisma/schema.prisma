@@ -9873,6 +9873,8 @@ model SeoProject {
   opportunities     SeoOpportunity[]
   cannibalizations  SeoCannibalization[]
   indexFindings     SeoIndexFinding[]
+  siteChanges       SeoSiteChange[]
+  tasks             SeoTask[]
 
   @@map("seo_projects")
 }
@@ -10451,6 +10453,84 @@ model SeoIndexFinding {
   @@index([projectId, status, category], map: "seo_index_findings_list_idx")
   @@index([tenantId], map: "seo_index_findings_tenant_idx")
   @@map("seo_index_findings")
+}
+
+/// Actuación SEO (PR 6): un cambio hecho en la web con su alcance, para
+/// compararlo antes y después con Search Console (se calcula al leer).
+model SeoSiteChange {
+  id                     String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String?   @map("tenant_id") @db.Uuid
+  projectId              String    @map("project_id") @db.Uuid
+  domainId               String?   @map("domain_id") @db.Uuid
+  /// Día del cambio en hora de España.
+  changeDate             DateTime  @map("change_date") @db.Date
+  changedAt              DateTime  @map("changed_at") @db.Timestamptz(6)
+  /// HH:MM en hora de España (null = sin hora).
+  changeTime             String?   @map("change_time")
+  type                   String
+  title                  String
+  description            String?
+  urls                   String[]  @default([])
+  /// Las URLs normalizadas (las que se comparan con Google).
+  urlKeys                String[]  @default([]) @map("url_keys")
+  keywords               String[]  @default([])
+  notes                  String?
+  opportunityId          String?   @map("opportunity_id") @db.Uuid
+  cannibalizationId      String?   @map("cannibalization_id") @db.Uuid
+  indexFindingId         String?   @map("index_finding_id") @db.Uuid
+  taskId                 String?   @map("task_id") @db.Uuid
+  createdByUserId        String?   @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId  String?   @map("created_by_super_admin_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, changeDate(sort: Desc)], map: "seo_changes_project_date_idx")
+  @@index([tenantId], map: "seo_changes_tenant_idx")
+  @@map("seo_changes")
+}
+
+/// Tarea SEO (PR 6): tablero por estado y calendario (fecha límite o de publicación).
+model SeoTask {
+  id                     String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String?   @map("tenant_id") @db.Uuid
+  projectId              String    @map("project_id") @db.Uuid
+  domainId               String?   @map("domain_id") @db.Uuid
+  title                  String
+  description            String?
+  /// content · technical · links · local · other
+  type                   String    @default("other")
+  /// todo · in_progress · review · done · cancelled
+  status                 String    @default("todo")
+  /// high · medium · low
+  priority               String    @default("medium")
+  assignedToUserId       String?   @map("assigned_to_user_id") @db.Uuid
+  assignedToSuperAdminId String?   @map("assigned_to_super_admin_id") @db.Uuid
+  dueDate                DateTime? @map("due_date") @db.Date
+  publishDate            DateTime? @map("publish_date") @db.Date
+  url                    String?
+  keywords               String[]  @default([])
+  opportunityId          String?   @map("opportunity_id") @db.Uuid
+  cannibalizationId      String?   @map("cannibalization_id") @db.Uuid
+  indexFindingId         String?   @map("index_finding_id") @db.Uuid
+  changeId               String?   @map("change_id") @db.Uuid
+  position               Int       @default(0)
+  completedAt            DateTime? @map("completed_at") @db.Timestamptz(6)
+  assignNotifiedTo       String?   @map("assign_notified_to") @db.Uuid
+  assignNotifiedOn       DateTime? @map("assign_notified_on") @db.Date
+  dueNotifiedOn          DateTime? @map("due_notified_on") @db.Date
+  createdByUserId        String?   @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId  String?   @map("created_by_super_admin_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status, position], map: "seo_tasks_board_idx")
+  @@index([projectId, dueDate], map: "seo_tasks_due_idx")
+  @@index([tenantId], map: "seo_tasks_tenant_idx")
+  @@map("seo_tasks")
 }
 
 /// Petición a un proveedor de pago (sin secretos).

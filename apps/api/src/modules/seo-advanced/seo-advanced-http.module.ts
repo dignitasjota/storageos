@@ -14,6 +14,9 @@ import {
   SeoAdvancedOpportunitiesController,
 } from './opportunities/seo-opportunities.controller';
 import { SeoOpportunitiesService } from './opportunities/seo-opportunities.service';
+import { AdminSeoPlanController, SeoAdvancedPlanController } from './plan/seo-plan.controller';
+import { SeoSiteChangesService } from './plan/seo-site-changes.service';
+import { SeoTasksService } from './plan/seo-tasks.service';
 import { SeoAdvancedController } from './seo-advanced.controller';
 import { SeoAdvancedModule } from './seo-advanced.module';
 import { SeoImportsService } from './seo-imports.service';
@@ -32,7 +35,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
  * admin (`/admin/seo`), el panel con sus agregaciones, la importación de los
  * Excel históricos de Search Console, SISTRIX (integraciones, OAuth y sus
  * datos por proyecto), las oportunidades y el diagnóstico (palabras seguidas,
- * canibalización e indexación).
+ * canibalización e indexación) y el plan (actuaciones con su antes y después
+ * y tareas SEO).
  */
 @Module({
   imports: [JwtModule.register({}), SeoAdvancedModule],
@@ -46,6 +50,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
     AdminSeoOpportunitiesController,
     SeoAdvancedDiagnosticsController,
     AdminSeoDiagnosticsController,
+    SeoAdvancedPlanController,
+    AdminSeoPlanController,
   ],
   providers: [
     AdminGuard,
@@ -56,6 +62,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
     SeoSistrixDataService,
     SeoOpportunitiesService,
     SeoDiagnosticsService,
+    SeoSiteChangesService,
+    SeoTasksService,
   ],
 })
 export class SeoAdvancedHttpModule {}
