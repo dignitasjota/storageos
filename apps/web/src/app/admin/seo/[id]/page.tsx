@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
 import { BackLink } from '@/components/layout/back-link';
+import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SeoImportsCard } from '@/components/seo/seo-imports-card';
@@ -166,6 +167,12 @@ export default function AdminSeoProjectPage() {
       </div>
 
       <SeoPanel client={client} domains={p.domains} />
+
+      <SeoOpportunitiesCard
+        scope={{ kind: 'admin', projectId: p.id }}
+        canEdit={canEdit}
+        domains={p.domains}
+      />
 
       <SeoDomainsCard
         project={p}
