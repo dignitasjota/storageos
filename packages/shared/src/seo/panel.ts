@@ -140,7 +140,35 @@ export function seoTotalsFromSums(s: SeoMetricSums): SeoTotalsDto {
   };
 }
 
-/** Comparación con otro periodo: si no hay datos de todo ese periodo, no se compara. */
+/**
+ * Parte mínima de los días de un periodo que tienen que tener datos para compararlo
+ * (Google no da los días sin impresiones, así que no se exige el 100 %).
+ */
+export const SEO_MIN_PERIOD_COVERAGE = 0.9;
+
+/** Si un periodo tiene datos de casi todos sus días (y empieza después del primer dato). */
+export function seoPeriodCovered(input: {
+  firstDate: string | null;
+  from: string;
+  to: string;
+  daysWithData: number;
+}): boolean {
+  if (!input.firstDate || input.firstDate > input.from) return false;
+  const total =
+    Math.round(
+      (Date.parse(`${input.to}T00:00:00Z`) - Date.parse(`${input.from}T00:00:00Z`)) / 86_400_000,
+    ) + 1;
+  return total > 0 && input.daysWithData >= Math.ceil(total * SEO_MIN_PERIOD_COVERAGE);
+}
+
+/** Dos periodos que empiezan con un día de diferencia como mucho (12 meses: el anterior es el del año pasado). */
+export function seoSameWindow(aFrom: string, bFrom: string): boolean {
+  return (
+    Math.abs(Date.parse(`${aFrom}T00:00:00Z`) - Date.parse(`${bFrom}T00:00:00Z`)) <= 86_400_000
+  );
+}
+
+/** Comparación con otro periodo: si no hay datos de casi todo ese periodo, no se compara. */
 export function seoComparison(
   current: SeoTotalsDto,
   other: SeoTotalsDto,

@@ -4,6 +4,8 @@ import { aggregateSearchMetrics } from '../web/search-console';
 
 import {
   seoComparison,
+  seoPeriodCovered,
+  seoSameWindow,
   seoPanelRange,
   seoRowVariation,
   seoShiftMonths,
@@ -141,5 +143,21 @@ describe('seoRowVariation', () => {
       positionDiff: null,
     });
     expect(seoRowVariation({ clicks: 3, position: 4 }, null).clicksChange).toBeNull();
+  });
+});
+
+describe('seoPeriodCovered', () => {
+  it('exige datos de casi todos los días del periodo', () => {
+    const base = { firstDate: '2024-01-01', from: '2025-01-01', to: '2025-01-10' };
+    expect(seoPeriodCovered({ ...base, daysWithData: 10 })).toBe(true);
+    expect(seoPeriodCovered({ ...base, daysWithData: 9 })).toBe(true);
+    expect(seoPeriodCovered({ ...base, daysWithData: 5 })).toBe(false);
+    expect(seoPeriodCovered({ ...base, firstDate: '2025-01-02', daysWithData: 10 })).toBe(false);
+    expect(seoPeriodCovered({ ...base, firstDate: null, daysWithData: 10 })).toBe(false);
+  });
+  it('reconoce el mismo periodo con un día de diferencia', () => {
+    expect(seoSameWindow('2024-11-25', '2024-11-25')).toBe(true);
+    expect(seoSameWindow('2024-11-24', '2024-11-25')).toBe(true);
+    expect(seoSameWindow('2024-11-20', '2024-11-25')).toBe(false);
   });
 });

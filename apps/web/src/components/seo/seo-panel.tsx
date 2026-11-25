@@ -4,6 +4,7 @@ import {
   SEO_PANEL_PERIODS,
   SEO_PANEL_PERIOD_LABELS,
   SEO_DOMAIN_ROLE_LABELS,
+  seoSameWindow,
   shiftDate,
   type SeoChangeDto,
   type SeoDashboardDto,
@@ -81,6 +82,8 @@ function Kpi({ k, d }: { k: KpiKey; d: SeoDashboardDto }) {
   const spec = KPI[k];
   const [prev, prevSuffix] = d.previousChange ? spec.change(d.previousChange) : [null, ''];
   const [yoy, yoySuffix] = d.yearAgoChange ? spec.change(d.yearAgoChange) : [null, ''];
+  // Con 12 meses el periodo anterior ya es el del año pasado: una sola línea.
+  const sameWindow = seoSameWindow(d.previousFrom, d.yearAgoFrom);
   return (
     <div className="rounded-lg border bg-card p-3">
       <p className="text-xs text-muted-foreground">{spec.label}</p>
@@ -94,14 +97,16 @@ function Kpi({ k, d }: { k: KpiKey; d: SeoDashboardDto }) {
             <span className="text-muted-foreground">sin datos</span>
           )}
         </p>
-        <p className="flex flex-wrap items-center gap-1">
-          <span className="text-muted-foreground">vs hace un año:</span>
-          {d.yearAgo ? (
-            <SeoChange value={yoy} suffix={yoySuffix} />
-          ) : (
-            <span className="text-muted-foreground">sin datos</span>
-          )}
-        </p>
+        {!sameWindow && (
+          <p className="flex flex-wrap items-center gap-1">
+            <span className="text-muted-foreground">vs hace un año:</span>
+            {d.yearAgo ? (
+              <SeoChange value={yoy} suffix={yoySuffix} />
+            ) : (
+              <span className="text-muted-foreground">sin datos</span>
+            )}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -280,11 +285,12 @@ function DashboardBody({ d }: { d: SeoDashboardDto }) {
       <p className="text-xs text-muted-foreground">
         {d.previous
           ? `Comparado con el ${formatDate(d.previousFrom)} – ${formatDate(d.previousTo)}`
-          : 'No hay datos de todo el periodo anterior: no se compara'}
-        {' · '}
-        {d.yearAgo
-          ? `y con el ${formatDate(d.yearAgoFrom)} – ${formatDate(d.yearAgoTo)}.`
-          : 'no hay datos del mismo periodo del año pasado (importa los Excel de Search Console para tenerlos).'}
+          : 'No hay datos de casi todo el periodo anterior: no se compara'}
+        {seoSameWindow(d.previousFrom, d.yearAgoFrom)
+          ? '.'
+          : d.yearAgo
+            ? ` · y con el ${formatDate(d.yearAgoFrom)} – ${formatDate(d.yearAgoTo)}.`
+            : ' · no hay datos de casi todo el mismo periodo del año pasado (importa los Excel de Search Console para tenerlos).'}
       </p>
 
       <div className="grid gap-6 md:grid-cols-2">

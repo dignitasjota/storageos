@@ -6,6 +6,7 @@ import {
   daysBetween,
   seoChange,
   seoComparison,
+  seoPeriodCovered,
   seoPanelRange,
   seoRowVariation,
   seoTopN,
@@ -181,18 +182,19 @@ export class SeoPanelService {
     ]);
 
     const current = seoTotalsFromSums(cur);
-    // Solo se compara si hay datos desde el principio de ese periodo.
-    const covers = (from: string, rows: number) =>
-      bounds.first !== null && bounds.first <= from && rows > 0;
+    // Solo se compara si hay datos de casi todos los días de ese periodo (un hueco
+    // entre lo importado y lo de la API daría una variación falsa).
+    const covers = (from: string, to: string, rows: number) =>
+      seoPeriodCovered({ firstDate: bounds.first, from, to, daysWithData: rows });
     const previous = seoComparison(
       current,
       seoTotalsFromSums(prev),
-      covers(range.previousFrom, prevRows),
+      covers(range.previousFrom, range.previousTo, prevRows),
     );
     const yearAgo = seoComparison(
       current,
       seoTotalsFromSums(yoy),
-      covers(range.yearAgoFrom, yoyRows),
+      covers(range.yearAgoFrom, range.yearAgoTo, yoyRows),
     );
 
     // Un punto por día (los que Google no da, a cero), con el del periodo anterior.
@@ -212,8 +214,9 @@ export class SeoPanelService {
             : null,
         position: row ? Math.round(row.position * 10) / 10 : null,
         source: row?.source === 'import' ? 'import' : 'api',
-        previousClicks: previous.totals ? (p?.clicks ?? 0) : null,
-        previousImpressions: previous.totals ? (p?.impressions ?? 0) : null,
+        // Un día sin datos del periodo anterior queda en blanco (no a cero).
+        previousClicks: previous.totals && p ? p.clicks : null,
+        previousImpressions: previous.totals && p ? p.impressions : null,
       });
     }
 
@@ -563,8 +566,12 @@ export class SeoPanelService {
     return {
       domainId: domain.id,
       range,
-      previousAvailable:
-        bounds.first !== null && bounds.first <= range.previousFrom && prevRows > 0,
+      previousAvailable: seoPeriodCovered({
+        firstDate: bounds.first,
+        from: range.previousFrom,
+        to: range.previousTo,
+        daysWithData: prevRows,
+      }),
     };
   }
 
