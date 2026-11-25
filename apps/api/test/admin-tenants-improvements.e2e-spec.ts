@@ -236,7 +236,8 @@ describe('Admin: mejoras del apartado Tenants (e2e)', () => {
       .expect(200);
     const resent = await http()
       .post(`/admin/billing-health/invoices/${invoiceId}/resend-aeat`)
-      .set(admin());
+      .set(admin())
+      .send({ reason: 'Comprobación de e2e' });
     expect([200, 400]).toContain(resent.status);
     await http()
       .post('/admin/billing-health/invoices/00000000-0000-0000-0000-000000000000/refresh-aeat')

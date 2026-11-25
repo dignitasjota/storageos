@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import type { AdminTenantBillingHealthDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { useConfirm } from '@/components/confirm-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,28 +17,30 @@ import { useAdminBillingHealth } from '@/lib/admin/hooks';
 import { useAdminAeatAction } from '@/lib/admin/tenant-tools-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
-
-const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
+import { formatDate, formatDateTime } from '@/lib/format';
 
 const AEAT_LABEL: Record<string, string> = {
   rejected: 'Rechazada',
   error: 'Error',
   pending: 'Sin respuesta',
+  accepted_with_warnings: 'Aceptada con errores',
 };
 
-function issueCount(t: AdminTenantBillingHealthDto): number {
-  return (
-    t.aeatRejected +
-    t.aeatError +
-    t.aeatPendingStale +
-    t.holdedReview +
-    (t.certificateDaysLeft !== null && t.certificateDaysLeft <= 30 ? 1 : 0)
-  );
+const MODE_LABEL: Record<string, string> = {
+  stub: 'Simulado',
+  sandbox: 'Pruebas de la AEAT',
+  production: 'Real',
+};
+
+/** «1 rechazada» / «3 rechazadas». */
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
 /**
- * Salud de la facturación de los tenants: facturas rechazadas o sin respuesta
- * de la AEAT, envíos de Holded para revisar y caducidad del certificado.
+ * Problemas de facturación de los tenants: facturas rechazadas, con errores,
+ * sin respuesta o sin enviar a la AEAT, envíos de Holded para revisar y
+ * certificados que faltan o caducan.
  */
 export default function AdminBillingHealthPage() {
   const health = useAdminBillingHealth();
@@ -48,7 +51,7 @@ export default function AdminBillingHealthPage() {
     const q = search.trim().toLowerCase();
     return (health.data?.tenants ?? []).filter(
       (t) =>
-        (!onlyIssues || issueCount(t) > 0) &&
+        (!onlyIssues || t.issues > 0) &&
         (!q || t.tenantName.toLowerCase().includes(q) || t.tenantSlug.includes(q)),
     );
   }, [health.data, onlyIssues, search]);
@@ -62,16 +65,19 @@ export default function AdminBillingHealthPage() {
     );
   }
 
-  const invoices = health.data.invoices;
+  const { invoices, invoicesTotal, aeatMode } = health.data;
 
   return (
     <div className="space-y-6 px-4 py-4 sm:px-6 sm:py-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Facturación de los tenants</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Problemas de facturación</h1>
         <p className="text-sm text-muted-foreground">
-          Veri*Factu, Holded y certificados de la AEAT de cada negocio. Una factura rechazada o sin
-          respuesta de la AEAT, o un certificado caducado, impide que el tenant cumpla con
-          Veri*Factu.
+          Veri*Factu, Holded y certificados de la AEAT de cada negocio. Una factura rechazada, con
+          errores, sin enviar o sin respuesta de la AEAT, o un certificado que falta o ha caducado,
+          impide que el tenant cumpla con Veri*Factu.{' '}
+          <span className="whitespace-nowrap">
+            Envío a la AEAT: <strong>{MODE_LABEL[aeatMode] ?? aeatMode}</strong>.
+          </span>
         </p>
       </div>
 
@@ -96,7 +102,8 @@ export default function AdminBillingHealthPage() {
         <CardHeader>
           <CardTitle className="text-base">Por tenant</CardTitle>
           <CardDescription>
-            Solo aparecen los tenants con certificado, Holded o alguna incidencia.
+            Con «Solo con problemas» desmarcado se ven también los tenants con Veri*Factu activado,
+            certificado o Holded que van bien.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -106,7 +113,7 @@ export default function AdminBillingHealthPage() {
               {onlyIssues ? 'Ningún tenant tiene problemas de facturación.' : 'Sin resultados.'}
             </p>
           ) : (
-            tenants.map((t) => <TenantRow key={t.tenantId} t={t} />)
+            tenants.map((t) => <TenantRow key={t.tenantId} t={t} aeatMode={aeatMode} />)
           )}
         </CardContent>
       </Card>
@@ -115,7 +122,10 @@ export default function AdminBillingHealthPage() {
         <CardHeader>
           <CardTitle className="text-base">Facturas con problemas en la AEAT</CardTitle>
           <CardDescription>
-            Rechazadas, con error o enviadas hace más de 48 h sin respuesta (las 50 más recientes).
+            Rechazadas, con error, aceptadas con errores, sin enviar o sin respuesta tras 48 h.
+            {invoicesTotal > invoices.length
+              ? ` Se muestran las ${invoices.length} más recientes de ${invoicesTotal}.`
+              : ''}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -147,12 +157,20 @@ export default function AdminBillingHealthPage() {
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">
-                    Emitida {fmtDate(i.issueDate)}
+                    Emitida {formatDate(i.issueDate)}
                   </span>
-                  <Badge variant={i.aeatStatus === 'pending' ? 'secondary' : 'destructive'}>
-                    {AEAT_LABEL[i.aeatStatus] ?? i.aeatStatus}
+                  <Badge
+                    variant={
+                      i.unsent ||
+                      i.aeatStatus === 'pending' ||
+                      i.aeatStatus === 'accepted_with_warnings'
+                        ? 'secondary'
+                        : 'destructive'
+                    }
+                  >
+                    {i.unsent ? 'Sin enviar' : (AEAT_LABEL[i.aeatStatus] ?? i.aeatStatus)}
                   </Badge>
-                  <AeatButtons invoiceId={i.invoiceId} />
+                  <AeatButtons invoiceId={i.invoiceId} invoiceNumber={i.invoiceNumber} />
                 </div>
               </div>
             ))
@@ -163,58 +181,138 @@ export default function AdminBillingHealthPage() {
   );
 }
 
-function TenantRow({ t }: { t: AdminTenantBillingHealthDto }) {
+function TenantRow({ t, aeatMode }: { t: AdminTenantBillingHealthDto; aeatMode: string }) {
   const chips: { label: string; tone: 'red' | 'amber' | 'muted' }[] = [];
-  if (t.aeatRejected > 0) chips.push({ label: `${t.aeatRejected} rechazada(s)`, tone: 'red' });
-  if (t.aeatError > 0) chips.push({ label: `${t.aeatError} con error`, tone: 'red' });
+  if (t.aeatRejected > 0)
+    chips.push({ label: plural(t.aeatRejected, 'rechazada', 'rechazadas'), tone: 'red' });
+  if (t.aeatError > 0)
+    chips.push({ label: plural(t.aeatError, 'con error', 'con error'), tone: 'red' });
+  if (t.aeatWarnings > 0)
+    chips.push({
+      label: `${plural(t.aeatWarnings, 'aceptada', 'aceptadas')} con errores (hay que subsanar)`,
+      tone: 'amber',
+    });
   if (t.aeatPendingStale > 0)
     chips.push({ label: `${t.aeatPendingStale} sin respuesta >48 h`, tone: 'amber' });
+  if (t.unsentRecords > 0)
+    chips.push({
+      label: `${plural(t.unsentRecords, 'registro sin enviar', 'registros sin enviar')}${
+        t.unsentSince ? ` desde el ${formatDate(t.unsentSince)}` : ''
+      }`,
+      tone: 'red',
+    });
+  if (t.failedSubmissions > 0)
+    chips.push({
+      label: `${plural(t.failedSubmissions, 'envío fallido', 'envíos fallidos')}${
+        t.lastSubmissionAt ? ` (último ${formatDateTime(t.lastSubmissionAt)})` : ''
+      }`,
+      tone: 'red',
+    });
   if (t.holdedReview > 0)
     chips.push({ label: `Holded: ${t.holdedReview} para revisar`, tone: 'amber' });
-  if (t.certificateDaysLeft !== null) {
+  if (t.certificateMissing) {
+    chips.push({ label: 'Sin certificado', tone: 'red' });
+  } else if (t.certificateDaysLeft !== null) {
     if (t.certificateDaysLeft <= 0)
-      chips.push({ label: `Certificado caducado (${fmtDate(t.certificateValidTo)})`, tone: 'red' });
+      chips.push({
+        label: `Certificado caducado (${formatDate(t.certificateValidTo)})`,
+        tone: 'red',
+      });
     else if (t.certificateDaysLeft <= 30)
       chips.push({ label: `Certificado caduca en ${t.certificateDaysLeft} d`, tone: 'amber' });
-    else chips.push({ label: `Certificado hasta ${fmtDate(t.certificateValidTo)}`, tone: 'muted' });
-  } else if (t.invoicingMode === 'app') {
-    chips.push({ label: 'Sin certificado', tone: 'muted' });
+    else
+      chips.push({ label: `Certificado hasta ${formatDate(t.certificateValidTo)}`, tone: 'muted' });
   }
+  for (const c of t.ownerCertificates) {
+    const who = c.ownerName ?? 'propietario';
+    if (c.daysLeft <= 0)
+      chips.push({
+        label: `Certificado de ${who} caducado (${formatDate(c.validTo)})`,
+        tone: 'red',
+      });
+    else if (c.daysLeft <= 30)
+      chips.push({ label: `Certificado de ${who} caduca en ${c.daysLeft} d`, tone: 'amber' });
+  }
+  if (t.lastSentAt)
+    chips.push({ label: `Último envío ${formatDate(t.lastSentAt)}`, tone: 'muted' });
+  if (t.verifactuEnabled && chips.every((c) => c.tone === 'muted'))
+    chips.push({ label: 'Todo en orden', tone: 'muted' });
+
   const toneClass = {
     red: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300',
     amber: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
     muted: 'bg-muted text-muted-foreground',
   };
+  const errorDetail = t.unsentLastError ?? t.lastSubmissionError;
   return (
-    <div className="flex flex-col gap-2 rounded-md border p-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0">
-        <Link href={`/admin/tenants/${t.tenantId}`} className="font-medium hover:underline">
-          {t.tenantName}
-        </Link>
-        <span className="ml-2 text-xs text-muted-foreground">
-          Emite en {t.invoicingMode === 'holded' ? 'Holded' : 'la app'}
-          {t.holdedEnabled && t.invoicingMode === 'app' ? ' · copia en Holded' : ''}
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-1">
-        {chips.map((c) => (
-          <span key={c.label} className={`rounded px-2 py-0.5 text-xs ${toneClass[c.tone]}`}>
-            {c.label}
+    <div className="space-y-1 rounded-md border p-2 text-sm">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <Link
+            href={`/admin/tenants/${t.tenantId}?tab=config`}
+            className="font-medium hover:underline"
+          >
+            {t.tenantName}
+          </Link>
+          <span className="ml-2 text-xs text-muted-foreground">
+            Emite en {t.invoicingMode === 'holded' ? 'Holded' : 'la app'}
+            {t.holdedEnabled && t.invoicingMode === 'app' ? ' · copia en Holded' : ''}
+            {t.verifactuEnabled && t.invoicingMode === 'app'
+              ? ` · Veri*Factu ${(MODE_LABEL[aeatMode] ?? aeatMode).toLowerCase()}`
+              : ''}
           </span>
-        ))}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {chips.map((c) => (
+            <span key={c.label} className={`rounded px-2 py-0.5 text-xs ${toneClass[c.tone]}`}>
+              {c.label}
+            </span>
+          ))}
+        </div>
       </div>
+      {errorDetail && (t.unsentRecords > 0 || t.failedSubmissions > 0) && (
+        <p className="break-words text-xs text-muted-foreground">Último error: {errorDetail}</p>
+      )}
     </div>
   );
 }
 
-/** Consultar el estado en la AEAT o volver a enviar la factura (esto último, superadmin). */
-function AeatButtons({ invoiceId }: { invoiceId: string }) {
+/** Consultar el estado en la AEAT o volver a enviar la factura (esto último, superadmin y con motivo). */
+function AeatButtons({
+  invoiceId,
+  invoiceNumber,
+}: {
+  invoiceId: string;
+  invoiceNumber: string | null;
+}) {
   const canEdit = useIsSuperadmin();
+  const ask = useConfirm();
   const refresh = useAdminAeatAction('refresh-aeat');
   const resend = useAdminAeatAction('resend-aeat');
-  async function run(kind: 'refresh' | 'resend') {
+  async function runRefresh() {
     try {
-      const r = await (kind === 'refresh' ? refresh : resend).mutateAsync(invoiceId);
+      const r = await refresh.mutateAsync(invoiceId);
+      toast.success(r.message);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.body.message : 'No se pudo completar.');
+    }
+  }
+  async function runResend() {
+    const res = await ask({
+      title: `Reenviar ${invoiceNumber ?? 'la factura'} a la AEAT`,
+      description:
+        'Se vuelve a enviar el registro de la factura. Si estaba rechazada, se crea una subsanación en nombre del tenant. Queda anotado en su historial con tu motivo.',
+      confirmLabel: 'Reenviar',
+      input: { label: 'Motivo (obligatorio)', required: true },
+    });
+    if (!res) return;
+    const reason = res.value.trim();
+    if (reason.length < 3) {
+      toast.error('Indica el motivo (mínimo 3 caracteres).');
+      return;
+    }
+    try {
+      const r = await resend.mutateAsync({ invoiceId, reason });
       toast.success(r.message);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo completar.');
@@ -227,7 +325,7 @@ function AeatButtons({ invoiceId }: { invoiceId: string }) {
         variant="outline"
         className="h-7 text-xs"
         disabled={refresh.isPending}
-        onClick={() => void run('refresh')}
+        onClick={() => void runRefresh()}
       >
         Consultar AEAT
       </Button>
@@ -237,7 +335,7 @@ function AeatButtons({ invoiceId }: { invoiceId: string }) {
           variant="outline"
           className="h-7 text-xs"
           disabled={resend.isPending}
-          onClick={() => void run('resend')}
+          onClick={() => void runResend()}
         >
           Reenviar
         </Button>

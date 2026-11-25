@@ -1318,10 +1318,14 @@ export function useAdminCustomDomains() {
 export function useCustomDomainAction(action: 'verify' | 'revoke') {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (tenantId: string) =>
-      adminApiFetch<AdminCustomDomainDto>(`/admin/tenants/${tenantId}/custom-domain/${action}`, {
-        method: 'POST',
-      }),
+    /** `force` (solo al activar): salta las comprobaciones de DNS, https y plan. */
+    mutationFn: (arg: string | { tenantId: string; force?: boolean }) => {
+      const { tenantId, force } = typeof arg === 'string' ? { tenantId: arg, force: false } : arg;
+      return adminApiFetch<AdminCustomDomainDto>(
+        `/admin/tenants/${tenantId}/custom-domain/${action}`,
+        { method: 'POST', json: action === 'verify' && force ? { force: true } : {} },
+      );
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'custom-domains'] });
     },

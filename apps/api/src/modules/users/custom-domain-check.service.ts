@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { customDomainAlternate } from '@storageos/shared';
 
+import { reconcileAllCustomDomainPauses } from '../../common/custom-domain-pause';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Env } from '../../config/env.schema';
@@ -36,6 +37,31 @@ async function lookup(name: string): Promise<DnsAnswer> {
     addresses: a.status === 'fulfilled' ? a.value : [],
     cname: c.status === 'fulfilled' ? (c.value[0] ?? null) : null,
   };
+}
+
+/** ¿Responde el dominio por https (certificado válido)? Cualquier respuesta cuenta. */
+async function probeHttps(domain: string): Promise<boolean> {
+  // En pruebas no hay red: un nombre con `nohttps` no responde.
+  if (process.env.NODE_ENV === 'test') return !domain.includes('nohttps');
+  try {
+    await fetch(`https://${domain}/`, {
+      method: 'HEAD',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(6000),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resultado de comprobar un dominio: DNS (cada nombre) y, si apunta, https. */
+export interface DomainInspection {
+  ok: boolean;
+  hosts: CustomDomainHostCheckDto[];
+  expected: string[];
+  /** null = no se probó (el DNS no apunta). */
+  httpsOk: boolean | null;
 }
 
 /** Cada cuánto se vuelve a mirar la IP de la plataforma. */
@@ -129,6 +155,16 @@ export class CustomDomainCheckService {
     };
   }
 
+  /**
+   * DNS y https de un dominio, sin guardar nada. El https solo se prueba si el
+   * DNS ya apunta a la plataforma (nunca se hacen peticiones a destinos ajenos).
+   */
+  async inspect(domain: string): Promise<DomainInspection> {
+    const r = await this.resolve(domain);
+    const httpsOk = r.ok ? await probeHttps(domain) : null;
+    return { ...r, httpsOk };
+  }
+
   async check(tenantId: string): Promise<CustomDomainCheckDto> {
     const t = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -136,6 +172,7 @@ export class CustomDomainCheckService {
         name: true,
         customDomain: true,
         customDomainVerifiedAt: true,
+        customDomainPausedVerifiedAt: true,
         customDomainReadyAt: true,
       },
     });
@@ -145,10 +182,20 @@ export class CustomDomainCheckService {
         message: 'No tienes dominio propio',
       });
     }
-    const r = await this.resolve(t.customDomain);
+    const r = await this.inspect(t.customDomain);
     let readyAt = t.customDomainReadyAt;
-    if (r.ok && !t.customDomainVerifiedAt && !readyAt) {
+    const active = !!t.customDomainVerifiedAt || !!t.customDomainPausedVerifiedAt;
+    if (active) {
+      await this.recordCheck(tenantId, t.name, t.customDomain, r);
+    } else if (r.ok && !readyAt) {
       readyAt = await this.markReady(tenantId, t.name, t.customDomain);
+    } else if (!r.ok && readyAt) {
+      // Dejó de apuntar antes de activarse: «DNS listo desde…» ya no es cierto.
+      await this.admin.tenant.updateMany({
+        where: { id: tenantId, customDomainVerifiedAt: null, customDomainReadyAt: { not: null } },
+        data: { customDomainReadyAt: null },
+      });
+      readyAt = null;
     }
     return {
       domain: t.customDomain,
@@ -157,7 +204,66 @@ export class CustomDomainCheckService {
       found: r.hosts[0]?.found ?? [],
       expected: r.expected,
       readyAt: readyAt ? readyAt.toISOString() : null,
+      httpsOk: r.httpsOk,
     };
+  }
+
+  /**
+   * Guarda el resultado de comprobar un dominio activo y avisa al super admin
+   * una vez por episodio cuando deja de responder (de «bien» o «sin
+   * comprobar» a «mal»).
+   */
+  async recordCheck(
+    tenantId: string,
+    name: string,
+    domain: string,
+    r: DomainInspection,
+  ): Promise<void> {
+    const ok = r.ok && r.httpsOk !== false;
+    const issue = ok ? null : !r.ok ? 'dns' : 'https';
+    const now = new Date();
+    if (ok) {
+      await this.admin.tenant.updateMany({
+        where: { id: tenantId, customDomain: domain },
+        data: {
+          customDomainCheckedAt: now,
+          customDomainCheckOk: true,
+          customDomainCheckIssue: null,
+        },
+      });
+      return;
+    }
+    // Reserva del episodio: solo el que pasa de bien/sin comprobar a mal avisa.
+    const claimed = await this.admin.tenant.updateMany({
+      where: {
+        id: tenantId,
+        customDomain: domain,
+        OR: [{ customDomainCheckOk: null }, { customDomainCheckOk: true }],
+      },
+      data: {
+        customDomainCheckedAt: now,
+        customDomainCheckOk: false,
+        customDomainCheckIssue: issue,
+      },
+    });
+    if (claimed.count === 0) {
+      await this.admin.tenant.updateMany({
+        where: { id: tenantId, customDomain: domain },
+        data: { customDomainCheckedAt: now, customDomainCheckIssue: issue },
+      });
+      return;
+    }
+    await this.admin.superAdminNotification.create({
+      data: {
+        type: 'custom_domain.broken',
+        title: `${name}: ${domain} ya no responde`,
+        body:
+          issue === 'dns'
+            ? 'El DNS del dominio ya no apunta a la plataforma: su web, la reserva y los enlaces de sus correos están rotos.'
+            : 'El dominio apunta a la plataforma pero no responde por https (revisa el Proxy Host y su certificado).',
+        link: '/admin/custom-domains',
+      },
+    });
   }
 
   /** Marca el dominio como listo y avisa al super admin (una sola vez). */
@@ -179,26 +285,82 @@ export class CustomDomainCheckService {
     return now;
   }
 
-  /** Cada hora, los dominios pendientes que aún no avisaron. */
+  /**
+   * Cada hora, los dominios pendientes: los que ya apuntan avisan (una vez) y a
+   * los que dejaron de apuntar se les limpia «DNS listo desde…».
+   */
   @Cron('25 * * * *', { name: 'custom-domains.dns-check' })
   async checkPending(): Promise<void> {
     const pending = await this.admin.tenant.findMany({
       where: {
         customDomain: { not: null },
         customDomainVerifiedAt: null,
-        customDomainReadyAt: null,
+        customDomainPausedVerifiedAt: null,
         deletedAt: null,
       },
-      select: { id: true, name: true, customDomain: true },
+      select: { id: true, name: true, customDomain: true, customDomainReadyAt: true },
       take: 200,
     });
     for (const t of pending) {
       try {
         const r = await this.resolve(t.customDomain!);
-        if (r.ok) await this.markReady(t.id, t.name, t.customDomain!);
+        if (r.ok && !t.customDomainReadyAt) {
+          await this.markReady(t.id, t.name, t.customDomain!);
+        } else if (!r.ok && t.customDomainReadyAt) {
+          await this.admin.tenant.updateMany({
+            where: { id: t.id, customDomainVerifiedAt: null, customDomainReadyAt: { not: null } },
+            data: { customDomainReadyAt: null },
+          });
+        }
       } catch (err) {
         this.logger.warn(`custom-domain check ${t.customDomain}: ${(err as Error).message}`);
       }
+    }
+  }
+
+  /**
+   * Cada día, los dominios ACTIVOS (y los que están en pausa por plan): si el
+   * DNS deja de apuntar o el https no responde, avisa al super admin una vez
+   * por episodio. Su estado queda en el panel («Responde», «Ya no apunta»).
+   */
+  @Cron('40 6 * * *', { name: 'custom-domains.active-check' })
+  async checkActive(): Promise<number> {
+    const active = await this.admin.tenant.findMany({
+      where: {
+        customDomain: { not: null },
+        deletedAt: null,
+        OR: [
+          { customDomainVerifiedAt: { not: null } },
+          { customDomainPausedVerifiedAt: { not: null } },
+        ],
+      },
+      select: { id: true, name: true, customDomain: true },
+      take: 500,
+    });
+    let checked = 0;
+    for (const t of active) {
+      try {
+        await this.recordCheck(t.id, t.name, t.customDomain!, await this.inspect(t.customDomain!));
+        checked += 1;
+      } catch (err) {
+        this.logger.warn(`custom-domain active ${t.customDomain}: ${(err as Error).message}`);
+      }
+    }
+    return checked;
+  }
+
+  /**
+   * Cada 10 minutos: pausa los dominios cuyo plan ya no incluye la función y
+   * reactiva los que la recuperan (red de seguridad: los cambios de plan,
+   * funciones o extras ya lo hacen al momento).
+   */
+  @Cron('*/10 * * * *', { name: 'custom-domains.plan-sync' })
+  async syncWithPlans(): Promise<{ paused: string[]; resumed: string[] }> {
+    try {
+      return await reconcileAllCustomDomainPauses(this.admin);
+    } catch (err) {
+      this.logger.warn(`custom-domain plan-sync: ${(err as Error).message}`);
+      return { paused: [], resumed: [] };
     }
   }
 }

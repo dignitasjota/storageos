@@ -1447,13 +1447,40 @@ export interface AdminCustomDomainDto {
   tenantName: string;
   tenantSlug: string;
   customDomain: string;
-  /** null = pendiente de activar; ISO = activo. */
+  /** null = pendiente de activar (o en pausa); ISO = activo. */
   verifiedAt: string | null;
+  /**
+   * En pausa: se activó, pero su plan ya no incluye la función. Los enlaces
+   * usan la dirección de la plataforma y se reactiva solo si la recupera.
+   */
+  pausedByPlan: boolean;
+  /** Cuándo se activó (también en pausa). */
+  activatedAt: string | null;
+  /** Quién lo activó (super admin), si consta en el registro. */
+  activatedByName: string | null;
   planSlug: string;
   /** Su plan o un extra le dan el dominio propio. */
   featureEnabled: boolean;
   /** El tenant dijo que ya configuró el DNS (o lo comprobó el aviso horario). */
   dnsReadyAt: string | null;
+  /** Estado del tenant (active, trial, suspended…). */
+  tenantStatus: string;
+  /** Última comprobación del dominio activo. */
+  checkedAt: string | null;
+  /** null = sin comprobar aún. */
+  checkOk: boolean | null;
+  /** dns | https cuando la última comprobación falló. */
+  checkIssue: string | null;
+}
+
+/** Por qué no se puede activar un dominio propio (409 `custom_domain_not_ready`). */
+export interface AdminCustomDomainBlockDto {
+  /** El plan del tenant no incluye la función. */
+  featureMissing: boolean;
+  /** Resultado del DNS: el principal y su forma con o sin `www.`. */
+  hosts: { host: string; purpose: 'primary' | 'alternate'; pointsToPlatform: boolean }[];
+  /** null = no se probó (el DNS no apunta). */
+  httpsOk: boolean | null;
 }
 
 /** Un add-on del catálogo facturable del SaaS. */
@@ -1895,6 +1922,14 @@ export interface AdminCronStatusDto {
   overdue: boolean;
 }
 
+/** Certificado de la AEAT de un propietario (plan Administrador). */
+export interface AdminOwnerCertificateDto {
+  ownerName: string | null;
+  validTo: string;
+  /** Días que faltan (≤0 = caducado). */
+  daysLeft: number;
+}
+
 /** Salud de la facturación de un tenant (Veri*Factu y Holded). */
 export interface AdminTenantBillingHealthDto {
   tenantId: string;
@@ -1902,14 +1937,37 @@ export interface AdminTenantBillingHealthDto {
   tenantSlug: string;
   /** app | holded */
   invoicingMode: string;
+  /** El negocio tiene Veri*Factu activado. */
+  verifactuEnabled: boolean;
+  /** Incidencias que cuentan para este tenant (lo que se ordena y filtra). */
+  issues: number;
   aeatRejected: number;
   aeatError: number;
+  /** Aceptadas con errores: hay que subsanarlas. */
+  aeatWarnings: number;
   /** Enviadas hace más de 48 h y todavía pendientes de respuesta de la AEAT. */
   aeatPendingStale: number;
+  /** Registros que no han llegado a enviarse (más de 48 h o con envíos fallando). */
+  unsentRecords: number;
+  /** Desde cuándo está el más antiguo sin enviarse. */
+  unsentSince: string | null;
+  /** Último error del emisor al intentar enviarlos. */
+  unsentLastError: string | null;
+  /** Envíos enteros fallidos o rechazados (últimos 7 días) sin un envío correcto después. */
+  failedSubmissions: number;
+  lastSubmissionError: string | null;
+  lastSubmissionAt: string | null;
+  /** Último envío aceptado por la AEAT. */
+  lastSentAt: string | null;
   holdedEnabled: boolean;
   holdedReview: number;
+  /** Certificado del propio negocio (el más reciente vigente). */
   certificateValidTo: string | null;
   certificateDaysLeft: number | null;
+  /** Veri*Factu activo con envío real y sin certificado vigente. */
+  certificateMissing: boolean;
+  /** Certificados de sus propietarios. */
+  ownerCertificates: AdminOwnerCertificateDto[];
 }
 
 export interface AdminBillingIssueInvoiceDto {
@@ -1918,16 +1976,23 @@ export interface AdminBillingIssueInvoiceDto {
   tenantName: string;
   invoiceNumber: string | null;
   issueDate: string | null;
+  /** pending | accepted_with_warnings | rejected | error */
   aeatStatus: string;
   aeatSentAt: string | null;
-  /** Mensaje de la AEAT, si lo hay. */
+  /** Pendiente que nunca ha llegado a enviarse. */
+  unsent: boolean;
+  /** Mensaje de la AEAT o último error del envío, si lo hay. */
   message: string | null;
 }
 
 export interface AdminBillingHealthDto {
+  /** stub (simulado) | sandbox (pruebas de la AEAT) | production (real). */
+  aeatMode: 'stub' | 'sandbox' | 'production';
   tenants: AdminTenantBillingHealthDto[];
-  /** Facturas con problema (rechazadas, con error o pendientes >48 h), más recientes primero. */
+  /** Facturas con problema (rechazadas, con error, con avisos o sin enviar), más recientes primero. */
   invoices: AdminBillingIssueInvoiceDto[];
+  /** Total de facturas con problema (la lista trae las más recientes). */
+  invoicesTotal: number;
 }
 
 /** Estado de cuenta del tenant para avisar de pagos pendientes en su panel. */

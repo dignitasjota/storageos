@@ -786,8 +786,8 @@ export default function AdminTodayPage() {
                     name={t.tenantName}
                     detail={pluralEs(
                       t.count,
-                      'factura rechazada, con error o sin respuesta',
-                      'facturas rechazadas, con error o sin respuesta',
+                      'incidencia con la AEAT (rechazada, con errores, sin enviar o sin certificado)',
+                      'incidencias con la AEAT (rechazadas, con errores, sin enviar o sin certificado)',
                     )}
                     urgent
                     snooze={{ kind: 'aeat', ref: t.tenantId, label: t.tenantName }}

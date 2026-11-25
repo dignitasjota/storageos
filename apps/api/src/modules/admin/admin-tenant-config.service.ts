@@ -243,7 +243,9 @@ export class AdminTenantConfigService {
       web.push(
         tenant.customDomainVerifiedAt
           ? on('Dominio propio', tenant.customDomain)
-          : warn('Dominio propio', `${tenant.customDomain} (pendiente de activar)`),
+          : tenant.customDomainPausedVerifiedAt
+            ? warn('Dominio propio', `${tenant.customDomain} (en pausa: su plan no lo incluye)`)
+            : warn('Dominio propio', `${tenant.customDomain} (pendiente de activar)`),
       );
     } else {
       web.push(off('Dominio propio', 'No'));

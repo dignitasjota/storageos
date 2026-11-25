@@ -134,6 +134,8 @@ export class AdminTodayExtrasService {
         status: { not: 'cancelled' },
         customDomain: { not: null },
         customDomainVerifiedAt: null,
+        // En pausa por plan no es «por activar».
+        customDomainPausedVerifiedAt: null,
         customDomainReadyAt: { not: null },
       },
       orderBy: { customDomainReadyAt: 'asc' },

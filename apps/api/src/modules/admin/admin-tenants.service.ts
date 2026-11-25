@@ -14,6 +14,7 @@ import {
 } from '@storageos/shared';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
+import { reconcileCustomDomainPause } from '../../common/custom-domain-pause';
 import { todayInTimezone, zonedNextDayStart } from '../../common/format';
 import { attachmentKeysOf } from '../../common/message-attachments';
 import {
@@ -56,7 +57,6 @@ import type {
   AdminAdoptionDto,
   AdminAtRiskDto,
   AtRiskKind,
-  AdminCustomDomainDto,
   AdminAtRiskTenantDto,
   AdminFeatureAdoptionDto,
   AdminOnboardingDto,
@@ -2268,116 +2268,8 @@ export class AdminTenantsService {
       userAgent: args.userAgent ?? null,
       changes: { overrides: effectiveOverrides },
     });
+    await reconcileCustomDomainPause(this.admin, tenantId);
     return this.getFeatures(tenantId);
-  }
-
-  /** Cola de dominios propios (pendientes de activar + activos). */
-  async listCustomDomains(): Promise<AdminCustomDomainDto[]> {
-    const tenants = await this.admin.tenant.findMany({
-      where: { customDomain: { not: null }, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        customDomain: true,
-        customDomainVerifiedAt: true,
-        customDomainReadyAt: true,
-        subscription: {
-          select: { plan: { select: { slug: true, tenantFeatures: true } } },
-        },
-      },
-      orderBy: [{ customDomainVerifiedAt: 'asc' }, { name: 'asc' }],
-    });
-    const overrides = await this.admin.tenantFeatureOverride.findMany({
-      where: { tenantId: { in: tenants.map((t) => t.id) }, ...liveOverrideWhere() },
-      select: { tenantId: true, feature: true, enabled: true },
-    });
-    const overridesBy = new Map<string, { feature: TenantFeature; enabled: boolean }[]>();
-    for (const o of overrides) {
-      const list = overridesBy.get(o.tenantId) ?? [];
-      list.push({ feature: o.feature as TenantFeature, enabled: o.enabled });
-      overridesBy.set(o.tenantId, list);
-    }
-    return tenants.map((t) => ({
-      tenantId: t.id,
-      tenantName: t.name,
-      tenantSlug: t.slug,
-      customDomain: t.customDomain!,
-      verifiedAt: t.customDomainVerifiedAt?.toISOString() ?? null,
-      planSlug: t.subscription?.plan.slug ?? 'free',
-      featureEnabled: effectiveFeaturesFromList(
-        t.subscription ? resolvePlanFeatures(t.subscription.plan) : [],
-        overridesBy.get(t.id) ?? [],
-      ).includes('custom_domain'),
-      dnsReadyAt: t.customDomainReadyAt?.toISOString() ?? null,
-    }));
-  }
-
-  /** Activa (verifica) el dominio propio de un tenant tras configurar NPM. */
-  async verifyCustomDomain(tenantId: string, args: ActionMeta): Promise<AdminCustomDomainDto> {
-    const tenant = await this.findOrThrow(tenantId);
-    if (!tenant.customDomain) {
-      throw new NotFoundException({ code: 'no_custom_domain', message: 'Sin dominio propio' });
-    }
-    await this.admin.tenant.update({
-      where: { id: tenantId },
-      data: { customDomainVerifiedAt: new Date() },
-    });
-    await this.traceCustomDomain(
-      tenantId,
-      'admin.tenant.custom_domain_verified',
-      tenant.customDomain,
-      args,
-    );
-    return (await this.listCustomDomains()).find((d) => d.tenantId === tenantId)!;
-  }
-
-  /** Desactiva (revoca) el dominio propio: deja de servirse bajo la marca. */
-  async revokeCustomDomain(tenantId: string, args: ActionMeta): Promise<AdminCustomDomainDto> {
-    const tenant = await this.findOrThrow(tenantId);
-    if (!tenant.customDomain) {
-      throw new NotFoundException({ code: 'no_custom_domain', message: 'Sin dominio propio' });
-    }
-    await this.admin.tenant.update({
-      where: { id: tenantId },
-      data: { customDomainVerifiedAt: null },
-    });
-    await this.traceCustomDomain(
-      tenantId,
-      'admin.tenant.custom_domain_revoked',
-      tenant.customDomain,
-      args,
-    );
-    return (await this.listCustomDomains()).find((d) => d.tenantId === tenantId)!;
-  }
-
-  private async traceCustomDomain(
-    tenantId: string,
-    action: string,
-    domain: string,
-    args: ActionMeta,
-  ): Promise<void> {
-    const changes = { customDomain: domain };
-    await this.audit.write({
-      tenantId,
-      userId: null,
-      action,
-      entityType: 'Tenant',
-      entityId: tenantId,
-      changes: { superAdminId: args.superAdminId, ...changes },
-      ipAddress: args.ipAddress ?? null,
-      userAgent: args.userAgent ?? null,
-    });
-    await this.superAdminAudit.record({
-      superAdminId: args.superAdminId,
-      action,
-      targetType: 'tenant',
-      targetId: tenantId,
-      targetTenantId: tenantId,
-      ipAddress: args.ipAddress ?? null,
-      userAgent: args.userAgent ?? null,
-      changes,
-    });
   }
 
   async changePlan(
@@ -2502,6 +2394,8 @@ export class AdminTenantsService {
         data: { status: 'accepted', resolvedAt: new Date() },
       })
       .catch(() => undefined);
+    // Un plan sin dominio propio deja el suyo en pausa (y al revés).
+    await reconcileCustomDomainPause(this.admin, tenantId);
     return this.detail(tenantId);
   }
 
@@ -3078,6 +2972,10 @@ export class AdminTenantsService {
           customDomain: null,
           customDomainVerifiedAt: null,
           customDomainReadyAt: null,
+          customDomainPausedVerifiedAt: null,
+          customDomainCheckedAt: null,
+          customDomainCheckOk: null,
+          customDomainCheckIssue: null,
           // Lo programado ya no hace falta.
           cancelScheduledAt: null,
           cancelScheduledReason: null,

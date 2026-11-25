@@ -72,11 +72,13 @@ export function useCheckCustomDomain() {
 export function useAdminAeatAction(action: 'refresh-aeat' | 'resend-aeat') {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (invoiceId: string) =>
-      adminApiFetch<AdminAeatActionResultDto>(
+    mutationFn: (arg: string | { invoiceId: string; reason?: string }) => {
+      const { invoiceId, reason } = typeof arg === 'string' ? { invoiceId: arg } : arg;
+      return adminApiFetch<AdminAeatActionResultDto>(
         `/admin/billing-health/invoices/${invoiceId}/${action}`,
-        { method: 'POST' },
-      ),
+        { method: 'POST', json: action === 'resend-aeat' ? { reason } : {} },
+      );
+    },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['admin', 'billing-health'] }),
   });
 }

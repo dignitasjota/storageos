@@ -554,6 +554,13 @@ model Tenant {
   customDomainVerifiedAt       DateTime?             @map("custom_domain_verified_at") @db.Timestamptz(6)
   /// El tenant avisó de que el DNS ya apunta a la plataforma.
   customDomainReadyAt          DateTime?             @map("custom_domain_ready_at") @db.Timestamptz(6)
+  /// Dominio propio en pausa por plan: cuándo se activó (verified_at queda en null).
+  customDomainPausedVerifiedAt DateTime?             @map("custom_domain_paused_verified_at") @db.Timestamptz(6)
+  /// Última comprobación del dominio activo (DNS y HTTPS).
+  customDomainCheckedAt        DateTime?             @map("custom_domain_checked_at") @db.Timestamptz(6)
+  customDomainCheckOk          Boolean?              @map("custom_domain_check_ok")
+  /// dns | https cuando la última comprobación falló.
+  customDomainCheckIssue       String?               @map("custom_domain_check_issue")
   nightPassEnabled             Boolean               @default(false) @map("night_pass_enabled")
   nightPassPrice               Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   collectionsEnabled           Boolean               @default(false) @map("collections_enabled")

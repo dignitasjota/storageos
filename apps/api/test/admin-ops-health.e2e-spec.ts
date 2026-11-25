@@ -7,7 +7,7 @@ import { AeatCertExpiryService } from '../src/modules/admin/aeat-cert-expiry.ser
 import { registerVerifiedUser } from './helpers/auth-flow';
 import { createDraftInvoice } from './helpers/billing-fixtures';
 import { createCustomer } from './helpers/customer-fixtures';
-import { cleanupTestTenants } from './helpers/tenant-fixtures';
+import { cleanupTestTenants, enableVerifactu } from './helpers/tenant-fixtures';
 import { createTestApp } from './helpers/test-app.factory';
 
 import type { INestApplication } from '@nestjs/common';
@@ -84,6 +84,8 @@ describe('Salud operativa del super admin (e2e)', () => {
   it('facturas rechazadas por la AEAT y certificados a punto de caducar', async () => {
     const owner = await registerVerifiedUser(app, 'opshealth');
     const tenantAuth = { Authorization: `Bearer ${owner.accessToken}` };
+    // Solo cuentan los negocios con Veri*Factu activado.
+    await enableVerifactu(owner.slug);
     const customerId = await createCustomer(app, owner.accessToken, { email: 'ops@e2e.local' });
     const invoiceId = await createDraftInvoice(app, owner.accessToken, customerId);
     await request(app.getHttpServer())

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { FEATURE_LABELS, type TenantFeature } from '@storageos/shared';
 
+import { reconcileCustomDomainPause } from '../../common/custom-domain-pause';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
@@ -84,6 +85,8 @@ export class FeatureExpiryService {
       });
       if (removed.count === 0) continue;
       expired += 1;
+      // Sin la función, su dominio propio queda en pausa.
+      if (o.feature === 'custom_domain') await reconcileCustomDomainPause(this.admin, o.tenantId);
       const name = o.trialAddon?.name ?? this.label(o.feature);
       if (o.source === 'trial') {
         await this.lifecycle.sendFeatureTrialNotice(o.tenantId, `feature_trial_ended:${o.id}`, {

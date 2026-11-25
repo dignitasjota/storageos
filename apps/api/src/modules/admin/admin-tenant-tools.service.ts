@@ -273,10 +273,14 @@ export class AdminTenantToolsService {
     };
   }
 
-  async resendAeat(invoiceId: string, meta: Meta): Promise<AdminAeatActionResultDto> {
+  async resendAeat(
+    invoiceId: string,
+    reason: string,
+    meta: Meta,
+  ): Promise<AdminAeatActionResultDto> {
     const tenantId = await this.invoiceTenant(invoiceId);
-    await this.invoices.resendAeat(invoiceId, tenantId);
-    await this.trace(meta, 'admin.invoice.aeat_resent', tenantId, { invoiceId });
+    await this.invoices.resendAeat(invoiceId, tenantId, null, { userId: null, reason });
+    await this.trace(meta, 'admin.invoice.aeat_resent', tenantId, { invoiceId, reason });
     return { invoiceId, aeatStatus: 'pending', message: 'Reenvío a la AEAT en cola.' };
   }
 

@@ -72,6 +72,7 @@ describe('Web externa del tenant (e2e)', () => {
     await request(app.getHttpServer())
       .post(`/admin/tenants/${tenantRow!.id}/custom-domain/verify`)
       .set({ Authorization: `Bearer ${adminToken}` })
+      .send({ force: true })
       .expect(200);
     return { owner, domain };
   }

@@ -20,6 +20,7 @@ import {
   CreateAdminSavedViewSchema,
   SALES_SAVED_VIEW_PAGES,
   type AdminSavedViewPage,
+  AdminResendAeatSchema,
   SnoozeRiskSchema,
   type AdminAeatActionResultDto,
   type AdminAnonymizePreviewDto,
@@ -40,6 +41,7 @@ import { RequireSuperadmin, SalesAccess } from './require-superadmin.decorator';
 import type { Request } from 'express';
 
 class AdminCreateTenantDto extends createZodDto(AdminCreateTenantSchema) {}
+class AdminResendAeatDto extends createZodDto(AdminResendAeatSchema) {}
 class SnoozeRiskDto extends createZodDto(SnoozeRiskSchema) {}
 class CreateAdminSavedViewDto extends createZodDto(CreateAdminSavedViewSchema) {}
 
@@ -131,9 +133,10 @@ export class AdminTenantToolsController {
   resendAeat(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
+    @Body() body: AdminResendAeatDto,
     @Req() req: Request,
   ): Promise<AdminAeatActionResultDto> {
-    return this.tools.resendAeat(invoiceId, meta(admin, req));
+    return this.tools.resendAeat(invoiceId, body.reason, meta(admin, req));
   }
 
   @Get('tenants/:id/users/:userId/sessions')

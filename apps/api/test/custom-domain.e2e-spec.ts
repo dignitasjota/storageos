@@ -96,7 +96,9 @@ describe('Dominio propio del tenant (e2e)', () => {
     const tenantRow = await adminClient.tenant.findUnique({ where: { slug: owner.slug } });
     const verify = await request(app.getHttpServer())
       .post(`/admin/tenants/${tenantRow!.id}/custom-domain/verify`)
-      .set({ Authorization: `Bearer ${adminToken}` });
+      .set({ Authorization: `Bearer ${adminToken}` })
+      // El dominio de prueba no existe en el DNS: se activa igualmente.
+      .send({ force: true });
     expect(verify.status).toBe(200);
     expect(verify.body.verifiedAt).not.toBeNull();
 

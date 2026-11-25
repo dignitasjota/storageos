@@ -56,6 +56,7 @@ export class ConfigHealthService {
             verifactuEnabled: true,
             customDomain: true,
             customDomainVerifiedAt: true,
+            customDomainPausedVerifiedAt: true,
             customDomainReadyAt: true,
           },
         }),
@@ -142,7 +143,16 @@ export class ConfigHealthService {
         href: '/settings/payments',
       });
     }
-    if (t.customDomain && !t.customDomainVerifiedAt) {
+    if (t.customDomain && t.customDomainPausedVerifiedAt) {
+      out.push({
+        key: 'domain_paused',
+        level: 'warning',
+        title: `Tu dominio ${t.customDomain} está en pausa`,
+        detail:
+          'Tu plan ya no incluye el dominio propio: los enlaces usan la dirección de TrasterOS. Se reactiva solo si vuelves a tener la función.',
+        href: '/settings/saas-billing',
+      });
+    } else if (t.customDomain && !t.customDomainVerifiedAt) {
       out.push({
         key: 'domain_pending',
         level: 'warning',

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { TtlCache } from '../../common/cache/ttl-cache';
 import { HoldedSyncService } from '../accounting/holded-sync.service';
@@ -6,11 +7,13 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import { AeatCertExpiryService } from './aeat-cert-expiry.service';
 
+import type { Env } from '../../config/env.schema';
 import type {
   AdminBillingHealthDto,
   AdminBillingIssueInvoiceDto,
   AdminCertificateExpiringDto,
   AdminCronStatusDto,
+  AdminOwnerCertificateDto,
   AdminTenantBillingHealthDto,
   AdminTenantIssueCountDto,
 } from '@storageos/shared';
@@ -22,6 +25,12 @@ const AEAT_PENDING_STALE_MS = 48 * HOUR_MS;
 const CRON_GRACE_MS = 15 * 60 * 1000;
 /** Un dispositivo visto antes y sin señal desde hace más de esto está sin conexión. */
 const DEVICE_OFFLINE_MS = HOUR_MS;
+/** Envíos fallidos seguidos de un emisor a partir de los cuales se considera atascado. */
+const EMITTER_FAILING_THRESHOLD = 3;
+/** Los envíos enteros fallidos se enseñan durante este plazo. */
+const FAILED_SUBMISSION_DAYS = 7;
+/** La lista de facturas con problema trae las más recientes. */
+const PROBLEM_INVOICES_LIMIT = 50;
 
 /** Mensaje legible de la respuesta guardada de la AEAT. */
 function aeatMessage(response: unknown): string | null {
@@ -48,7 +57,78 @@ export class AdminOpsHealthService {
     private readonly admin: PrismaAdminService,
     private readonly holded: HoldedSyncService,
     private readonly certificates: AeatCertExpiryService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /** Modo del envío a la AEAT de la plataforma. */
+  private aeatMode(): 'stub' | 'sandbox' | 'production' {
+    return this.config.get('AEAT_MODE', { infer: true });
+  }
+
+  /** Negocios cuyos problemas de Veri*Factu se cuentan: vivos y con Veri*Factu activado. */
+  private liveVerifactuTenant() {
+    return { deletedAt: null, status: { not: 'cancelled' as const }, verifactuEnabled: true };
+  }
+
+  /**
+   * Emisores con envíos fallando de forma repetida (SOAP fault, sin respuesta…):
+   * sus registros pendientes están atascados aunque aún no lleven 48 h.
+   */
+  private async failingEmitters() {
+    return this.admin.verifactuEmitter.findMany({
+      where: {
+        consecutiveFailures: { gte: EMITTER_FAILING_THRESHOLD },
+        tenant: this.liveVerifactuTenant(),
+      },
+      select: {
+        tenantId: true,
+        ownerId: true,
+        consecutiveFailures: true,
+        lastError: true,
+        retryAt: true,
+      },
+    });
+  }
+
+  /** Registros pendientes que nunca han salido: >48 h o de un emisor que falla. */
+  private unsentRecordWhere(
+    staleBefore: Date,
+    failing: { tenantId: string; ownerId: string | null }[],
+  ) {
+    return {
+      status: 'pending' as const,
+      sentAt: null,
+      tenant: this.liveVerifactuTenant(),
+      OR: [
+        { createdAt: { lt: staleBefore } },
+        ...failing.map((f) => ({ tenantId: f.tenantId, ownerId: f.ownerId })),
+      ],
+    };
+  }
+
+  /** Facturas con problema en la AEAT (incluye las que nunca llegaron a enviarse). */
+  private aeatProblemWhere(
+    staleBefore: Date,
+    failing: { tenantId: string; ownerId: string | null }[],
+  ) {
+    return {
+      deletedAt: null,
+      tenant: this.liveVerifactuTenant(),
+      OR: [
+        {
+          aeatStatus: {
+            in: ['rejected' as const, 'error' as const, 'accepted_with_warnings' as const],
+          },
+        },
+        { aeatStatus: 'pending' as const, aeatSentAt: { lt: staleBefore } },
+        {
+          aeatStatus: 'pending' as const,
+          aeatSentAt: null,
+          verifactuRecords: { some: this.unsentRecordWhere(staleBefore, failing) },
+        },
+      ],
+    };
+  }
 
   async removeCron(name: string): Promise<{ removed: number }> {
     const { count } = await this.admin.cronHeartbeat.deleteMany({ where: { name } });
@@ -79,14 +159,42 @@ export class AdminOpsHealthService {
     }));
   }
 
-  /** Tenants con facturas rechazadas/con error en la AEAT o pendientes >48 h. */
+  /**
+   * Tenants con facturas rechazadas, con error o aceptadas con errores en la
+   * AEAT, pendientes de respuesta >48 h o sin enviar, y los que tienen Veri*Factu
+   * real activo sin certificado.
+   */
   async aeatIssues(now = new Date()): Promise<AdminTenantIssueCountDto[]> {
+    const staleBefore = new Date(now.getTime() - AEAT_PENDING_STALE_MS);
+    const failing = await this.failingEmitters();
     const rows = await this.admin.invoice.groupBy({
       by: ['tenantId'],
-      where: { deletedAt: null, ...this.aeatProblemWhere(now) },
+      where: this.aeatProblemWhere(staleBefore, failing),
       _count: { _all: true },
     });
-    return this.withNames(rows.map((r) => ({ tenantId: r.tenantId, count: r._count._all })));
+    const counts = new Map(rows.map((r) => [r.tenantId, r._count._all]));
+    for (const id of await this.tenantsWithoutCertificate()) {
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return this.withNames([...counts].map(([tenantId, count]) => ({ tenantId, count })));
+  }
+
+  /**
+   * Negocios con Veri*Factu activado, envío real (pruebas o producción) y sin
+   * certificado vigente propio (ninguno o revocado). Los que emiten en Holded no
+   * lo necesitan.
+   */
+  private async tenantsWithoutCertificate(): Promise<string[]> {
+    if (this.aeatMode() === 'stub') return [];
+    const tenants = await this.admin.tenant.findMany({
+      where: {
+        ...this.liveVerifactuTenant(),
+        invoicingMode: 'app',
+        aeatCredentials: { none: { revokedAt: null, ownerId: null } },
+      },
+      select: { id: true },
+    });
+    return tenants.map((t) => t.id);
   }
 
   /** Tenants con Holded activo y envíos «para revisar». */
@@ -125,33 +233,74 @@ export class AdminOpsHealthService {
     return this.withNames(rows.map((r) => ({ tenantId: r.tenantId, count: r._count._all })));
   }
 
-  /** Página «Facturación de los tenants»: por tenant y facturas con problema. */
+  /** Página «Problemas de facturación»: por tenant y facturas con problema. */
   async billingHealth(now = new Date()): Promise<AdminBillingHealthDto> {
     const staleBefore = new Date(now.getTime() - AEAT_PENDING_STALE_MS);
-    const [byStatus, stale, holdedEnabled, certs, problemInvoices] = await Promise.all([
+    const failedSince = new Date(now.getTime() - FAILED_SUBMISSION_DAYS * 24 * HOUR_MS);
+    const realMode = this.aeatMode() !== 'stub';
+    const failing = await this.failingEmitters();
+    const tenantWhere = this.liveVerifactuTenant();
+    const problemWhere = this.aeatProblemWhere(staleBefore, failing);
+
+    const [
+      byStatus,
+      stale,
+      unsent,
+      emitters,
+      holdedEnabled,
+      certs,
+      problemInvoices,
+      invoicesTotal,
+      failedSubmissions,
+      acceptedSubmissions,
+    ] = await Promise.all([
       this.admin.invoice.groupBy({
         by: ['tenantId', 'aeatStatus'],
-        where: { deletedAt: null, aeatStatus: { in: ['rejected', 'error'] } },
+        where: {
+          deletedAt: null,
+          tenant: tenantWhere,
+          aeatStatus: { in: ['rejected', 'error', 'accepted_with_warnings'] },
+        },
         _count: { _all: true },
       }),
       this.admin.invoice.groupBy({
         by: ['tenantId'],
-        where: { deletedAt: null, aeatStatus: 'pending', aeatSentAt: { lt: staleBefore } },
+        where: {
+          deletedAt: null,
+          tenant: tenantWhere,
+          aeatStatus: 'pending',
+          aeatSentAt: { lt: staleBefore },
+        },
         _count: { _all: true },
+      }),
+      this.admin.verifactuRecord.groupBy({
+        by: ['tenantId', 'ownerId'],
+        where: this.unsentRecordWhere(staleBefore, failing),
+        _count: { _all: true },
+        _min: { createdAt: true },
+      }),
+      this.admin.verifactuEmitter.findMany({
+        where: { tenant: tenantWhere, consecutiveFailures: { gt: 0 } },
+        select: { tenantId: true, ownerId: true, lastError: true, consecutiveFailures: true },
       }),
       this.admin.holdedSettings.findMany({
         where: { enabled: true },
         select: { tenantId: true },
       }),
       this.admin.tenantAeatCredential.findMany({
-        where: { revokedAt: null, ownerId: null },
+        where: { revokedAt: null },
         orderBy: { certValidTo: 'desc' },
-        select: { tenantId: true, certValidTo: true },
+        select: {
+          tenantId: true,
+          ownerId: true,
+          certValidTo: true,
+          owner: { select: { legalName: true } },
+        },
       }),
       this.admin.invoice.findMany({
-        where: { deletedAt: null, ...this.aeatProblemWhere(now) },
-        orderBy: [{ aeatSentAt: 'desc' }],
-        take: 50,
+        where: problemWhere,
+        orderBy: [{ aeatSentAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+        take: PROBLEM_INVOICES_LIMIT,
         select: {
           id: true,
           tenantId: true,
@@ -160,27 +309,54 @@ export class AdminOpsHealthService {
           aeatStatus: true,
           aeatSentAt: true,
           aeatResponse: true,
+          ownerId: true,
           tenant: { select: { name: true } },
         },
+      }),
+      this.admin.invoice.count({ where: problemWhere }),
+      this.admin.verifactuSubmission.findMany({
+        where: {
+          sentAt: { gte: failedSince },
+          status: { in: ['error', 'rejected'] },
+          tenant: tenantWhere,
+        },
+        orderBy: { sentAt: 'desc' },
+        select: { tenantId: true, ownerId: true, status: true, message: true, sentAt: true },
+      }),
+      this.admin.verifactuSubmission.groupBy({
+        by: ['tenantId', 'ownerId'],
+        where: { status: { in: ['accepted', 'partially_accepted'] }, tenant: tenantWhere },
+        _max: { sentAt: true },
       }),
     ]);
 
     const rows = new Map<
       string,
-      Omit<AdminTenantBillingHealthDto, 'tenantName' | 'tenantSlug' | 'invoicingMode'>
+      Omit<AdminTenantBillingHealthDto, 'tenantName' | 'tenantSlug' | 'invoicingMode' | 'issues'>
     >();
     const row = (tenantId: string) => {
       let r = rows.get(tenantId);
       if (!r) {
         r = {
           tenantId,
+          verifactuEnabled: false,
           aeatRejected: 0,
           aeatError: 0,
+          aeatWarnings: 0,
           aeatPendingStale: 0,
+          unsentRecords: 0,
+          unsentSince: null,
+          unsentLastError: null,
+          failedSubmissions: 0,
+          lastSubmissionError: null,
+          lastSubmissionAt: null,
+          lastSentAt: null,
           holdedEnabled: false,
           holdedReview: 0,
           certificateValidTo: null,
           certificateDaysLeft: null,
+          certificateMissing: false,
+          ownerCertificates: [],
         };
         rows.set(tenantId, r);
       }
@@ -189,13 +365,55 @@ export class AdminOpsHealthService {
     for (const g of byStatus) {
       if (g.aeatStatus === 'rejected') row(g.tenantId).aeatRejected = g._count._all;
       if (g.aeatStatus === 'error') row(g.tenantId).aeatError = g._count._all;
+      if (g.aeatStatus === 'accepted_with_warnings') row(g.tenantId).aeatWarnings = g._count._all;
     }
     for (const g of stale) row(g.tenantId).aeatPendingStale = g._count._all;
+
+    // Registros sin enviar: cuántos, desde cuándo y el último error del emisor.
+    const emitterOf = (tenantId: string, ownerId: string | null) =>
+      emitters.find((e) => e.tenantId === tenantId && e.ownerId === ownerId);
+    for (const g of unsent) {
+      const r = row(g.tenantId);
+      r.unsentRecords += g._count._all;
+      const since = g._min.createdAt;
+      if (since && (!r.unsentSince || since.toISOString() < r.unsentSince)) {
+        r.unsentSince = since.toISOString();
+      }
+      r.unsentLastError ??= emitterOf(g.tenantId, g.ownerId)?.lastError?.slice(0, 300) ?? null;
+    }
+
+    // Envíos enteros fallidos o rechazados que no tienen uno correcto después.
+    const lastAccepted = new Map<string, Date>();
+    for (const a of acceptedSubmissions) {
+      if (a._max.sentAt) lastAccepted.set(`${a.tenantId}:${a.ownerId ?? ''}`, a._max.sentAt);
+      const r = row(a.tenantId);
+      const iso = a._max.sentAt?.toISOString() ?? null;
+      if (iso && (!r.lastSentAt || iso > r.lastSentAt)) r.lastSentAt = iso;
+    }
+    for (const f of failedSubmissions) {
+      const ok = lastAccepted.get(`${f.tenantId}:${f.ownerId ?? ''}`);
+      if (ok && ok >= f.sentAt) continue;
+      const r = row(f.tenantId);
+      r.failedSubmissions += 1;
+      // Vienen de más reciente a más antiguo: el primero es el último.
+      r.lastSubmissionError ??= f.message?.slice(0, 300) ?? null;
+      r.lastSubmissionAt ??= f.sentAt.toISOString();
+    }
+
     for (const c of certs) {
+      const daysLeft = Math.ceil((c.certValidTo.getTime() - now.getTime()) / (24 * HOUR_MS));
+      if (c.ownerId) {
+        row(c.tenantId).ownerCertificates.push({
+          ownerName: c.owner?.legalName ?? null,
+          validTo: c.certValidTo.toISOString(),
+          daysLeft,
+        } satisfies AdminOwnerCertificateDto);
+        continue;
+      }
       const r = row(c.tenantId);
       if (r.certificateValidTo) continue; // ya tiene el más reciente
       r.certificateValidTo = c.certValidTo.toISOString();
-      r.certificateDaysLeft = Math.ceil((c.certValidTo.getTime() - now.getTime()) / (24 * HOUR_MS));
+      r.certificateDaysLeft = daysLeft;
     }
     await Promise.all(
       holdedEnabled.map(async (h) => {
@@ -205,48 +423,68 @@ export class AdminOpsHealthService {
       }),
     );
 
+    // Todos los negocios con Veri*Factu activado salen, tengan o no problemas
+    // (con «Solo con problemas» se filtra en pantalla).
     const tenants = await this.admin.tenant.findMany({
-      where: { id: { in: [...rows.keys()] }, deletedAt: null },
-      select: { id: true, name: true, slug: true, invoicingMode: true },
+      where: {
+        deletedAt: null,
+        status: { not: 'cancelled' },
+        OR: [{ id: { in: [...rows.keys()] } }, { verifactuEnabled: true }],
+      },
+      select: { id: true, name: true, slug: true, invoicingMode: true, verifactuEnabled: true },
     });
-    const issues = (r: AdminTenantBillingHealthDto) =>
-      r.aeatRejected +
-      r.aeatError +
-      r.aeatPendingStale +
-      r.holdedReview +
-      (r.certificateDaysLeft !== null && r.certificateDaysLeft <= 30 ? 1 : 0);
-    const list: AdminTenantBillingHealthDto[] = tenants.map((t) => ({
-      ...rows.get(t.id)!,
-      tenantName: t.name,
-      tenantSlug: t.slug,
-      invoicingMode: t.invoicingMode,
-    }));
-    list.sort((a, b) => issues(b) - issues(a) || a.tenantName.localeCompare(b.tenantName));
+    const list: AdminTenantBillingHealthDto[] = tenants.map((t) => {
+      const r = row(t.id);
+      r.verifactuEnabled = t.verifactuEnabled;
+      const holdedMode = t.invoicingMode === 'holded';
+      // Quien emite en Holded no usa certificado en la app.
+      if (holdedMode) {
+        r.certificateValidTo = null;
+        r.certificateDaysLeft = null;
+        r.ownerCertificates = [];
+      }
+      r.certificateMissing =
+        realMode && t.verifactuEnabled && !holdedMode && r.certificateValidTo === null;
+      const issues =
+        r.aeatRejected +
+        r.aeatError +
+        r.aeatWarnings +
+        r.aeatPendingStale +
+        r.unsentRecords +
+        r.failedSubmissions +
+        r.holdedReview +
+        (r.certificateMissing ? 1 : 0) +
+        (r.certificateDaysLeft !== null && r.certificateDaysLeft <= 30 ? 1 : 0) +
+        r.ownerCertificates.filter((c) => c.daysLeft <= 30).length;
+      return {
+        ...r,
+        tenantName: t.name,
+        tenantSlug: t.slug,
+        invoicingMode: t.invoicingMode,
+        issues,
+      };
+    });
+    list.sort((a, b) => b.issues - a.issues || a.tenantName.localeCompare(b.tenantName));
 
-    const invoices: AdminBillingIssueInvoiceDto[] = problemInvoices.map((i) => ({
-      invoiceId: i.id,
-      tenantId: i.tenantId,
-      tenantName: i.tenant.name,
-      invoiceNumber: i.invoiceNumber,
-      issueDate: i.issueDate?.toISOString().slice(0, 10) ?? null,
-      aeatStatus: i.aeatStatus ?? 'pending',
-      aeatSentAt: i.aeatSentAt?.toISOString() ?? null,
-      message: aeatMessage(i.aeatResponse),
-    }));
-    return { tenants: list, invoices };
-  }
-
-  /** Facturas con problema en la AEAT: rechazadas, con error o pendientes >48 h. */
-  private aeatProblemWhere(now: Date) {
-    return {
-      OR: [
-        { aeatStatus: { in: ['rejected' as const, 'error' as const] } },
-        {
-          aeatStatus: 'pending' as const,
-          aeatSentAt: { lt: new Date(now.getTime() - AEAT_PENDING_STALE_MS) },
-        },
-      ],
-    };
+    const invoices: AdminBillingIssueInvoiceDto[] = problemInvoices.map((i) => {
+      const unsentRow = i.aeatStatus === 'pending' && i.aeatSentAt === null;
+      return {
+        invoiceId: i.id,
+        tenantId: i.tenantId,
+        tenantName: i.tenant.name,
+        invoiceNumber: i.invoiceNumber,
+        issueDate: i.issueDate?.toISOString().slice(0, 10) ?? null,
+        aeatStatus: i.aeatStatus ?? 'pending',
+        aeatSentAt: i.aeatSentAt?.toISOString() ?? null,
+        unsent: unsentRow,
+        // Sin enviar: lo que importa es el último error del emisor, no una respuesta antigua.
+        message: unsentRow
+          ? (emitterOf(i.tenantId, i.ownerId ?? null)?.lastError?.slice(0, 300) ??
+            aeatMessage(i.aeatResponse))
+          : aeatMessage(i.aeatResponse),
+      };
+    });
+    return { aeatMode: this.aeatMode(), tenants: list, invoices, invoicesTotal };
   }
 
   private async withNames(

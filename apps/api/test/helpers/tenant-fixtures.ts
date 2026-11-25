@@ -220,10 +220,17 @@ export async function withAdminDb<T>(fn: (db: PrismaClient) => Promise<T>): Prom
 
 /** Dominio propio verificado del tenant (lo que activa el super admin). */
 export async function setVerifiedCustomDomain(tenantSlug: string, domain: string): Promise<void> {
-  await withAdminDb((db) =>
-    db.tenant.update({
+  await withAdminDb(async (db) => {
+    const tenant = await db.tenant.update({
       where: { slug: tenantSlug },
       data: { customDomain: domain, customDomainVerifiedAt: new Date() },
-    }),
-  );
+    });
+    // Con dominio activo el plan tiene que incluir la función: si no, la tarea
+    // que sincroniza las pausas lo dejaría en pausa en mitad de la prueba.
+    await db.tenantFeatureOverride.upsert({
+      where: { tenantId_feature: { tenantId: tenant.id, feature: 'custom_domain' } },
+      create: { tenantId: tenant.id, feature: 'custom_domain', enabled: true },
+      update: { enabled: true },
+    });
+  });
 }

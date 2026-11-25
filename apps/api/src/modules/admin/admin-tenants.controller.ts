@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import {
   ADMIN_HEALTH_SEGMENTS,
+  VerifyCustomDomainSchema,
   type AdminAdoptionDto,
   type AdminHealthSegment,
   type AdminTenantsHealthDto,
@@ -74,6 +75,7 @@ import { PlatformSepaMandateService } from '../billing-saas/platform-sepa/platfo
 
 import { AdminAtRiskOpsService } from './admin-at-risk-ops.service';
 import { AdminAudit } from './admin-audit.decorator';
+import { AdminCustomDomainsService } from './admin-custom-domains.service';
 import { AdminSupportService } from './admin-support.service';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
@@ -138,6 +140,7 @@ export class AdminTenantsController {
     private readonly timelineService: AdminTenantTimelineService,
     private readonly resetService: AdminTenantResetService,
     private readonly atRiskOps: AdminAtRiskOpsService,
+    private readonly domainsAdmin: AdminCustomDomainsService,
   ) {}
 
   /** Edita datos básicos y fiscales del tenant (salen en sus facturas de suscripción). */
@@ -660,7 +663,7 @@ export class AdminTenantsController {
   /** Cola de dominios propios (pendientes de activar + activos). */
   @Get('custom-domains')
   async customDomains(): Promise<AdminCustomDomainDto[]> {
-    return this.tenants.listCustomDomains();
+    return this.domainsAdmin.list();
   }
 
   /**
@@ -674,15 +677,15 @@ export class AdminTenantsController {
   async verifyCustomDomain(
     @CurrentSuperAdmin() admin: AuthenticatedSuperAdmin,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: unknown,
     @Req() req: Request,
   ): Promise<AdminCustomDomainDto> {
     const meta = extractMeta(req);
-    return this.tenants.verifyCustomDomain(id, {
-      superAdminId: admin.sub,
-      reason: 'custom_domain_verify',
-      ipAddress: meta.ipAddress,
-      userAgent: meta.userAgent,
-    });
+    return this.domainsAdmin.verify(
+      id,
+      { superAdminId: admin.sub, ipAddress: meta.ipAddress, userAgent: meta.userAgent },
+      VerifyCustomDomainSchema.safeParse(body ?? {}).data?.force === true,
+    );
   }
 
   /** Desactiva el dominio propio de un tenant. Superadmin-only (ver verify). */
@@ -695,9 +698,8 @@ export class AdminTenantsController {
     @Req() req: Request,
   ): Promise<AdminCustomDomainDto> {
     const meta = extractMeta(req);
-    return this.tenants.revokeCustomDomain(id, {
+    return this.domainsAdmin.revoke(id, {
       superAdminId: admin.sub,
-      reason: 'custom_domain_revoke',
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
     });

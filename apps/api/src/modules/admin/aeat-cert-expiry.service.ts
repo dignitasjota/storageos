@@ -66,7 +66,8 @@ export class AeatCertExpiryService {
           lte: new Date(now.getTime() + 30 * DAY_MS),
           gte: new Date(now.getTime() - SHOW_EXPIRED_DAYS * DAY_MS),
         },
-        tenant: { deletedAt: null },
+        // Quien emite en Holded no usa certificado en la app: no es un problema.
+        tenant: { deletedAt: null, invoicingMode: 'app' },
       },
       orderBy: { certValidTo: 'asc' },
       select: {
@@ -96,7 +97,8 @@ export class AeatCertExpiryService {
           lte: new Date(now.getTime() + 30 * DAY_MS),
           gte: new Date(now.getTime() - SHOW_EXPIRED_DAYS * DAY_MS),
         },
-        tenant: { deletedAt: null },
+        // Quien emite en Holded no usa certificado en la app: no es un problema.
+        tenant: { deletedAt: null, invoicingMode: 'app' },
       },
       select: {
         id: true,
