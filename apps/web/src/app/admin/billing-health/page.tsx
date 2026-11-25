@@ -5,6 +5,13 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import { CertificatesSection } from './certificates-section';
+import { IssuesSection } from './issues-section';
+import { NoticeDialog, type NoticeTarget } from './notice-dialog';
+import { OtherProblemsSection } from './other-problems-section';
+import { StuckSection } from './stuck-section';
+import { TenantsSection } from './tenants-section';
+
 import type { AdminTenantBillingHealthDto } from '@storageos/shared';
 
 import { AdminError } from '@/components/admin/admin-error';
@@ -13,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAdminBillingHealth } from '@/lib/admin/hooks';
 import { useAdminAeatAction } from '@/lib/admin/tenant-tools-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
@@ -46,6 +54,7 @@ export default function AdminBillingHealthPage() {
   const health = useAdminBillingHealth();
   const [onlyIssues, setOnlyIssues] = useState(true);
   const [search, setSearch] = useState('');
+  const [notice, setNotice] = useState<NoticeTarget | null>(null);
 
   const tenants = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -81,102 +90,130 @@ export default function AdminBillingHealthPage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Input
-          placeholder="Buscar tenant…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full text-base sm:w-64 sm:text-sm"
-        />
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={onlyIssues}
-            onChange={(e) => setOnlyIssues(e.target.checked)}
-          />
-          Solo con problemas
-        </label>
-      </div>
+      <Tabs defaultValue="summary">
+        <TabsList>
+          <TabsTrigger value="summary">Resumen</TabsTrigger>
+          <TabsTrigger value="issues">Facturas</TabsTrigger>
+          <TabsTrigger value="stuck">Envíos atascados</TabsTrigger>
+          <TabsTrigger value="tenants">Tenants</TabsTrigger>
+          <TabsTrigger value="certificates">Certificados</TabsTrigger>
+          <TabsTrigger value="other">Otros</TabsTrigger>
+        </TabsList>
+        <TabsContent value="summary" className="mt-4 space-y-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              placeholder="Buscar tenant…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full text-base sm:w-64 sm:text-sm"
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={onlyIssues}
+                onChange={(e) => setOnlyIssues(e.target.checked)}
+              />
+              Solo con problemas
+            </label>
+          </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Por tenant</CardTitle>
-          <CardDescription>
-            Con «Solo con problemas» desmarcado se ven también los tenants con Veri*Factu activado,
-            certificado o Holded que van bien.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {tenants.length === 0 ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <CheckCircle2 className="size-4 text-emerald-600" />
-              {onlyIssues ? 'Ningún tenant tiene problemas de facturación.' : 'Sin resultados.'}
-            </p>
-          ) : (
-            tenants.map((t) => <TenantRow key={t.tenantId} t={t} aeatMode={aeatMode} />)
-          )}
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Por tenant</CardTitle>
+              <CardDescription>
+                Con «Solo con problemas» desmarcado se ven también los tenants con Veri*Factu activado,
+                certificado o Holded que van bien.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {tenants.length === 0 ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle2 className="size-4 text-emerald-600" />
+                  {onlyIssues ? 'Ningún tenant tiene problemas de facturación.' : 'Sin resultados.'}
+                </p>
+              ) : (
+                tenants.map((t) => <TenantRow key={t.tenantId} t={t} aeatMode={aeatMode} />)
+              )}
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Facturas con problemas en la AEAT</CardTitle>
-          <CardDescription>
-            Rechazadas, con error, aceptadas con errores, sin enviar o sin respuesta tras 48 h.
-            {invoicesTotal > invoices.length
-              ? ` Se muestran las ${invoices.length} más recientes de ${invoicesTotal}.`
-              : ''}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {invoices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay facturas con problemas.</p>
-          ) : (
-            invoices.map((i) => (
-              <div
-                key={i.invoiceId}
-                className="flex flex-col gap-1 rounded-md border p-2 text-sm sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <span className="font-medium">{i.invoiceNumber ?? 'Sin número'}</span>
-                  <span className="text-muted-foreground"> · </span>
-                  <Link
-                    href={`/admin/tenants/${i.tenantId}`}
-                    className="text-muted-foreground hover:underline"
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Facturas con problemas en la AEAT</CardTitle>
+              <CardDescription>
+                Rechazadas, con error, aceptadas con errores, sin enviar o sin respuesta tras 48 h.
+                {invoicesTotal > invoices.length
+                  ? ` Se muestran las ${invoices.length} más recientes de ${invoicesTotal}.`
+                  : ''}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {invoices.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No hay facturas con problemas.</p>
+              ) : (
+                invoices.map((i) => (
+                  <div
+                    key={i.invoiceId}
+                    className="flex flex-col gap-1 rounded-md border p-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                   >
-                    {i.tenantName}
-                  </Link>
-                  {i.message && (
-                    <span
-                      className="block truncate text-xs text-muted-foreground"
-                      title={i.message}
-                    >
-                      {i.message}
-                    </span>
-                  )}
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    Emitida {formatDate(i.issueDate)}
-                  </span>
-                  <Badge
-                    variant={
-                      i.unsent ||
-                      i.aeatStatus === 'pending' ||
-                      i.aeatStatus === 'accepted_with_warnings'
-                        ? 'secondary'
-                        : 'destructive'
-                    }
-                  >
-                    {i.unsent ? 'Sin enviar' : (AEAT_LABEL[i.aeatStatus] ?? i.aeatStatus)}
-                  </Badge>
-                  <AeatButtons invoiceId={i.invoiceId} invoiceNumber={i.invoiceNumber} />
-                </div>
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+                    <div className="min-w-0">
+                      <span className="font-medium">{i.invoiceNumber ?? 'Sin número'}</span>
+                      <span className="text-muted-foreground"> · </span>
+                      <Link
+                        href={`/admin/tenants/${i.tenantId}`}
+                        className="text-muted-foreground hover:underline"
+                      >
+                        {i.tenantName}
+                      </Link>
+                      {i.message && (
+                        <span
+                          className="block truncate text-xs text-muted-foreground"
+                          title={i.message}
+                        >
+                          {i.message}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Emitida {formatDate(i.issueDate)}
+                      </span>
+                      <Badge
+                        variant={
+                          i.unsent ||
+                          i.aeatStatus === 'pending' ||
+                          i.aeatStatus === 'accepted_with_warnings'
+                            ? 'secondary'
+                            : 'destructive'
+                        }
+                      >
+                        {i.unsent ? 'Sin enviar' : (AEAT_LABEL[i.aeatStatus] ?? i.aeatStatus)}
+                      </Badge>
+                      <AeatButtons invoiceId={i.invoiceId} invoiceNumber={i.invoiceNumber} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="issues" className="mt-4">
+          <IssuesSection />
+        </TabsContent>
+        <TabsContent value="stuck" className="mt-4">
+          <StuckSection />
+        </TabsContent>
+        <TabsContent value="tenants" className="mt-4">
+          <TenantsSection canNotify onNotice={setNotice} />
+        </TabsContent>
+        <TabsContent value="certificates" className="mt-4">
+          <CertificatesSection canNotify onNotice={setNotice} />
+        </TabsContent>
+        <TabsContent value="other" className="mt-4">
+          <OtherProblemsSection />
+        </TabsContent>
+      </Tabs>
+      <NoticeDialog target={notice} onClose={() => setNotice(null)} />
     </div>
   );
 }

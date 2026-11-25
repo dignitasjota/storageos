@@ -20,3 +20,5 @@ export * from './metrics-insights';
 export * from './health-insights';
 export * from './tenant-lifecycle';
 export * from './tenant-ops';
+export * from './billing-ops-health';
+export * from './domains-ops';
