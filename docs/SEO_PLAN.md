@@ -648,3 +648,15 @@ Con eso las tres primeras fases vuelven a **10–11 PR**.
 - Las herramientas del MCP **se descubren** con `tools/list` (nombres y parámetros no se dan por supuestos) y se guardan; un cambio de herramientas en el servidor se detecta y avisa.
 
 **Pendiente**: resultados de la prueba de concepto (§26).
+
+## 26. Dominios secundarios del tenant (decidido el 2026-11-26)
+
+Un tenant puede añadir como dominio secundario una propiedad de Search Console que no sea suya «por la plataforma» (por ejemplo `trasterosmislata.es` en GUÁRDALO) si la cuenta de servicio tiene acceso a ella (alguien con permisos sobre la propiedad la ha añadido) y no la usa ningún otro proyecto ni es de la plataforma. Va en la PR siguiente.
+
+## 27. PR 2 hecha (2026-11-26)
+
+- **Dominio secundario de otra web (§26)**: el principal sigue siendo solo una web del negocio; un secundario que no lo es entra si la cuenta de servicio tiene acceso a su propiedad, no es de la plataforma (ni subdominio) y no lo usa ningún otro proyecto, de otro tenant o de la plataforma. Queda marcado (`verification = gsc_access`), no se puede pasar a principal y vuelve a comprobar sus condiciones en cada «Comprobar».
+- **Importación de los Excel de Search Console (§18.1 y §19.7)**: `.xlsx` y `.zip` de CSV, en español e inglés, todas las pestañas. «Fechas» entra en el cruce `site` solo en los días que no tienen ni la API ni otra importación (marca `source` por fila; manda la API). El resto de pestañas, aparte (`seo_gsc_import_rows`), nunca repartidas por días. Filtros guardados y avisados (con filtro, no entra en los totales). Vista previa antes de confirmar, sin duplicados por huella del fichero, y borrar quita sus filas y sus días.
+- **Panel con gráficos y comparativas (§6, §8 y §19.1)**: periodos de 7/28/90 días, 6/12 meses y a mano; periodo anterior y mismo periodo del año anterior; indicadores con variación; evolución diaria en gráficos de un solo eje (posición con el eje al revés); dispositivo, país (10 + resto) y tipo de búsqueda; búsquedas y páginas con variación, buscador, orden, páginas, CSV y cruce búsqueda ↔ página; selector de dominio sin mezclar y lo que llega por los secundarios; fecha de los últimos datos y aviso de retraso; en el admin, vista global de los 28 días de cada proyecto. Todo con agregaciones en SQL sobre un único cruce cada vez.
+- **Decisiones**: la importación sube el fichero dos veces (vista previa y confirmación) en vez de guardarlo entre una y otra; la comparación «hay datos» exige datos desde el primer día del periodo comparado; las importaciones en el admin solo van en los proyectos de la plataforma (los de los tenants, en lectura).
+- **Pendiente** (siguientes PR): SISTRIX (MCP y API), palabras clave, competencia, oportunidades, canibalización, indexación, actuaciones, conversiones e informes.
