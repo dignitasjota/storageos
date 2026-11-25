@@ -1039,7 +1039,11 @@ function TrialRow({ tenant, urgent = false }: { tenant: AdminAtRiskTenantDto; ur
       id={tenant.id}
       name={tenant.name}
       detail={[
-        tenant.since ? `Termina ${fmtDate(tenant.since)}` : 'Prueba',
+        tenant.since
+          ? tenant.expired
+            ? `Venció el ${fmtDate(tenant.since)} (falta cerrarla)`
+            : `Termina ${fmtDate(tenant.since)}`
+          : 'Prueba',
         tenant.monthly ? `${eur(tenant.monthly)}/mes sin IVA` : null,
         usage,
       ]
