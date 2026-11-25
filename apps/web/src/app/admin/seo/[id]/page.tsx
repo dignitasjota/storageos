@@ -16,6 +16,8 @@ import { SeoImportsCard } from '@/components/seo/seo-imports-card';
 import { SeoPanel } from '@/components/seo/seo-panel';
 import { SeoProjectDialog } from '@/components/seo/seo-project-dialog';
 import { SeoRunsCard } from '@/components/seo/seo-runs-card';
+import { PlatformSistrixToggle } from '@/components/seo/sistrix/platform-sistrix-toggle';
+import { SeoSistrixSections } from '@/components/seo/sistrix/sistrix-sections';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -188,6 +190,9 @@ export default function AdminSeoProjectPage() {
         canEdit={canEdit}
         onCancel={(runId) => cancel.mutateAsync(runId)}
       />
+
+      {isTenant && <PlatformSistrixToggle projectId={p.id} canEdit={isSuperadmin} />}
+      <SeoSistrixSections scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
 
       <SeoProjectDialog
         open={editing}
