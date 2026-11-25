@@ -7,6 +7,7 @@ import { MESSAGE_MAX_ATTACHMENTS, MessageAttachmentSchema } from '../messages';
 import { AddonPriceTiersSchema } from './catalog';
 import { ProfitabilityInputSchema } from './profitability';
 import { SUPPORT_TICKET_MAX_WATCHERS, SupportTicketCategoryEnum } from './support';
+import { RetentionPlaybookReasonEnum } from './tenant-ops';
 
 /** `sales` = comercial: solo sus pantallas y su cartera. */
 export const SuperAdminRoleEnum = z.enum(['superadmin', 'support', 'sales']);
@@ -252,6 +253,10 @@ export type AdminEmailTenantInput = z.infer<typeof AdminEmailTenantSchema>;
  */
 export const RetentionPlaybookSchema = z.object({
   note: z.string().trim().max(2000).optional(),
+  /** Motivo por el que está en riesgo: elige el texto del correo. */
+  reason: RetentionPlaybookReasonEnum.optional(),
+  /** Mensaje propio del admin, al principio del correo. */
+  message: z.string().trim().max(2000).optional(),
 });
 export type RetentionPlaybookInput = z.infer<typeof RetentionPlaybookSchema>;
 

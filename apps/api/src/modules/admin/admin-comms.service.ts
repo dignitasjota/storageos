@@ -15,6 +15,8 @@ import {
   fillAdminMessageVariables,
   MESSAGE_ATTACHMENT_MAX_BYTES,
   renderAdminEmail,
+  retentionPlaybookEmail,
+  type RetentionPlaybookReason,
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
@@ -744,7 +746,15 @@ export class AdminCommsService {
   async launchRetentionPlaybook(
     tenantId: string,
     superAdminId: string,
-    meta: { note?: string | null; ipAddress?: string | null; userAgent?: string | null } = {},
+    meta: {
+      note?: string | null;
+      /** Motivo por el que está en riesgo: elige el texto del correo. */
+      reason?: RetentionPlaybookReason | null;
+      /** Mensaje propio del admin al principio del correo. */
+      message?: string | null;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+    } = {},
   ): Promise<RetentionPlaybookResultDto> {
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
@@ -800,18 +810,10 @@ export class AdminCommsService {
 
     // 2) Email de retención (best-effort: 0 destinatarios no rompe el playbook).
     const recipients = await this.recipientsFor(tenantId);
-    const subject = '¿Podemos ayudarte con TrasterOS?';
-    const body = [
-      'Hola,',
-      '',
-      'Somos el equipo de TrasterOS. Queremos asegurarnos de que le estás sacando el máximo partido a la plataforma.',
-      'Si hay algo que podamos mejorar, una duda que resolver o quieres que valoremos un descuento para que te siga saliendo a cuenta, estamos a tu disposición.',
-      '',
-      `Escríbenos desde Soporte en tu panel: ${this.webBaseUrl}/support`,
-      '',
-      'Un saludo,',
-      'El equipo de TrasterOS',
-    ].join('\n');
+    const { subject, body } = retentionPlaybookEmail(meta.reason, {
+      webBaseUrl: this.webBaseUrl,
+      message: meta.message ?? null,
+    });
     await this.enqueue(recipients, subject, body);
     const emailRecipients = recipients.length;
     // Sin nadie a quien escribir, el mensaje tampoco queda en su panel.
@@ -839,11 +841,34 @@ export class AdminCommsService {
       targetType: 'tenant',
       targetId: tenantId,
       targetTenantId: tenantId,
-      changes: { followupId: followup.id, emailRecipients, dueDate },
+      changes: { followupId: followup.id, emailRecipients, dueDate, reason: meta.reason ?? null },
       ipAddress: meta.ipAddress ?? null,
       userAgent: meta.userAgent ?? null,
     });
 
     return { followupId: followup.id, emailRecipients };
+  }
+
+  /**
+   * Vista previa del correo del playbook (según el motivo y el mensaje del
+   * admin) y a quién iría, antes de lanzarlo.
+   */
+  async previewRetentionPlaybook(
+    tenantId: string,
+    reason: RetentionPlaybookReason | null | undefined,
+    message: string | null | undefined,
+  ): Promise<{ subject: string; body: string; recipients: string[] }> {
+    const tenant = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { deletedAt: true },
+    });
+    if (!tenant || tenant.deletedAt) {
+      throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
+    }
+    const email = retentionPlaybookEmail(reason, {
+      webBaseUrl: this.webBaseUrl,
+      message: message ?? null,
+    });
+    return { ...email, recipients: await this.recipientsFor(tenantId) };
   }
 }

@@ -22,6 +22,7 @@ import { UsersModule } from '../users/users.module';
 import { AdminActivityService } from './admin-activity.service';
 import { AdminApprovalsController } from './admin-approvals.controller';
 import { AdminApprovalsService } from './admin-approvals.service';
+import { AdminAtRiskOpsService } from './admin-at-risk-ops.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
 import { AdminBillingOpsController } from './admin-billing-ops.controller';
 import { AdminBillingOpsService } from './admin-billing-ops.service';
@@ -34,6 +35,7 @@ import { AdminEmailSettingsController } from './admin-email-settings.controller'
 import { AdminFinanceInsightsService } from './admin-finance-insights.service';
 import { AdminFinanceController } from './admin-finance.controller';
 import { AdminFinanceService } from './admin-finance.service';
+import { AdminFollowupsInboxService } from './admin-followups-inbox.service';
 import { AdminFollowupsController } from './admin-followups.controller';
 import { AdminHealthInsightsController } from './admin-health-insights.controller';
 import { AdminHealthInsightsService } from './admin-health-insights.service';
@@ -42,6 +44,7 @@ import { AdminImpersonationAuditService } from './admin-impersonation-audit.serv
 import { AdminMetricsInsightsService } from './admin-metrics-insights.service';
 import { AdminMetricsController } from './admin-metrics.controller';
 import { AdminMetricsService } from './admin-metrics.service';
+import { AdminOpportunitiesOpsService } from './admin-opportunities-ops.service';
 import { AdminOpportunitiesController } from './admin-opportunities.controller';
 import { AdminOpportunitiesService } from './admin-opportunities.service';
 import { AdminOpsHealthController } from './admin-ops-health.controller';
@@ -60,6 +63,12 @@ import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { AdminTenantLifecycleController } from './admin-tenant-lifecycle.controller';
 import { AdminTenantLifecycleService } from './admin-tenant-lifecycle.service';
+import {
+  AdminAtRiskOpsController,
+  AdminFollowupsInboxController,
+  AdminOpportunitiesOpsController,
+  AdminTrialsOpsController,
+} from './admin-tenant-ops.controller';
 import { AdminTenantResetService } from './admin-tenant-reset.service';
 import { AdminTenantScheduleCron } from './admin-tenant-schedule.cron';
 import { AdminTenantSummaryService } from './admin-tenant-summary.service';
@@ -73,6 +82,7 @@ import { AdminTenantsService } from './admin-tenants.service';
 import { AdminTodayExtrasService } from './admin-today-extras.service';
 import { AdminTodayController } from './admin-today.controller';
 import { AdminTodayService } from './admin-today.service';
+import { AdminTrialsOpsService } from './admin-trials-ops.service';
 import { AdminUsageService } from './admin-usage.service';
 import { AdminGuard } from './admin.guard';
 import { AeatCertExpiryCron } from './aeat-cert-expiry.cron';
@@ -242,6 +252,10 @@ import { WeeklyDigestService } from './weekly-digest.service';
     PlatformMessagesTenantController,
     WebhooksCleanupController,
     AdminFollowupsController,
+    AdminFollowupsInboxController,
+    AdminTrialsOpsController,
+    AdminAtRiskOpsController,
+    AdminOpportunitiesOpsController,
     AdminTodayController,
     AdminFinanceController,
     TenantLifecycleEmailsController,
@@ -254,6 +268,10 @@ import { WeeklyDigestService } from './weekly-digest.service';
   ],
   providers: [
     SalesNotifyService,
+    AdminFollowupsInboxService,
+    AdminTrialsOpsService,
+    AdminAtRiskOpsService,
+    AdminOpportunitiesOpsService,
     SalesAssignmentService,
     SalesAppointmentsService,
     SalesCommissionsService,

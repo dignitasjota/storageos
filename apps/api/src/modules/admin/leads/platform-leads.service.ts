@@ -1541,7 +1541,12 @@ export class PlatformLeadsService {
       where: { id: followupId },
       data: {
         ...(input.status
-          ? { status: input.status, completedAt: input.status === 'done' ? new Date() : null }
+          ? {
+              status: input.status,
+              completedAt: input.status === 'done' ? new Date() : null,
+              completedById: input.status === 'done' ? (actor?.superAdminId ?? null) : null,
+              ...(input.status === 'pending' ? { outcome: null } : {}),
+            }
           : {}),
         ...(input.dueDate ? { dueDate: new Date(`${input.dueDate}T00:00:00Z`) } : {}),
         ...(input.assignedToId !== undefined ? { assignedToId: input.assignedToId } : {}),

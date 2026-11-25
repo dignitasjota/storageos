@@ -576,6 +576,11 @@ export class TenantLifecycleEmailsService {
    * Propuesta de un extra: qué es, precio, prueba gratis si se ha activado y
    * enlace para contratarlo. Devuelve a cuántos propietarios se envía.
    */
+  /** A quién iría la propuesta de un extra (para la vista previa de un envío a varios). */
+  async addonOfferRecipients(tenantId: string): Promise<string[]> {
+    return this.recipientsFor(tenantId);
+  }
+
   async sendAddonOffer(
     tenantId: string,
     args: {

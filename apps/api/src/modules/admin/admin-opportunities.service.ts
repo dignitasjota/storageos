@@ -481,7 +481,13 @@ export class AdminOpportunitiesService {
   async propose(
     tenantId: string,
     input: ProposeAddonInput,
-    meta: { superAdminId: string; ipAddress?: string | null; userAgent?: string | null },
+    meta: {
+      superAdminId: string;
+      ipAddress?: string | null;
+      userAgent?: string | null;
+      /** Propuesta suelta o de un envío a varios. */
+      source?: 'single' | 'bulk';
+    },
   ): Promise<AdminProposeAddonResultDto> {
     const [tenant, addon, pricing] = await Promise.all([
       this.admin.tenant.findUnique({
@@ -594,6 +600,18 @@ export class AdminOpportunitiesService {
       });
       followupId = f.id;
     }
+    // Registro de la propuesta: su estado y la tasa de aceptación por extra.
+    await this.admin.platformAddonOffer.create({
+      data: {
+        tenantId,
+        addonId: addon.id,
+        superAdminId: meta.superAdminId,
+        trialDays: input.trialDays ?? null,
+        trialUntil: trialExpiresAt ? new Date(trialExpiresAt) : null,
+        recipients,
+        source: meta.source ?? 'single',
+      },
+    });
     await this.audit.record({
       superAdminId: meta.superAdminId,
       action: OFFER_ACTION,

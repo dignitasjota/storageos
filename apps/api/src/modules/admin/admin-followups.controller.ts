@@ -58,7 +58,7 @@ export class AdminFollowupsController {
     @Body() body: UpdateTenantFollowupDto,
     @Req() req: Request,
   ): Promise<TenantFollowupDto> {
-    const dto = await this.followups.update(id, body);
+    const dto = await this.followups.update(id, body, admin.sub);
     await this.audit.record({
       superAdminId: admin.sub,
       action: 'admin.tenant.followup_updated',

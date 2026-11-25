@@ -69,6 +69,8 @@ export class AdminCommsController {
   ): Promise<RetentionPlaybookResultDto> {
     return this.comms.launchRetentionPlaybook(id, admin.sub, {
       ...(input.note ? { note: input.note } : {}),
+      ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.message ? { message: input.message } : {}),
       ...extractMeta(req),
     });
   }
