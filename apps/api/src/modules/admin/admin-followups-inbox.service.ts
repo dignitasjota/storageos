@@ -311,17 +311,14 @@ export class AdminFollowupsInboxService {
       if (!tenant || tenant.deletedAt) {
         throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
       }
-      // Sin decir quién: quien lo crea.
-      const assignedToId =
-        input.assignedToId === undefined ? actor.superAdminId : input.assignedToId;
-      await this.assignee('tenant', assignedToId);
+      // Sin decir quién, `create` se lo da a quien lo crea (salvo comerciales).
       const dto = await this.tenantFollowups.create({
         tenantId: input.subjectId,
         superAdminId: actor.superAdminId,
         input: {
           title: input.title,
           dueDate: input.dueDate,
-          assignedToId,
+          ...(input.assignedToId !== undefined ? { assignedToId: input.assignedToId } : {}),
           ...(input.note ? { note: input.note } : {}),
         },
       });

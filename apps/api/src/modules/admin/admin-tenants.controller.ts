@@ -21,7 +21,7 @@ import {
   type AdminAdoptionDto,
   type AdminHealthSegment,
   type AdminTenantsHealthDto,
-  type AdminAtRiskDto,
+  type AdminAtRiskOverviewDto,
   type AdminCustomDomainDto,
   type AdminOnboardingDto,
   type AdminTenantConfigDto,
@@ -72,6 +72,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { BillingSaasService } from '../billing-saas/billing-saas.service';
 import { PlatformSepaMandateService } from '../billing-saas/platform-sepa/platform-sepa-mandate.service';
 
+import { AdminAtRiskOpsService } from './admin-at-risk-ops.service';
 import { AdminAudit } from './admin-audit.decorator';
 import { AdminSupportService } from './admin-support.service';
 import { AdminTenantConfigService } from './admin-tenant-config.service';
@@ -136,6 +137,7 @@ export class AdminTenantsController {
     private readonly summaryService: AdminTenantSummaryService,
     private readonly timelineService: AdminTenantTimelineService,
     private readonly resetService: AdminTenantResetService,
+    private readonly atRiskOps: AdminAtRiskOpsService,
   ) {}
 
   /** Edita datos básicos y fiscales del tenant (salen en sus facturas de suscripción). */
@@ -582,10 +584,14 @@ export class AdminTenantsController {
     return this.tenants.listTags();
   }
 
-  /** Tenants en riesgo (retención): trials por expirar, past_due, inactivos. */
+  /**
+   * En riesgo (retención): las secciones de `getAtRisk` más la cuota en juego,
+   * quién lo lleva, el último contacto, las bajas programadas y los que no
+   * renovarán. Es el único endpoint de la página; «Hoy» usa el servicio.
+   */
   @Get('at-risk')
-  async atRisk(): Promise<AdminAtRiskDto> {
-    return this.tenants.getAtRisk();
+  async atRisk(): Promise<AdminAtRiskOverviewDto> {
+    return this.atRiskOps.overview();
   }
 
   /** Todos los trials, ordenados por expiración (gestión/conversión). */

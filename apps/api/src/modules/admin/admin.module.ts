@@ -64,7 +64,6 @@ import { AdminTenantInteractionsService } from './admin-tenant-interactions.serv
 import { AdminTenantLifecycleController } from './admin-tenant-lifecycle.controller';
 import { AdminTenantLifecycleService } from './admin-tenant-lifecycle.service';
 import {
-  AdminAtRiskOpsController,
   AdminFollowupsInboxController,
   AdminOpportunitiesOpsController,
   AdminTrialsOpsController,
@@ -254,7 +253,6 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminFollowupsController,
     AdminFollowupsInboxController,
     AdminTrialsOpsController,
-    AdminAtRiskOpsController,
     AdminOpportunitiesOpsController,
     AdminTodayController,
     AdminFinanceController,

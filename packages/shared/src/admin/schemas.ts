@@ -120,6 +120,8 @@ export const AtRiskKindEnum = z.enum([
   'inactive',
   'low_health',
   'trial_expired',
+  'scheduled_end',
+  'cancel_at_period_end',
 ]);
 export type AtRiskKind = z.infer<typeof AtRiskKindEnum>;
 

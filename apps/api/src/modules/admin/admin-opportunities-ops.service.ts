@@ -20,7 +20,10 @@ import {
 import { platformPricing } from '../billing-saas/platform-pricing';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
-import { AdminOpportunitiesService } from './admin-opportunities.service';
+import {
+  ADDON_OFFER_COOLDOWN_DAYS,
+  AdminOpportunitiesService,
+} from './admin-opportunities.service';
 import { AdminTenantInteractionsService } from './admin-tenant-interactions.service';
 import { PlatformLeadsService } from './leads/platform-leads.service';
 import { madridToday } from './sales/sales-common';
@@ -29,8 +32,6 @@ import { SuperAdminAuditService } from './super-admin-audit.service';
 import { TenantLifecycleEmailsService } from './tenant-lifecycle-emails.service';
 
 const DAY = 86_400_000;
-/** No se vuelve a proponer el mismo extra al mismo tenant antes de estos días. */
-const OFFER_COOLDOWN_DAYS = 14;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface OpportunityActor {
@@ -322,7 +323,9 @@ export class AdminOpportunitiesOpsService {
 
   /** A quién saldría y a quién se salta (y por qué), sin enviar nada. */
   async bulkPreview(
-    input: Pick<BulkProposeAddonInput, 'addonId' | 'tenantIds'>,
+    input: Pick<BulkProposeAddonInput, 'addonId' | 'tenantIds'> & {
+      trialDays?: number | undefined;
+    },
     now = new Date(),
   ): Promise<BulkProposePreviewDto> {
     const addon = await this.admin.subscriptionAddon.findUnique({ where: { id: input.addonId } });
@@ -330,8 +333,8 @@ export class AdminOpportunitiesOpsService {
       throw new NotFoundException({ code: 'addon_not_found', message: 'Extra no encontrado' });
     }
     const ids = [...new Set(input.tenantIds)];
-    const since = new Date(now.getTime() - OFFER_COOLDOWN_DAYS * DAY);
-    const [tenants, owned, dismissed, recent] = await Promise.all([
+    const since = new Date(now.getTime() - ADDON_OFFER_COOLDOWN_DAYS * DAY);
+    const [tenants, owned, dismissed, recent, trials] = await Promise.all([
       this.admin.tenant.findMany({
         where: { id: { in: ids } },
         select: { id: true, name: true, status: true, deletedAt: true },
@@ -352,7 +355,15 @@ export class AdminOpportunitiesOpsService {
         where: { tenantId: { in: ids }, addonId: addon.id, sentAt: { gte: since } },
         select: { tenantId: true, sentAt: true },
       }),
+      // Con prueba gratis: solo una por extra y tenant.
+      input.trialDays
+        ? this.admin.tenantAddonTrial.findMany({
+            where: { tenantId: { in: ids }, addonId: addon.id },
+            select: { tenantId: true },
+          })
+        : Promise.resolve([] as { tenantId: string }[]),
     ]);
+    const trialed = new Set(trials.map((t) => t.tenantId));
     const byId = new Map(tenants.map((t) => [t.id, t]));
     const ownedSet = new Set(owned.map((o) => o.tenantId));
     const dismissedSet = new Set(dismissed.map((d) => d.tenantId));
@@ -385,9 +396,14 @@ export class AdminOpportunitiesOpsService {
         skip(days === 0 ? 'Se le propuso hoy' : `Se le propuso hace ${days} días`);
         continue;
       }
-      const recipients = (await this.lifecycle.addonOfferRecipients(id)).length;
+      if (trialed.has(id)) {
+        skip('Ya tuvo una prueba gratis de este extra');
+        continue;
+      }
+      // Propietarios verificados sin la baja de las ofertas (como el envío).
+      const recipients = await this.lifecycle.addonOfferRecipients(id);
       if (recipients === 0) {
-        skip('No tiene a quién escribir');
+        skip('No tiene a quién escribir (o se dio de baja de las ofertas)');
         continue;
       }
       willSend.push({ tenantId: id, tenantName: name, recipients });

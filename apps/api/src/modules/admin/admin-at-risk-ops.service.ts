@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  type AtRiskKind,
   type AdminAtRiskDto,
   type AdminAtRiskOverviewDto,
   type AdminAtRiskRowDto,
@@ -29,10 +30,18 @@ export class AdminAtRiskOpsService {
 
   async overview(now = new Date()): Promise<AdminAtRiskOverviewDto> {
     const base: AdminAtRiskDto = await this.tenants.getAtRisk();
-    const [scheduledEnd, cancelAtPeriodEnd] = await this.endingSoon(now);
-    // Todas las listas de la respuesta base (también las que se añadan).
+    // Las dos secciones de aquí respetan el «ignorar» de su sección (o de todas).
+    const hidden = (kind: AtRiskKind, id: string) =>
+      base.snoozed.some((s) => s.id === id && (s.kind === null || s.kind === kind));
+    const [ending, cancelling] = await this.endingSoon(now);
+    const scheduledEnd = ending.filter((r) => !hidden('scheduled_end', r.id));
+    const cancelAtPeriodEnd = cancelling.filter((r) => !hidden('cancel_at_period_end', r.id));
+    await this.markPlaybooks([...scheduledEnd, ...cancelAtPeriodEnd], now);
+    // Todas las listas de tenants de la respuesta base (también las que se
+    // añadan), sin la de ignorados.
     const sections = Object.entries(base).filter(
-      (entry): entry is [string, AdminAtRiskTenantDto[]] => Array.isArray(entry[1]),
+      (entry): entry is [string, AdminAtRiskTenantDto[]] =>
+        entry[0] !== 'snoozed' && Array.isArray(entry[1]),
     );
     const all = [...sections.flatMap(([, rows]) => rows), ...scheduledEnd, ...cancelAtPeriodEnd];
     const ids = [...new Set(all.map((r) => r.id))];
@@ -68,6 +77,25 @@ export class AdminAtRiskOpsService {
       cancelAtPeriodEnd: enrich(cancelAtPeriodEnd),
       monthlyAtStake,
     };
+  }
+
+  /** «Playbook lanzado el X» (14 días) en las filas de las secciones de aquí. */
+  private async markPlaybooks(rows: AdminAtRiskTenantDto[], now: Date): Promise<void> {
+    if (rows.length === 0) return;
+    const recent = await this.admin.superAdminAuditLog.groupBy({
+      by: ['targetTenantId'],
+      where: {
+        action: 'admin.tenant.retention_playbook',
+        targetTenantId: { in: [...new Set(rows.map((r) => r.id))] },
+        occurredAt: { gte: new Date(now.getTime() - 14 * 86_400_000) },
+      },
+      _max: { occurredAt: true },
+    });
+    const by = new Map(recent.map((r) => [r.targetTenantId, r._max.occurredAt]));
+    for (const r of rows) {
+      const at = by.get(r.id);
+      if (at) r.playbookAt = at.toISOString();
+    }
   }
 
   /** Bajas o anonimizaciones programadas, y los que no renovarán al final del periodo. */

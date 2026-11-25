@@ -23,9 +23,7 @@ import {
   CreateAdminFollowupSchema,
   DismissAddonOpportunitySchema,
   HandOffOpportunitySchema,
-  RetentionPlaybookPreviewSchema,
   UpdateAdminFollowupSchema,
-  type AdminAtRiskOverviewDto,
   type AdminExpiredTrialDto,
   type AdminFollowupInboxDto,
   type AdminFollowupItemDto,
@@ -37,15 +35,12 @@ import {
   type BulkProposePreviewDto,
   type BulkProposeResultDto,
   type HandOffOpportunityResultDto,
-  type RetentionPlaybookPreviewDto,
 } from '@storageos/shared';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import { Public } from '../../common/decorators/public.decorator';
 
-import { AdminAtRiskOpsService } from './admin-at-risk-ops.service';
-import { AdminCommsService } from './admin-comms.service';
 import { AdminFollowupsInboxService } from './admin-followups-inbox.service';
 import { AdminOpportunitiesOpsService } from './admin-opportunities-ops.service';
 import { AdminTrialsOpsService } from './admin-trials-ops.service';
@@ -58,11 +53,14 @@ import type { Request } from 'express';
 class CreateAdminFollowupDto extends createZodDto(CreateAdminFollowupSchema) {}
 class UpdateAdminFollowupDto extends createZodDto(UpdateAdminFollowupSchema) {}
 class BulkAdminFollowupsDto extends createZodDto(BulkAdminFollowupsSchema) {}
-class RetentionPlaybookPreviewDtoIn extends createZodDto(RetentionPlaybookPreviewSchema) {}
 class DismissOpportunityDto extends createZodDto(DismissAddonOpportunitySchema) {}
 class BulkProposeAddonDto extends createZodDto(BulkProposeAddonSchema) {}
 class BulkProposePreviewDtoIn extends createZodDto(
-  z.object({ addonId: z.string().uuid(), tenantIds: z.array(z.string().uuid()).min(1).max(100) }),
+  z.object({
+    addonId: z.string().uuid(),
+    tenantIds: z.array(z.string().uuid()).min(1).max(100),
+    trialDays: z.number().int().min(1).max(60).optional(),
+  }),
 ) {}
 class HandOffOpportunityDto extends createZodDto(HandOffOpportunitySchema) {}
 
@@ -190,31 +188,6 @@ export class AdminTrialsOpsController {
   @Get('expired')
   expired(): Promise<AdminExpiredTrialDto[]> {
     return this.trials.expired();
-  }
-}
-
-/** En riesgo con dinero, responsable y último contacto, y vista previa del playbook. */
-@Public()
-@UseGuards(AdminGuard)
-@Controller('admin/at-risk')
-export class AdminAtRiskOpsController {
-  constructor(
-    private readonly atRisk: AdminAtRiskOpsService,
-    private readonly comms: AdminCommsService,
-  ) {}
-
-  @Get()
-  overview(): Promise<AdminAtRiskOverviewDto> {
-    return this.atRisk.overview();
-  }
-
-  @Post('playbook-preview/:tenantId')
-  @HttpCode(HttpStatus.OK)
-  preview(
-    @Param('tenantId', new ParseUUIDPipe()) tenantId: string,
-    @Body() body: RetentionPlaybookPreviewDtoIn,
-  ): Promise<RetentionPlaybookPreviewDto> {
-    return this.comms.previewRetentionPlaybook(tenantId, body.reason, body.message);
   }
 }
 
