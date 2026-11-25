@@ -3260,3 +3260,11 @@ Migración (se aplica sola): `20270314100000_seo_opportunities` — `seo_project
 - **Sin variables nuevas ni dependencias.** El cálculo va en el núcleo `SeoAdvancedModule` (también en el worker); las rutas, en `SeoAdvancedHttpModule`.
 - **Cola**: job nuevo `opportunities` en la cola `seo` (lo procesa el worker): un recálculo pendiente por proyecto (`seo-opp-<proyecto>`), a los 60 s de terminar una descarga de Search Console o una tanda de SISTRIX de oportunidades, palabras de dominios o métricas. No bloquea la descarga.
 - **Tras desplegar**: en la ficha del proyecto de trasteros.pro (y en GUÁRDALO desde su panel) pulsar «Recalcular ahora» en Oportunidades para tener la primera lista sin esperar a la descarga de mañana. Revisar con Jota los pesos y umbrales por defecto (botón de ajustes de la tarjeta) con los datos reales.
+
+## 201. SEO Avanzado, PR 5: diagnóstico (2026-11-26)
+
+Migración (se aplica sola): `20270315100000_seo_diagnostics` — `seo_projects.diagnostic_settings` (umbrales de canibalización y reglas de indexación; vacío = los de por defecto) y `seo_projects.diagnostics_calculated_at`; tablas `seo_cannibalizations` y `seo_index_findings` (estado, notas y fechas, con su política de filas; `tenant_id` del proyecto, nulo = la plataforma; se borran al anonimizar un tenant); índice `seo_gsc_metrics (domain_id, grain, query, date)` para la evolución de cada palabra (en una tabla grande tarda unos segundos en crearse). Redesplegar api, worker y web.
+
+- **Sin variables nuevas ni dependencias.** El cálculo va en el núcleo `SeoAdvancedModule` (también en el worker) y corre en el mismo job `opportunities` de la cola `seo`, después de las oportunidades; las rutas, en `SeoAdvancedHttpModule`.
+- **Mapas del sitio**: se enseña lo que da la API de Search Console (URL enviadas, avisos y errores); no se descarga el contenido de cada mapa.
+- **Tras desplegar**: en la ficha del proyecto de trasteros.pro (y en GUÁRDALO desde su panel) pulsar «Recalcular» en «Palabras seguidas y diagnóstico» para no esperar a la descarga de mañana. Revisar con Jota las reglas de indexación por defecto (Ajustes de la tarjeta) y añadir las de cada web (por ejemplo los centros de demostración). Dar de alta las palabras desde Search Console o importar el Excel de palabras objetivo, y poner la URL objetivo de las principales (o aceptar la propuesta).
