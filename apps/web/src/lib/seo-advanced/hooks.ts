@@ -6,7 +6,6 @@ import type {
   CreateSeoDomainInput,
   CreateTenantSeoProjectRequest,
   SeoProjectDto,
-  SeoSummaryDto,
   SeoSyncRunDto,
   SeoWorkspaceDto,
   UpdateSeoDomainInput,
@@ -37,17 +36,6 @@ export function useSeoRuns(enabled: boolean, polling: boolean) {
     queryFn: () => apiFetch<SeoSyncRunDto[]>('/seo-advanced/runs'),
     enabled,
     refetchInterval: polling ? POLL_MS : false,
-  });
-}
-
-export function useSeoSummary(days: number, domainId: string | null, enabled: boolean) {
-  return useQuery({
-    queryKey: [...root, 'summary', days, domainId],
-    queryFn: () =>
-      apiFetch<SeoSummaryDto>(
-        `/seo-advanced/summary?days=${days}${domainId ? `&domainId=${domainId}` : ''}`,
-      ),
-    enabled,
   });
 }
 

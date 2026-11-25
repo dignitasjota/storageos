@@ -194,6 +194,14 @@ export function SeoDomainsCard({
                       <span className="break-all font-medium">{d.domain}</span>
                       <Badge variant="outline">{SEO_DOMAIN_ROLE_LABELS[d.role]}</Badge>
                       <StatusBadge domain={d} />
+                      {d.verification === 'gsc_access' && (
+                        <Badge
+                          variant="secondary"
+                          title="No es una web de tu negocio en TrasterOS: vale porque nuestra cuenta tiene acceso a ella en Search Console."
+                        >
+                          Por acceso en Search Console
+                        </Badge>
+                      )}
                       {d.delayed && (
                         <Badge className="border-transparent bg-amber-100 text-amber-800 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300">
                           Datos con retraso
@@ -224,7 +232,11 @@ export function SeoDomainsCard({
                           </SelectTrigger>
                           <SelectContent>
                             {(Object.keys(SEO_DOMAIN_ROLE_LABELS) as SeoDomainRole[]).map((r) => (
-                              <SelectItem key={r} value={r}>
+                              <SelectItem
+                                key={r}
+                                value={r}
+                                disabled={r === 'primary' && d.verification === 'gsc_access'}
+                              >
                                 {SEO_DOMAIN_ROLE_LABELS[r]}
                               </SelectItem>
                             ))}

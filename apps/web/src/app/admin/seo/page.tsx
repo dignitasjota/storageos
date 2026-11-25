@@ -11,18 +11,28 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { AdminError } from '@/components/admin/admin-error';
+import { SeoChange } from '@/components/seo/seo-change';
 import { SeoProjectDialog } from '@/components/seo/seo-project-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  useAdminSeoOverview,
   useAdminSeoProjects,
   useAdminSeoTenantProjects,
   useCreateAdminSeoProject,
 } from '@/lib/admin/seo-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
-import { formatDate, formatDateTime } from '@/lib/format';
+import { formatCount, formatDate, formatDateTime, formatNumber, formatPct } from '@/lib/format';
 
 const STATUS_TEXT: Record<string, string> = {
   connected: 'conectado',
@@ -128,6 +138,94 @@ function TenantProjects() {
   );
 }
 
+/**
+ * Vista global: los últimos 28 días de cada proyecto (plataforma y tenants)
+ * frente a los 28 anteriores, de su dominio principal. Cada uno con sus datos,
+ * sin sumar proyectos.
+ */
+function ProjectsOverview() {
+  const overview = useAdminSeoOverview();
+  if (overview.isError) return <AdminError onRetry={() => void overview.refetch()} />;
+  if (overview.isLoading || !overview.data) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (overview.data.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          Todos los proyectos, últimos 28 días
+          <Badge variant="outline" className="font-normal">
+            Datos de Google Search Console
+          </Badge>
+        </CardTitle>
+        <CardDescription>
+          El dominio principal de cada proyecto, frente a sus 28 días anteriores. Los de los
+          tenants, en solo lectura.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Proyecto</TableHead>
+              <TableHead className="text-right">Clics</TableHead>
+              <TableHead className="text-right">Impresiones</TableHead>
+              <TableHead className="text-right">CTR</TableHead>
+              <TableHead className="text-right">Posición</TableHead>
+              <TableHead className="text-right">Últimos datos</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {overview.data.map((p) => (
+              <TableRow key={p.projectId}>
+                <TableCell className="min-w-[12rem]">
+                  <Link href={`/admin/seo/${p.projectId}`} className="font-medium hover:underline">
+                    {p.tenantId ? (p.tenantName ?? p.name) : p.name}
+                  </Link>
+                  <p className="break-all text-xs text-muted-foreground">
+                    {p.domain ?? 'Sin dominio'}
+                    {p.tenantId ? ' · tenant' : ' · TrasterOS'}
+                  </p>
+                </TableCell>
+                <TableCell className="text-right">
+                  <p className="tabular-nums">{formatCount(p.current.clicks)}</p>
+                  <SeoChange value={p.change?.clicksPct} suffix=" %" />
+                </TableCell>
+                <TableCell className="text-right">
+                  <p className="tabular-nums">{formatCount(p.current.impressions)}</p>
+                  <SeoChange value={p.change?.impressionsPct} suffix=" %" />
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {p.current.ctr == null ? '—' : formatPct(p.current.ctr * 100)}
+                </TableCell>
+                <TableCell className="text-right">
+                  <p className="tabular-nums">
+                    {p.current.position == null ? '—' : formatNumber(p.current.position, 1)}
+                  </p>
+                  <SeoChange value={p.change?.positionDiff} suffix=" puestos" />
+                </TableCell>
+                <TableCell className="text-right text-xs">
+                  {p.lastDate ? formatDate(p.lastDate) : '—'}
+                  {p.delayed && (
+                    <Badge className="ml-1 border-transparent bg-amber-100 text-amber-800 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-300">
+                      Con retraso
+                    </Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Panel admin → SEO → Proyectos: los de trasteros.pro y, en lectura, los de los tenants. */
 export default function AdminSeoProjectsPage() {
   const router = useRouter();
@@ -155,6 +253,8 @@ export default function AdminSeoProjectsPage() {
           <Plus className="mr-1 size-4" aria-hidden /> Nuevo proyecto
         </Button>
       </div>
+
+      <ProjectsOverview />
 
       <Tabs defaultValue="platform">
         <TabsList>

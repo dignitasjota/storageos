@@ -9,7 +9,7 @@ import type {
   CreateSeoProjectInput,
   SeoGscPropertiesDto,
   SeoProjectDto,
-  SeoSummaryDto,
+  SeoProjectOverviewDto,
   SeoSyncRunDto,
   SeoTenantProjectRowDto,
   UpdateSeoDomainInput,
@@ -64,13 +64,11 @@ export function useAdminSeoRuns(id: string, polling: boolean) {
   });
 }
 
-export function useAdminSeoSummary(id: string, days: number, domainId: string | null) {
+/** Vista global: cada proyecto con sus últimos 28 días. */
+export function useAdminSeoOverview() {
   return useQuery({
-    queryKey: [...root, 'summary', id, days, domainId],
-    queryFn: () =>
-      adminApiFetch<SeoSummaryDto>(
-        `/admin/seo/projects/${id}/summary?days=${days}${domainId ? `&domainId=${domainId}` : ''}`,
-      ),
+    queryKey: [...root, 'overview'],
+    queryFn: () => adminApiFetch<SeoProjectOverviewDto[]>('/admin/seo/overview'),
   });
 }
 

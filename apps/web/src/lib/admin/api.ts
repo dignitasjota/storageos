@@ -29,6 +29,8 @@ interface AdminFetchOptions extends Omit<RequestInit, 'body'> {
   requiresAuth?: boolean;
   /** Cualquier objeto serializable a JSON; si se pasa, fija `Content-Type`. */
   json?: unknown;
+  /** Formulario con ficheros (el navegador pone el `Content-Type`). */
+  formData?: FormData;
 }
 
 let refreshInFlight: Promise<string | null> | null = null;
@@ -122,6 +124,7 @@ export async function adminApiFetch<T = unknown>(
   const init: RequestInit = {
     method: options.method ?? 'GET',
     ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
+    ...(options.formData !== undefined ? { body: options.formData } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { SEO_STRATEGY_LABELS, type CreateSeoProjectInput } from '@storageos/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, Pause, Pencil, Play, Trash2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -11,9 +12,10 @@ import { useConfirm } from '@/components/confirm-provider';
 import { BackLink } from '@/components/layout/back-link';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
+import { SeoImportsCard } from '@/components/seo/seo-imports-card';
+import { SeoPanel } from '@/components/seo/seo-panel';
 import { SeoProjectDialog } from '@/components/seo/seo-project-dialog';
 import { SeoRunsCard } from '@/components/seo/seo-runs-card';
-import { SeoSummaryCard } from '@/components/seo/seo-summary-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,7 +23,6 @@ import {
   useAdminSeoProject,
   useAdminSeoProperties,
   useAdminSeoRuns,
-  useAdminSeoSummary,
   useCancelAdminSeoRun,
   useCheckAdminSeoDomain,
   useDeleteAdminSeoProject,
@@ -32,6 +33,7 @@ import {
 } from '@/lib/admin/seo-hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { hasActiveRun } from '@/lib/seo-advanced/hooks';
+import { useAdminSeoClient } from '@/lib/seo-advanced/panel';
 
 /** Ficha de un proyecto de SEO: la plataforma la gestiona; la de un tenant, solo se ve. */
 export default function AdminSeoProjectPage() {
@@ -40,13 +42,13 @@ export default function AdminSeoProjectPage() {
   const confirm = useConfirm();
   const isSuperadmin = useIsSuperadmin();
   const project = useAdminSeoProject(id);
-  const [days, setDays] = useState(28);
-  const [domainId, setDomainId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // Solo el super admin importa, y solo en los proyectos de la plataforma.
+  const client = useAdminSeoClient(id, isSuperadmin && project.data?.tenantId === null);
+  const qc = useQueryClient();
 
   const active = hasActiveRun(project.data);
   const runs = useAdminSeoRuns(id, active);
-  const summary = useAdminSeoSummary(id, days, domainId);
   const properties = useAdminSeoProperties(true);
   const update = useUpdateAdminSeoProject(id);
   const remove = useDeleteAdminSeoProject();
@@ -57,17 +59,17 @@ export default function AdminSeoProjectPage() {
   const sync = useSyncAdminSeoDomain(id);
   const cancel = useCancelAdminSeoRun();
 
-  // Al terminar una descarga, el resumen y el historial se ponen al día.
+  // Al terminar una descarga, el panel y el historial se ponen al día.
   const wasActive = useRef(active);
-  const { refetch: refetchSummary } = summary;
   const { refetch: refetchRuns } = runs;
+  const { scope } = client;
   useEffect(() => {
     if (wasActive.current && !active) {
-      void refetchSummary();
+      void qc.invalidateQueries({ queryKey: scope });
       void refetchRuns();
     }
     wasActive.current = active;
-  }, [active, refetchSummary, refetchRuns]);
+  }, [active, qc, scope, refetchRuns]);
 
   if (project.isError) {
     return (
@@ -161,17 +163,7 @@ export default function AdminSeoProjectPage() {
         </div>
       </div>
 
-      <SeoSummaryCard
-        summary={summary.data}
-        isLoading={summary.isLoading}
-        isError={summary.isError}
-        onRetry={() => void summary.refetch()}
-        days={days}
-        onDaysChange={setDays}
-        domains={p.domains}
-        domainId={domainId}
-        onDomainChange={setDomainId}
-      />
+      <SeoPanel client={client} domains={p.domains} />
 
       <SeoDomainsCard
         project={p}
@@ -185,6 +177,8 @@ export default function AdminSeoProjectPage() {
           setRole: (domain, role) => updateDomain.mutateAsync({ id: domain, role }),
         }}
       />
+
+      <SeoImportsCard client={client} domains={p.domains} />
 
       <SeoRunsCard
         runs={runs.data}
