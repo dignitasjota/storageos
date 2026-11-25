@@ -275,7 +275,7 @@ describe('Seguimientos, Trials, En riesgo y Oportunidades: mejoras (e2e)', () =>
       data: { tenantId: t2.id, superAdminId: adminId, type: 'call', content: 'Hablado' },
     });
     const server = app.getHttpServer();
-    const res = await request(server).get('/admin/at-risk').set(auth()).expect(200);
+    const res = await request(server).get('/admin/tenants/at-risk').set(auth()).expect(200);
     expect(typeof res.body.monthlyAtStake).toBe('number');
     const scheduled = res.body.scheduledEnd.find((r: { id: string }) => r.id === tenant.id);
     expect(scheduled).toMatchObject({ reason: 'scheduled_end' });
@@ -295,7 +295,7 @@ describe('Seguimientos, Trials, En riesgo y Oportunidades: mejoras (e2e)', () =>
     }
 
     const preview = await request(server)
-      .post(`/admin/at-risk/playbook-preview/${t2.id}`)
+      .post(`/admin/tenants/${t2.id}/retention-playbook/preview`)
       .set(auth())
       .send({ reason: 'past_due', message: 'Te llamé ayer' })
       .expect(200);
@@ -444,7 +444,7 @@ describe('Seguimientos, Trials, En riesgo y Oportunidades: mejoras (e2e)', () =>
     const server = app.getHttpServer();
     await request(server).get('/admin/followups/inbox').expect(401);
     await request(server).get('/admin/trials').expect(401);
-    await request(server).get('/admin/at-risk').expect(401);
+    await request(server).get('/admin/tenants/at-risk').expect(401);
     await request(server).get('/admin/opportunities/overview').expect(401);
   });
 });
