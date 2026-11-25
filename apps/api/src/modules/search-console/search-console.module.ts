@@ -21,6 +21,6 @@ import { SeoReportService } from './seo-report.service';
     SeoReportService,
     ...(WORKERS_ENABLED_IN_API ? [SearchConsoleCron] : []),
   ],
-  exports: [SearchConsoleService],
+  exports: [SearchConsoleService, SearchConsoleClient],
 })
 export class SearchConsoleModule {}

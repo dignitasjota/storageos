@@ -92,6 +92,8 @@ const RULES: Array<RouteRequirements & { prefix: string }> = [
   { prefix: '/analytics', permission: 'analytics:read' },
   { prefix: '/competitors', permission: 'analytics:read' },
   { prefix: '/seo', permission: 'analytics:read', feature: 'local_seo' },
+  // Sin función: la página enseña qué ofrece el extra a quien no lo tiene.
+  { prefix: '/seo-advanced', permission: 'analytics:read' },
   { prefix: '/reports', permission: 'reports:read' },
   { prefix: '/assistant', permission: 'ai:use', feature: 'ai_assistant' },
   // Configuración: el permiso sale de `settings-nav.ts`; aquí solo las funciones.

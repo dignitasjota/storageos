@@ -105,6 +105,7 @@ import { RgpdModule } from './modules/rgpd/rgpd.module';
 import { SearchModule } from './modules/search/search.module';
 import { SearchConsoleModule } from './modules/search-console/search-console.module';
 import { SecurityEventsModule } from './modules/security-events/security-events.module';
+import { SeoAdvancedModule } from './modules/seo-advanced/seo-advanced.module';
 import { SepaModule } from './modules/sepa/sepa.module';
 import { SuspensionHoldsModule } from './modules/suspension-holds/suspension-holds.module';
 import { TenantDigestModule } from './modules/tenant-digest/tenant-digest.module';
@@ -230,6 +231,7 @@ import type { Options as PinoHttpOptions } from 'pino-http';
     BlogScheduleModule,
     AreaPagesModule,
     SearchConsoleModule,
+    SeoAdvancedModule,
     PromoLandingsModule,
     ContractsModule,
     QueuesModule,

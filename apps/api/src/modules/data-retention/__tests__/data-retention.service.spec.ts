@@ -13,6 +13,7 @@ const RETENTION: Record<string, number> = {
   RETENTION_WEB_EVENTS_DAYS: 480,
   RETENTION_CONTACT_MESSAGES_DAYS: 730,
   RETENTION_VERIFACTU_SUBMISSIONS_DAYS: 1461,
+  RETENTION_SEO_GSC_DETAIL_DAYS: 760,
 };
 
 function build() {
@@ -43,6 +44,7 @@ function build() {
     $executeRaw: jest.fn().mockResolvedValue(2),
     waitlistEntry: { deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
     verifactuSubmission: { deleteMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    seoGscMetric: { deleteMany: jest.fn().mockResolvedValue({ count: 10 }) },
     platformContactMessage: {
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -111,7 +113,14 @@ describe('DataRetentionService', () => {
       impersonationLogs: 1,
       superAdminAuditLogs: 1,
       verifactuSubmissions: 2,
+      seoGscDetails: 10,
     });
+    // SEO Avanzado: solo los cruces grandes, a los 25 meses.
+    const seoWhere = admin.seoGscMetric.deleteMany.mock.calls[0]![0].where;
+    expect(seoWhere.grain).toEqual({ in: ['query_page', 'query_country'] });
+    expect(
+      Math.abs((seoWhere.date.lt as Date).getTime() - (before - 760 * 86_400_000)),
+    ).toBeLessThan(5000);
     // Los envíos a la AEAT se guardan 4 años.
     const vfCutoff = admin.verifactuSubmission.deleteMany.mock.calls[0]![0].where.sentAt.lt as Date;
     expect(Math.abs(vfCutoff.getTime() - (before - 1461 * 86_400_000))).toBeLessThan(5000);

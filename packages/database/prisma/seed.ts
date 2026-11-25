@@ -322,6 +322,12 @@ async function seedAddons() {
       priceMonthly: 15,
       feature: 'custom_domain',
     },
+    {
+      slug: 'addon-seo-advanced',
+      name: 'SEO Avanzado',
+      priceMonthly: 199,
+      feature: 'seo_advanced',
+    },
   ];
   for (const a of addons) {
     await prisma.subscriptionAddon.upsert({

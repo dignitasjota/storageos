@@ -45,9 +45,12 @@ function useRecordInterest(feature: TenantFeature, active: boolean) {
 export function FeatureGate({
   feature,
   children,
+  pitch,
 }: {
   feature: TenantFeature;
   children: ReactNode;
+  /** Qué aporta la función (en lugar del texto genérico de «plan superior»). */
+  pitch?: ReactNode;
 }) {
   const me = useMe();
   const features = useFeatures();
@@ -78,18 +81,28 @@ export function FeatureGate({
             <h2 className="text-lg font-semibold tracking-tight">
               {suspendedByPayment
                 ? `${FEATURE_LABELS[feature]} está suspendida`
-                : `${FEATURE_LABELS[feature]} no está en tu plan`}
+                : pitch
+                  ? `Activa ${FEATURE_LABELS[feature]}`
+                  : `${FEATURE_LABELS[feature]} no está en tu plan`}
             </h2>
-            <p className="text-sm text-muted-foreground">
-              {suspendedByPayment
-                ? 'Esta funcionalidad está suspendida por un pago pendiente. Regulariza el pago para reactivarla.'
-                : 'Este módulo está disponible en un plan superior. Mejora tu plan para desbloquearlo.'}
-            </p>
+            {suspendedByPayment || !pitch ? (
+              <p className="text-sm text-muted-foreground">
+                {suspendedByPayment
+                  ? 'Esta funcionalidad está suspendida por un pago pendiente. Regulariza el pago para reactivarla.'
+                  : 'Este módulo está disponible en un plan superior. Mejora tu plan para desbloquearlo.'}
+              </p>
+            ) : (
+              <div className="text-left text-sm text-muted-foreground">{pitch}</div>
+            )}
           </div>
           <Button asChild variant={suspendedByPayment ? 'destructive' : 'default'}>
             <Link href={suspendedByPayment ? '/support' : '/settings/saas-billing'}>
               <Sparkles className="mr-1 h-4 w-4" />{' '}
-              {suspendedByPayment ? 'Contactar para regularizar' : 'Ver planes'}
+              {suspendedByPayment
+                ? 'Contactar para regularizar'
+                : pitch
+                  ? 'Ver extras y planes'
+                  : 'Ver planes'}
             </Link>
           </Button>
         </CardContent>

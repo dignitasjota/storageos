@@ -29,6 +29,7 @@ export const ADOPTION_SIGNALS: Record<TenantFeature, string> = {
   business_reminders: 'Vencimientos activos o en pausa (configuración activa)',
   unit_cession: 'Trasteros cedidos en curso o cedidos en 90 días',
   branded_panel: 'Función activa con logo subido o color de marca',
+  seo_advanced: 'Proyecto de SEO con algún dominio conectado a Search Console',
 };
 
 /** A partir de qué parte de un límite se avisa de «cerca del límite». */

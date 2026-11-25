@@ -275,6 +275,8 @@ const envSchemaBase = z.object({
   RETENTION_SUPER_ADMIN_AUDIT_DAYS: z.coerce.number().int().positive().default(730),
   /** Envíos a la AEAT (Veri*Factu, con su CSV): 4 años, lo que prescribe una inspección. */
   RETENTION_VERIFACTU_SUBMISSIONS_DAYS: z.coerce.number().int().positive().default(1461),
+  /** SEO Avanzado: cruces grandes de Search Console (búsqueda × página y × país), 25 meses. */
+  RETENTION_SEO_GSC_DETAIL_DAYS: z.coerce.number().int().positive().default(760),
 
   // --- Control de accesos: anti-fuerza-bruta en /access/verify ---
   //     Además del throttle por IP (60/min), lockout por DISPOSITIVO (frena el
@@ -332,6 +334,8 @@ const envSchemaBase = z.object({
   GSC_SERVICE_ACCOUNT_JSON: z.string().optional(),
   /** `stub` = sin llamar a Google (desarrollo). En tests siempre simulado. */
   GSC_MODE: z.enum(['stub', 'live']).optional(),
+  /** SEO Avanzado: días de la carga inicial de un dominio (16 meses, lo que guarda Google). */
+  SEO_GSC_INITIAL_DAYS: z.coerce.number().int().min(7).max(486).default(486),
   /** Instagram y Facebook orgánico: `stub` = sin llamar a Meta. En tests siempre simulado. */
   SOCIAL_MODE: z.enum(['stub', 'live']).optional(),
   /**

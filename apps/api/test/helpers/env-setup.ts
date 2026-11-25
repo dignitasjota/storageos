@@ -46,6 +46,9 @@ process.env.NODE_ENV = 'test';
 // activar puntualmente con LOG_LEVEL=debug pnpm test:e2e).
 process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'fatal';
 process.env.LOG_PRETTY = 'false';
+// SEO Avanzado: la carga inicial de un dominio, con 20 días en vez de 16 meses
+// (en los tests va simulada, pero son muchos días que escribir).
+process.env.SEO_GSC_INITIAL_DAYS = process.env.SEO_GSC_INITIAL_DAYS || '20';
 // Casi todos los e2e usan la web y la reserva sin dejar el negocio configurado.
 process.env.E2E_SKIP_READINESS = 'true';
 

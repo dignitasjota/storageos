@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { FACILITY_RESTORE_DAYS, VIDEO_SURVEILLANCE_RETENTION_DAYS } from '@storageos/shared';
+import {
+  FACILITY_RESTORE_DAYS,
+  SEO_GSC_SHORT_RETENTION_GRAINS,
+  VIDEO_SURVEILLANCE_RETENTION_DAYS,
+} from '@storageos/shared';
 
 import { attachmentKeysOf } from '../../common/message-attachments';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -298,6 +302,7 @@ export class DataRetentionService {
     impersonationLogs: number;
     superAdminAuditLogs: number;
     verifactuSubmissions: number;
+    seoGscDetails: number;
   }> {
     const now = Date.now();
     const cutoff = (days: number) => new Date(now - days * 24 * 60 * 60 * 1000);
@@ -314,6 +319,7 @@ export class DataRetentionService {
     const impersonationDays = this.config.get('RETENTION_IMPERSONATION_LOGS_DAYS', { infer: true });
     const adminAuditDays = this.config.get('RETENTION_SUPER_ADMIN_AUDIT_DAYS', { infer: true });
     const verifactuDays = this.config.get('RETENTION_VERIFACTU_SUBMISSIONS_DAYS', { infer: true });
+    const seoDetailDays = this.config.get('RETENTION_SEO_GSC_DETAIL_DAYS', { infer: true });
     const prenoticeDays = Math.max(
       this.config.get('RETENTION_SEPA_PRENOTICE_DAYS', { infer: true }),
       commsDays,
@@ -353,6 +359,7 @@ export class DataRetentionService {
       impersonationLogs,
       superAdminAuditLogs,
       verifactuSubmissions,
+      seoGscDetails,
     ] = await Promise.all([
       this.admin.auditLog.deleteMany({ where: { occurredAt: { lt: cutoff(auditDays) } } }),
       this.admin.accessLog.deleteMany({ where: { occurredAt: { lt: cutoff(accessDays) } } }),
@@ -428,6 +435,14 @@ export class DataRetentionService {
       this.admin.verifactuSubmission.deleteMany({
         where: { sentAt: { lt: cutoff(verifactuDays) } },
       }),
+      // SEO Avanzado: los cruces grandes de Search Console, 25 meses (los
+      // totales y el resto de cruces no caducan).
+      this.admin.seoGscMetric.deleteMany({
+        where: {
+          grain: { in: SEO_GSC_SHORT_RETENTION_GRAINS },
+          date: { lt: cutoff(seoDetailDays) },
+        },
+      }),
     ]);
     // La IP del visitante solo hace falta los primeros días (abusos).
     await this.admin.platformContactMessage.updateMany({
@@ -474,6 +489,7 @@ export class DataRetentionService {
       impersonationLogs: impersonationLogs.count,
       superAdminAuditLogs: superAdminAuditLogs.count,
       verifactuSubmissions: verifactuSubmissions.count,
+      seoGscDetails: seoGscDetails.count,
     };
     const total =
       result.auditLogs +
@@ -493,7 +509,8 @@ export class DataRetentionService {
       result.adminSessions +
       result.impersonationLogs +
       result.superAdminAuditLogs +
-      result.verifactuSubmissions;
+      result.verifactuSubmissions +
+      result.seoGscDetails;
     if (total > 0) {
       this.logger.log(
         `data-retention: borradas ${total} filas ` +
@@ -504,7 +521,8 @@ export class DataRetentionService {
           `web_events=${result.webEvents}, web_chat=${result.webChatConversations}/${result.webChatMessages}, ` +
           `landings=${result.promoLandingVisits}, lista_espera=${result.waitlistEntries}, contacto=${result.contactMessages}, ` +
           `admin_sessions=${result.adminSessions}, impersonations=${result.impersonationLogs}, ` +
-          `admin_audit=${result.superAdminAuditLogs}, verifactu=${result.verifactuSubmissions})`,
+          `admin_audit=${result.superAdminAuditLogs}, verifactu=${result.verifactuSubmissions}, ` +
+          `seo=${result.seoGscDetails})`,
       );
     }
     return result;
