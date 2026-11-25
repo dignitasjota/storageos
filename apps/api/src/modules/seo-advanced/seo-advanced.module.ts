@@ -67,9 +67,7 @@ import type { Env } from '../../config/env.schema';
     SeoProviderRegistry,
     SistrixFetchService,
     SistrixSyncService,
-    ...(WORKERS_ENABLED_IN_API
-      ? [SeoGscProcessor, SeoGscCron, SistrixProcessor, SistrixCron]
-      : []),
+    ...(WORKERS_ENABLED_IN_API ? [SeoGscProcessor, SeoGscCron, SistrixProcessor, SistrixCron] : []),
   ],
   exports: [
     SeoProjectsService,
