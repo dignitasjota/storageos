@@ -80,6 +80,7 @@ import {
   useAdminTodayCount,
 } from '@/lib/admin/hooks';
 import { useSalesTeamPendingCount } from '@/lib/admin/sales-team-hooks';
+import { useFollowupsOverdueCount } from '@/lib/admin/tenant-ops-hooks';
 import { SUPERADMIN_ONLY_PATHS, useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
 import { env } from '@/lib/env';
@@ -362,6 +363,7 @@ function AdminNavLink({
   onNavigate,
   nested,
   salesPending,
+  followupsOverdue,
 }: {
   item: AdminNavItem;
   pathname: string;
@@ -371,6 +373,8 @@ function AdminNavLink({
   nested?: boolean;
   /** Pendiente de decidir del equipo comercial (badge en «Por decidir»). */
   salesPending?: number;
+  /** Seguimientos atrasados míos o sin asignar (badge en «Seguimientos»). */
+  followupsOverdue?: number;
 }) {
   const Icon = item.icon;
   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -396,6 +400,14 @@ function AdminNavLink({
       {item.href === '/admin/sales-team/pending' && (salesPending ?? 0) > 0 && (
         <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1 text-xs font-medium text-white">
           {salesPending}
+        </span>
+      )}
+      {item.href === '/admin/followups' && (followupsOverdue ?? 0) > 0 && (
+        <span
+          className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-xs font-medium text-white"
+          title="Atrasados tuyos o sin asignar"
+        >
+          {followupsOverdue}
         </span>
       )}
       {item.href === '/admin/today' && urgentToday > 0 && (
@@ -426,6 +438,7 @@ function AdminNavLinks({
   // El equipo comercial lo lleva la dirección (soporte no lo ve).
   const isSuperadmin = useIsSuperadmin();
   const salesPending = useSalesTeamPendingCount(isSuperadmin).data?.count ?? 0;
+  const followupsOverdue = useFollowupsOverdueCount().data?.count ?? 0;
   const groups = ADMIN_NAV.filter((g) => isSuperadmin || g.label !== 'Equipo comercial');
 
   const link = (item: AdminNavItem) => (
@@ -477,6 +490,7 @@ function AdminNavLinks({
                       onNavigate={onNavigate}
                       nested
                       salesPending={salesPending}
+                      followupsOverdue={followupsOverdue}
                     />
                   ))}
                 </div>
