@@ -313,6 +313,21 @@ describe('Seguimientos, Trials, En riesgo y Oportunidades: mejoras (e2e)', () =>
       where: { targetTenantId: t2.id, action: 'admin.tenant.retention_playbook' },
     });
     expect((log?.changes as { reason?: string }).reason).toBe('cancel_at_period_end');
+    // Ignorar solo «Baja programada»; y el playbook lanzado se ve en la fila.
+    await request(server)
+      .post(`/admin/tenants/${tenant.id}/risk-snooze`)
+      .set(auth())
+      .send({ days: 30, reason: 'Ya hablado', kind: 'scheduled_end' })
+      .expect(200);
+    const again = await request(server).get('/admin/tenants/at-risk').set(auth()).expect(200);
+    expect(again.body.scheduledEnd.some((r: { id: string }) => r.id === tenant.id)).toBe(false);
+    expect(
+      again.body.snoozed.some(
+        (r: { id: string; kind: string }) => r.id === tenant.id && r.kind === 'scheduled_end',
+      ),
+    ).toBe(true);
+    const launched = again.body.cancelAtPeriodEnd.find((r: { id: string }) => r.id === t2.id);
+    expect(launched.playbookAt).toBeTruthy();
     // Sigue el enfriamiento de 14 días.
     await db.tenantFollowup.deleteMany({ where: { tenantId: t2.id } });
     await request(server)
