@@ -329,14 +329,24 @@ describe('SEO Avanzado: proyectos, dominios y Search Console (e2e)', () => {
       'seo_project_exists',
     );
 
-    // Una web ajena: ni se guarda.
+    // Una web ajena sin acceso de nuestra cuenta: ni se guarda (con acceso,
+    // entraría como secundaria: ver seo-advanced-panel.e2e-spec.ts).
     const foreign = await http()
       .post('/seo-advanced/domains')
       .set(a)
-      .send({ gscProperty: 'sc-domain:competidor.es' });
+      .send({ gscProperty: 'sc-domain:noaccess-competidor.es' });
     expect(foreign.status).toBe(400);
-    expect(foreign.body.code).toBe('seo_property_not_yours');
-    // Ni la de la plataforma.
+    expect(foreign.body.code).toBe('seo_property_no_access');
+    // Como principal, nunca.
+    expect(
+      (
+        await http()
+          .post('/seo-advanced/domains')
+          .set(a)
+          .send({ gscProperty: 'sc-domain:competidor.es', role: 'primary' })
+      ).body.code,
+    ).toBe('seo_primary_not_yours');
+    // Ni la que ya usa la plataforma.
     expect(
       (
         await http()
@@ -344,7 +354,7 @@ describe('SEO Avanzado: proyectos, dominios y Search Console (e2e)', () => {
           .set(a)
           .send({ gscProperty: 'sc-domain:e2e-plataforma.es' })
       ).body.code,
-    ).toBe('seo_property_not_yours');
+    ).toBe('seo_property_taken');
 
     // Un solo principal.
     const second = await http()

@@ -9859,6 +9859,7 @@ model SeoProject {
 
   domains SeoProjectDomain[]
   runs    SeoSyncRun[]
+  imports SeoGscImport[]
 
   @@map("seo_projects")
 }
@@ -9880,12 +9881,15 @@ model SeoProjectDomain {
   lastSyncedAt     DateTime? @map("last_synced_at") @db.Timestamptz(6)
   dataUntil        DateTime? @map("data_until") @db.Date
   initialDoneAt    DateTime? @map("initial_done_at") @db.Timestamptz(6)
+  /// own · gsc_access (secundario no propio con acceso de la cuenta de servicio)
+  verification     String    @default("own")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   project SeoProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   metrics SeoGscMetric[]
   runs    SeoSyncRun[]
+  imports SeoGscImport[]
 
   @@unique([projectId, domain], map: "seo_project_domains_project_domain_key")
   @@index([tenantId], map: "seo_project_domains_tenant_idx")
@@ -9909,14 +9913,74 @@ model SeoGscMetric {
   impressions Int      @default(0)
   ctr         Decimal  @default(0) @db.Decimal(7, 6)
   position    Decimal  @db.Decimal(7, 2)
+  /// api · import
+  source      String   @default("api")
+  importId    String?  @map("import_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  domain SeoProjectDomain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  domain    SeoProjectDomain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  gscImport SeoGscImport?    @relation(fields: [importId], references: [id], onDelete: Cascade)
 
   @@index([domainId, grain, date], map: "seo_gsc_metrics_domain_grain_date_idx")
   @@index([grain, date], map: "seo_gsc_metrics_grain_date_idx")
   @@index([tenantId], map: "seo_gsc_metrics_tenant_idx")
   @@map("seo_gsc_metrics")
+}
+
+/// Un Excel (o zip de CSV) de Search Console importado en un dominio.
+model SeoGscImport {
+  id                    String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId              String?  @map("tenant_id") @db.Uuid
+  projectId             String   @map("project_id") @db.Uuid
+  domainId              String   @map("domain_id") @db.Uuid
+  fileName              String   @map("file_name")
+  fileHash              String   @map("file_hash")
+  fileSize              Int      @default(0) @map("file_size")
+  /// xlsx · zip
+  format                String
+  /// es · en
+  language              String
+  periodFrom            DateTime @map("period_from") @db.Date
+  periodTo              DateTime @map("period_to") @db.Date
+  filters               Json     @default("[]")
+  filtered              Boolean  @default(false)
+  tabRows               Json     @default("{}") @map("tab_rows")
+  siteDaysAdded         Int      @default(0) @map("site_days_added")
+  siteDaysApi           Int      @default(0) @map("site_days_api")
+  siteDaysImported      Int      @default(0) @map("site_days_imported")
+  createdByUserId       String?  @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId String?  @map("created_by_super_admin_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project SeoProject         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domain  SeoProjectDomain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  rows    SeoGscImportRow[]
+  metrics SeoGscMetric[]
+
+  @@unique([projectId, fileHash], map: "seo_gsc_imports_project_hash_key")
+  @@index([projectId, createdAt(sort: Desc)], map: "seo_gsc_imports_project_created_idx")
+  @@index([tenantId], map: "seo_gsc_imports_tenant_idx")
+  @@map("seo_gsc_imports")
+}
+
+/// Una fila de una pestaña del Excel importado (agregado del periodo, o un día).
+model SeoGscImportRow {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  importId    String   @map("import_id") @db.Uuid
+  /// query · page · country · device · search_appearance · date
+  dimension   String
+  value       String
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Decimal? @db.Decimal(7, 6)
+  position    Decimal? @db.Decimal(7, 2)
+
+  gscImport SeoGscImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId, dimension], map: "seo_gsc_import_rows_import_dimension_idx")
+  @@index([tenantId], map: "seo_gsc_import_rows_tenant_idx")
+  @@map("seo_gsc_import_rows")
 }
 
 /// Una descarga (inicial, diaria o manual) con su progreso y su cursor.

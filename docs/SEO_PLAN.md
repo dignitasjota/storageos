@@ -648,3 +648,38 @@ Con eso las tres primeras fases vuelven a **10–11 PR**.
 - Las herramientas del MCP **se descubren** con `tools/list` (nombres y parámetros no se dan por supuestos) y se guardan; un cambio de herramientas en el servidor se detecta y avisa.
 
 **Pendiente**: resultados de la prueba de concepto (§26).
+
+## 26. Dominios secundarios del tenant (decidido el 2026-11-26)
+
+Un tenant puede añadir como dominio secundario una propiedad de Search Console que no sea suya «por la plataforma» (por ejemplo `trasterosmislata.es` en GUÁRDALO) si la cuenta de servicio tiene acceso a ella (alguien con permisos sobre la propiedad la ha añadido) y no la usa ningún otro proyecto ni es de la plataforma. Va en la PR siguiente.
+
+## 27. PR 2 hecha (2026-11-26)
+
+- **Dominio secundario de otra web (§26)**: el principal sigue siendo solo una web del negocio; un secundario que no lo es entra si la cuenta de servicio tiene acceso a su propiedad, no es de la plataforma (ni subdominio) y no lo usa ningún otro proyecto, de otro tenant o de la plataforma. Queda marcado (`verification = gsc_access`), no se puede pasar a principal y vuelve a comprobar sus condiciones en cada «Comprobar».
+- **Importación de los Excel de Search Console (§18.1 y §19.7)**: `.xlsx` y `.zip` de CSV, en español e inglés, todas las pestañas. «Fechas» entra en el cruce `site` solo en los días que no tienen ni la API ni otra importación (marca `source` por fila; manda la API). El resto de pestañas, aparte (`seo_gsc_import_rows`), nunca repartidas por días. Filtros guardados y avisados (con filtro, no entra en los totales). Vista previa antes de confirmar, sin duplicados por huella del fichero, y borrar quita sus filas y sus días.
+- **Panel con gráficos y comparativas (§6, §8 y §19.1)**: periodos de 7/28/90 días, 6/12 meses y a mano; periodo anterior y mismo periodo del año anterior; indicadores con variación; evolución diaria en gráficos de un solo eje (posición con el eje al revés); dispositivo, país (10 + resto) y tipo de búsqueda; búsquedas y páginas con variación, buscador, orden, páginas, CSV y cruce búsqueda ↔ página; selector de dominio sin mezclar y lo que llega por los secundarios; fecha de los últimos datos y aviso de retraso; en el admin, vista global de los 28 días de cada proyecto. Todo con agregaciones en SQL sobre un único cruce cada vez.
+- **Decisiones**: la importación sube el fichero dos veces (vista previa y confirmación) en vez de guardarlo entre una y otra; la comparación «hay datos» exige datos desde el primer día del periodo comparado; las importaciones en el admin solo van en los proyectos de la plataforma (los de los tenants, en lectura).
+- **Pendiente** (siguientes PR): SISTRIX (MCP y API), palabras clave, competencia, oportunidades, canibalización, indexación, actuaciones, conversiones e informes.
+
+## 28. Prueba de concepto de SISTRIX por MCP (2026-11-25)
+
+Hecha con un cliente propio (SDK oficial `@modelcontextprotocol/sdk` 1.32.2, transporte HTTP), sin ningún asistente de IA, contra `https://api.sistrix.com/mcp/` con la cuenta de Jota. 16 consultas, ninguna de pago.
+
+**Conexión**
+
+- Descubrimiento OAuth completo (`/.well-known/oauth-protected-resource/mcp` → servidor de autorización `https://api.sistrix.com/mcp`), registro dinámico, PKCE S256, `authorization_code` + `refresh_token`, ámbito `sistrix`.
+- **Peculiaridad**: al canjear el código, SISTRIX rechaza la petición si lleva `redirect_uri` («did not match») y la acepta sin él. El SDK lo manda siempre → nuestro cliente debe quitarlo de esa petición (envoltorio de `fetch`).
+- Token de acceso de 1 h; la renovación funciona sola y **rota el refresh token** (el anterior deja de valer) → guardar el nuevo de forma atómica y con un bloqueo para que dos procesos no renueven a la vez.
+- Los tokens se guardan cifrados y la conexión sobrevive a reinicios (cada consulta de la prueba fue un proceso nuevo).
+
+**Herramientas descubiertas (11)**: `domain` (visindex, visindex_overview, kwcount, kwcount_top10, urlcount, competitors, ideas, opportunities, ranking_distribution, traffic_estimation, hosts, paths), `keyword` (seo, metrics, traffic, competition, searchintent, serpfeatures, traffic_estimation, questions), `keyword_domain_seo`, `links` (list, linktexts, linktargets), `project`, `project_onpage` (Optimizer: no se usan), `ai_check`, `ai_topicresearch` (su vista `list` dice gastar 1 crédito por tema: excluida), `ai_tracker_overview`, `ai_tracker`, `ai_prompt_answers`.
+
+**Cobertura de lo pedido**: visibilidad actual e histórica (semanal o diaria) ✔ · palabras posicionadas de un dominio con posición y URL ✔ · competidores orgánicos ✔ (solo nombres de dominio) · palabras de cada competidor ✔ · volumen (estimado, `traffic`) ✔ · competencia ✔ · CPC ✔ · intención (porcentajes saber/hacer/visitar/web) ✔ · resultados orgánicos de una palabra ✔ · oportunidades ✔ · backlinks ✔ · dominios enlazantes: parcial (recuento por URL en `linktargets`) · visibilidad en buscadores de IA ✔ (`ai_check`).
+
+**Datos**: `guardalobox.es` y `trasteros.pro` tienen visibilidad 0 y SISTRIX no tiene palabras suyas (error 1000 «no result»): son demasiado pequeñas para su muestra. Para nuestros dominios, posiciones y tráfico salen de Search Console; SISTRIX aporta sobre todo competencia, métricas de palabras y resultados de búsqueda. Un competidor (trasterosalmirante.es) sí devuelve palabras con posición y URL.
+
+**Formato**: unas herramientas devuelven `structuredContent` y otras solo texto con JSON; los errores llegan como texto con `isError: false` («SISTRIX API Error (1000): no result»); el valor de visibilidad viene a veces como texto y a veces como número; nombres de campo en alemán (`sichtbarkeitsindex`); el país por defecto es `de` (hay que pasar siempre `es`). → un normalizador por herramienta y vista.
+
+**Rendimiento**: 1,7 s de media por consulta (máx. 4,6 s). Sin errores de cuota en 16 consultas; no hay contador de uso.
+
+**Condiciones**: MCP incluido en todos los planes y sin créditos; misma política de uso razonable que la API; al agotar la cuota diaria, error 7010 hasta el día siguiente; su documentación dice que «para volúmenes grandes y regulares la vía prevista es la API clásica».

@@ -1,6 +1,7 @@
 'use client';
 
 import { SEO_STRATEGY_LABELS, SEO_TENANT_LIMITS } from '@storageos/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2, Pencil, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -8,9 +9,10 @@ import { toast } from 'sonner';
 import { SectionError } from '@/components/dashboard/section-state';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
+import { SeoImportsCard } from '@/components/seo/seo-imports-card';
+import { SeoPanel } from '@/components/seo/seo-panel';
 import { SeoProjectDialog } from '@/components/seo/seo-project-dialog';
 import { SeoRunsCard } from '@/components/seo/seo-runs-card';
-import { SeoSummaryCard } from '@/components/seo/seo-summary-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,12 +25,12 @@ import {
   useCreateSeoProject,
   useRemoveSeoDomain,
   useSeoRuns,
-  useSeoSummary,
   useSeoWorkspace,
   useSyncSeoDomain,
   useUpdateSeoDomain,
   useUpdateSeoProject,
 } from '@/lib/seo-advanced/hooks';
+import { useTenantSeoClient } from '@/lib/seo-advanced/panel';
 
 /** Análisis → SEO Avanzado: el proyecto de la web del negocio. */
 export default function SeoAdvancedPage() {
@@ -36,12 +38,11 @@ export default function SeoAdvancedPage() {
   const workspace = useSeoWorkspace();
   const project = workspace.data?.project ?? null;
   const active = hasActiveRun(project);
-  const [days, setDays] = useState(28);
-  const [domainId, setDomainId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const client = useTenantSeoClient(canEdit);
+  const qc = useQueryClient();
 
   const runs = useSeoRuns(!!project, active);
-  const summary = useSeoSummary(days, domainId, !!project);
   const create = useCreateSeoProject();
   const update = useUpdateSeoProject();
   const addDomain = useAddSeoDomain();
@@ -51,17 +52,17 @@ export default function SeoAdvancedPage() {
   const sync = useSyncSeoDomain();
   const cancel = useCancelSeoRun();
 
-  // Al terminar una descarga, el resumen y el historial se ponen al día.
+  // Al terminar una descarga, el panel y el historial se ponen al día.
   const wasActive = useRef(active);
-  const { refetch: refetchSummary } = summary;
   const { refetch: refetchRuns } = runs;
+  const { scope } = client;
   useEffect(() => {
     if (wasActive.current && !active) {
-      void refetchSummary();
+      void qc.invalidateQueries({ queryKey: scope });
       void refetchRuns();
     }
     wasActive.current = active;
-  }, [active, refetchSummary, refetchRuns]);
+  }, [active, qc, scope, refetchRuns]);
 
   const start = async () => {
     try {
@@ -157,24 +158,14 @@ export default function SeoAdvancedPage() {
         {project.status === 'paused' && <Badge variant="outline">En pausa</Badge>}
       </div>
 
-      <SeoSummaryCard
-        summary={summary.data}
-        isLoading={summary.isLoading}
-        isError={summary.isError}
-        onRetry={() => void summary.refetch()}
-        days={days}
-        onDaysChange={setDays}
-        domains={project.domains}
-        domainId={domainId}
-        onDomainChange={setDomainId}
-      />
+      <SeoPanel client={client} domains={project.domains} />
 
       <SeoDomainsCard
         project={project}
         serviceAccountEmail={workspace.data.serviceAccountEmail}
         canEdit={canEdit}
         suggestedProperty={workspace.data.suggestedProperty}
-        limitText={`Puedes tener un dominio principal y ${SEO_TENANT_LIMITS.secondaryDomains} más (llevas ${secondaries}). Solo dominios de tu negocio: tu dominio propio, el de tu correo verificado o tu dirección en TrasterOS.`}
+        limitText={`Puedes tener un dominio principal y ${SEO_TENANT_LIMITS.secondaryDomains} más (llevas ${secondaries}). El principal tiene que ser de tu negocio: tu dominio propio, el de tu correo verificado o tu dirección en TrasterOS. Otra web tuya puede ir como secundaria si nuestra cuenta tiene acceso a ella en Search Console y no la usa otra cuenta.`}
         actions={{
           add: (input) => addDomain.mutateAsync(input),
           check: (id) => check.mutateAsync(id),
@@ -183,6 +174,8 @@ export default function SeoAdvancedPage() {
           setRole: (id, role) => updateDomain.mutateAsync({ id, role }),
         }}
       />
+
+      <SeoImportsCard client={client} domains={project.domains} />
 
       <SeoRunsCard
         runs={runs.data}

@@ -163,3 +163,14 @@
 .recharts-legend-item-text {
   color: hsl(var(--foreground)) !important;
 }
+
+/* SEO Avanzado: el periodo elegido y el de comparación (pareja validada con el
+   validador de paletas en los dos temas: separación también para daltonismo). */
+:root {
+  --seo-current: #2a78d6;
+  --seo-previous: #eb6834;
+}
+.dark {
+  --seo-current: #3987e5;
+  --seo-previous: #d95926;
+}
