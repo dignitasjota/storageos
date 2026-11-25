@@ -15,6 +15,7 @@ import {
   PLATFORM_LEAD_BOARD_OPEN_LIMIT,
   PLATFORM_LEAD_DISCARD_REASON_LABELS,
   PLATFORM_LEAD_LOST_REASON_LABELS,
+  PLATFORM_LEAD_FOLLOWUPS_LIST_LIMIT,
   PLATFORM_LEAD_MAX_ATTACHMENTS,
   PLATFORM_LEAD_REPLY_TYPES,
   PLATFORM_LEAD_SOURCE_LABELS,
@@ -1495,16 +1496,22 @@ export class PlatformLeadsService {
     return this.detail(id);
   }
 
-  /** Pendientes de todos los leads, por fecha (`mine`: los de ese super admin). */
+  /**
+   * Pendientes de todos los leads, por fecha (`mine`: los de ese super admin).
+   * Los de los comerciales no salen en la bandeja de la dirección (ni en «Hoy»):
+   * ya se ven en Carteras.
+   */
   async pendingFollowups(mine: string | null = null): Promise<PlatformLeadFollowupDto[]> {
     const rows = await this.admin.platformLeadFollowup.findMany({
       where: {
         status: 'pending',
         lead: { discardedAt: null },
-        ...(mine ? { assignedToId: mine } : {}),
+        ...(mine
+          ? { assignedToId: mine }
+          : { OR: [{ assignedToId: null }, { assignedTo: { role: { not: 'sales' } } }] }),
       },
       orderBy: [{ dueDate: 'asc' }, { createdAt: 'asc' }],
-      take: 300,
+      take: PLATFORM_LEAD_FOLLOWUPS_LIST_LIMIT,
       include: FOLLOWUP_INCLUDE,
     });
     return rows.map(toLeadFollowupDto);

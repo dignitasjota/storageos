@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 
+import { todayInTimezone } from '../../common/format';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
 import type { Prisma } from '@storageos/database';
@@ -79,17 +80,21 @@ export class PlanLimitsService {
     if (open > 0) return;
     const tenant = await this.admin.tenant.findUnique({
       where: { id: tenantId },
-      select: { name: true, salesRepId: true },
+      select: { name: true, salesRep: { select: { fullName: true } } },
     });
     if (!tenant) return;
-    const note = `Tiene el plan ${planName} y ha intentado pasar de ${limit.toLocaleString('es-ES')} trasteros. Contactar para darle un precio a medida (se amplía con un extra que dé más trasteros).`;
+    // Sin asignar: un comercial no ve los seguimientos de los tenants; su nombre
+    // va en la nota para que la dirección se lo pase.
+    const note = `Tiene el plan ${planName} y ha intentado pasar de ${limit.toLocaleString('es-ES')} trasteros. Contactar para darle un precio a medida (se amplía con un extra que dé más trasteros).${
+      tenant.salesRep ? ` Lo lleva el comercial ${tenant.salesRep.fullName}.` : ''
+    }`;
     await this.admin.tenantFollowup.create({
       data: {
         tenantId,
         title,
         note,
-        dueDate: new Date(),
-        ...(tenant.salesRepId ? { assignedToId: tenant.salesRepId } : {}),
+        // Hoy en hora de España (a medianoche en UTC sería aún el día anterior).
+        dueDate: todayInTimezone('Europe/Madrid'),
       },
     });
     await this.admin.superAdminNotification.create({

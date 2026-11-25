@@ -240,7 +240,9 @@ export class AdminTodayService {
       pastDue: [],
       inactive: [],
       lowHealth: [],
+      trialExpired: [],
       snoozedCount: 0,
+      snoozed: [],
     };
     const emptyKpis: AdminTodayKpisDto = {
       mrr: 0,
@@ -293,7 +295,8 @@ export class AdminTodayService {
       safe('addonCharges', () => this.addonChargesDue(now), []),
       safe('manualRenewalsDue', () => this.manualRenewalsDue(now), []),
       safe('staleSuspendedAddons', () => this.staleSuspendedAddons(now), []),
-      safe('atRisk', () => this.tenants.getAtRisk(), emptyAtRisk),
+      // «Hoy» no respeta el «ignorar» de En riesgo: tiene su propio «apartar».
+      safe('atRisk', () => this.tenants.getAtRisk({ applySnooze: false }), emptyAtRisk),
       safe('followups', () => this.followups.listPending(), []),
       safe('openTickets', async () => this.openTickets(now, await targetsP), []),
       safe('failedJobs', () => this.recentFailedJobs(now), [] as AdminTodayFailedJobDto[]),
@@ -530,7 +533,10 @@ export class AdminTodayService {
       case 'ticket':
         return pick(await this.openTickets(now), (t) => t.id === ref);
       case 'past_due':
-        return pick((await this.tenants.getAtRisk()).pastDue, (t) => t.id === ref);
+        return pick(
+          (await this.tenants.getAtRisk({ applySnooze: false })).pastDue,
+          (t) => t.id === ref,
+        );
       case 'webhook':
         return pick(await this.failedWebhooks(now), (w) => w.tenantId === ref);
       case 'device':

@@ -229,11 +229,17 @@ export class AdminTenantToolsService {
     const until = new Date(Date.now() + input.days * 86_400_000);
     await this.admin.tenant.update({
       where: { id: tenantId },
-      data: { riskSnoozedUntil: until, riskSnoozeReason: input.reason },
+      data: {
+        riskSnoozedUntil: until,
+        riskSnoozeReason: input.reason,
+        // Solo esa sección: un impago o un fin de prueba nuevo sigue saliendo.
+        riskSnoozedKind: input.kind ?? null,
+      },
     });
     await this.trace(meta, 'admin.tenant.risk_snoozed', tenantId, {
       days: input.days,
       reason: input.reason,
+      kind: input.kind ?? null,
     });
     return { until: until.toISOString() };
   }
@@ -242,7 +248,7 @@ export class AdminTenantToolsService {
     await this.tenantOrThrow(tenantId);
     await this.admin.tenant.update({
       where: { id: tenantId },
-      data: { riskSnoozedUntil: null, riskSnoozeReason: null },
+      data: { riskSnoozedUntil: null, riskSnoozeReason: null, riskSnoozedKind: null },
     });
     await this.trace(meta, 'admin.tenant.risk_unsnoozed', tenantId, {});
   }

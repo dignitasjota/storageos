@@ -117,3 +117,21 @@ export function parseAmount(value: string): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * Día corto: «24 nov» (con el año si no es el actual: «24 nov 2025»). Vacía o
+ * inválida → «—».
+ */
+export function formatShortDay(d: string | Date | null | undefined): string {
+  if (!d) return '—';
+  const date = toDate(d);
+  if (Number.isNaN(date.getTime())) return '—';
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date
+    .toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'short',
+      ...(sameYear ? {} : { year: 'numeric' }),
+    })
+    .replace('.', '');
+}

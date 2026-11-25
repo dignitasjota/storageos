@@ -112,9 +112,21 @@ export const AdminCreateTenantSchema = z.object({
 export type AdminCreateTenantInput = z.infer<typeof AdminCreateTenantSchema>;
 
 /** «Ignorar» un tenant en la lista de riesgo durante unos días. */
+/** Secciones de «En riesgo» (lo que se ignora es solo esa sección). */
+export const AtRiskKindEnum = z.enum([
+  'trial_expiring',
+  'past_due',
+  'inactive',
+  'low_health',
+  'trial_expired',
+]);
+export type AtRiskKind = z.infer<typeof AtRiskKindEnum>;
+
 export const SnoozeRiskSchema = z.object({
   days: z.number().int().min(1).max(180),
   reason: z.string().trim().min(3).max(500),
+  /** Sección que se ignora; sin ella (llamadas antiguas), todas. */
+  kind: AtRiskKindEnum.optional(),
 });
 export type SnoozeRiskInput = z.infer<typeof SnoozeRiskSchema>;
 
@@ -320,6 +332,11 @@ const realDay = z
     const d = new Date(`${v}T00:00:00.000Z`);
     return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
   }, 'Esa fecha no existe');
+
+/** Tope de la bandeja de seguimientos con tenants (la página avisa al llegar). */
+export const ADMIN_FOLLOWUPS_LIST_LIMIT = 500;
+/** Tope de la bandeja de seguimientos con leads. */
+export const PLATFORM_LEAD_FOLLOWUPS_LIST_LIMIT = 300;
 
 export const CreateTenantFollowupSchema = z.object({
   title: z.string().trim().min(1).max(200),

@@ -23,6 +23,8 @@ export class FeatureInterestController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() body: RecordFeatureInterestDto,
   ): Promise<{ recorded: boolean }> {
+    // El soporte de TrasterOS entrando como el tenant no es interés del tenant.
+    if (user.impersonation) return Promise.resolve({ recorded: false });
     return this.service.record({
       tenantId: user.tenantId,
       userId: user.sub,

@@ -30,12 +30,26 @@ import {
 } from '@/lib/admin/hooks';
 import { useIsSuperadmin } from '@/lib/admin/use-is-superadmin';
 import { ApiError } from '@/lib/auth/api';
+import { plural } from '@/lib/format';
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-ES') : '—');
+
+/** «Vencida», «Vence hoy», «Vence mañana» o «En 5 d» (días naturales en hora de España). */
+function trialDaysText(t: AdminTrialDto): string {
+  if (t.daysLeft === null) return '—';
+  if (t.expired) {
+    return t.daysLeft < 0 ? `Vencida hace ${plural(-t.daysLeft, 'día', 'días')}` : 'Vencida hoy';
+  }
+  if (t.daysLeft <= 0) return 'Vence hoy';
+  if (t.daysLeft === 1) return 'Vence mañana';
+  return `En ${t.daysLeft} d`;
+}
 
 export default function AdminTrialsPage() {
   const trials = useAdminTrials();
   const batch = useExtendTrialsBatch();
+  // El rol soporte no amplía pruebas (le daría 403): sin selección ni lote.
+  const canEdit = useIsSuperadmin();
   const [onlyUnused, setOnlyUnused] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchDays, setBatchDays] = useState(14);
@@ -88,7 +102,24 @@ export default function AdminTrialsPage() {
         days: batchDays,
         reason: 'Extensión de trial por lote',
       });
-      toast.success(`Trial extendido en ${res.updated} tenant(s).`);
+      if (res.skipped.length === 0) {
+        toast.success(`Prueba ampliada en ${plural(res.updated, 'tenant', 'tenants')}.`);
+      } else {
+        toast.warning(
+          `Prueba ampliada en ${plural(res.updated, 'tenant', 'tenants')}; ${plural(
+            res.skipped.length,
+            'no se ha ampliado',
+            'no se han ampliado',
+          )}.`,
+          {
+            description: res.skipped
+              .slice(0, 5)
+              .map((x) => `${x.name ?? x.tenantId}: ${x.reason}`)
+              .join(' · '),
+            duration: 10_000,
+          },
+        );
+      }
       setSelected(new Set());
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo extender.');
@@ -115,7 +146,7 @@ export default function AdminTrialsPage() {
         </label>
       </div>
 
-      {selected.size > 0 ? (
+      {canEdit && selected.size > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 p-3 text-sm">
           <span className="font-medium">{selected.size} seleccionado(s)</span>
           <div className="flex items-center gap-2">
@@ -150,14 +181,16 @@ export default function AdminTrialsPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>
-                <th className="p-2">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={toggleAll}
-                    aria-label="Seleccionar todos"
-                  />
-                </th>
+                {canEdit && (
+                  <th className="p-2">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleAll}
+                      aria-label="Seleccionar todos"
+                    />
+                  </th>
+                )}
                 <th className="p-2">Tenant</th>
                 <th className="p-2">Plan</th>
                 <th className="p-2">Fin trial</th>
@@ -174,6 +207,7 @@ export default function AdminTrialsPage() {
                   trial={t}
                   selected={selected.has(t.id)}
                   onToggle={() => toggle(t.id)}
+                  canEdit={canEdit}
                 />
               ))}
             </tbody>
@@ -188,17 +222,18 @@ function TrialRow({
   trial,
   selected,
   onToggle,
+  canEdit,
 }: {
   trial: AdminTrialDto;
   selected: boolean;
   onToggle: () => void;
+  canEdit: boolean;
 }) {
   const extend = useExtendTrial();
   const endTrial = useEndTrial();
   const changePlan = useChangePlan();
   const plans = useAdminSubscriptionPlans();
   const ask = useConfirm();
-  const canEdit = useIsSuperadmin();
 
   async function onEnd() {
     const res = await ask({
@@ -236,30 +271,41 @@ function TrialRow({
   }
 
   async function onExtend() {
+    const res = await ask({
+      title: `Ampliar 14 días la prueba de ${trial.name}`,
+      description: trial.expired
+        ? 'La prueba ya venció: se amplía 14 días desde hoy.'
+        : 'Se suman 14 días al fin de la prueba. Queda anotado en su historial.',
+      input: { label: 'Motivo', placeholder: 'Está montando sus locales' },
+      confirmLabel: 'Ampliar',
+    });
+    if (!res || !res.value.trim()) return;
     try {
       await extend.mutateAsync({
         id: trial.id,
-        input: { days: 14, reason: 'Extensión desde la gestión de trials' },
+        input: { days: 14, reason: res.value.trim() },
       });
-      toast.success('Trial extendido 14 días.');
+      toast.success('Prueba ampliada 14 días.');
     } catch (err) {
       toast.error(err instanceof ApiError ? err.body.message : 'No se pudo extender.');
     }
   }
 
-  const overdue = trial.daysLeft !== null && trial.daysLeft < 0;
-  const soon = trial.daysLeft !== null && trial.daysLeft >= 0 && trial.daysLeft <= 3;
+  const overdue = trial.expired;
+  const soon = !overdue && trial.daysLeft !== null && trial.daysLeft <= 3;
 
   return (
     <tr className="border-t">
-      <td className="p-2">
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          aria-label={`Seleccionar ${trial.name}`}
-        />
-      </td>
+      {canEdit && (
+        <td className="p-2">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            aria-label={`Seleccionar ${trial.name}`}
+          />
+        </td>
+      )}
       <td className="p-2">
         <Link href={`/admin/tenants/${trial.id}`} className="font-medium hover:underline">
           {trial.name}
@@ -281,7 +327,7 @@ function TrialRow({
                   : ''
             }
           >
-            {overdue ? `vencido hace ${Math.abs(trial.daysLeft)} d` : `${trial.daysLeft} d`}
+            {trialDaysText(trial)}
           </span>
         )}
       </td>
@@ -297,15 +343,17 @@ function TrialRow({
       </td>
       <td className="p-2">
         <div className="flex items-center justify-end gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs"
-            onClick={onExtend}
-            disabled={extend.isPending}
-          >
-            +14 días
-          </Button>
+          {canEdit && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => void onExtend()}
+              disabled={extend.isPending}
+            >
+              +14 días
+            </Button>
+          )}
           {canEdit && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

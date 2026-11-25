@@ -596,6 +596,8 @@ model Tenant {
   /// «Ignorar» en la lista de tenants en riesgo hasta esta fecha.
   riskSnoozedUntil      DateTime? @map("risk_snoozed_until") @db.Timestamptz(6)
   riskSnoozeReason      String?   @map("risk_snooze_reason")
+  /// Sección que se ignoró (trial_expiring, past_due…); null = todas (los antiguos).
+  riskSnoozedKind       String?   @map("risk_snoozed_kind")
   /// Chat con IA en la web pública (con el asistente IA; el tenant lo apaga).
   webChatEnabled        Boolean   @default(true) @map("web_chat_enabled")
   webChatInstructions   String?   @map("web_chat_instructions")

@@ -26,22 +26,35 @@ const day = (iso: string) => new Date(iso).toLocaleDateString('es-ES');
 export default function OpportunitiesPage() {
   const data = useAdminOpportunities();
   const [onlyInterest, setOnlyInterest] = useState(false);
+  // Las pruebas se ocultan por defecto: aún no pagan ni el plan.
+  const [withTrials, setWithTrials] = useState(false);
   const [target, setTarget] = useState<{
     addon: AdminAddonOpportunityDto;
     candidate: AdminOpportunityCandidateDto;
   } | null>(null);
 
   if (data.isError) return <AdminError onRetry={() => void data.refetch()} />;
-  const list = (data.data ?? [])
+  const all = data.data ?? [];
+  const byStatus = all.map((a) => ({
+    ...a,
+    candidates: withTrials ? a.candidates : a.candidates.filter((c) => c.tenantStatus !== 'trial'),
+  }));
+  const list = byStatus
     .map((a) => ({
       ...a,
       candidates: onlyInterest ? a.candidates.filter((c) => c.interestCount > 0) : a.candidates,
     }))
     .filter((a) => a.candidates.length > 0);
-  const interested = (data.data ?? []).reduce(
+  const interested = byStatus.reduce(
     (n, a) => n + a.candidates.filter((c) => c.interestCount > 0).length,
     0,
   );
+  // Tenants en prueba distintos entre los candidatos.
+  const trialTenants = new Set(
+    all.flatMap((a) =>
+      a.candidates.filter((c) => c.tenantStatus === 'trial').map((c) => c.tenantId),
+    ),
+  ).size;
 
   return (
     <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-6">
@@ -52,16 +65,28 @@ export default function OpportunitiesPage() {
             A quién ofrecer cada extra: han entrado en la función sin tenerla o su uso lo pide.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setOnlyInterest((v) => !v)}
-          aria-pressed={onlyInterest}
-          className={`h-9 rounded-md border px-3 text-sm ${
-            onlyInterest ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'
-          }`}
-        >
-          Solo con interés ({interested})
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setWithTrials((v) => !v)}
+            aria-pressed={withTrials}
+            className={`h-9 rounded-md border px-3 text-sm ${
+              withTrials ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'
+            }`}
+          >
+            Incluir pruebas ({trialTenants})
+          </button>
+          <button
+            type="button"
+            onClick={() => setOnlyInterest((v) => !v)}
+            aria-pressed={onlyInterest}
+            className={`h-9 rounded-md border px-3 text-sm ${
+              onlyInterest ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'
+            }`}
+          >
+            Solo con interés ({interested})
+          </button>
+        </div>
       </div>
 
       {data.isLoading ? (

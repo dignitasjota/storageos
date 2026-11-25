@@ -254,10 +254,14 @@ export interface AdminAtRiskTenantDto {
   slug: string;
   status: string;
   planName: string | null;
-  /** 'trial_expiring' | 'past_due' | 'inactive'. */
+  /** 'trial_expiring' | 'past_due' | 'inactive' | 'low_health' | 'trial_expired'. */
   reason: string;
-  /** Fecha relevante (fin de trial / fin de periodo / último login), ISO o null. */
+  /** Fecha relevante (fin de trial / desde cuándo debe / último login), ISO o null. */
   since: string | null;
+  /** Prueba que ya venció y aún no se ha cerrado. */
+  expired?: boolean;
+  /** Último playbook de retención (en los últimos 14 días), ISO. */
+  playbookAt?: string | null;
   /** Texto legible del motivo. */
   detail: string;
   /** Impagos: lo que debe (una cuota por periodo vencido). */
@@ -289,8 +293,22 @@ export interface AdminAtRiskDto {
   inactive: AdminAtRiskTenantDto[];
   /** Salud «en riesgo» o «dormida» que no salen arriba (mismo criterio que Salud). */
   lowHealth: AdminAtRiskTenantDto[];
+  /** Pruebas caducadas sin pagar: activos en solo lectura con la suscripción caducada. */
+  trialExpired: AdminAtRiskTenantDto[];
   /** Cuántos se han ignorado por ahora («ignorar N días»). */
   snoozedCount: number;
+  /** Los ignorados ahora mismo, con su sección, hasta cuándo y el motivo. */
+  snoozed: AdminAtRiskSnoozedDto[];
+}
+
+/** Un tenant ignorado en «En riesgo». */
+export interface AdminAtRiskSnoozedDto {
+  id: string;
+  name: string;
+  /** Sección ignorada; null = todas (ignorado antes de guardar la sección). */
+  kind: string | null;
+  until: string;
+  reason: string | null;
 }
 
 /** Nivel de salud de un tenant según su puntuación 0-100. */
@@ -2051,8 +2069,13 @@ export interface AdminTrialDto {
   slug: string;
   planName: string | null;
   trialEndsAt: string | null;
-  /** Días hasta el fin del trial (negativo = ya venció). */
+  /**
+   * Días naturales (hora de España) hasta el fin del trial: 0 = vence hoy,
+   * negativo = ya venció otro día.
+   */
   daysLeft: number | null;
+  /** La prueba ya venció (y el cron aún no la ha cerrado). */
+  expired: boolean;
   createdAt: string;
   /** Último login de algún usuario del tenant (null = nunca han accedido). */
   lastActivityAt: string | null;
@@ -2230,6 +2253,8 @@ export interface PlatformCouponDto {
 /** Resultado de la extensión de trial por lote. */
 export interface ExtendTrialsBatchResultDto {
   updated: number;
+  /** Los que no se ampliaron y por qué. */
+  skipped: { tenantId: string; name: string | null; reason: string }[];
 }
 
 /** Estado del correo saliente de la plataforma (panel super admin). */

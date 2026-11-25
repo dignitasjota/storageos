@@ -21,8 +21,7 @@ import {
 } from '@/lib/admin/hooks';
 import { ApiError } from '@/lib/auth/api';
 import { localDateString } from '@/lib/dates';
-
-const fmtDay = (day: string) => day.split('-').reverse().join('/');
+import { formatShortDay } from '@/lib/format';
 
 function defaultDue(): string {
   const d = new Date();
@@ -122,8 +121,8 @@ export function TenantFollowupsCard({ tenantId }: { tenantId: string }) {
                       {f.status === 'done'
                         ? 'Hecho'
                         : f.dueDate < today
-                          ? `Vencido · ${fmtDay(f.dueDate)}`
-                          : fmtDay(f.dueDate)}
+                          ? `Vencido · ${formatShortDay(f.dueDate)}`
+                          : formatShortDay(f.dueDate)}
                     </Badge>
                   </div>
                   {f.note && <p className="text-xs text-muted-foreground">{f.note}</p>}

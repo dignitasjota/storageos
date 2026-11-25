@@ -18,7 +18,12 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
-import { buildUnsubscribeToken, unsubscribeKey } from '../../common/marketing/unsubscribe-token';
+import { todayInTimezone } from '../../common/format';
+import {
+  platformUnsubscribeFooter,
+  type PlatformUnsubscribeFooter,
+} from '../../common/marketing/platform-unsubscribe';
+import { unsubscribeKey } from '../../common/marketing/unsubscribe-token';
 import { PrismaAdminService } from '../database/prisma-admin.service';
 import { EmailSuppressionsService } from '../email/email-suppressions.service';
 import { EmailService } from '../email/email.service';
@@ -102,22 +107,13 @@ export class AdminCommsService {
   }
 
   /** Pie de un anuncio comercial con el enlace de baja del usuario. */
-  private unsubscribeFooter(userId: string): {
-    footerHtml: string;
-    footerText: string;
-    headers: Record<string, string>;
-  } {
-    const token = encodeURIComponent(buildUnsubscribeToken(this.unsubscribeKey, 'u', userId));
-    const url = `${this.webBaseUrl}/unsubscribe/${token}`;
-    const why = 'Recibes este correo porque usas TrasterOS.';
-    return {
-      footerHtml: `${why} <a href="${url}" style="color:#64748b">Darme de baja de las novedades y ofertas</a><br>`,
-      footerText: `${why}\nDarme de baja de las novedades y ofertas: ${url}`,
-      headers: {
-        'List-Unsubscribe': `<${this.apiBaseUrl}/v1/public/unsubscribe/${token}>`,
-        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-      },
-    };
+  private unsubscribeFooter(userId: string): PlatformUnsubscribeFooter {
+    return platformUnsubscribeFooter({
+      key: this.unsubscribeKey,
+      webBaseUrl: this.webBaseUrl,
+      apiBaseUrl: this.apiBaseUrl,
+      userId,
+    });
   }
 
   /** Emails de destino de un tenant: owners verificados activos o billingEmail. */
@@ -789,9 +785,9 @@ export class AdminCommsService {
     }
 
     // 1) Seguimiento a +3 días para que el equipo contacte al cliente.
-    const due = new Date();
-    due.setUTCDate(due.getUTCDate() + 3);
-    const dueDate = due.toISOString().slice(0, 10);
+    // Dentro de 3 días en hora de España (no en UTC).
+    const today = todayInTimezone('Europe/Madrid');
+    const dueDate = new Date(today.getTime() + 3 * 86_400_000).toISOString().slice(0, 10);
     const followup = await this.followups.create({
       tenantId,
       superAdminId,
