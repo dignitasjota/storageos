@@ -24,6 +24,9 @@ import { AdminApprovalsController } from './admin-approvals.controller';
 import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminAtRiskOpsService } from './admin-at-risk-ops.service';
 import { AdminAuditInterceptor } from './admin-audit.interceptor';
+import { AdminBillingNoticesService } from './admin-billing-notices.service';
+import { AdminBillingOpsHealthController } from './admin-billing-ops-health.controller';
+import { AdminBillingOpsHealthService } from './admin-billing-ops-health.service';
 import { AdminBillingOpsController } from './admin-billing-ops.controller';
 import { AdminBillingOpsService } from './admin-billing-ops.service';
 import { AdminBusinessController } from './admin-business.controller';
@@ -31,6 +34,9 @@ import { AdminBusinessService } from './admin-business.service';
 import { AdminCommsController } from './admin-comms.controller';
 import { AdminCommsService } from './admin-comms.service';
 import { AdminCustomDomainsService } from './admin-custom-domains.service';
+import { AdminDomainsOpsController } from './admin-domains-ops.controller';
+import { AdminDomainsOpsCron } from './admin-domains-ops.cron';
+import { AdminDomainsOpsService } from './admin-domains-ops.service';
 import { AdminEmailLogController } from './admin-email-log.controller';
 import { AdminEmailSettingsController } from './admin-email-settings.controller';
 import { AdminFinanceInsightsService } from './admin-finance-insights.service';
@@ -260,6 +266,8 @@ import { WeeklyDigestService } from './weekly-digest.service';
     TenantLifecycleEmailsController,
     WeeklyDigestController,
     AdminOpsHealthController,
+    AdminBillingOpsHealthController,
+    AdminDomainsOpsController,
     SupportAgilityController,
     SupportServiceStatusAdminController,
     SupportExtrasTenantController,
@@ -344,6 +352,11 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SupportTicketsService,
     AdminOpsHealthService,
     AdminCustomDomainsService,
+    AdminBillingOpsHealthService,
+    AdminBillingNoticesService,
+    AdminDomainsOpsService,
+    // Vigila cada día los dominios activos (el aviso se reserva en BD: sin duplicados entre réplicas).
+    AdminDomainsOpsCron,
     AdminTenantConfigService,
     AdminUsageService,
     SupportAgilityService,
