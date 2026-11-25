@@ -810,10 +810,13 @@ export class AdminCommsService {
 
     // 2) Email de retención (best-effort: 0 destinatarios no rompe el playbook).
     const recipients = await this.recipientsFor(tenantId);
-    const { subject, body } = retentionPlaybookEmail(meta.reason, {
-      webBaseUrl: this.webBaseUrl,
-      message: meta.message ?? null,
-    });
+    const { subject, body } = retentionPlaybookEmail(
+      await this.playbookReason(tenantId, meta.reason),
+      {
+        webBaseUrl: this.webBaseUrl,
+        message: meta.message ?? null,
+      },
+    );
     await this.enqueue(recipients, subject, body);
     const emailRecipients = recipients.length;
     // Sin nadie a quien escribir, el mensaje tampoco queda en su panel.
@@ -853,6 +856,23 @@ export class AdminCommsService {
    * Vista previa del correo del playbook (según el motivo y el mensaje del
    * admin) y a quién iría, antes de lanzarlo.
    */
+  /**
+   * Una prueba que ya venció y la tarea nocturna aún no ha cerrado sale en
+   * «Pruebas por terminar»: su correo es el de la prueba terminada, no el de
+   * «acaba pronto».
+   */
+  private async playbookReason(
+    tenantId: string,
+    reason: RetentionPlaybookReason | null | undefined,
+  ): Promise<RetentionPlaybookReason | null | undefined> {
+    if (reason !== 'trial_expiring') return reason;
+    const t = await this.admin.tenant.findUnique({
+      where: { id: tenantId },
+      select: { trialEndsAt: true },
+    });
+    return t?.trialEndsAt && t.trialEndsAt.getTime() <= Date.now() ? 'trial_expired' : reason;
+  }
+
   async previewRetentionPlaybook(
     tenantId: string,
     reason: RetentionPlaybookReason | null | undefined,
@@ -865,7 +885,7 @@ export class AdminCommsService {
     if (!tenant || tenant.deletedAt) {
       throw new NotFoundException({ code: 'tenant_not_found', message: 'Tenant no encontrado' });
     }
-    const email = retentionPlaybookEmail(reason, {
+    const email = retentionPlaybookEmail(await this.playbookReason(tenantId, reason), {
       webBaseUrl: this.webBaseUrl,
       message: message ?? null,
     });
