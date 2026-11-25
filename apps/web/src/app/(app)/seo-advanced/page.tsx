@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { SectionError } from '@/components/dashboard/section-state';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
+import { SeoPlanCard } from '@/components/seo/plan/plan-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SeoImportsCard } from '@/components/seo/seo-imports-card';
@@ -161,7 +162,7 @@ export default function SeoAdvancedPage() {
         {project.status === 'paused' && <Badge variant="outline">En pausa</Badge>}
       </div>
 
-      <SeoPanel client={client} domains={project.domains} />
+      <SeoPanel client={client} domains={project.domains} planScope={{ kind: 'tenant' }} />
 
       <SeoOpportunitiesCard
         scope={{ kind: 'tenant' }}
@@ -170,6 +171,8 @@ export default function SeoAdvancedPage() {
       />
 
       <SeoDiagnosticsCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
+
+      <SeoPlanCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
 
       <SeoDomainsCard
         project={project}

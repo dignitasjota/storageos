@@ -5,13 +5,14 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
 
-import type { SeoDashboardDayDto, SeoShareRow } from '@storageos/shared';
+import type { SeoChartMarkerDto, SeoDashboardDayDto, SeoShareRow } from '@storageos/shared';
 
 import { formatCount, formatNumber, formatPct, formatShortDay } from '@/lib/format';
 
@@ -61,6 +62,25 @@ export const countryLabel = (code: string) => COUNTRY_LABELS[code] ?? code.toUpp
 
 type Metric = 'clicks' | 'impressions' | 'ctr' | 'position';
 
+/** Color de las marcas de actuaciones: discreto, el mismo gris en los dos temas. */
+const MARKER = 'hsl(var(--muted-foreground))';
+
+/**
+ * Punta de la marca de una actuación, con su título al pasar el ratón (el
+ * `title` del SVG). Recharts le pasa la caja de la línea.
+ */
+function MarkerTip({ viewBox, title }: { viewBox?: { x?: number; y?: number }; title: string }) {
+  const x = viewBox?.x ?? 0;
+  const y = viewBox?.y ?? 0;
+  return (
+    <g>
+      <title>{title}</title>
+      <circle cx={x} cy={y + 4} r={4} fill={MARKER} fillOpacity={0.85} />
+      <circle cx={x} cy={y + 4} r={9} fill="transparent" />
+    </g>
+  );
+}
+
 const formatters: Record<Metric, (n: number) => string> = {
   clicks: (n) => formatCount(n),
   impressions: (n) => formatCount(n),
@@ -79,12 +99,15 @@ export function SeoTrendChart({
   metric,
   days,
   compare,
+  markers = [],
 }: {
   title: string;
   metric: Metric;
   days: SeoDashboardDayDto[];
   /** Con la línea del periodo anterior (solo clics e impresiones). */
   compare: boolean;
+  /** Actuaciones SEO: una línea vertical discreta el día de cada una. */
+  markers?: SeoChartMarkerDto[];
 }) {
   const withPrevious = compare && (metric === 'clicks' || metric === 'impressions');
   const data = days.map((d) => ({
@@ -106,6 +129,13 @@ export function SeoTrendChart({
           : null,
   }));
   const fmt = formatters[metric];
+  // Solo las de días que salen en el gráfico; varias el mismo día, una línea.
+  const inChart = new Set(days.map((d) => d.date));
+  const byDate = new Map<string, string[]>();
+  for (const m of markers) {
+    if (!inChart.has(m.date)) continue;
+    byDate.set(m.date, [...(byDate.get(m.date) ?? []), m.title]);
+  }
   return (
     <figure className="space-y-2">
       <figcaption className="text-sm font-medium">{title}</figcaption>
@@ -134,7 +164,10 @@ export function SeoTrendChart({
             <Tooltip
               labelFormatter={(label, payload) => {
                 const row = payload?.[0]?.payload as { source?: string } | undefined;
-                return `${formatShortDay(String(label))}${row?.source === 'import' ? ' · importado' : ''}`;
+                const changes = byDate.get(String(label));
+                return `${formatShortDay(String(label))}${row?.source === 'import' ? ' · importado' : ''}${
+                  changes ? ` · Actuación: ${changes.join(' · ')}` : ''
+                }`;
               }}
               formatter={(value, name) => [
                 value == null ? '—' : fmt(Number(value)),
@@ -149,6 +182,16 @@ export function SeoTrendChart({
                 formatter={(value) => (value === 'previous' ? 'Periodo anterior' : 'Este periodo')}
               />
             )}
+            {[...byDate].map(([date, titles]) => (
+              <ReferenceLine
+                key={date}
+                x={date}
+                stroke={MARKER}
+                strokeOpacity={0.6}
+                strokeDasharray="2 3"
+                label={<MarkerTip title={`${formatShortDay(date)}: ${titles.join(' · ')}`} />}
+              />
+            ))}
             <Line
               dataKey="value"
               name="value"

@@ -7,6 +7,7 @@ import {
   seoSameWindow,
   shiftDate,
   type SeoChangeDto,
+  type SeoChartMarkerDto,
   type SeoDashboardDto,
   type SeoDomainRole,
   type SeoPanelPeriod,
@@ -43,6 +44,7 @@ import {
   type SeoPanelClient,
   type SeoPanelParams,
 } from '@/lib/seo-advanced/panel';
+import { useChangeMarkers, type PlanScope } from '@/lib/seo-advanced/plan-hooks';
 import { cn } from '@/lib/utils';
 
 type KpiKey = 'clicks' | 'impressions' | 'ctr' | 'position';
@@ -188,13 +190,21 @@ function PeriodBar({
 export function SeoPanel({
   client,
   domains,
+  planScope,
 }: {
   client: SeoPanelClient;
   domains: { id: string; domain: string; role: SeoDomainRole }[];
+  /** Con él, las actuaciones del plan salen como marcas en los gráficos. */
+  planScope?: PlanScope;
 }) {
   const [params, setParams] = useState<SeoPanelParams>({ period: '28d', domainId: null });
   const dashboard = useSeoDashboard(client, params);
   const d = dashboard.data;
+  const markers = useChangeMarkers(
+    planScope,
+    { domainId: d?.domainId ?? null, from: d?.from ?? null, to: d?.to ?? null },
+    !!d?.lastDate,
+  );
 
   return (
     <div className="space-y-6">
@@ -256,7 +266,7 @@ export function SeoPanel({
               descarga (o importa un Excel de Search Console).
             </p>
           ) : (
-            <DashboardBody d={d} />
+            <DashboardBody d={d} markers={markers.data ?? []} />
           )}
         </CardContent>
       </Card>
@@ -266,7 +276,7 @@ export function SeoPanel({
   );
 }
 
-function DashboardBody({ d }: { d: SeoDashboardDto }) {
+function DashboardBody({ d, markers }: { d: SeoDashboardDto; markers: SeoChartMarkerDto[] }) {
   const compare = d.previous !== null;
   return (
     <>
@@ -294,16 +304,41 @@ function DashboardBody({ d }: { d: SeoDashboardDto }) {
       </p>
 
       <div className="grid gap-6 md:grid-cols-2">
-        <SeoTrendChart title="Clics" metric="clicks" days={d.daily} compare={compare} />
-        <SeoTrendChart title="Impresiones" metric="impressions" days={d.daily} compare={compare} />
-        <SeoTrendChart title="CTR (%)" metric="ctr" days={d.daily} compare={false} />
+        <SeoTrendChart
+          title="Clics"
+          metric="clicks"
+          days={d.daily}
+          compare={compare}
+          markers={markers}
+        />
+        <SeoTrendChart
+          title="Impresiones"
+          metric="impressions"
+          days={d.daily}
+          compare={compare}
+          markers={markers}
+        />
+        <SeoTrendChart
+          title="CTR (%)"
+          metric="ctr"
+          days={d.daily}
+          compare={false}
+          markers={markers}
+        />
         <SeoTrendChart
           title="Posición media (arriba es mejor)"
           metric="position"
           days={d.daily}
           compare={false}
+          markers={markers}
         />
       </div>
+      {markers.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Las líneas verticales son actuaciones del plan (pasa el ratón por el punto de arriba para
+          ver cuál).
+        </p>
+      )}
       {d.importedDays > 0 && (
         <p className="text-xs text-muted-foreground">
           Los días que no tiene la API vienen de los Excel importados (en el detalle de cada punto

@@ -12,6 +12,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { BackLink } from '@/components/layout/back-link';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
+import { SeoPlanCard } from '@/components/seo/plan/plan-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SeoImportsCard } from '@/components/seo/seo-imports-card';
@@ -167,7 +168,11 @@ export default function AdminSeoProjectPage() {
         </div>
       </div>
 
-      <SeoPanel client={client} domains={p.domains} />
+      <SeoPanel
+        client={client}
+        domains={p.domains}
+        planScope={{ kind: 'admin', projectId: p.id }}
+      />
 
       <SeoOpportunitiesCard
         scope={{ kind: 'admin', projectId: p.id }}
@@ -176,6 +181,12 @@ export default function AdminSeoProjectPage() {
       />
 
       <SeoDiagnosticsCard
+        scope={{ kind: 'admin', projectId: p.id }}
+        canEdit={canEdit}
+        domains={p.domains}
+      />
+
+      <SeoPlanCard
         scope={{ kind: 'admin', projectId: p.id }}
         canEdit={canEdit}
         domains={p.domains}

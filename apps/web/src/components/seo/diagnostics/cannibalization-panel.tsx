@@ -13,6 +13,8 @@ import { Download, Loader2, Search } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { ChangeDialog, type ChangeDraft, type TaskDraft } from '../plan/plan-dialogs';
+import { SeoPlanLinks } from '../plan/plan-links';
 import { seoErrorMessage } from '../seo-errors';
 
 import {
@@ -73,12 +75,35 @@ function segments(timeline: { date: string; page: string }[]) {
   return out;
 }
 
+/** Lo que se lleva al plan desde una canibalización (tarea o actuación). */
+function cannibalizationDrafts(c: SeoCannibalizationDto): { task: TaskDraft; change: ChangeDraft } {
+  const urls = c.pages.map((p) => p.page).slice(0, 10);
+  return {
+    task: {
+      title: `Resolver la canibalización de «${c.query}»`,
+      type: 'content',
+      url: c.targetUrl ?? c.suggestedUrl ?? urls[0] ?? null,
+      keywords: [c.query],
+      cannibalizationId: c.id,
+    },
+    change: {
+      title: `Canibalización de «${c.query}»`,
+      type: 'internal_links',
+      urls,
+      keywords: [c.query],
+      cannibalizationId: c.id,
+    },
+  };
+}
+
 function Detail({
+  scope,
   c,
   canEdit,
   busy,
   onSave,
 }: {
+  scope: DiagnosticScope;
   c: SeoCannibalizationDto;
   canEdit: boolean;
   busy: boolean;
@@ -186,6 +211,12 @@ function Detail({
         okLabel="Está bien así"
         onSave={onSave}
       />
+      <SeoPlanLinks
+        scope={scope}
+        canEdit={canEdit}
+        resolved={c.status === 'fixed'}
+        {...cannibalizationDrafts(c)}
+      />
       <p className="text-xs text-muted-foreground">
         Detectada el {formatDate(c.detectedAt)} · último cálculo {formatDateTime(c.lastSeenAt)}
       </p>
@@ -214,12 +245,26 @@ export function CannibalizationPanel({
   const items = list.data?.items ?? [];
   const open = items.find((c) => c.id === openId) ?? null;
 
+  const [recording, setRecording] = useState<ChangeDraft | null>(null);
   const save = async (
     id: string,
     input: { status?: SeoDiagnosticStatus; notes?: string | null },
   ) => {
+    const item = items.find((c) => c.id === id);
     try {
       await update.mutateAsync({ id, input });
+      // Al darla por arreglada, se ofrece registrar el cambio (opcional).
+      if (input.status === 'fixed' && item && canEdit) {
+        toast.success('Arreglada', {
+          description: '¿Registras el cambio para ver su antes y después?',
+          action: {
+            label: 'Registrar la actuación',
+            onClick: () => setRecording(cannibalizationDrafts(item).change),
+          },
+          duration: 10_000,
+        });
+        return;
+      }
       toast.success('Guardado');
     } catch (err) {
       toast.error(seoErrorMessage(err));
@@ -355,6 +400,7 @@ export function CannibalizationPanel({
           </DialogHeader>
           {open && (
             <Detail
+              scope={scope}
               c={open}
               canEdit={canEdit}
               busy={update.isPending}
@@ -363,6 +409,13 @@ export function CannibalizationPanel({
           )}
         </DialogContent>
       </Dialog>
+      <ChangeDialog
+        scope={scope}
+        domains={[]}
+        open={recording !== null}
+        onOpenChange={(v) => !v && setRecording(null)}
+        draft={recording}
+      />
     </div>
   );
 }
