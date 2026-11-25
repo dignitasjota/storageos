@@ -92,6 +92,13 @@ describe('Salud operativa del super admin (e2e)', () => {
       .post(`/invoices/${invoiceId}/issue`)
       .set(tenantAuth)
       .expect(200);
+    // Con Veri*Factu activado el envío simulado corre en segundo plano: se espera
+    // a que termine para que no pise el estado que se pone a mano.
+    for (let i = 0; i < 40; i++) {
+      const record = await admin.verifactuRecord.findFirst({ where: { invoiceId } });
+      if (record && record.status !== 'pending') break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
     const inv = await admin.invoice.update({
       where: { id: invoiceId },
       data: {
