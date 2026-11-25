@@ -396,8 +396,11 @@ export class SeoOpportunityEngineService {
     return [...byKeyword.values()];
   }
 
-  /** Últimas métricas de SISTRIX de cada palabra (en el fondo del proyecto). */
-  private async keywordMetrics(
+  /**
+   * Últimas métricas de SISTRIX de cada palabra (en el fondo del proyecto).
+   * También las usa la vista de palabras seguidas (volumen e intención).
+   */
+  async keywordMetrics(
     pool: string | null,
     country: string,
     words: string[],

@@ -37,93 +37,120 @@ export async function cleanupTestTenants(): Promise<void> {
       where: { slug: { startsWith: 'test-' } },
       select: { id: true },
     });
-    const ids = testTenants.map((t) => t.id);
-    if (ids.length === 0) return;
-
-    // Se construye en cada intento: Prisma no repite una consulta ya lanzada.
-    const steps = () => [
-      // Fase 14A.3: webhooks + api keys (api_keys FK a users ON DELETE
-      // RESTRICT, hay que borrar antes de users).
-      admin.webhookDelivery.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.webhook.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.apiKey.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 8: super admin + support tickets.
-      admin.impersonationLog.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.supportTicketMessage.deleteMany({
-        where: { ticket: { tenantId: { in: ids } } },
-      }),
-      admin.supportTicket.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 7: accesos.
-      admin.accessLog.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.accessDevice.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.accessCredential.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 6: operativa, productos, reports.
-      admin.reportRun.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.productSaleItem.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.productSale.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.productStock.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.product.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.incidentComment.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.incident.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.taskComment.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.task.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 5: comunicaciones, automatizaciones, leads.
-      admin.automationRun.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.automationRule.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.communication.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.messageTemplate.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.lead.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 10A: credenciales AEAT.
-      admin.tenantAeatCredential.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 4: facturas, pagos, dunning, rgpd.
-      admin.dunningAction.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.payment.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.paymentMethod.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.invoiceItem.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.invoice.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.invoiceSeries.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.pricingRule.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.promotion.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.consent.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.dataSubjectRequest.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 3: contratos, reservas y customers.
-      admin.contractEvent.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.contract.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.reservation.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.customerDocument.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.customer.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 2: tablas que dependen de tenant + units + facilities.
-      admin.unitStatusHistory.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.unit.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.facilityFloor.deleteMany({
-        where: { facility: { tenantId: { in: ids } } },
-      }),
-      admin.unitType.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.facility.deleteMany({ where: { tenantId: { in: ids } } }),
-      // Fase 1.
-      admin.recoveryCode.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.session.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.auditLog.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.invitation.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.tenantSubscription.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.user.deleteMany({ where: { tenantId: { in: ids } } }),
-      admin.tenant.deleteMany({ where: { id: { in: ids } } }),
-    ];
-    for (let attempt = 1; ; attempt++) {
-      try {
-        await admin.$transaction(steps());
-        break;
-      } catch (err) {
-        // Lo que la app recién cerrada aún hace en segundo plano (un aviso, un
-        // correo) puede crear filas de estos tenants mientras se borran: la
-        // clave ajena falla y se vuelve a borrar todo.
-        const code = (err as { code?: string }).code;
-        if (attempt >= 3 || (code !== 'P2003' && code !== 'P2034')) throw err;
-        await new Promise((r) => setTimeout(r, 500 * attempt));
-      }
-    }
+    await deleteTenants(
+      admin,
+      testTenants.map((t) => t.id),
+    );
   } finally {
     await admin.$disconnect();
+  }
+}
+
+/**
+ * Borra solo los tenants de prueba indicados (y lo suyo). Para las suites que
+ * no deben tocar los tenants de las demás.
+ */
+export async function cleanupTenantsById(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const admin = new PrismaClient({ datasources: { db: { url: ADMIN_URL } } });
+  try {
+    const own = await admin.tenant.findMany({
+      where: { id: { in: ids }, slug: { startsWith: 'test-' } },
+      select: { id: true },
+    });
+    await deleteTenants(
+      admin,
+      own.map((t) => t.id),
+    );
+  } finally {
+    await admin.$disconnect();
+  }
+}
+
+async function deleteTenants(admin: PrismaClient, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+
+  // Se construye en cada intento: Prisma no repite una consulta ya lanzada.
+  const steps = () => [
+    // Fase 14A.3: webhooks + api keys (api_keys FK a users ON DELETE
+    // RESTRICT, hay que borrar antes de users).
+    admin.webhookDelivery.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.webhook.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.apiKey.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 8: super admin + support tickets.
+    admin.impersonationLog.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.supportTicketMessage.deleteMany({
+      where: { ticket: { tenantId: { in: ids } } },
+    }),
+    admin.supportTicket.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 7: accesos.
+    admin.accessLog.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.accessDevice.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.accessCredential.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 6: operativa, productos, reports.
+    admin.reportRun.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.productSaleItem.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.productSale.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.productStock.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.product.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.incidentComment.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.incident.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.taskComment.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.task.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 5: comunicaciones, automatizaciones, leads.
+    admin.automationRun.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.automationRule.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.communication.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.messageTemplate.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.lead.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 10A: credenciales AEAT.
+    admin.tenantAeatCredential.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 4: facturas, pagos, dunning, rgpd.
+    admin.dunningAction.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.payment.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.paymentMethod.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.invoiceItem.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.invoice.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.invoiceSeries.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.pricingRule.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.promotion.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.consent.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.dataSubjectRequest.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 3: contratos, reservas y customers.
+    admin.contractEvent.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.contract.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.reservation.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.customerDocument.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.customer.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 2: tablas que dependen de tenant + units + facilities.
+    admin.unitStatusHistory.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.unit.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.facilityFloor.deleteMany({
+      where: { facility: { tenantId: { in: ids } } },
+    }),
+    admin.unitType.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.facility.deleteMany({ where: { tenantId: { in: ids } } }),
+    // Fase 1.
+    admin.recoveryCode.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.session.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.auditLog.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.invitation.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.tenantSubscription.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.user.deleteMany({ where: { tenantId: { in: ids } } }),
+    admin.tenant.deleteMany({ where: { id: { in: ids } } }),
+  ];
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await admin.$transaction(steps());
+      break;
+    } catch (err) {
+      // Lo que la app recién cerrada aún hace en segundo plano (un aviso, un
+      // correo) puede crear filas de estos tenants mientras se borran: la
+      // clave ajena falla y se vuelve a borrar todo.
+      const code = (err as { code?: string }).code;
+      if (attempt >= 3 || (code !== 'P2003' && code !== 'P2034')) throw err;
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+    }
   }
 }
 
