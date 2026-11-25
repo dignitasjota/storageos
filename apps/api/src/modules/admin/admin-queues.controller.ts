@@ -24,6 +24,7 @@ import {
   QUEUE_REPORTS,
   QUEUE_VERIFACTU,
   QUEUE_WEBHOOKS,
+  QUEUE_SEO,
 } from '../queues/queues.module';
 
 import { AdminAudit } from './admin-audit.decorator';
@@ -80,6 +81,7 @@ export class AdminQueuesController {
     @InjectQueue(QUEUE_AUTOMATIONS) automations: Queue,
     @InjectQueue(QUEUE_REPORTS) reports: Queue,
     @InjectQueue(QUEUE_WEBHOOKS) webhooks: Queue,
+    @InjectQueue(QUEUE_SEO) seo: Queue,
   ) {
     this.queues = [
       billing,
@@ -91,6 +93,7 @@ export class AdminQueuesController {
       automations,
       reports,
       webhooks,
+      seo,
     ];
   }
 

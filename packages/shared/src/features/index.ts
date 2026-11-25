@@ -27,6 +27,7 @@ export const TenantFeatures = [
   'branded_panel', // panel del equipo con el logo y nombre del tenant (también la app instalada)
   'business_reminders', // /reminders: vencimientos del negocio con avisos (planes de pago)
   'unit_cession', // trasteros cedidos sin contrato ni cobro — SOLO por override del super admin
+  'seo_advanced', // /seo-advanced: Search Console con cruces, proyectos y dominios — SOLO add-on (incluye `local_seo`)
 ] as const;
 
 export type TenantFeature = (typeof TenantFeatures)[number];
@@ -117,7 +118,20 @@ export interface FeatureOverride {
   enabled: boolean;
 }
 
-/** Features efectivas a partir de una lista base + overrides (data-driven). */
+/**
+ * Funciones que traen otras consigo: quien tiene la primera tiene también las
+ * de la lista, aunque su plan o un override digan lo contrario. «SEO Avanzado»
+ * incluye todo lo de «SEO local».
+ */
+export const INCLUDED_FEATURES: Partial<Record<TenantFeature, TenantFeature[]>> = {
+  seo_advanced: ['local_seo'],
+};
+
+/**
+ * Features efectivas a partir de una lista base + overrides (data-driven).
+ * Es el único sitio donde se resuelven (lo usan el `FeatureGuard`, `/auth/me`
+ * y el panel admin), así que aquí se añaden también las incluidas.
+ */
 export function effectiveFeaturesFromList(
   base: TenantFeature[],
   overrides: FeatureOverride[],
@@ -126,6 +140,9 @@ export function effectiveFeaturesFromList(
   for (const o of overrides) {
     if (o.enabled) set.add(o.feature);
     else set.delete(o.feature);
+  }
+  for (const feature of [...set]) {
+    for (const included of INCLUDED_FEATURES[feature] ?? []) set.add(included);
   }
   return [...set];
 }
@@ -163,4 +180,5 @@ export const FEATURE_LABELS: Record<TenantFeature, string> = {
   branded_panel: 'Panel con tu marca',
   business_reminders: 'Vencimientos y avisos',
   unit_cession: 'Trasteros cedidos',
+  seo_advanced: 'SEO Avanzado',
 };

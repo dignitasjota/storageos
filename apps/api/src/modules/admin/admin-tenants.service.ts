@@ -746,6 +746,7 @@ export class AdminTenantsService {
       addonRows,
       cessionRows,
       contractRows,
+      seoDomainRows,
     ] = await Promise.all([
       this.admin.tenant.findMany({
         where: tenantWhere,
@@ -916,6 +917,15 @@ export class AdminTenantsService {
         where: liveContract,
         _count: { _all: true },
       }),
+      // SEO Avanzado: proyecto con algún dominio conectado a Search Console.
+      this.admin.seoProjectDomain.groupBy({
+        by: ['tenantId'],
+        where: {
+          ...(tenantId ? { tenantId } : { tenantId: { not: null } }),
+          connectionStatus: 'connected',
+        },
+        _count: { _all: true },
+      }),
     ]);
 
     const ai = g(aiRows);
@@ -939,6 +949,9 @@ export class AdminTenantsService {
     const areaPages = g(areaPageRows);
     const reminders = g(reminderRows);
     const cessions = g(cessionRows);
+    const seoDomains = new Map(
+      seoDomainRows.flatMap((r) => (r.tenantId ? [[r.tenantId, r._count._all] as const] : [])),
+    );
     const invites = g(inviteRows);
     const contracts = g(contractRows);
     // Capacidad que añaden los extras que ya tiene (sigue sumando con otro plan).
@@ -1007,6 +1020,7 @@ export class AdminTenantsService {
       if (has(areaPages)) s.add('local_seo');
       if (has(reminders)) s.add('business_reminders');
       if (has(cessions)) s.add('unit_cession');
+      if (has(seoDomains)) s.add('seo_advanced');
       // El panel con su marca solo se ve con la función activa y una marca puesta.
       if (effective.includes('branded_panel') && (t.portalLogoKey || t.portalBrandColor)) {
         s.add('branded_panel');
@@ -2919,6 +2933,11 @@ export class AdminTenantsService {
       await tx.searchConsoleDevice.deleteMany({ where: { tenantId } });
       await tx.seoTrackedKeyword.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
+      // SEO Avanzado: el proyecto, sus dominios, lo descargado y las descargas.
+      await tx.seoSyncRun.deleteMany({ where: { tenantId } });
+      await tx.seoGscMetric.deleteMany({ where: { tenantId } });
+      await tx.seoProjectDomain.deleteMany({ where: { tenantId } });
+      await tx.seoProject.deleteMany({ where: { tenantId } });
 
       const users = await tx.user.findMany({ where: { tenantId }, select: { id: true } });
       for (const user of users) {

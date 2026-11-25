@@ -281,13 +281,19 @@ function avgPosition(a: Agg): number {
   return round1(a.impressions > 0 ? a.weighted / a.impressions : a.positionSum / a.rows);
 }
 
-/** Totales con los de cada día de Google (cuadran con su panel). */
-function totalsOfDays(days: SearchConsoleDayInput[]): SeoTotalsDto {
+/**
+ * Suma de filas de Search Console: CTR = clics ÷ impresiones (nunca la media
+ * de los CTR) y posición media ponderada por impresiones (sin impresiones, la
+ * media simple). Lo usan Posiciones en Google y SEO Avanzado.
+ */
+export function aggregateSearchMetrics(
+  rows: readonly { clicks: number; impressions: number; position: number }[],
+): SeoTotalsDto {
   let clicks = 0;
   let impressions = 0;
   let weighted = 0;
   let positionSum = 0;
-  for (const d of days) {
+  for (const d of rows) {
     clicks += d.clicks;
     impressions += d.impressions;
     weighted += d.position * d.impressions;
@@ -297,28 +303,20 @@ function totalsOfDays(days: SearchConsoleDayInput[]): SeoTotalsDto {
     clicks,
     impressions,
     position:
-      days.length === 0
+      rows.length === 0
         ? null
-        : round1(impressions > 0 ? weighted / impressions : positionSum / days.length),
+        : round1(impressions > 0 ? weighted / impressions : positionSum / rows.length),
     ctr: impressions > 0 ? Math.round((clicks / impressions) * 1000) / 1000 : null,
   };
 }
 
+/** Totales con los de cada día de Google (cuadran con su panel). */
+function totalsOfDays(days: SearchConsoleDayInput[]): SeoTotalsDto {
+  return aggregateSearchMetrics(days);
+}
+
 function totalsOf(rows: SearchConsoleRowInput[]): SeoTotalsDto {
-  const all: Agg = { clicks: 0, impressions: 0, weighted: 0, rows: 0, positionSum: 0 };
-  for (const r of rows) {
-    all.clicks += r.clicks;
-    all.impressions += r.impressions;
-    all.weighted += r.position * r.impressions;
-    all.rows += 1;
-    all.positionSum += r.position;
-  }
-  return {
-    clicks: all.clicks,
-    impressions: all.impressions,
-    position: all.rows > 0 ? avgPosition(all) : null,
-    ctr: all.impressions > 0 ? Math.round((all.clicks / all.impressions) * 1000) / 1000 : null,
-  };
+  return aggregateSearchMetrics(rows);
 }
 
 /** Ruta sin dominio de una URL de Search Console. */

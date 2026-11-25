@@ -16,6 +16,11 @@ export const QUEUE_COMMUNICATIONS = 'communications';
 export const QUEUE_AUTOMATIONS = 'automations';
 export const QUEUE_REPORTS = 'reports';
 export const QUEUE_WEBHOOKS = 'webhooks';
+/** Descargas de SEO Avanzado (Search Console). */
+export const QUEUE_SEO = 'seo';
+
+/** Una descarga de Search Console de un dominio (`seo_sync_runs`). */
+export const JOB_SEO_GSC_SYNC = 'gsc-sync';
 
 /** Job de envío de un email ad-hoc (broadcasts del super admin). */
 export const JOB_EMAIL_SEND = 'email.send';

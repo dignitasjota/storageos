@@ -9837,3 +9837,117 @@ model PlatformAddonOffer {
   @@index([tenantId, addonId, sentAt(sort: Desc)], map: "platform_addon_offers_tenant_addon_idx")
   @@map("platform_addon_offers")
 }
+
+/// SEO Avanzado: proyecto de la plataforma (`tenantId` null) o de un tenant (uno como mucho).
+model SeoProject {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String?  @map("tenant_id") @db.Uuid
+  name           String
+  country        String   @default("ES")
+  language       String   @default("es")
+  businessType   String?  @map("business_type")
+  /// local · national · international
+  strategy       String   @default("local")
+  targetLocation String?  @map("target_location")
+  brandTerms     String[] @default([]) @map("brand_terms")
+  weights        Json     @default("{}")
+  frequencies    Json     @default("{}")
+  /// active · paused
+  status         String   @default("active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  domains SeoProjectDomain[]
+  runs    SeoSyncRun[]
+
+  @@map("seo_projects")
+}
+
+/// Dominio de un proyecto con su propiedad de Search Console.
+model SeoProjectDomain {
+  id               String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String?   @map("tenant_id") @db.Uuid
+  projectId        String    @map("project_id") @db.Uuid
+  domain           String
+  /// primary · secondary · redirect
+  role             String    @default("secondary")
+  gscProperty      String    @map("gsc_property")
+  /// pending · connected · error
+  connectionStatus String    @default("pending") @map("connection_status")
+  lastError        String?   @map("last_error")
+  checkedAt        DateTime? @map("checked_at") @db.Timestamptz(6)
+  connectedAt      DateTime? @map("connected_at") @db.Timestamptz(6)
+  lastSyncedAt     DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  dataUntil        DateTime? @map("data_until") @db.Date
+  initialDoneAt    DateTime? @map("initial_done_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  metrics SeoGscMetric[]
+  runs    SeoSyncRun[]
+
+  @@unique([projectId, domain], map: "seo_project_domains_project_domain_key")
+  @@index([tenantId], map: "seo_project_domains_tenant_idx")
+  @@map("seo_project_domains")
+}
+
+/// Un día de un cruce de Search Console (`grain`); dimensiones ausentes = ''.
+/// La clave única (dominio, cruce, fecha, md5 de las dimensiones) vive en SQL.
+model SeoGscMetric {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  domainId    String   @map("domain_id") @db.Uuid
+  grain       String
+  date        DateTime @db.Date
+  query       String   @default("")
+  page        String   @default("")
+  country     String   @default("")
+  device      String   @default("")
+  searchType  String   @default("") @map("search_type")
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  ctr         Decimal  @default(0) @db.Decimal(7, 6)
+  position    Decimal  @db.Decimal(7, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  domain SeoProjectDomain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([domainId, grain, date], map: "seo_gsc_metrics_domain_grain_date_idx")
+  @@index([grain, date], map: "seo_gsc_metrics_grain_date_idx")
+  @@index([tenantId], map: "seo_gsc_metrics_tenant_idx")
+  @@map("seo_gsc_metrics")
+}
+
+/// Una descarga (inicial, diaria o manual) con su progreso y su cursor.
+model SeoSyncRun {
+  id                     String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String?   @map("tenant_id") @db.Uuid
+  projectId              String    @map("project_id") @db.Uuid
+  domainId               String?   @map("domain_id") @db.Uuid
+  provider               String    @default("gsc")
+  /// initial · daily · manual
+  kind                   String
+  /// queued · running · done · failed · cancelled
+  status                 String    @default("queued")
+  rangeFrom              DateTime? @map("range_from") @db.Date
+  rangeTo                DateTime? @map("range_to") @db.Date
+  daysTotal              Int       @default(0) @map("days_total")
+  daysDone               Int       @default(0) @map("days_done")
+  totalsDone             Boolean   @default(false) @map("totals_done")
+  cursor                 DateTime? @db.Date
+  rows                   Int       @default(0)
+  error                  String?
+  createdByUserId        String?   @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId  String?   @map("created_by_super_admin_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt              DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  project SeoProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domain  SeoProjectDomain? @relation(fields: [domainId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt(sort: Desc)], map: "seo_sync_runs_project_created_idx")
+  @@index([tenantId], map: "seo_sync_runs_tenant_idx")
+  @@map("seo_sync_runs")
+}

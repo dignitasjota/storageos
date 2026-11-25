@@ -34,6 +34,7 @@ import {
   QUEUE_REPORTS,
   QUEUE_VERIFACTU,
   QUEUE_WEBHOOKS,
+  QUEUE_SEO,
 } from '../queues/queue-names';
 
 import { AdminActivityService } from './admin-activity.service';
@@ -191,6 +192,7 @@ export class AdminTodayService {
     @InjectQueue(QUEUE_AUTOMATIONS) automationsQueue: Queue,
     @InjectQueue(QUEUE_REPORTS) reportsQueue: Queue,
     @InjectQueue(QUEUE_WEBHOOKS) webhooksQueue: Queue,
+    @InjectQueue(QUEUE_SEO) seoQueue: Queue,
   ) {
     this.queues = [
       billingQueue,
@@ -202,6 +204,7 @@ export class AdminTodayService {
       automationsQueue,
       reportsQueue,
       webhooksQueue,
+      seoQueue,
     ];
   }
 

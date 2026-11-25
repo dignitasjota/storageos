@@ -178,4 +178,12 @@ export const DEFAULT_SAAS_ADDONS: DefaultAddon[] = [
     priceMonthly: 12,
     feature: 'local_seo',
   },
+  {
+    slug: 'addon-seo-advanced',
+    name: 'SEO Avanzado',
+    description:
+      'Todo lo de SEO local y además el detalle completo de Google: por qué búsquedas, páginas, países y dispositivos te encuentran, día a día y con los datos de hasta 16 meses, para tu dominio principal y hasta tres más. Próximamente, compatible con tu cuenta de SISTRIX.',
+    priceMonthly: 199,
+    feature: 'seo_advanced',
+  },
 ];
