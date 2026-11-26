@@ -112,5 +112,11 @@ export async function buildOpenXmlWorkbook(sheets: OpenXmlSheet[]): Promise<Buff
     'xl/styles.xml',
     `<?xml version="1.0" encoding="utf-8"?><x:styleSheet xmlns:x="${NS}"><x:fonts count="1"><x:font><x:sz val="11" /><x:name val="Calibri" /></x:font></x:fonts><x:fills count="1"><x:fill><x:patternFill patternType="none" /></x:fill></x:fills><x:borders count="1"><x:border /></x:borders><x:cellStyleXfs count="1"><x:xf numFmtId="0" fontId="0" fillId="0" borderId="0" /></x:cellStyleXfs><x:cellXfs count="1"><x:xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" /></x:cellXfs></x:styleSheet>`,
   );
+  // Fecha fija en cada entrada: jszip pone la hora actual y dos ficheros iguales
+  // generados en segundos distintos tendrían otra huella (sha256).
+  const fixed = new Date('2026-01-01T00:00:00Z');
+  zip.forEach((_path, file) => {
+    file.date = fixed;
+  });
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
