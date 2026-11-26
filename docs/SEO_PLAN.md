@@ -794,3 +794,24 @@ Actuaciones con su antes y después (§18.8 y §19.6) y tareas SEO con tablero y
 - Las anotaciones automáticas de §18.8 (leer del registro de acciones los cambios hechos desde la propia plataforma: título de trasteros.pro, entradas del blog, SEO de la web del tenant, páginas de zona) quedan para una PR posterior.
 
 **Pendiente** (PR 7): conversiones (reservas, demos y altas desde Google), alertas e informes semanal y mensual. Aparte: importación de los Excel maestros (cuando Jota los pase) y las anotaciones automáticas.
+
+## 33. PR 7 hecha: importación de los Excel maestros (2026-11-26)
+
+Los maestros de GUÁRDALO y TRASTEROS.PRO (§8 y §18) se importan en su proyecto con vista previa por hojas y confirmación. Lo puro en `packages/shared/src/seo/master-import.ts` (vitest); el API en `apps/api/src/modules/seo-advanced/master/`.
+
+**Cada hoja a su sitio**
+
+- `Maestro_keywords` → catálogo (`seo_project_keywords`, origen «Del maestro»): grupo, intención (Transaccional y Comercial → contratar, Informativa → informarse, Navegacional → buscar una web; «Mixta» y «Excluir / observar» se quedan sin intención), prioridad (Muy alta y Alta → alta), URL objetivo y, en notas, la acción, el estado y el peso de relevancia. Las marcadas «Descartar» entran sin seguir. Solo rellena lo vacío, nunca toca las fijadas y la prioridad solo en las nuevas (la regla de la PR 5). Las métricas de SISTRIX, como observación con su fecha de consulta y su país (`manual_import`): vacío = sin dato, 0 = 0. Las de Search Console van con las pestañas `GSC_*` como agregado del periodo.
+- `Rankings_competencia` → posiciones de cada dominio por fecha (`seo_domain_keywords`, histórico conservado); `Competidores` → competidores con la estrategia en notas (los que pasan del límite del tenant, como sugerencia); `Clusters` → grupos; `Plan_accion` → tareas con su id (P01) para no duplicarlas; `GSC_*` → la importación de Search Console de la PR 2 (solo los días que no tiene la API); `Resumen` y `Fuentes_importacion` → la ficha de la importación.
+- Validación: el dominio del Resumen tiene que ser del proyecto; las fechas de extracción y de Search Console salen del Resumen.
+- El mismo fichero dos veces, 409. Borrar la importación quita sus observaciones y su Search Console, y lo que creó si nadie lo ha cambiado después; lo que rellenó vuelve a vacío si sigue igual. Una versión nueva no pisa lo editado ni duplica tareas.
+
+**Decisiones**
+
+- **Lector de Excel**: los maestros los escribe el OpenXML SDK (prefijo `x:` y destinos absolutos `/xl/...`) y exceljs no los abre. En vez de un lector propio, el lector común (`loadWorkbook` en `import-engine.ts`) los normaliza con jszip (quita el prefijo y pasa los destinos a relativos) y reintenta, sin dependencias nuevas. Sirve a todas las importaciones.
+- **Grupos**: tabla nueva `seo_keyword_groups` (prioridad, URL objetivo principal y nota por grupo). El grupo seguía siendo un texto en cada palabra y la información de la hoja Clusters es del grupo, no de cada palabra; guardarla en el proyecto (jsonb) no permitiría editarla ni enlazarla después.
+- **Plazos**: «Semana N» = día de importación + 7·N días; «Mes N» = + N meses (no venía en el encargo; es lo natural). Se puede cambiar en cada tarea.
+- **Lo que hizo cada importación** queda en `seo_master_import_items` con los valores que puso: así se sabe si algo se tocó a mano después (al borrar) sin depender de `updated_at`, que cambian también los avisos.
+- Los datos de Search Console de `Maestro_keywords` no se guardan aparte: son los mismos que `GSC_consultas` y van en su importación; si una palabra con datos del mismo periodo no estuviera en `GSC_consultas`, se añade a las consultas.
+
+**Pendiente**: editar los grupos desde la pantalla de palabras (hoy se ven en la ficha de la importación) y, de la fase 3, conversiones, alertas e informes.
