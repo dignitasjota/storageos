@@ -1,6 +1,8 @@
 import ExcelJS from 'exceljs';
 import Papa from 'papaparse';
 
+import { normalizeOpenXmlPackage } from './openxml-normalize';
+
 import type {
   ImportCommitDto,
   ImportCommitRowResult,
@@ -38,19 +40,40 @@ export function cellToText(value: ExcelJS.CellValue): string {
   return String(value);
 }
 
+const toArrayBuffer = (buffer: Buffer) =>
+  buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+
+/**
+ * Abre un XLSX con exceljs. Si no puede (los Excel del OpenXML SDK, con el
+ * prefijo `x:` y destinos absolutos), lo normaliza y lo vuelve a intentar.
+ */
+export async function loadWorkbook(buffer: Buffer): Promise<ExcelJS.Workbook> {
+  const wb = new ExcelJS.Workbook();
+  let failure: unknown = null;
+  try {
+    await wb.xlsx.load(toArrayBuffer(buffer));
+    // Sin hojas leídas también puede ser un paquete que exceljs no entiende.
+    if (wb.worksheets.length > 0) return wb;
+  } catch (err) {
+    failure = err;
+  }
+  const normalized = await normalizeOpenXmlPackage(buffer);
+  if (!normalized) {
+    if (failure) throw failure;
+    return wb;
+  }
+  const retry = new ExcelJS.Workbook();
+  await retry.xlsx.load(toArrayBuffer(normalized));
+  return retry;
+}
+
 /**
  * Convierte un XLSX (base64) a CSV usando la PRIMERA hoja. La primera fila no
  * vacía se toma como cabecera. Se reusa `Papa.unparse` para escapar igual que
  * un CSV normal → el resto del pipeline (`parseRaw` + alias) no cambia.
  */
 export async function xlsxBase64ToCsv(base64: string): Promise<string> {
-  const buffer = Buffer.from(base64, 'base64');
-  const arrayBuffer = buffer.buffer.slice(
-    buffer.byteOffset,
-    buffer.byteOffset + buffer.byteLength,
-  ) as ArrayBuffer;
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(arrayBuffer);
+  const wb = await loadWorkbook(Buffer.from(base64, 'base64'));
   const ws = wb.worksheets[0];
   if (!ws) return '';
   const rows: string[][] = [];
@@ -73,12 +96,7 @@ export async function xlsxBase64ToCsv(base64: string): Promise<string> {
  * usa la importación de los Excel de Search Console, que trae varias pestañas.
  */
 export async function xlsxSheets(buffer: Buffer): Promise<{ name: string; rows: string[][] }[]> {
-  const arrayBuffer = buffer.buffer.slice(
-    buffer.byteOffset,
-    buffer.byteOffset + buffer.byteLength,
-  ) as ArrayBuffer;
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(arrayBuffer);
+  const wb = await loadWorkbook(buffer);
   return wb.worksheets.map((ws) => {
     const rows: string[][] = [];
     ws.eachRow({ includeEmpty: false }, (row) => {
