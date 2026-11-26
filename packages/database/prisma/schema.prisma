@@ -9952,7 +9952,12 @@ model SeoProjectDomain {
   checkedAt        DateTime? @map("checked_at") @db.Timestamptz(6)
   connectedAt      DateTime? @map("connected_at") @db.Timestamptz(6)
   lastSyncedAt     DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  /// Último día con filas en el cruce `site` (los días sin impresiones no tienen fila).
   dataUntil        DateTime? @map("data_until") @db.Date
+  /// Hasta qué día se ha descargado con éxito (haya o no filas esos días).
+  syncedUntil      DateTime? @map("synced_until") @db.Date
+  /// Desde qué día hay detalle por búsqueda y página (los Excel solo traen el total diario).
+  detailSince      DateTime? @map("detail_since") @db.Date
   initialDoneAt    DateTime? @map("initial_done_at") @db.Timestamptz(6)
   /// own · gsc_access (secundario no propio con acceso de la cuenta de servicio)
   verification     String    @default("own")
@@ -10095,6 +10100,8 @@ model SeoSyncRun {
   pausedReason           String?   @map("paused_reason")
   pausedUntil            DateTime? @map("paused_until") @db.Timestamptz(6)
   creditsUsed            Int       @default(0) @map("credits_used")
+  /// Última vez que la descarga avanzó (una en curso sin avanzar horas se da por caída).
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   project SeoProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   domain  SeoProjectDomain? @relation(fields: [domainId], references: [id], onDelete: Cascade)

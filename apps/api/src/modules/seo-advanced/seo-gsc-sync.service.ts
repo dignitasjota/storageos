@@ -14,7 +14,11 @@ import {
 } from '@storageos/shared';
 import { Queue } from 'bullmq';
 
-import { GoogleApiError, isGoogleTransient } from '../../common/google/google-service-account';
+import {
+  GoogleApiError,
+  isGoogleLimit,
+  isGoogleTransient,
+} from '../../common/google/google-service-account';
 import { isUniqueViolation } from '../../common/prisma-errors';
 import { tenantHasFeature } from '../../common/tenant-features';
 import { PrismaAdminService } from '../database/prisma-admin.service';
@@ -22,6 +26,7 @@ import { JOB_SEO_GSC_SYNC, QUEUE_SEO } from '../queues/queue-names';
 import { SearchConsoleClient, type GscRow } from '../search-console/search-console.client';
 
 import { SeoOpportunityScheduler } from './opportunities/seo-opportunity-scheduler';
+import { SeoDomainOwnershipService } from './seo-domain-ownership.service';
 
 import type { Env } from '../../config/env.schema';
 import type { Prisma } from '@storageos/database';
@@ -32,10 +37,16 @@ const MAX_ROWS_PER_REQUEST = 100_000;
 const INSERT_CHUNK = 5000;
 /** Una transacción grande (los totales de 16 meses) necesita más de 5 s. */
 const TX_TIMEOUT = 120_000;
+/** Una descarga en curso sin avanzar tanto tiempo se da por caída. */
+const STALE_RUN_MS = 3 * 3_600_000;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const day = (d: string) => new Date(`${d}T00:00:00Z`);
 const dateOnly = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
+const laterDate = (a: Date | null | undefined, b: Date | null | undefined): Date | null =>
+  a && b ? (a > b ? a : b) : (a ?? b ?? null);
+const earlierDate = (a: Date | null | undefined, b: Date | null | undefined): Date | null =>
+  a && b ? (a < b ? a : b) : (a ?? b ?? null);
 
 export interface SeoSyncActor {
   userId?: string | null;
@@ -69,6 +80,7 @@ export class SeoGscSyncService {
     private readonly config: ConfigService<Env, true>,
     @InjectQueue(QUEUE_SEO) private readonly queue: Queue,
     private readonly opportunities: SeoOpportunityScheduler,
+    private readonly ownership: SeoDomainOwnershipService,
   ) {}
 
   private get initialDays(): number {
@@ -88,17 +100,26 @@ export class SeoGscSyncService {
       return active.id;
     }
     const to = shiftDate(today(), -1);
-    const until = dateOnly(domain.dataUntil);
-    // La inicial, 16 meses; las demás, desde el último dato (si la descarga
-    // falló varios días no quedan huecos) y como poco los últimos 5 días.
+    // Hasta qué día se ha descargado (no el último día con filas: Google no da
+    // fila de los días sin impresiones y un sitio parado crecería sin fin).
+    const synced = dateOnly(domain.syncedUntil);
+    // Una carga inicial que se cayó sigue por donde iba (mismo tramo, mismo
+    // cursor), en vez de empezar de cero cada día.
+    const resume = kind === 'initial' ? await this.resumableInitial(domainId) : null;
+    // La inicial, 16 meses; las demás, desde el último día descargado (si la
+    // descarga falló varios días no quedan huecos) y como poco los últimos 5.
     const span =
       kind === 'initial'
         ? this.initialDays
         : Math.min(
             this.initialDays,
-            Math.max(SEO_GSC_DAILY_DAYS, (until ? daysBetween(until, to) : 0) + SEO_GSC_DAILY_DAYS),
+            Math.max(
+              SEO_GSC_DAILY_DAYS,
+              (synced ? daysBetween(synced, to) : 0) + SEO_GSC_DAILY_DAYS,
+            ),
           );
-    const from = shiftDate(to, -(span - 1));
+    const rangeTo = resume ? dateOnly(resume.rangeTo)! : to;
+    const from = resume ? dateOnly(resume.rangeFrom)! : shiftDate(to, -(span - 1));
     let runId: string;
     try {
       const run = await this.admin.seoSyncRun.create({
@@ -108,8 +129,16 @@ export class SeoGscSyncService {
           domainId,
           kind,
           rangeFrom: day(from),
-          rangeTo: day(to),
-          daysTotal: span,
+          rangeTo: day(rangeTo),
+          daysTotal: resume ? resume.daysTotal : span,
+          ...(resume
+            ? {
+                cursor: resume.cursor,
+                totalsDone: resume.totalsDone,
+                daysDone: resume.daysDone,
+                rows: resume.rows,
+              }
+            : {}),
           createdByUserId: actor.userId ?? null,
           createdBySuperAdminId: actor.superAdminId ?? null,
         },
@@ -125,6 +154,23 @@ export class SeoGscSyncService {
     }
     await this.addJob(runId);
     return runId;
+  }
+
+  /** La última carga inicial caída (hace menos de una semana) con algo ya hecho. */
+  private resumableInitial(domainId: string) {
+    return this.admin.seoSyncRun.findFirst({
+      where: {
+        domainId,
+        kind: 'initial',
+        dataType: null,
+        status: 'failed',
+        finishedAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
+        rangeFrom: { not: null },
+        rangeTo: { not: null },
+        OR: [{ cursor: { not: null } }, { totalsDone: true }],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   private activeRun(domainId: string, kind: SeoSyncKind) {
@@ -177,9 +223,17 @@ export class SeoGscSyncService {
    * local») hace la inicial.
    */
   async enqueueDailyAll(): Promise<{ domains: number; enqueued: number }> {
+    await this.failStaleRuns();
     const domains = await this.admin.seoProjectDomain.findMany({
       where: { connectionStatus: 'connected', project: { status: 'active' } },
-      select: { id: true, tenantId: true, initialDoneAt: true },
+      select: {
+        id: true,
+        tenantId: true,
+        initialDoneAt: true,
+        verification: true,
+        gscProperty: true,
+        domain: true,
+      },
     });
     const eligible = new Map<string, boolean>();
     let enqueued = 0;
@@ -189,17 +243,68 @@ export class SeoGscSyncService {
           eligible.set(d.tenantId, await this.tenantEligible(d.tenantId));
         }
         if (!eligible.get(d.tenantId)) continue;
+        // La propiedad se vuelve a comprobar cada día: si el dominio cambió de
+        // dueño, el anterior deja de descargarlo.
+        const lost = await this.lostOwnership(d.tenantId, d);
+        if (lost) {
+          await this.admin.seoProjectDomain.updateMany({
+            where: { id: d.id },
+            data: { connectionStatus: 'error', lastError: lost },
+          });
+          continue;
+        }
       }
-      // Con otra descarga en marcha en ese dominio, se espera a la de mañana.
+      // Con otra descarga viva en ese dominio no se lanza otra, pero se vuelve a
+      // poner su trabajo en la cola (no duplica: el id es el de la tanda), por
+      // si se perdió en un reinicio.
       const busy = await this.admin.seoSyncRun.findFirst({
-        where: { domainId: d.id, status: { in: ['queued', 'running'] } },
+        where: { domainId: d.id, status: { in: ['queued', 'running'] }, dataType: null },
         select: { id: true },
       });
-      if (busy) continue;
+      if (busy) {
+        await this.addJob(busy.id);
+        continue;
+      }
       await this.enqueue(d.id, d.initialDoneAt ? 'daily' : 'initial');
       enqueued++;
     }
     return { domains: domains.length, enqueued };
+  }
+
+  /** Motivo por el que el dominio ya no es de ese tenant (null si lo sigue siendo). */
+  private async lostOwnership(
+    tenantId: string,
+    d: { verification: string; gscProperty: string; domain: string },
+  ): Promise<string | null> {
+    if (d.verification === 'gsc_access') {
+      return (await this.ownership.belongsToAnotherTenant(tenantId, d.domain))
+        ? `${d.domain} es ahora el dominio verificado de otra cuenta de TrasterOS.`
+        : null;
+    }
+    return (await this.ownership.ownProperty(tenantId, d.gscProperty))
+      ? null
+      : `${d.gscProperty} ya no es una web de tu negocio en TrasterOS.`;
+  }
+
+  /**
+   * Una descarga «en curso» que lleva horas sin avanzar (el worker murió dos
+   * veces seguidas, la base de datos falló al anotar el error…) se da por
+   * caída: así el dominio vuelve a descargarse.
+   */
+  async failStaleRuns(): Promise<number> {
+    const res = await this.admin.seoSyncRun.updateMany({
+      where: {
+        dataType: null,
+        status: 'running',
+        updatedAt: { lt: new Date(Date.now() - STALE_RUN_MS) },
+      },
+      data: {
+        status: 'failed',
+        error: 'La descarga se quedó sin avanzar y se dio por caída. Se vuelve a intentar.',
+        finishedAt: new Date(),
+      },
+    });
+    return res.count;
   }
 
   private async tenantEligible(tenantId: string): Promise<boolean> {
@@ -272,11 +377,17 @@ export class SeoGscSyncService {
         _max: { date: true },
       });
       const now = new Date();
+      // «Descargado hasta» es el fin del tramo pedido, haya o no filas esos
+      // días; el detalle por búsqueda y página empieza donde empezó el tramo.
+      const syncedUntil = laterDate(domain.syncedUntil, run.rangeTo);
+      const detailSince = earlierDate(domain.detailSince, run.rangeFrom);
       await this.admin.seoProjectDomain.update({
         where: { id: domain.id },
         data: {
           lastSyncedAt: now,
           dataUntil: last._max.date,
+          syncedUntil,
+          detailSince,
           connectionStatus: 'connected',
           lastError: null,
           ...(run.kind === 'initial' ? { initialDoneAt: now } : {}),
@@ -288,11 +399,22 @@ export class SeoGscSyncService {
     } catch (err) {
       // El dominio se borró mientras se descargaba: no queda nada que anotar.
       if (!(await this.admin.seoSyncRun.findUnique({ where: { id: runId } }))) return;
-      const message = this.errorMessage(err);
-      this.logger.warn(`Descarga SEO ${runId} (${domain.domain}) falló: ${message}`);
+      this.logger.warn(
+        `Descarga SEO ${runId} (${domain.domain}) falló: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      // Un 403 solo es «acceso perdido» si Google dice que es de permisos: los
+      // límites de uso son pasajeros. Ante la duda se comprueba con la lista de
+      // propiedades de la cuenta.
+      let lostAccess = false;
+      if (
+        err instanceof GoogleApiError &&
+        (err.status === 403 || err.status === 404) &&
+        !isGoogleLimit(err)
+      ) {
+        lostAccess = !(await this.client.hasAccess(domain.gscProperty).catch(() => true));
+      }
+      const message = this.errorMessage(err, lostAccess);
       await this.finish(runId, 'failed', message);
-      const lostAccess =
-        err instanceof GoogleApiError && (err.status === 403 || err.status === 404);
       await this.admin.seoProjectDomain.updateMany({
         where: { id: domain.id },
         data: { lastError: message, ...(lostAccess ? { connectionStatus: 'error' } : {}) },
@@ -319,12 +441,15 @@ export class SeoGscSyncService {
     });
   }
 
-  private errorMessage(err: unknown): string {
+  private errorMessage(err: unknown, lostAccess = false): string {
+    if (err instanceof GoogleApiError && err.status === 0) {
+      return 'No hubo respuesta de Google (red o tiempo agotado). Se volverá a intentar en la próxima descarga.';
+    }
     if (isGoogleTransient(err)) {
       return `Google no responde ahora (${err.status}). Se volverá a intentar en la próxima descarga.`;
     }
     if (err instanceof GoogleApiError) {
-      return err.status === 403 || err.status === 404
+      return lostAccess
         ? `Google no deja leer esta propiedad: ${err.message}. Comprueba el acceso de nuestra cuenta en Search Console.`
         : `Google respondió con un error: ${err.message}`;
     }

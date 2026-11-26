@@ -110,7 +110,11 @@ export class SeoPanelService {
     const domain = this.pickDomain(project, q.domainId);
     const bounds = domain ? await this.bounds(domain.id) : { first: null, last: null };
     const range = this.range(q, bounds.last);
-    const delay = domain?.dataUntil ? daysBetween(dateOnly(domain.dataUntil)!, today()) : null;
+    // El retraso es el de la última descarga buena, no el del último día con filas:
+    // un sitio sin impresiones no es un Google «sin datos».
+    const delaySource = domain?.syncedUntil ?? domain?.dataUntil ?? null;
+    const delay = delaySource ? daysBetween(dateOnly(delaySource)!, today()) : null;
+    const syncedUntil = dateOnly(domain?.syncedUntil);
     const empty = { clicks: 0, impressions: 0, ctr: null, position: null };
     const base: SeoDashboardDto = {
       projectId,
@@ -158,6 +162,7 @@ export class SeoPanelService {
       countries,
       types,
       byQuery,
+      siteOnDetailedDays,
       otherRows,
     ] = await Promise.all([
       this.sums(id, 'site', range.from, range.to),
@@ -171,6 +176,7 @@ export class SeoPanelService {
       this.grouped(id, 'country', Prisma.raw('country'), range.from, range.to),
       this.grouped(id, 'search_type', Prisma.raw('search_type'), range.from, range.to),
       this.sums(id, 'query', range.from, range.to),
+      this.siteSumsOnDetailedDays(id, range.from, range.to),
       others.length > 0
         ? this.admin.$queryRaw<{ id: string; c: number; i: number }[]>(Prisma.sql`
               SELECT domain_id::text AS id, SUM(clicks)::float8 AS c, SUM(impressions)::float8 AS i
@@ -185,7 +191,7 @@ export class SeoPanelService {
     // Solo se compara si hay datos de casi todos los días de ese periodo (un hueco
     // entre lo importado y lo de la API daría una variación falsa).
     const covers = (from: string, to: string, rows: number) =>
-      seoPeriodCovered({ firstDate: bounds.first, from, to, daysWithData: rows });
+      seoPeriodCovered({ firstDate: bounds.first, from, to, daysWithData: rows, syncedUntil });
     const previous = seoComparison(
       current,
       seoTotalsFromSums(prev),
@@ -212,7 +218,8 @@ export class SeoPanelService {
           row && row.impressions > 0
             ? Math.round((row.clicks / row.impressions) * 1000) / 1000
             : null,
-        position: row ? Math.round(row.position * 10) / 10 : null,
+        // Un día sin impresiones no tiene posición (un 0 sería «el mejor puesto»).
+        position: row && row.impressions > 0 ? Math.round(row.position * 10) / 10 : null,
         source: row?.source === 'import' ? 'import' : 'api',
         // Un día sin datos del periodo anterior queda en blanco (no a cero).
         previousClicks: previous.totals && p ? p.clicks : null,
@@ -264,7 +271,13 @@ export class SeoPanelService {
       countries: countryTop.top,
       countriesRest: countryTop.rest,
       searchTypes: share(types).filter((t) => t.totals.impressions > 0),
-      undetailed: byQuery.rows > 0 ? undetailedSearches(current, seoTotalsFromSums(byQuery)) : null,
+      // Solo se resta en los días que tienen detalle por búsqueda: los importados
+      // de un Excel (solo el total del día) o los que aún se están descargando
+      // no son «búsquedas que Google no detalla».
+      undetailed:
+        byQuery.rows > 0
+          ? undetailedSearches(seoTotalsFromSums(siteOnDetailedDays), seoTotalsFromSums(byQuery))
+          : null,
       otherDomains: others.map((d) => {
         const r = otherRows.find((o) => o.id === d.id);
         return {
@@ -451,7 +464,8 @@ export class SeoPanelService {
       const prevSums = toSums(r ? { c: r.pc, i: r.pi, w: r.pw, ps: r.pps, n: r.pn } : undefined);
       const hasPrevious = !!r && r.first <= shiftDate(r.last, -55) && prevSums.rows > 0;
       const previous = hasPrevious ? seoTotalsFromSums(prevSums) : null;
-      const delay = d?.dataUntil ? daysBetween(dateOnly(d.dataUntil)!, today()) : null;
+      const delaySource = d?.syncedUntil ?? d?.dataUntil ?? null;
+      const delay = delaySource ? daysBetween(dateOnly(delaySource)!, today()) : null;
       return {
         projectId: p.id,
         name: p.name,
@@ -511,6 +525,28 @@ export class SeoPanelService {
     return toSums(r);
   }
 
+  /** El total del sitio, sumado solo en los días que tienen filas de búsquedas. */
+  private async siteSumsOnDetailedDays(domainId: string, from: string, to: string) {
+    const [r] = await this.admin.$queryRaw<SumsRow[]>(Prisma.sql`
+      SELECT ${SUMS} FROM seo_gsc_metrics
+      WHERE domain_id = ${domainId}::uuid AND grain = 'site'
+        AND date BETWEEN ${from}::date AND ${to}::date
+        AND date IN (
+          SELECT DISTINCT date FROM seo_gsc_metrics
+          WHERE domain_id = ${domainId}::uuid AND grain = 'query'
+            AND date BETWEEN ${from}::date AND ${to}::date)`);
+    return toSums(r);
+  }
+
+  /** Días del periodo con filas de búsquedas. */
+  private async detailDays(domainId: string, from: string, to: string): Promise<number> {
+    const [r] = await this.admin.$queryRaw<{ n: number }[]>(Prisma.sql`
+      SELECT COUNT(DISTINCT date)::int AS n FROM seo_gsc_metrics
+      WHERE domain_id = ${domainId}::uuid AND grain = 'query'
+        AND date BETWEEN ${from}::date AND ${to}::date`);
+    return Number(r?.n ?? 0);
+  }
+
   private async count(domainId: string, from: string, to: string): Promise<number> {
     return this.admin.seoGscMetric.count({
       where: {
@@ -562,17 +598,29 @@ export class SeoPanelService {
     const bounds = await this.bounds(domain.id);
     if (!bounds.last) return null;
     const range = this.range(q, bounds.last);
-    const prevRows = await this.count(domain.id, range.previousFrom, range.previousTo);
-    return {
-      domainId: domain.id,
-      range,
-      previousAvailable: seoPeriodCovered({
+    // Las tablas comparan los cruces `query` y `page`, que solo existen desde que
+    // la API los descarga: los días importados de un Excel solo tienen el total.
+    // El periodo anterior solo vale si empieza donde ya hay detalle.
+    const detailSince = dateOnly(domain.detailSince);
+    let previousAvailable: boolean;
+    if (detailSince) {
+      previousAvailable = seoPeriodCovered({
+        firstDate: detailSince,
+        from: range.previousFrom,
+        to: range.previousTo,
+        daysWithData: 0,
+        syncedUntil: dateOnly(domain.syncedUntil),
+      });
+    } else {
+      const detailDays = await this.detailDays(domain.id, range.previousFrom, range.previousTo);
+      previousAvailable = seoPeriodCovered({
         firstDate: bounds.first,
         from: range.previousFrom,
         to: range.previousTo,
-        daysWithData: prevRows,
-      }),
-    };
+        daysWithData: detailDays,
+      });
+    }
+    return { domainId: domain.id, range, previousAvailable };
   }
 
   private emptyTable(

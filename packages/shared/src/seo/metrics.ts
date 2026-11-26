@@ -105,6 +105,12 @@ export function summarizeSeoSite(input: {
    */
   firstDate?: string | null;
   lastDate?: string | null;
+  /**
+   * Días del periodo actual que tienen detalle por búsqueda. Con esto, «lo que
+   * Google no detalla» solo resta en esos días (los importados de un Excel o los
+   * aún sin descargar solo tienen el total del día).
+   */
+  detailDates?: readonly string[] | null;
 }) {
   const dates = input.site.map((r) => r.date).sort();
   const lastDate = input.lastDate ?? (dates.length > 0 ? dates[dates.length - 1]! : null);
@@ -147,7 +153,18 @@ export function summarizeSeoSite(input: {
     change: previous ? seoChange(current, previous) : null,
     devices,
     undetailed:
-      input.queryTotals && lastDate ? undetailedSearches(current, input.queryTotals) : null,
+      input.queryTotals && lastDate
+        ? undetailedSearches(
+            input.detailDates
+              ? seoTotalsBetween(
+                  input.site.filter((r) => input.detailDates!.includes(r.date)),
+                  range.from,
+                  range.to,
+                )
+              : current,
+            input.queryTotals,
+          )
+        : null,
     daily,
   };
 }

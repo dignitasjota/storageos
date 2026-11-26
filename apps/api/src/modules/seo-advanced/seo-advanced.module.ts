@@ -31,6 +31,7 @@ import { SeoAlertsService } from './reports/seo-alerts.service';
 import { SeoConversionsService } from './reports/seo-conversions.service';
 import { SeoReportsCron } from './reports/seo-reports.cron';
 import { SeoReportsService } from './reports/seo-reports.service';
+import { SeoDomainOwnershipService } from './seo-domain-ownership.service';
 import { SeoGscSyncService } from './seo-gsc-sync.service';
 import { SeoGscCron } from './seo-gsc.cron';
 import { SeoGscProcessor } from './seo-gsc.processor';
@@ -73,6 +74,7 @@ import type { Env } from '../../config/env.schema';
 @Module({
   imports: [SearchConsoleModule, NotificationsModule],
   providers: [
+    SeoDomainOwnershipService,
     SeoProjectsService,
     SeoGscSyncService,
     PlatformAlertsService,
@@ -130,6 +132,7 @@ import type { Env } from '../../config/env.schema';
       : []),
   ],
   exports: [
+    SeoDomainOwnershipService,
     SeoProjectsService,
     SeoGscSyncService,
     SeoProviderRegistry,

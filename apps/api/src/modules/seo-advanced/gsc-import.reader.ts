@@ -8,6 +8,21 @@ import { xlsxSheets } from '../imports/import-engine';
 const MAX_ZIP_ENTRIES = 20;
 const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
 
+/** ¿Ocupa demasiado el .zip (o el .xlsx) una vez descomprimido? Se mira antes de leerlo. */
+export async function zipTooLarge(buffer: Buffer): Promise<boolean> {
+  const zip = await JSZip.loadAsync(buffer).catch(() => null);
+  if (!zip) return false;
+  const total = Object.values(zip.files)
+    .filter((f) => !f.dir)
+    .reduce(
+      (n, f) =>
+        n +
+        ((f as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize ?? 0),
+      0,
+    );
+  return total > MAX_UNCOMPRESSED_BYTES;
+}
+
 /** BOM del UTF-8 (con el código: el lint no admite el carácter suelto). */
 const BOM_RE = new RegExp(`^${String.fromCharCode(0xfeff)}`);
 

@@ -56,8 +56,12 @@ export interface SeoPanelRange {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const validDate = (v: string | undefined | null): v is string =>
-  !!v && DATE_RE.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`));
+/** Una fecha real (`2026-02-31` no lo es: JavaScript la corrige, Postgres no). */
+const validDate = (v: string | undefined | null): v is string => {
+  if (!v || !DATE_RE.test(v)) return false;
+  const t = Date.parse(`${v}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === v;
+};
 
 /**
  * Fechas del periodo. Los de días acaban en el último día con datos; los de
@@ -146,19 +150,34 @@ export function seoTotalsFromSums(s: SeoMetricSums): SeoTotalsDto {
  */
 export const SEO_MIN_PERIOD_COVERAGE = 0.9;
 
+/** Días que Google tarda en dar los datos definitivos (los mismos que `SEO_GSC_FINAL_DELAY_DAYS`). */
+const SEO_COVERAGE_FINAL_DAYS = 3;
+
 /** Si un periodo tiene datos de casi todos sus días (y empieza después del primer dato). */
 export function seoPeriodCovered(input: {
   firstDate: string | null;
   from: string;
   to: string;
   daysWithData: number;
+  /**
+   * Hasta qué día se ha descargado (con éxito). Google no da fila de los días
+   * sin impresiones: dentro de lo descargado, un día sin fila es un día a cero,
+   * no un hueco. Sin este dato (sin descargar o importado) se exige el 90 %.
+   */
+  syncedUntil?: string | null;
 }): boolean {
   if (!input.firstDate || input.firstDate > input.from) return false;
   const total =
     Math.round(
       (Date.parse(`${input.to}T00:00:00Z`) - Date.parse(`${input.from}T00:00:00Z`)) / 86_400_000,
     ) + 1;
-  return total > 0 && input.daysWithData >= Math.ceil(total * SEO_MIN_PERIOD_COVERAGE);
+  if (total <= 0) return false;
+  // Los últimos días tampoco son de fiar: Google los termina de dar 2 o 3 días
+  // tarde, y un día sin fila allí puede ser un día aún sin datos.
+  if (input.syncedUntil && input.to <= shiftDate(input.syncedUntil, -SEO_COVERAGE_FINAL_DAYS)) {
+    return true;
+  }
+  return input.daysWithData >= Math.ceil(total * SEO_MIN_PERIOD_COVERAGE);
 }
 
 /** Dos periodos que empiezan con un día de diferencia como mucho (12 meses: el anterior es el del año pasado). */

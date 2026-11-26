@@ -161,3 +161,41 @@ describe('seoPeriodCovered', () => {
     expect(seoSameWindow('2024-11-20', '2024-11-25')).toBe(false);
   });
 });
+
+describe('seoPeriodCovered con lo descargado', () => {
+  it('un día sin fila dentro de lo descargado es un día a cero, no un hueco', () => {
+    // 5 de 7 días con filas: sin «descargado hasta» no vale; con él, sí.
+    const base = { firstDate: '2026-01-01', from: '2026-10-01', to: '2026-10-07', daysWithData: 5 };
+    expect(seoPeriodCovered(base)).toBe(false);
+    expect(seoPeriodCovered({ ...base, syncedUntil: '2026-11-20' })).toBe(true);
+  });
+  it('los últimos días tras la descarga no se dan por ceros (Google tarda 2 o 3 días)', () => {
+    const base = { firstDate: '2026-01-01', from: '2026-10-01', to: '2026-10-07', daysWithData: 5 };
+    expect(seoPeriodCovered({ ...base, syncedUntil: '2026-10-08' })).toBe(false);
+    expect(seoPeriodCovered({ ...base, syncedUntil: '2026-10-10' })).toBe(true);
+  });
+  it('con detalle desde el 1 de junio, el periodo anterior anterior a eso no cuenta', () => {
+    expect(
+      seoPeriodCovered({
+        firstDate: '2026-06-01',
+        from: '2026-05-01',
+        to: '2026-05-31',
+        daysWithData: 0,
+        syncedUntil: '2026-11-25',
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('seoPanelRange con fechas imposibles', () => {
+  it('2026-02-31 no es una fecha: el rango a mano no vale', () => {
+    expect(
+      seoPanelRange({
+        period: 'custom',
+        lastDate: '2026-11-24',
+        from: '2026-02-31',
+        to: '2026-03-10',
+      }),
+    ).toBeNull();
+  });
+});

@@ -917,12 +917,14 @@ export class AdminTenantsService {
         where: liveContract,
         _count: { _all: true },
       }),
-      // SEO Avanzado: proyecto con algún dominio conectado a Search Console.
+      // SEO Avanzado: un dominio conectado con la descarga hecha por el motor nuevo
+      // (la migración conecta a todos los que tienen «SEO local» y no es uso).
       this.admin.seoProjectDomain.groupBy({
         by: ['tenantId'],
         where: {
           ...(tenantId ? { tenantId } : { tenantId: { not: null } }),
           connectionStatus: 'connected',
+          initialDoneAt: { not: null },
         },
         _count: { _all: true },
       }),
