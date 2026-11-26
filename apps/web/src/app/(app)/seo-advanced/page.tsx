@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SeoImportsCard } from '@/components/seo/seo-imports-card';
@@ -160,6 +161,12 @@ export default function SeoAdvancedPage() {
       </div>
 
       <SeoPanel client={client} domains={project.domains} />
+
+      <SeoOpportunitiesCard
+        scope={{ kind: 'tenant' }}
+        canEdit={canEdit}
+        domains={project.domains}
+      />
 
       <SeoDomainsCard
         project={project}

@@ -20,6 +20,7 @@ import { isUniqueViolation } from '../../../common/prisma-errors';
 import { tenantHasFeature } from '../../../common/tenant-features';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { JOB_SEO_SISTRIX_SYNC, QUEUE_SEO_SISTRIX } from '../../queues/queue-names';
+import { SeoOpportunityScheduler } from '../opportunities/seo-opportunity-scheduler';
 
 import { SistrixApiClient } from './sistrix-api.client';
 import { type SeoPool, SistrixConnectionsService } from './sistrix-connections.service';
@@ -65,6 +66,13 @@ export function poolOfProject(p: {
   return p.tenantId && !p.usePlatformSistrix ? p.tenantId : null;
 }
 
+/** Tipos de dato de SISTRIX que usa el motor de oportunidades. */
+const OPPORTUNITY_DATA_TYPES: SeoSistrixDataType[] = [
+  'opportunities',
+  'domain_keywords',
+  'keyword_metrics',
+];
+
 /**
  * Tandas de SISTRIX: se programan por proyecto y tipo de dato según la
  * frecuencia de su fondo, se procesan de una en una (cola `seo-sistrix`,
@@ -83,6 +91,7 @@ export class SistrixSyncService {
     private readonly mcp: SistrixMcpClient,
     private readonly config: ConfigService<Env, true>,
     @InjectQueue(QUEUE_SEO_SISTRIX) private readonly queue: Queue,
+    private readonly opportunities: SeoOpportunityScheduler,
   ) {}
 
   // ------------------------------------------------------------ programar
@@ -500,6 +509,10 @@ export class SistrixSyncService {
       allFailed ? 'failed' : 'done',
       final.itemsFailed > 0 ? lastError : null,
     );
+    // Los datos que usa el motor de oportunidades: se recalcula aparte.
+    if (!allFailed && OPPORTUNITY_DATA_TYPES.includes(dataType)) {
+      await this.opportunities.schedule(project.id);
+    }
   }
 
   /** Saldo de la API (gratis) antes de una tanda; corta si no quedan créditos. */

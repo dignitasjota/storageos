@@ -689,3 +689,54 @@ Hecha con un cliente propio (SDK oficial `@modelcontextprotocol/sdk` 1.32.2, tra
 SISTRIX por MCP (principal) y por API clásica (preparada y desactivada), con arquitectura de proveedores (`SeoDataProvider` con capacidades: `gsc` —envuelve la descarga de la PR 1 sin cambiarla—, `sistrix_mcp`, `sistrix_api`, `manual_import`) y un enrutador: MCP con cuota → API solo con «Continuar por API» autorizado, activada y con presupuesto → esperar con el motivo. Cliente MCP propio con el SDK oficial (OAuth con registro dinámico, PKCE, `state` firmado de un solo uso, canje sin `redirect_uri`, tokens cifrados, renovación con `pg_advisory_xact_lock` porque el refresh token rota, `invalid_grant` → volver a conectar con aviso), catálogo de herramientas con aviso de cambios, normalizador probado con las 16 respuestas reales (texto o `structuredContent`, 1000 vacío, 7010 cuota, números como texto, `sichtbarkeitsindex`) y servidor simulado. Cliente de la API clásica (`fetch`, 300 ms, créditos por respuesta, `credits` antes de cada tanda, presupuesto semanal con corte duro). Datos por «fondo» (el dueño de la conexión): competidores, palabras del proyecto (con `strategy_locked` para la importación futura), métricas de palabras (histórico), visibilidad y recuentos de dominios, palabras de cada dominio con su histórico, resultados de Google, oportunidades e ideas, páginas enlazadas y visibilidad en IA, con registro de peticiones y caché que deduplica entre proyectos. Cola `seo-sistrix` (concurrencia 1, pausa entre llamadas, reanudación) y crons de programación, reanudación a las 00:05 y diario. Pantallas: Panel admin → SEO → Integraciones; en la ficha del proyecto y en la página del tenant, Competidores, Palabras clave, Oportunidades, Enlaces y Visibilidad en IA; clave de API propia del tenant; «Usar la conexión de SISTRIX de la plataforma» en proyectos de tenant (solo superadmin).
 
 Decisiones de la implementación: cola aparte `seo-sistrix` (dos procesadores en la misma cola `seo` se quitarían los trabajos); las frecuencias y límites son por fondo (`seo_sync_settings`), no por proyecto; los competidores descubiertos entran como sugerencia (inactivos, no cuentan para el límite); la API clásica no tiene equivalente para `ai_check` (ese dato espera al MCP). Pendiente: comprobar en la primera llamada real el formato exacto de la API clásica (los nombres de los métodos y la lectura de créditos siguen su documentación, sin haberla llamado) y del MCP con volumen.
+
+## 30. PR 4 hecha (2026-11-26)
+
+Motor de oportunidades propio, con reglas y no IA (§9, §18.6 y §19.3). La lógica es pura y está en `packages/shared/src/seo/opportunities.ts` (vitest); el API reúne los datos con agregaciones SQL (`SeoOpportunityEngineService`) y los guarda en `seo_opportunities`.
+
+**Tipos**
+
+| Tipo                           | Regla (umbral por defecto, editable por proyecto)                                                                                                                             |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cerca del top 3                | posición media 4–10 y ≥ 50 impresiones en 28 días                                                                                                                             |
+| A un paso de la primera página | posición 11–20 y ≥ 50 impresiones                                                                                                                                             |
+| Comercial lejos                | posición 21–50, ≥ 10 impresiones e intención de contratar o de ir a un sitio                                                                                                  |
+| Mucho aparecer y poco clic     | posición ≤ 20, ≥ 100 impresiones y CTR por debajo de la mitad del esperado (`expectedCtr`)                                                                                    |
+| Sube / Baja                    | periodo anterior comparable (`seoPeriodCovered`), ≥ 30 impresiones en los dos y ≥ 3 puestos de cambio (o ≥ 50 % de impresiones con la posición a favor)                       |
+| Demanda real frente a SISTRIX  | impresiones reales (≥ 20) y volumen 0 o sin dato en SISTRIX; impresiones por encima del volumen; o volumen ≥ 500 y tus impresiones < 5 % del volumen (también si ni apareces) |
+| Oportunidad de SISTRIX         | `seo_domain_opportunities` que no coinciden con una propia (si coinciden, se fusionan y se marcan los dos orígenes)                                                           |
+| La competencia sale y tú no    | un competidor seguido en el top 20 y tu web no sale ni en Search Console (90 días) ni en SISTRIX                                                                              |
+
+- Intención (§18.3): la manual de tus palabras, luego la dominante de SISTRIX y, si no, reglas sobre el texto («precio», «alquilar», «barato» → contratar; «qué es», «cómo» → informarse; «cerca», «horario» → ir a un sitio). Comercial = contratar o ir a un sitio (en un negocio local, «trasteros valencia» es de visita).
+- Marca (`brandTerms`, `isBrandQuery`): fuera, salvo que caiga.
+- «Sin dato» en SISTRIX solo cuenta en tus palabras y si el proyecto ya tiene métricas de SISTRIX (si no, sería todo).
+
+**Puntuación (0–100)**
+
+Factores (0–1) y pesos por defecto, editables en `seo_projects.weights`:
+
+- Demanda 25 %: impresiones reales en escala logarítmica (5.000 = 1) o, sin ellas, lo que da SISTRIX: el volumen (10.000 = 1) o las visitas que estima ganar (1.000 = 1), el mayor de los dos.
+- Cerca del premio 20 %: 4–10 → 1 a 0,82; 11–20 → 0,75 a 0,48; 21–50 → 0,4 a 0,11; top 3 → 0,3; más allá o sin posición → 0,1.
+- Clics perdidos 20 %: (CTR esperado − CTR real) ÷ CTR esperado.
+- Intención comercial 15 %: contratar 1; ir a un sitio 0,8; buscar una web 0,3; informarse 0,2.
+- Prioridad en tus palabras 10 %: alta 1, media 0,5, baja 0,2.
+- Tendencia 10 %: 0,7 · mín(1, |puestos| ÷ 10) + 0,3 · mín(1, |% impresiones| ÷ 100), solo con periodos comparables.
+- Dificultad 10 % (resta): competencia de SISTRIX ÷ 100.
+
+```
+base       = Σ peso·valor / Σ peso        (un factor que no se sabe vale 0,3)
+bruto      = max(0, base − peso_dificultad · dificultad)
+confianza  = 0,9 Google y SISTRIX · 0,75 solo Google · 0,45 solo SISTRIX · 0,2 nada
+             (−0,15 con menos de 30 impresiones; +0,1 con periodo anterior comparable)
+puntuación = round(100 · bruto · (0,4 + 0,6 · confianza))
+```
+
+Un factor que no se sabe cuenta con un valor neutro-bajo (0,3, `SEO_UNKNOWN_FACTOR_VALUE`) en vez de desaparecer, y además baja la confianza, que pesa el 60 % del ajuste final. Así una oportunidad con pocos datos no sube por encima de una respaldada por Google: con posición e intención parecidas, la de datos reales siempre puntúa más (hay una prueba con el caso real «alquiler trasteros», Google, posición 9,3 y 700 impresiones → 48, frente a «alquiler trastero mensual», solo SISTRIX, posición 11 y 66 visitas estimadas → 38; con la regla anterior, de repartir el peso de lo desconocido, salían 54 y 70). El desglose guarda los puntos de cada factor, también los desconocidos (suman la puntuación).
+
+**Ciclo de vida**: clave estable (sha1 de tipo + dominio + búsqueda); estados nueva, vista, en curso, hecha y descartada (con motivo); asignación (equipo del tenant o super admins) y notas. Recalcular actualiza cifras, motivo y puntuación sin tocar estado, notas ni asignación; lo que deja de cumplirse queda «inactivo» (sale de pendientes). Una descartada vuelve como nueva («ha vuelto») si su puntuación sube 20 puntos (`reappearPoints`) sobre la que tenía al descartarla. Se recalcula tras cada descarga de Search Console, tras las tandas de SISTRIX de oportunidades, palabras de dominios y métricas (job `opportunities` en la cola `seo`, a los 60 s y uno por proyecto) y con «Recalcular ahora».
+
+**Pantallas**: tarjeta «Oportunidades» en la ficha del proyecto (admin) y en SEO Avanzado del tenant, con resumen por tipo y estado y las 5 mejores, filtros (tipo, estado, puntuación, búsqueda, dominio), orden, CSV, acciones rápidas, ficha lateral (por qué, sus datos con origen y fecha, evolución de 90 días, páginas, resultados de Google, gestión) y ajustes de pesos y umbrales con «Restaurar por defecto». Las oportunidades de SISTRIX salen en esta lista; en la parte de SISTRIX la pestaña pasa a «Ideas de palabras».
+
+**Decisiones**: los pesos de §9 se guardan con los nombres que ya tenía `seo_projects.weights` (`impressions`, `position`, `ctrGap`, `business`, `trend`) más `priority` y `difficulty`; una búsqueda puede dar varias oportunidades (son acciones distintas); la página que sale no forma parte de la clave (cambia con el tiempo); las rutas nuevas van en `…/opportunity-engine` para no romper `…/opportunities` de la PR 3.
+
+**Pendiente** (PR 5): canibalización, páginas que no deberían estar indexadas, URL objetivo frente a la que enseña Google, cubo diario de palabras seguidas y alta de palabras desde Search Console o CSV.

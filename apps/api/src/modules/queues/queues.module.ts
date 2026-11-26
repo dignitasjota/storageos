@@ -42,6 +42,7 @@ export {
   QUEUE_VERIFACTU,
   QUEUE_WEBHOOKS,
   JOB_SEO_GSC_SYNC,
+  JOB_SEO_OPPORTUNITIES,
   JOB_SEO_SISTRIX_SYNC,
 } from './queue-names';
 

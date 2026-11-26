@@ -3,11 +3,13 @@ import { z } from 'zod';
 import { SEARCH_CONSOLE_SITE_RE, type SeoTotalsDto } from '../web/search-console';
 
 import type { SeoChangeDto, SeoUndetailedDto } from './metrics';
+import type { SeoWeights } from './opportunities';
 
 export * from './metrics';
 export * from './panel';
 export * from './gsc-import';
 export * from './sistrix';
+export * from './opportunities';
 
 /**
  * SEO Avanzado: un solo motor para dos ámbitos. Un proyecto sin tenant es de
@@ -136,16 +138,6 @@ export const SEO_SYNC_STATUS_LABELS: Record<SeoSyncStatus, string> = {
   failed: 'Con error',
   cancelled: 'Cancelada',
 };
-
-/** Pesos de la puntuación de oportunidades (se usan en una PR posterior). */
-export const SEO_DEFAULT_WEIGHTS = {
-  impressions: 0.3,
-  position: 0.25,
-  ctrGap: 0.2,
-  business: 0.15,
-  trend: 0.1,
-} as const;
-export type SeoWeights = Record<keyof typeof SEO_DEFAULT_WEIGHTS, number>;
 
 /** Frecuencia de cada proceso. Search Console, cada día a las 07:00. */
 export const SEO_DEFAULT_FREQUENCIES = {

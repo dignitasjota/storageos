@@ -2933,8 +2933,9 @@ export class AdminTenantsService {
       await tx.searchConsoleDevice.deleteMany({ where: { tenantId } });
       await tx.seoTrackedKeyword.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
-      // SEO Avanzado: SISTRIX (su clave cifrada, sus ajustes, lo descargado con
+      // SEO Avanzado: las oportunidades y SISTRIX (su clave cifrada, sus ajustes, lo descargado con
       // ella, el registro de peticiones, competidores y palabras del proyecto).
+      await tx.seoOpportunity.deleteMany({ where: { tenantId } });
       await tx.seoApiRequest.deleteMany({ where: { tenantId } });
       await tx.seoApiCache.deleteMany({ where: { tenantId } });
       await tx.seoKeywordMetric.deleteMany({ where: { tenantId } });

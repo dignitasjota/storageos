@@ -21,6 +21,8 @@ export const QUEUE_SEO = 'seo';
 
 /** Una descarga de Search Console de un dominio (`seo_sync_runs`). */
 export const JOB_SEO_GSC_SYNC = 'gsc-sync';
+/** Recalcular las oportunidades de un proyecto de SEO Avanzado (cola `seo`). */
+export const JOB_SEO_OPPORTUNITIES = 'opportunities';
 /**
  * SEO Avanzado: tandas de SISTRIX (MCP o API). Cola aparte de `seo` porque va
  * con concurrencia 1 y pausa entre llamadas (dos procesadores en la misma cola

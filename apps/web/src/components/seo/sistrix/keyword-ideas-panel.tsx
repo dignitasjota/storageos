@@ -1,7 +1,6 @@
 'use client';
 
 import { Loader2, Plus } from 'lucide-react';
-import { useState } from 'react';
 import { toast } from 'sonner';
 
 import { seoErrorMessage } from '../seo-errors';
@@ -20,19 +19,19 @@ import {
 import { cn } from '@/lib/utils';
 
 /**
- * Oportunidades e ideas de palabras de SISTRIX para tu dominio principal, con
- * «Añadir a mis palabras». El motor propio de oportunidades llega aparte.
+ * Ideas de palabras de SISTRIX para tu dominio principal, con «Añadir a mis
+ * palabras». Las oportunidades de SISTRIX van en la lista de Oportunidades
+ * (puntuadas junto a las propias).
  */
-export function OpportunitiesPanel({ scope, canEdit }: { scope: SistrixScope; canEdit: boolean }) {
-  const [kind, setKind] = useState<'opportunity' | 'idea'>('opportunity');
-  const list = useSistrixOpportunities(scope, kind);
+export function KeywordIdeasPanel({ scope, canEdit }: { scope: SistrixScope; canEdit: boolean }) {
+  const list = useSistrixOpportunities(scope, 'idea');
   const add = useAddKeywords(scope);
 
   const addOne = async (keyword: string) => {
     try {
       await add.mutateAsync({
         keywords: [keyword],
-        source: kind === 'idea' ? 'sistrix_ideas' : 'sistrix_opportunities',
+        source: 'sistrix_ideas',
       });
       toast.success(`«${keyword}» añadida a tus palabras`);
       void list.refetch();
@@ -43,25 +42,9 @@ export function OpportunitiesPanel({ scope, canEdit }: { scope: SistrixScope; ca
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Tipo de lista">
-        {(['opportunity', 'idea'] as const).map((k) => (
-          <Button
-            key={k}
-            type="button"
-            size="sm"
-            variant={kind === k ? 'secondary' : 'ghost'}
-            role="tab"
-            aria-selected={kind === k}
-            onClick={() => setKind(k)}
-          >
-            {k === 'opportunity' ? 'Oportunidades' : 'Ideas de palabras'}
-          </Button>
-        ))}
-      </div>
       <p className="text-xs text-muted-foreground">
-        {kind === 'opportunity'
-          ? 'Palabras en las que tu web está cerca de la primera página: un empujón puede traer visitas. «Ganancia» es lo que estima SISTRIX que ganarías.'
-          : 'Palabras relacionadas con tu web que aún no trabajas (se piden a mano: «Ideas de palabras» en Sincronizar).'}
+        Palabras relacionadas con tu web que aún no trabajas (se piden a mano: «Ideas de palabras»
+        en Sincronizar). Las oportunidades de SISTRIX están en la lista de Oportunidades.
       </p>
       {list.isError ? (
         <SectionError onRetry={() => void list.refetch()} />
