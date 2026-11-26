@@ -578,7 +578,7 @@ export class SeoDiagnosticsService {
     const domain = this.domainOf(project, q.domainId);
     const catalog = await this.admin.seoProjectKeyword.findMany({
       where: { projectId },
-      include: { keyword: true },
+      include: { keyword: true, masterImport: { select: { createdAt: true } } },
       orderBy: [{ isActive: 'desc' }, { priority: 'asc' }, { createdAt: 'asc' }],
     });
     const words = [...new Set(catalog.map((c) => normalizeSeoKeyword(c.keyword.keyword)))];
@@ -668,6 +668,7 @@ export class SeoDiagnosticsService {
         source: c.source as SeoKeywordSource,
         isActive: c.isActive,
         createdAt: c.createdAt.toISOString(),
+        masterImportedAt: c.masterImport?.createdAt.toISOString() ?? null,
         clicks: t.clicks,
         impressions: t.impressions,
         ctr: t.ctr,

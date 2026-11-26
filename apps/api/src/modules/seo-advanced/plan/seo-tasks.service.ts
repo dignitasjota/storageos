@@ -11,6 +11,7 @@ import {
   SEO_TASK_TYPE_LABELS,
   isSeoDate,
   normalizeSeoKeyword,
+  seoMasterOriginLabel,
   seoReorderColumn,
   type CreateSeoTaskInput,
   type MoveSeoTaskInput,
@@ -388,7 +389,7 @@ export class SeoTasksService {
     const ids = (pick: (r: Row) => string | null) => [
       ...new Set(rows.flatMap((r) => (pick(r) ? [pick(r)!] : []))),
     ];
-    const [names, opps, cannibs, findings, changes] = await Promise.all([
+    const [names, opps, cannibs, findings, changes, masters] = await Promise.all([
       personNames(
         this.admin,
         rows.flatMap((r) => [r.assignedToUserId, r.createdByUserId]),
@@ -410,7 +411,12 @@ export class SeoTasksService {
         where: { id: { in: ids((r) => r.changeId) } },
         select: { id: true, title: true },
       }),
+      this.admin.seoMasterImport.findMany({
+        where: { id: { in: ids((r) => r.masterImportId) } },
+        select: { id: true, createdAt: true },
+      }),
     ]);
+    const master = new Map(masters.map((m) => [m.id, m.createdAt.toISOString()]));
     const opp = new Map(opps.map((o) => [o.id, o.query]));
     const can = new Map(cannibs.map((c) => [c.id, c.query]));
     const fin = new Map(findings.map((f) => [f.id, f.url]));
@@ -424,7 +430,9 @@ export class SeoTasksService {
           ? `Canibalización «${can.get(r.cannibalizationId) ?? '…'}»`
           : r.indexFindingId
             ? `Página en Google «${fin.get(r.indexFindingId) ?? '…'}»`
-            : null;
+            : r.masterImportId && master.has(r.masterImportId)
+              ? `${seoMasterOriginLabel(master.get(r.masterImportId)!)}${r.externalRef ? ` (${r.externalRef})` : ''}`
+              : null;
       return {
         id: r.id,
         projectId: r.projectId,
