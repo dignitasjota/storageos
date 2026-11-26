@@ -7,6 +7,7 @@ import {
   isAnomalous,
   linearForecast,
   resolvePlanFeatures,
+  SEO_ASSISTANT_FEATURE,
   type AdminUsageEvolutionDto,
   type AdminUsageMonthDto,
   type TenantFeature,
@@ -141,12 +142,29 @@ export class AdminUsageService {
     // El coste se calcula con el precio de cada modelo (`ai-pricing.ts`).
     const ai = new Map<
       string,
-      { calls: number; input: number; output: number; own: number; cost: number }
+      {
+        calls: number;
+        input: number;
+        output: number;
+        own: number;
+        cost: number;
+        seoCalls: number;
+        seoCost: number;
+      }
     >();
     const models = new Map<string, number>();
     const byModel = new Map<string, Map<string, { calls: number; cost: number }>>();
     for (const r of aiRows) {
-      const a = ai.get(r.tenantId) ?? { calls: 0, input: 0, output: 0, own: 0, cost: 0 };
+      const a = ai.get(r.tenantId) ?? {
+        calls: 0,
+        input: 0,
+        output: 0,
+        own: 0,
+        cost: 0,
+        seoCalls: 0,
+        seoCost: 0,
+      };
+      const seo = r.feature === SEO_ASSISTANT_FEATURE;
       if (r.ownKey || OWN_KEY_AI_FEATURES.includes(r.feature)) {
         a.own += r._count._all;
       } else {
@@ -157,6 +175,11 @@ export class AdminUsageService {
         a.input += input;
         a.output += output;
         a.cost += cost;
+        // El asistente de SEO, aparte (también va en el total).
+        if (seo) {
+          a.seoCalls += r._count._all;
+          a.seoCost += cost;
+        }
         models.set(r.model, (models.get(r.model) ?? 0) + r._count._all);
         const m = byModel.get(r.tenantId) ?? new Map<string, { calls: number; cost: number }>();
         const cur = m.get(r.model) ?? { calls: 0, cost: 0 };
@@ -189,6 +212,8 @@ export class AdminUsageService {
           outputTokens,
           costUsd: Math.round((a?.cost ?? 0) * 100) / 100,
           ownKeyCalls: a?.own ?? 0,
+          seoAssistantCalls: a?.seoCalls ?? 0,
+          seoAssistantCostUsd: Math.round((a?.seoCost ?? 0) * 100) / 100,
           ...(ai30.get(t.id) ?? { queriesThisMonth: 0, queryLimit: null, revenueMonthly: 0 }),
         },
         storage: {

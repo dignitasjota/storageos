@@ -9918,6 +9918,9 @@ model SeoProject {
   crawls            SeoCrawl[]
   crawlPages        SeoCrawlPage[]
   crawlIssues       SeoCrawlIssue[]
+  aiConversations   SeoAiConversation[]
+  aiActions         SeoAiAction[]
+  contentBriefs     SeoContentBrief[]
 
   @@map("seo_projects")
 }
@@ -11027,4 +11030,120 @@ model SeoCrawlIssue {
   @@index([projectId, urlKey], map: "seo_crawl_issues_url_idx")
   @@index([tenantId], map: "seo_crawl_issues_tenant_idx")
   @@map("seo_crawl_issues")
+}
+
+/// Conversación con el asistente de SEO (PR 11), de una persona y un proyecto.
+model SeoAiConversation {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId     String?  @map("tenant_id") @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  /// Usuario del negocio o super admin (uno de los dos).
+  userId       String?  @map("user_id") @db.Uuid
+  superAdminId String?  @map("super_admin_id") @db.Uuid
+  title        String?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project  SeoProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages SeoAiMessage[]
+  actions  SeoAiAction[]
+
+  @@index([projectId, updatedAt(sort: Desc)], map: "seo_ai_conversations_project_idx")
+  @@index([tenantId], map: "seo_ai_conversations_tenant_idx")
+  @@map("seo_ai_conversations")
+}
+
+/// Mensaje de una conversación con el asistente de SEO.
+model SeoAiMessage {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String?  @map("tenant_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  /// user · assistant
+  role           String
+  content        String
+  toolsUsed      Json?    @map("tools_used")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversation SeoAiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actions      SeoAiAction[]
+
+  @@index([conversationId, createdAt], map: "seo_ai_messages_conversation_idx")
+  @@index([tenantId], map: "seo_ai_messages_tenant_idx")
+  @@map("seo_ai_messages")
+}
+
+/// Acción que el asistente de SEO propone y la persona confirma o descarta.
+model SeoAiAction {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String?   @map("tenant_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  messageId      String?   @map("message_id") @db.Uuid
+  userId         String?   @map("user_id") @db.Uuid
+  superAdminId   String?   @map("super_admin_id") @db.Uuid
+  /// create_task · register_change · opportunity_in_progress · follow_keyword
+  type           String
+  payload        Json
+  summary        String
+  /// proposed · executing · confirmed · discarded · failed
+  status         String    @default("proposed")
+  result         Json?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  project      SeoProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversation SeoAiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      SeoAiMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId], map: "seo_ai_actions_conversation_idx")
+  @@index([tenantId], map: "seo_ai_actions_tenant_idx")
+  @@map("seo_ai_actions")
+}
+
+/// Borrador de contenido (brief) generado con IA: intención, estructura,
+/// búsquedas, enlaces y propuestas de título y descripción.
+model SeoContentBrief {
+  id                     String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String?  @map("tenant_id") @db.Uuid
+  projectId              String   @map("project_id") @db.Uuid
+  domainId               String?  @map("domain_id") @db.Uuid
+  /// keyword · opportunity · group · url
+  source                 String
+  sourceId               String?  @map("source_id") @db.Uuid
+  sourceLabel            String   @map("source_label")
+  title                  String
+  keywords               String[] @default([])
+  targetUrl              String?  @map("target_url")
+  structure              Json     @default("{}")
+  contentMarkdown        String   @map("content_markdown")
+  /// draft · in_progress · published
+  status                 String   @default("draft")
+  taskId                 String?  @map("task_id") @db.Uuid
+  changeId               String?  @map("change_id") @db.Uuid
+  blogPostId             String?  @map("blog_post_id") @db.Uuid
+  platformBlogPostId     String?  @map("platform_blog_post_id") @db.Uuid
+  createdByUserId        String?  @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId  String?  @map("created_by_super_admin_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, updatedAt(sort: Desc)], map: "seo_content_briefs_project_idx")
+  @@index([tenantId], map: "seo_content_briefs_tenant_idx")
+  @@map("seo_content_briefs")
+}
+
+/// Consumo de IA de la plataforma (sin tenant): el asistente de SEO en el panel admin.
+model PlatformAiUsageEvent {
+  id           String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  superAdminId String?  @map("super_admin_id") @db.Uuid
+  feature      String
+  model        String
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt], map: "platform_ai_usage_events_created_at_idx")
+  @@map("platform_ai_usage_events")
 }

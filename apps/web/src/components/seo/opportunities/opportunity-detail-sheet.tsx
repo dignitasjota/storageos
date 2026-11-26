@@ -29,6 +29,7 @@ import {
 } from './opportunity-bits';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { PrepareContentButton } from '@/components/seo/assistant/prepare-content-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -130,6 +131,11 @@ export function OpportunityDetailSheet({
           <SheetDescription>
             {o ? `${o.domain} · detectada el ${formatDate(o.detectedAt)}` : ' '}
           </SheetDescription>
+          {id && (
+            <div className="pt-1">
+              <PrepareContentButton source={{ source: 'opportunity', opportunityId: id }} />
+            </div>
+          )}
         </SheetHeader>
         <div className="mt-4 space-y-6">
           {detail.isError ? (

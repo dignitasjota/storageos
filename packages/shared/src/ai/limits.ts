@@ -70,6 +70,11 @@ export interface PlatformAiUsageDto {
   overAlert: boolean;
   /** Los tenants que más gastan este mes. */
   topTenants: { tenantId: string; name: string; queries: number; costUsd: number }[];
+  /**
+   * Uso propio de la plataforma (el asistente de SEO en el panel admin), sin
+   * tenant: llamadas al modelo y su coste, que ya va sumado en `costUsd`.
+   */
+  platformOwn: { calls: number; costUsd: number };
 }
 
 /** Modelos de Claude que se proponen en el panel (se puede escribir otro). */

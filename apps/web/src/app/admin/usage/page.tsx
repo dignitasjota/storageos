@@ -168,6 +168,8 @@ export default function AdminUsagePage() {
         'Coste estimado de IA (USD)',
         'IA por modelo',
         'Llamadas con su clave',
+        'Llamadas del asistente de SEO',
+        'Coste del asistente de SEO (USD)',
         'Consultas este mes',
         'Límite de consultas',
         'Paga por la IA al mes (EUR)',
@@ -197,6 +199,8 @@ export default function AdminUsagePage() {
         r.ai.costUsd,
         r.aiByModel.map((m) => `${m.model}: ${m.costUsd}`).join(', '),
         r.ai.ownKeyCalls,
+        r.ai.seoAssistantCalls,
+        r.ai.seoAssistantCostUsd,
         r.ai.queriesThisMonth,
         r.ai.queryLimit ?? '',
         r.ai.revenueMonthly,
@@ -572,6 +576,12 @@ function UsageRow({
                   {r.ai.calls > 0 ? ' · ' : ''}
                   {num(r.ai.ownKeyCalls)} con su propia clave
                 </span>
+              )}
+              {r.ai.seoAssistantCalls > 0 && (
+                <div className="text-muted-foreground">
+                  Asistente de SEO: {plural(r.ai.seoAssistantCalls, 'llamada', 'llamadas')} ·{' '}
+                  {usd(r.ai.seoAssistantCostUsd)}
+                </div>
               )}
             </>
           )}

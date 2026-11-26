@@ -7,6 +7,9 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { SeoAssistantPanel } from '@/components/seo/assistant/assistant-panel';
+import { SeoBriefsCard } from '@/components/seo/assistant/briefs-card';
+import { SeoAiProvider } from '@/components/seo/assistant/seo-ai-context';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
 import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
@@ -47,6 +50,8 @@ import { useTenantSeoClient } from '@/lib/seo-advanced/panel';
 /** Análisis → SEO Avanzado: el proyecto de la web del negocio. */
 export default function SeoAdvancedPage() {
   const canEdit = useHasPermission('settings:manage');
+  // El asistente y los briefs gastan IA: `ai:use` (y ver el proyecto).
+  const canUseAi = useHasPermission('ai:use');
   const workspace = useSeoWorkspace();
   const project = workspace.data?.project ?? null;
   const active = hasActiveRun(project);
@@ -170,75 +175,96 @@ export default function SeoAdvancedPage() {
         {project.status === 'paused' && <Badge variant="outline">En pausa</Badge>}
       </div>
 
-      <SeoProjectTabs
-        panels={{
-          rendimiento: (
-            <>
-              <SeoPanel client={client} domains={project.domains} planScope={{ kind: 'tenant' }} />
-              <SeoConversionsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-            </>
-          ),
-          palabras: (
-            <SeoDiagnosticsCard
-              scope={{ kind: 'tenant' }}
-              canEdit={canEdit}
-              domains={project.domains}
-            />
-          ),
-          oportunidades: (
-            <SeoOpportunitiesCard
-              scope={{ kind: 'tenant' }}
-              canEdit={canEdit}
-              domains={project.domains}
-            />
-          ),
-          competencia: <SeoSistrixSections scope={{ kind: 'tenant' }} canEdit={canEdit} />,
-          tecnico: (
-            <>
-              <SeoInspectionCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-              <SeoPageSpeedCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-              <SeoCrawlCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-            </>
-          ),
-          plan: (
-            <SeoPlanCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
-          ),
-          informes: (
-            <>
-              <SeoAlertsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-              <SeoReportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-            </>
-          ),
-          ajustes: (
-            <>
-              <SeoDomainsCard
-                project={project}
-                serviceAccountEmail={workspace.data.serviceAccountEmail}
+      <SeoAiProvider
+        value={{ scope: { kind: 'tenant' }, canGenerate: canUseAi, canWrite: canEdit }}
+      >
+        <SeoProjectTabs
+          panels={{
+            rendimiento: (
+              <>
+                <SeoPanel
+                  client={client}
+                  domains={project.domains}
+                  planScope={{ kind: 'tenant' }}
+                />
+                <SeoConversionsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+              </>
+            ),
+            palabras: (
+              <SeoDiagnosticsCard
+                scope={{ kind: 'tenant' }}
                 canEdit={canEdit}
-                suggestedProperty={workspace.data.suggestedProperty}
-                limitText={`Puedes tener un dominio principal y ${SEO_TENANT_LIMITS.secondaryDomains} más (llevas ${secondaries}). El principal tiene que ser de tu negocio: tu dominio propio, el de tu correo verificado o tu dirección en TrasterOS. Otra web tuya puede ir como secundaria si nuestra cuenta tiene acceso a ella en Search Console y no la usa otra cuenta.`}
-                actions={{
-                  add: (input) => addDomain.mutateAsync(input),
-                  check: (id) => check.mutateAsync(id),
-                  sync: (id) => sync.mutateAsync(id),
-                  remove: (id) => removeDomain.mutateAsync(id),
-                  setRole: (id, role) => updateDomain.mutateAsync({ id, role }),
-                }}
+                domains={project.domains}
               />
-              <SeoImportsCard client={client} domains={project.domains} />
-              <SeoMasterImportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-              <SeoRunsCard
-                runs={runs.data}
-                isLoading={runs.isLoading}
-                isError={runs.isError}
-                onRetry={() => void runs.refetch()}
+            ),
+            oportunidades: (
+              <SeoOpportunitiesCard
+                scope={{ kind: 'tenant' }}
                 canEdit={canEdit}
-                onCancel={(id) => cancel.mutateAsync(id)}
+                domains={project.domains}
               />
-            </>
-          ),
-        }}
-      />
+            ),
+            competencia: <SeoSistrixSections scope={{ kind: 'tenant' }} canEdit={canEdit} />,
+            tecnico: (
+              <>
+                <SeoInspectionCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+                <SeoPageSpeedCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+                <SeoCrawlCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+              </>
+            ),
+            plan: (
+              <SeoPlanCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
+            ),
+            informes: (
+              <>
+                <SeoAlertsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+                <SeoReportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+              </>
+            ),
+            asistente: canUseAi ? (
+              <>
+                <SeoAssistantPanel />
+                <SeoBriefsCard />
+              </>
+            ) : (
+              <Card>
+                <CardContent className="py-6 text-sm text-muted-foreground">
+                  El asistente de SEO y los borradores de contenido usan IA: pide a quien gestiona
+                  tu negocio el permiso para usar el asistente.
+                </CardContent>
+              </Card>
+            ),
+            ajustes: (
+              <>
+                <SeoDomainsCard
+                  project={project}
+                  serviceAccountEmail={workspace.data.serviceAccountEmail}
+                  canEdit={canEdit}
+                  suggestedProperty={workspace.data.suggestedProperty}
+                  limitText={`Puedes tener un dominio principal y ${SEO_TENANT_LIMITS.secondaryDomains} más (llevas ${secondaries}). El principal tiene que ser de tu negocio: tu dominio propio, el de tu correo verificado o tu dirección en TrasterOS. Otra web tuya puede ir como secundaria si nuestra cuenta tiene acceso a ella en Search Console y no la usa otra cuenta.`}
+                  actions={{
+                    add: (input) => addDomain.mutateAsync(input),
+                    check: (id) => check.mutateAsync(id),
+                    sync: (id) => sync.mutateAsync(id),
+                    remove: (id) => removeDomain.mutateAsync(id),
+                    setRole: (id, role) => updateDomain.mutateAsync({ id, role }),
+                  }}
+                />
+                <SeoImportsCard client={client} domains={project.domains} />
+                <SeoMasterImportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+                <SeoRunsCard
+                  runs={runs.data}
+                  isLoading={runs.isLoading}
+                  isError={runs.isError}
+                  onRetry={() => void runs.refetch()}
+                  canEdit={canEdit}
+                  onCancel={(id) => cancel.mutateAsync(id)}
+                />
+              </>
+            ),
+          }}
+        />
+      </SeoAiProvider>
 
       <SeoProjectDialog
         open={editing}

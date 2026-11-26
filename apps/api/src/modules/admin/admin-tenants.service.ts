@@ -2936,6 +2936,12 @@ export class AdminTenantsService {
       // SEO Avanzado: inspecciones de URL y mediciones de PageSpeed (URL y quién las pidió).
       await tx.seoUrlInspection.deleteMany({ where: { tenantId } });
       await tx.seoPageSpeedRun.deleteMany({ where: { tenantId } });
+      // SEO Avanzado: el asistente (lo preguntado y lo respondido, acciones propuestas) y los
+      // borradores de contenido (texto libre, palabras y URL).
+      await tx.seoAiAction.deleteMany({ where: { tenantId } });
+      await tx.seoAiMessage.deleteMany({ where: { tenantId } });
+      await tx.seoAiConversation.deleteMany({ where: { tenantId } });
+      await tx.seoContentBrief.deleteMany({ where: { tenantId } });
       // SEO Avanzado: rastreos de la web, sus páginas (URL y contenido) e incidencias.
       await tx.seoCrawlIssue.deleteMany({ where: { tenantId } });
       await tx.seoCrawlPage.deleteMany({ where: { tenantId } });

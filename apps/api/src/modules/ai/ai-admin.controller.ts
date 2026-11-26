@@ -74,7 +74,7 @@ export class AiAdminController {
       feature: { notIn: OWN_KEY_AI_FEATURES },
       createdAt: { gte: month.start },
     };
-    const [tokens, queries, ownKeyQueries, byTenant] = await Promise.all([
+    const [tokens, queries, ownKeyQueries, byTenant, platform] = await Promise.all([
       this.admin.aiUsageEvent.groupBy({
         by: ['model'],
         where: { ...platformCalls, countsAsQuery: false },
@@ -92,6 +92,13 @@ export class AiAdminController {
         _sum: { inputTokens: true, outputTokens: true },
         _count: { _all: true },
       }),
+      // Uso propio de la plataforma (asistente de SEO del panel admin), sin tenant.
+      this.admin.platformAiUsageEvent.groupBy({
+        by: ['model'],
+        where: { createdAt: { gte: month.start } },
+        _sum: { inputTokens: true, outputTokens: true },
+        _count: { _all: true },
+      }),
     ]);
     // Coste con el precio de cada modelo (`ai-pricing.ts`).
     const fallback = {
@@ -100,10 +107,16 @@ export class AiAdminController {
     };
     const input = tokens.reduce((n, t) => n + (t._sum.inputTokens ?? 0), 0);
     const output = tokens.reduce((n, t) => n + (t._sum.outputTokens ?? 0), 0);
-    const costUsd = tokens.reduce(
+    const platformCost = platform.reduce(
       (n, t) => n + aiCostUsd(t.model, t._sum.inputTokens ?? 0, t._sum.outputTokens ?? 0, fallback),
       0,
     );
+    const costUsd =
+      tokens.reduce(
+        (n, t) =>
+          n + aiCostUsd(t.model, t._sum.inputTokens ?? 0, t._sum.outputTokens ?? 0, fallback),
+        0,
+      ) + platformCost;
     const now = Date.now();
     const elapsedDays = Math.max((now - month.start.getTime()) / 86_400_000, 1);
     const next = new Date(month.start);
@@ -134,6 +147,10 @@ export class AiAdminController {
       projectedCostUsd: round2((costUsd / elapsedDays) * monthDays),
       alertUsd,
       overAlert: alertUsd != null && costUsd >= alertUsd,
+      platformOwn: {
+        calls: platform.reduce((n, t) => n + t._count._all, 0),
+        costUsd: round2(platformCost),
+      },
       topTenants: top.map((t) => ({
         ...t,
         name: nameOf.get(t.tenantId) ?? '—',

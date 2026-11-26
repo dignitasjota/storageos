@@ -2479,6 +2479,9 @@ export interface AdminTenantUsageRowDto {
     costUsd: number;
     /** Llamadas con la clave de IA propia del tenant (no nos cuestan). */
     ownKeyCalls: number;
+    /** Del total: el asistente y los briefs de SEO Avanzado (`seo_assistant`). */
+    seoAssistantCalls: number;
+    seoAssistantCostUsd: number;
     /** Consultas del asistente del panel este mes y su límite (null = sin el asistente). */
     queriesThisMonth: number;
     queryLimit: number | null;

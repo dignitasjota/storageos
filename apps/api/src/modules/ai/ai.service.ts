@@ -31,6 +31,7 @@ import {
   type AiProvider,
   AiProviderError,
   type AiSystemPrompt,
+  type AiToolDef,
   type AiToolResultBlock,
 } from './ai-provider';
 import { type AiReservation, AiQuotaService } from './ai-quota.service';
@@ -371,17 +372,160 @@ export class AiService {
     }
   }
 
+  /** La plataforma (panel admin): su clave, sin cuota de tenant. */
+  private withPlatformKey<T>(fn: () => Promise<T>): Promise<T> {
+    return this.keyContext.run({ provider: this.provider, ownKey: false }, fn);
+  }
+
+  /**
+   * Reserva una consulta de una función concreta antes de abrir un stream
+   * (429 si no quedan; con clave propia, sigue con ella como el asistente).
+   */
+  reserveFeature(tenantId: string, userId: string, feature: string): Promise<AiReservation> {
+    return this.quota.reserve({ tenantId, userId, feature, model: this.provider.modelName });
+  }
+
+  /**
+   * Bucle de conversación con herramientas para otros asistentes (el de SEO):
+   * llama al modelo, ejecuta las herramientas que pida (`execute`, que decide
+   * qué se puede hacer) y repite hasta la respuesta final. La primera llamada
+   * es la consulta: en un tenant va contra su cuota (o su clave propia) con
+   * `reservation` o reservándola aquí; en la plataforma (`tenantId` null), con
+   * su clave y registrada como uso de la plataforma. Solo devuelve texto: la
+   * conversación la guarda quien llama.
+   */
+  async runToolLoop(args: {
+    tenantId: string | null;
+    userId: string | null;
+    superAdminId?: string | null;
+    feature: string;
+    system: AiSystemPrompt;
+    messages: AiMessageParam[];
+    tools: AiToolDef[];
+    execute: (name: string, input: Record<string, unknown>) => Promise<string>;
+    hooks?: Omit<ChatStreamHooks, 'onStart'>;
+    reservation?: AiReservation;
+  }): Promise<{ text: string; toolsUsed: string[]; stopped: boolean }> {
+    this.assertAvailable();
+    const superAdminId = args.superAdminId ?? null;
+    const loop = async () => {
+      const messages = [...args.messages];
+      const toolsUsed = new Set<string>();
+      const signal = args.hooks?.signal;
+      let finalText = '';
+      let partial = '';
+      let stopped = false;
+      for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+        if (signal?.aborted) {
+          stopped = true;
+          break;
+        }
+        const request = {
+          system: args.system,
+          messages,
+          tools: args.tools,
+          ...(signal ? { signal } : {}),
+        };
+        partial = '';
+        let completion: AiCompletion;
+        try {
+          completion = args.hooks
+            ? await this.llm.streamMessage(request, (delta) => {
+                partial += delta;
+                args.hooks!.onText(delta);
+              })
+            : await this.llm.createMessage(request);
+        } catch (err) {
+          if (signal?.aborted || (err instanceof AiProviderError && err.kind === 'aborted')) {
+            stopped = true;
+            break;
+          }
+          providerFailure(err);
+        }
+        this.recordUsage(args.tenantId, args.userId, args.feature, completion, superAdminId);
+        messages.push({ role: 'assistant', content: completion.content });
+        const text = completion.content
+          .filter((b) => b.type === 'text')
+          .map((b) => b.text)
+          .join('\n')
+          .trim();
+        const uses = completion.content.filter((b) => b.type === 'tool_use');
+        if (completion.stopReason !== 'tool_use' || uses.length === 0) {
+          finalText = text;
+          if (completion.stopReason === 'max_tokens') {
+            finalText = `${text}\n\n_(La respuesta se ha cortado por larga. Pide que siga o acota la pregunta.)_`;
+          } else if (completion.stopReason === 'refusal' && !text) {
+            finalText = 'No puedo ayudarte con esa petición.';
+          }
+          break;
+        }
+        if (i === MAX_TOOL_ITERATIONS - 1) {
+          finalText = text;
+          break;
+        }
+        const results: AiToolResultBlock[] = [];
+        for (const use of uses) {
+          toolsUsed.add(use.name);
+          args.hooks?.onTool(use.name);
+          let output: string;
+          try {
+            output = await args.execute(use.name, use.input);
+          } catch (err) {
+            this.logger.warn(
+              `Herramienta ${use.name} falló: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            output = JSON.stringify({ error: 'No se ha podido consultar ese dato ahora mismo.' });
+          }
+          results.push({ type: 'tool_result', tool_use_id: use.id, content: output });
+        }
+        messages.push({ role: 'user', content: results });
+      }
+      if (stopped) {
+        finalText = partial.trim()
+          ? `${partial.trim()}\n\n_(Respuesta detenida)_`
+          : 'Respuesta detenida.';
+      } else if (!finalText) {
+        finalText = 'No he podido completar la respuesta. Reformula la pregunta, por favor.';
+      }
+      return { text: finalText, toolsUsed: [...toolsUsed], stopped };
+    };
+    const tenantId = args.tenantId;
+    if (tenantId === null) return this.withPlatformKey(loop);
+    if (args.reservation) return this.withReservation(args.reservation, loop);
+    return this.withQuota({ tenantId, userId: args.userId, feature: args.feature }, loop);
+  }
+
   /**
    * Guarda los tokens de una llamada al modelo (para el panel del super admin).
    * Best-effort y sin esperar: un fallo nunca afecta a la respuesta.
    */
   private recordUsage(
-    tenantId: string,
+    tenantId: string | null,
     userId: string | null,
     feature: string,
     completion: AiCompletion,
+    superAdminId: string | null = null,
   ): void {
     if (!completion.usage) return;
+    if (tenantId === null) {
+      // La plataforma (panel admin): con su clave, sin tenant ni límite.
+      void this.admin.platformAiUsageEvent
+        .create({
+          data: {
+            superAdminId,
+            feature,
+            model: this.llm.modelName,
+            inputTokens: completion.usage.inputTokens,
+            outputTokens: completion.usage.outputTokens,
+          },
+        })
+        .catch((err: unknown) => {
+          this.logger.warn(
+            `[ai-usage] no se pudo registrar (plataforma): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      return;
+    }
     void this.admin.aiUsageEvent
       .create({
         data: {
@@ -408,8 +552,10 @@ export class AiService {
    * texto de la respuesta. Para redactar borradores (páginas de zona…).
    */
   async completeText(args: {
-    tenantId: string;
+    /** null = la plataforma (panel admin): su clave, sin límite, registrado aparte. */
+    tenantId: string | null;
     userId: string | null;
+    superAdminId?: string | null;
     feature: string;
     system: string;
     user: string;
@@ -427,29 +573,32 @@ export class AiService {
         .map((b) => b.text)
         .join('')
         .trim();
-    const completion = await this.withQuota(
-      { tenantId: args.tenantId, userId: args.userId, feature: args.feature },
-      async () => {
-        const c = await this.llm.createMessage({
-          system: args.system,
-          messages: [{ role: 'user', content: args.user }],
-          tools: [],
-        });
-        if (args.accept && !args.accept(textOf(c))) {
-          // Los tokens se gastaron igualmente: quedan anotados, sin contar como consulta.
-          this.recordUsage(args.tenantId, args.userId, args.feature, c);
-          throw (
-            args.rejected?.() ??
-            new BadGatewayException({
-              code: 'ai_reply_unreadable',
-              message: 'No se ha podido leer la respuesta. Inténtalo de nuevo.',
-            })
-          );
-        }
-        return c;
-      },
-    );
-    this.recordUsage(args.tenantId, args.userId, args.feature, completion);
+    const superAdminId = args.superAdminId ?? null;
+    const call = async () => {
+      const c = await this.llm.createMessage({
+        system: args.system,
+        messages: [{ role: 'user', content: args.user }],
+        tools: [],
+      });
+      if (args.accept && !args.accept(textOf(c))) {
+        // Los tokens se gastaron igualmente: quedan anotados, sin contar como consulta.
+        this.recordUsage(args.tenantId, args.userId, args.feature, c, superAdminId);
+        throw (
+          args.rejected?.() ??
+          new BadGatewayException({
+            code: 'ai_reply_unreadable',
+            message: 'No se ha podido leer la respuesta. Inténtalo de nuevo.',
+          })
+        );
+      }
+      return c;
+    };
+    const tenantId = args.tenantId;
+    const completion =
+      tenantId === null
+        ? await this.withPlatformKey(call)
+        : await this.withQuota({ tenantId, userId: args.userId, feature: args.feature }, call);
+    this.recordUsage(args.tenantId, args.userId, args.feature, completion, superAdminId);
     return textOf(completion);
   }
 

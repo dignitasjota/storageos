@@ -7,6 +7,7 @@ import {
   type AiSystemPrompt,
   systemText,
 } from './ai-provider';
+import { seoAssistantStub } from './seo-assistant-stubs';
 import { webDraftStub } from './web-draft-stubs';
 
 /** Comienzo del prompt del chat de la web pública (el simulador responde como él). */
@@ -110,6 +111,7 @@ export class StubAiProvider extends AiProvider {
   }): Promise<AiCompletion> {
     const system = args.system ? systemText(args.system) : '';
     const completion =
+      seoAssistantStub(system, args.messages, args.tools) ??
       webDraftStub(system) ??
       (system.includes(AREA_PAGE_DRAFT_MARKER)
         ? AREA_PAGE_DRAFT_STUB

@@ -166,6 +166,39 @@ export async function adminApiFetch<T = unknown>(
  * cuerpo como `Blob` — para descargas autenticadas (p. ej. el CSV contable),
  * cuyo endpoint exige `Authorization: Bearer` y no se puede abrir con `<a>`.
  */
+/**
+ * Igual que `adminApiFetch` (auth + refresh transparente + errores uniformes)
+ * pero devuelve la `Response` sin leer el cuerpo: para el chat en streaming
+ * (Server-Sent Events) del asistente de SEO.
+ */
+export async function adminApiFetchResponse(
+  path: string,
+  options: AdminFetchOptions = {},
+): Promise<Response> {
+  const url = path.startsWith('http') ? path : `${env.apiUrl}${withVersion(path)}`;
+  const init: RequestInit = {
+    method: options.method ?? 'GET',
+    ...(options.json !== undefined ? { body: JSON.stringify(options.json) } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
+  let res = await executeFetch(url, init, options);
+  if (res.status === 401 && options.requiresAuth !== false) {
+    const refreshed = await performAdminRefresh();
+    if (refreshed) res = await executeFetch(url, init, options);
+  }
+  if (!res.ok) {
+    const body = (await parseJsonOrThrow(res).catch(() => ({}))) as Partial<ApiErrorBody>;
+    throw new ApiError({
+      statusCode: body.statusCode ?? res.status,
+      error: body.error ?? res.statusText,
+      message: body.message ?? 'Error de la API',
+      ...(body.details ? { details: body.details } : {}),
+      ...(body.code ? { code: body.code } : {}),
+    });
+  }
+  return res;
+}
+
 /** Canal en vivo de los tickets (la respuesta sin leer, para ir leyendo los avisos). */
 export function adminRealtimeResponse(signal: AbortSignal): Promise<Response> {
   const token = useAdminAuthStore.getState().superAdminToken;

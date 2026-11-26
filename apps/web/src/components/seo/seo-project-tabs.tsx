@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 
+import { SEO_OPEN_TAB_EVENT } from '@/components/seo/assistant/seo-ai-context';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export const SEO_PROJECT_TABS = [
@@ -12,6 +13,7 @@ export const SEO_PROJECT_TABS = [
   { id: 'tecnico', label: 'Técnico' },
   { id: 'plan', label: 'Plan' },
   { id: 'informes', label: 'Informes y alertas' },
+  { id: 'asistente', label: 'Asistente' },
   { id: 'ajustes', label: 'Ajustes' },
 ] as const;
 export type SeoProjectTab = (typeof SEO_PROJECT_TABS)[number]['id'];
@@ -52,6 +54,16 @@ export function SeoProjectTabs({ panels }: { panels: Record<SeoProjectTab, React
       return () => clearTimeout(t);
     }
     return undefined;
+  }, []);
+
+  // «Abrir» un brief desde otra pestaña lleva a la del asistente.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const next = (e as CustomEvent<string>).detail;
+      if (isTab(next)) setTab(next);
+    };
+    window.addEventListener(SEO_OPEN_TAB_EVENT, onOpen);
+    return () => window.removeEventListener(SEO_OPEN_TAB_EVENT, onOpen);
   }, []);
 
   const change = (value: string) => {

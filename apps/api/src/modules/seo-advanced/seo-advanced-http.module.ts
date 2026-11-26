@@ -2,8 +2,22 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 
 import { AdminGuard } from '../admin/admin.guard';
+import { AiModule } from '../ai/ai.module';
+import { BlogModule } from '../blog/blog.module';
+import { LandingModule } from '../landing/landing.module';
+import { PlatformBlogModule } from '../platform-blog/platform-blog.module';
 
 import { AdminSeoController } from './admin-seo.controller';
+import { SeoAssistantActionsService } from './assistant/seo-assistant-actions.service';
+import { SeoAssistantToolsService } from './assistant/seo-assistant-tools.service';
+import {
+  AdminSeoAssistantController,
+  AdminSeoBriefsController,
+  SeoAdvancedAssistantController,
+  SeoAdvancedBriefsController,
+} from './assistant/seo-assistant.controller';
+import { SeoAssistantService } from './assistant/seo-assistant.service';
+import { SeoBriefsService } from './assistant/seo-briefs.service';
 import { SeoCrawlViewsService } from './crawler/seo-crawl-views.service';
 import {
   AdminSeoCrawlController,
@@ -56,10 +70,20 @@ import {
  * canibalización e indexación), el plan (actuaciones con su antes y después
  * y tareas SEO), la importación de los Excel maestros y, de la PR 8, lo que
  * trae Google, las alertas y los informes, y de la PR 9 la inspección de URL
- * de Google y PageSpeed, y de la PR 10 el rastreador de las webs.
+ * de Google y PageSpeed, de la PR 10 el rastreador de las webs y, de la PR 11,
+ * el asistente de SEO y los borradores de contenido.
  */
 @Module({
-  imports: [JwtModule.register({}), SeoAdvancedModule],
+  imports: [
+    JwtModule.register({}),
+    SeoAdvancedModule,
+    // PR 11: el asistente (bucle con el modelo y cuota), el blog del tenant y
+    // el de la plataforma (borradores desde un brief) y los datos públicos del negocio.
+    AiModule,
+    BlogModule,
+    PlatformBlogModule,
+    LandingModule,
+  ],
   controllers: [
     SeoAdvancedController,
     AdminSeoController,
@@ -80,6 +104,10 @@ import {
     AdminSeoTechnicalController,
     SeoAdvancedCrawlController,
     AdminSeoCrawlController,
+    SeoAdvancedAssistantController,
+    AdminSeoAssistantController,
+    SeoAdvancedBriefsController,
+    AdminSeoBriefsController,
   ],
   providers: [
     AdminGuard,
@@ -93,6 +121,10 @@ import {
     SeoTasksService,
     SeoMasterImportService,
     SeoCrawlViewsService,
+    SeoAssistantActionsService,
+    SeoAssistantToolsService,
+    SeoAssistantService,
+    SeoBriefsService,
     // Alertas cada hora: en el API (los avisos por chat de la plataforma salen del panel admin).
     SeoAlertsCron,
   ],

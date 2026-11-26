@@ -10,6 +10,9 @@ import { toast } from 'sonner';
 import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
 import { BackLink } from '@/components/layout/back-link';
+import { SeoAssistantPanel } from '@/components/seo/assistant/assistant-panel';
+import { SeoBriefsCard } from '@/components/seo/assistant/briefs-card';
+import { SeoAiProvider } from '@/components/seo/assistant/seo-ai-context';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
 import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
@@ -176,90 +179,108 @@ export default function AdminSeoProjectPage() {
         </div>
       </div>
 
-      <SeoProjectTabs
-        panels={{
-          rendimiento: (
-            <>
-              <SeoPanel
-                client={client}
-                domains={p.domains}
-                planScope={{ kind: 'admin', projectId: p.id }}
-              />
-              <SeoConversionsCard
+      {/* Preguntar: cualquier super admin; generar briefs y confirmar: superadmin en la plataforma. */}
+      <SeoAiProvider
+        value={{
+          scope: { kind: 'admin', projectId: p.id },
+          canGenerate: canEdit,
+          canWrite: canEdit,
+        }}
+      >
+        <SeoProjectTabs
+          panels={{
+            rendimiento: (
+              <>
+                <SeoPanel
+                  client={client}
+                  domains={p.domains}
+                  planScope={{ kind: 'admin', projectId: p.id }}
+                />
+                <SeoConversionsCard
+                  scope={{ kind: 'admin', projectId: p.id }}
+                  canEdit={canEdit}
+                  isPlatformProject={!isTenant}
+                />
+              </>
+            ),
+            palabras: (
+              <SeoDiagnosticsCard
                 scope={{ kind: 'admin', projectId: p.id }}
                 canEdit={canEdit}
-                isPlatformProject={!isTenant}
+                domains={p.domains}
               />
-            </>
-          ),
-          palabras: (
-            <SeoDiagnosticsCard
-              scope={{ kind: 'admin', projectId: p.id }}
-              canEdit={canEdit}
-              domains={p.domains}
-            />
-          ),
-          oportunidades: (
-            <SeoOpportunitiesCard
-              scope={{ kind: 'admin', projectId: p.id }}
-              canEdit={canEdit}
-              domains={p.domains}
-            />
-          ),
-          competencia: (
-            <>
-              {isTenant && <PlatformSistrixToggle projectId={p.id} canEdit={isSuperadmin} />}
-              <SeoSistrixSections scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
-            </>
-          ),
-          tecnico: (
-            <>
-              <SeoInspectionCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
-              <SeoPageSpeedCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
-              <SeoCrawlCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
-            </>
-          ),
-          plan: (
-            <SeoPlanCard
-              scope={{ kind: 'admin', projectId: p.id }}
-              canEdit={canEdit}
-              domains={p.domains}
-            />
-          ),
-          informes: (
-            <>
-              <SeoAlertsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
-              <SeoReportsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
-            </>
-          ),
-          ajustes: (
-            <>
-              <SeoDomainsCard
-                project={p}
-                serviceAccountEmail={properties.data?.serviceAccountEmail ?? null}
+            ),
+            oportunidades: (
+              <SeoOpportunitiesCard
+                scope={{ kind: 'admin', projectId: p.id }}
                 canEdit={canEdit}
-                actions={{
-                  add: (input) => addDomain.mutateAsync(input),
-                  check: (domain) => check.mutateAsync(domain),
-                  sync: (domain) => sync.mutateAsync(domain),
-                  remove: (domain) => removeDomain.mutateAsync(domain),
-                  setRole: (domain, role) => updateDomain.mutateAsync({ id: domain, role }),
-                }}
+                domains={p.domains}
               />
-              <SeoImportsCard client={client} domains={p.domains} />
-              <SeoMasterImportsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
-              <SeoRunsCard
-                runs={runs.data}
-                isLoading={runs.isLoading}
-                isError={runs.isError}
-                onRetry={() => void runs.refetch()}
+            ),
+            competencia: (
+              <>
+                {isTenant && <PlatformSistrixToggle projectId={p.id} canEdit={isSuperadmin} />}
+                <SeoSistrixSections scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+              </>
+            ),
+            tecnico: (
+              <>
+                <SeoInspectionCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+                <SeoPageSpeedCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+                <SeoCrawlCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+              </>
+            ),
+            plan: (
+              <SeoPlanCard
+                scope={{ kind: 'admin', projectId: p.id }}
                 canEdit={canEdit}
-                onCancel={(runId) => cancel.mutateAsync(runId)}
+                domains={p.domains}
               />
-            </>
-          ),
-        }}
-      />
+            ),
+            informes: (
+              <>
+                <SeoAlertsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+                <SeoReportsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+              </>
+            ),
+            asistente: (
+              <>
+                <SeoAssistantPanel />
+                <SeoBriefsCard />
+              </>
+            ),
+            ajustes: (
+              <>
+                <SeoDomainsCard
+                  project={p}
+                  serviceAccountEmail={properties.data?.serviceAccountEmail ?? null}
+                  canEdit={canEdit}
+                  actions={{
+                    add: (input) => addDomain.mutateAsync(input),
+                    check: (domain) => check.mutateAsync(domain),
+                    sync: (domain) => sync.mutateAsync(domain),
+                    remove: (domain) => removeDomain.mutateAsync(domain),
+                    setRole: (domain, role) => updateDomain.mutateAsync({ id: domain, role }),
+                  }}
+                />
+                <SeoImportsCard client={client} domains={p.domains} />
+                <SeoMasterImportsCard
+                  scope={{ kind: 'admin', projectId: p.id }}
+                  canEdit={canEdit}
+                />
+                <SeoRunsCard
+                  runs={runs.data}
+                  isLoading={runs.isLoading}
+                  isError={runs.isError}
+                  onRetry={() => void runs.refetch()}
+                  canEdit={canEdit}
+                  onCancel={(runId) => cancel.mutateAsync(runId)}
+                />
+              </>
+            ),
+          }}
+        />
+      </SeoAiProvider>
 
       <SeoProjectDialog
         open={editing}

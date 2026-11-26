@@ -44,6 +44,7 @@ import { KeywordImportDialog } from './keyword-import-dialog';
 
 import { useConfirm } from '@/components/confirm-provider';
 import { SectionError } from '@/components/dashboard/section-state';
+import { PrepareContentButton } from '@/components/seo/assistant/prepare-content-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -122,7 +123,16 @@ function Change({ diff }: { diff: number | null }) {
   );
 }
 
-function GroupTable({ rows, title }: { rows: SeoTrackedGroupDto[]; title: string }) {
+function GroupTable({
+  rows,
+  title,
+  prepare = false,
+}: {
+  rows: SeoTrackedGroupDto[];
+  title: string;
+  /** «Preparar contenido» en cada grupo (solo en la vista por grupo). */
+  prepare?: boolean;
+}) {
   return (
     <div className="overflow-x-auto rounded-md border">
       <table className="w-full min-w-[480px] text-sm">
@@ -134,6 +144,11 @@ function GroupTable({ rows, title }: { rows: SeoTrackedGroupDto[]; title: string
             <th className="px-3 py-2 text-right font-medium">Impresiones</th>
             <th className="px-3 py-2 text-right font-medium">CTR</th>
             <th className="px-3 py-2 text-right font-medium">Posición media</th>
+            {prepare && (
+              <th className="px-3 py-2">
+                <span className="sr-only">Acciones</span>
+              </th>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y">
@@ -149,6 +164,13 @@ function GroupTable({ rows, title }: { rows: SeoTrackedGroupDto[]; title: string
               <td className="px-3 py-2 text-right tabular-nums">
                 {g.position === null ? '—' : formatNumber(g.position, 1)}
               </td>
+              {prepare && (
+                <td className="px-3 py-2 text-right">
+                  {g.key !== SEO_NO_GROUP && (
+                    <PrepareContentButton source={{ source: 'group', groupName: g.key }} />
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -414,7 +436,7 @@ export function TrackedKeywordsPanel({
       ) : view === 'intent' ? (
         <GroupTable rows={d.byIntent} title="Intención" />
       ) : view === 'group' ? (
-        <GroupTable rows={d.byGroup} title="Grupo" />
+        <GroupTable rows={d.byGroup} title="Grupo" prepare />
       ) : (
         <>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">

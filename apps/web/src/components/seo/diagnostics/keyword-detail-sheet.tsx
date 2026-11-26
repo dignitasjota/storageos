@@ -18,6 +18,7 @@ import { InspectUrlButton, SeoIndexStatusBadge } from '../technical/inspection-b
 import { TargetStatusBadge, shortUrl } from './diagnostic-bits';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { PrepareContentButton } from '@/components/seo/assistant/prepare-content-button';
 import { Badge } from '@/components/ui/badge';
 import {
   Sheet,
@@ -305,6 +306,11 @@ export function KeywordDetailSheet({
             {detail.data?.keyword.keyword ?? 'Palabra'}
           </SheetTitle>
           <SheetDescription>{detail.data?.domain ?? ' '}</SheetDescription>
+          {id && (
+            <div className="pt-1">
+              <PrepareContentButton source={{ source: 'keyword', keywordId: id }} />
+            </div>
+          )}
         </SheetHeader>
         <div className="mt-4">
           {detail.isError ? (

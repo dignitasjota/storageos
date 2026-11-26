@@ -14,5 +14,7 @@ import { PlatformBlogService } from './platform-blog.service';
   imports: [JwtModule.register({})],
   controllers: [PlatformBlogPublicController, PlatformBlogAdminController],
   providers: [PlatformBlogService, AdminGuard],
+  // El asistente de SEO crea entradas en borrador desde un brief.
+  exports: [PlatformBlogService],
 })
 export class PlatformBlogModule {}
