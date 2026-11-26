@@ -19,8 +19,11 @@ import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SeoImportsCard } from '@/components/seo/seo-imports-card';
 import { SeoPanel } from '@/components/seo/seo-panel';
 import { SeoProjectDialog } from '@/components/seo/seo-project-dialog';
+import { SeoProjectTabs } from '@/components/seo/seo-project-tabs';
 import { SeoRunsCard } from '@/components/seo/seo-runs-card';
 import { SeoSistrixSections } from '@/components/seo/sistrix/sistrix-sections';
+import { SeoInspectionCard } from '@/components/seo/technical/inspection-card';
+import { SeoPageSpeedCard } from '@/components/seo/technical/pagespeed-card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -166,53 +169,74 @@ export default function SeoAdvancedPage() {
         {project.status === 'paused' && <Badge variant="outline">En pausa</Badge>}
       </div>
 
-      <SeoPanel client={client} domains={project.domains} planScope={{ kind: 'tenant' }} />
-
-      <SeoConversionsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-
-      <SeoAlertsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-
-      <SeoOpportunitiesCard
-        scope={{ kind: 'tenant' }}
-        canEdit={canEdit}
-        domains={project.domains}
-      />
-
-      <SeoDiagnosticsCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
-
-      <SeoPlanCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
-
-      <SeoReportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-
-      <SeoDomainsCard
-        project={project}
-        serviceAccountEmail={workspace.data.serviceAccountEmail}
-        canEdit={canEdit}
-        suggestedProperty={workspace.data.suggestedProperty}
-        limitText={`Puedes tener un dominio principal y ${SEO_TENANT_LIMITS.secondaryDomains} más (llevas ${secondaries}). El principal tiene que ser de tu negocio: tu dominio propio, el de tu correo verificado o tu dirección en TrasterOS. Otra web tuya puede ir como secundaria si nuestra cuenta tiene acceso a ella en Search Console y no la usa otra cuenta.`}
-        actions={{
-          add: (input) => addDomain.mutateAsync(input),
-          check: (id) => check.mutateAsync(id),
-          sync: (id) => sync.mutateAsync(id),
-          remove: (id) => removeDomain.mutateAsync(id),
-          setRole: (id, role) => updateDomain.mutateAsync({ id, role }),
+      <SeoProjectTabs
+        panels={{
+          rendimiento: (
+            <>
+              <SeoPanel client={client} domains={project.domains} planScope={{ kind: 'tenant' }} />
+              <SeoConversionsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+            </>
+          ),
+          palabras: (
+            <SeoDiagnosticsCard
+              scope={{ kind: 'tenant' }}
+              canEdit={canEdit}
+              domains={project.domains}
+            />
+          ),
+          oportunidades: (
+            <SeoOpportunitiesCard
+              scope={{ kind: 'tenant' }}
+              canEdit={canEdit}
+              domains={project.domains}
+            />
+          ),
+          competencia: <SeoSistrixSections scope={{ kind: 'tenant' }} canEdit={canEdit} />,
+          tecnico: (
+            <>
+              <SeoInspectionCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+              <SeoPageSpeedCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+            </>
+          ),
+          plan: (
+            <SeoPlanCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
+          ),
+          informes: (
+            <>
+              <SeoAlertsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+              <SeoReportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+            </>
+          ),
+          ajustes: (
+            <>
+              <SeoDomainsCard
+                project={project}
+                serviceAccountEmail={workspace.data.serviceAccountEmail}
+                canEdit={canEdit}
+                suggestedProperty={workspace.data.suggestedProperty}
+                limitText={`Puedes tener un dominio principal y ${SEO_TENANT_LIMITS.secondaryDomains} más (llevas ${secondaries}). El principal tiene que ser de tu negocio: tu dominio propio, el de tu correo verificado o tu dirección en TrasterOS. Otra web tuya puede ir como secundaria si nuestra cuenta tiene acceso a ella en Search Console y no la usa otra cuenta.`}
+                actions={{
+                  add: (input) => addDomain.mutateAsync(input),
+                  check: (id) => check.mutateAsync(id),
+                  sync: (id) => sync.mutateAsync(id),
+                  remove: (id) => removeDomain.mutateAsync(id),
+                  setRole: (id, role) => updateDomain.mutateAsync({ id, role }),
+                }}
+              />
+              <SeoImportsCard client={client} domains={project.domains} />
+              <SeoMasterImportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+              <SeoRunsCard
+                runs={runs.data}
+                isLoading={runs.isLoading}
+                isError={runs.isError}
+                onRetry={() => void runs.refetch()}
+                canEdit={canEdit}
+                onCancel={(id) => cancel.mutateAsync(id)}
+              />
+            </>
+          ),
         }}
       />
-
-      <SeoImportsCard client={client} domains={project.domains} />
-
-      <SeoMasterImportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
-
-      <SeoRunsCard
-        runs={runs.data}
-        isLoading={runs.isLoading}
-        isError={runs.isError}
-        onRetry={() => void runs.refetch()}
-        canEdit={canEdit}
-        onCancel={(id) => cancel.mutateAsync(id)}
-      />
-
-      <SeoSistrixSections scope={{ kind: 'tenant' }} canEdit={canEdit} />
 
       <SeoProjectDialog
         open={editing}

@@ -152,6 +152,18 @@ export function renderSeoReportHtml(
     }.</li><li>Páginas que no deberían estar en Google: ${seoFmtInt(c.indexFindingsOpen)}.</li><li>Tareas hechas en el periodo: ${seoFmtInt(c.tasksDone)}; atrasadas: ${seoFmtInt(c.tasksOverdue)}.</li></ul>`,
   )}
   ${
+    c.technical
+      ? section(
+          'Técnico: indexación y velocidad',
+          `<ul><li>URL inspeccionadas con Google: ${seoFmtInt(c.technical.inspected)} (indexadas: ${seoFmtInt(c.technical.indexed)}; no indexadas: ${seoFmtInt(c.technical.notIndexed)}; con otra canónica: ${seoFmtInt(c.technical.canonicalMismatch)}).</li><li>Páginas medidas con PageSpeed: ${seoFmtInt(c.technical.pagespeedUrls)}; lentas en el móvil: ${seoFmtInt(c.technical.slowUrls)}${
+            c.technical.avgMobileScore !== null
+              ? `; puntuación media en el móvil: ${seoFmtInt(c.technical.avgMobileScore)} de 100`
+              : ''
+          }.</li></ul>`,
+        )
+      : ''
+  }
+  ${
     c.changesWithResult.length
       ? section(
           'Actuaciones con resultado',

@@ -340,6 +340,13 @@ const envSchemaBase = z.object({
   SEO_GSC_INITIAL_DAYS: z.coerce.number().int().min(7).max(486).default(486),
   /** SISTRIX (MCP y API): `stub` = sin llamar a SISTRIX (desarrollo). En tests siempre simulado. */
   SISTRIX_MODE: z.enum(['stub', 'live']).optional(),
+  /**
+   * SEO Avanzado: clave de PageSpeed Insights (gratuita, de Google Cloud). Sin
+   * ella la API funciona, pero con una cuota muy baja y compartida.
+   */
+  PAGESPEED_API_KEY: z.string().optional(),
+  /** PageSpeed: `stub` = sin llamar a Google (desarrollo). En tests siempre simulado. */
+  PAGESPEED_MODE: z.enum(['stub', 'live']).optional(),
   /** Instagram y Facebook orgánico: `stub` = sin llamar a Meta. En tests siempre simulado. */
   SOCIAL_MODE: z.enum(['stub', 'live']).optional(),
   /**

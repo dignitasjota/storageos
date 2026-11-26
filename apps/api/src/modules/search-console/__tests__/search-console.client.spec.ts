@@ -195,4 +195,111 @@ describe('SearchConsoleClient', () => {
       await client.query('sc-domain:a.es', { ...opts, dimensions: ['date'], searchType: 'news' }),
     ).toEqual([]);
   });
+
+  describe('inspección de URL', () => {
+    const indexed = {
+      inspectionResult: {
+        inspectionResultLink: 'https://search.google.com/search-console/inspect?x',
+        indexStatusResult: {
+          verdict: 'PASS',
+          coverageState: 'Enviada e indexada',
+          robotsTxtState: 'ALLOWED',
+          indexingState: 'INDEXING_ALLOWED',
+          lastCrawlTime: '2026-11-20T08:00:00Z',
+          pageFetchState: 'SUCCESSFUL',
+          googleCanonical: 'https://a.es/precios',
+          userCanonical: 'https://a.es/precios',
+          crawledAs: 'MOBILE',
+          sitemap: ['https://a.es/sitemap.xml'],
+          referringUrls: ['https://a.es/'],
+        },
+        richResultsResult: {
+          verdict: 'PASS',
+          detectedItems: [
+            {
+              richResultType: 'FAQ',
+              items: [
+                { name: 'x', issues: [{ issueMessage: 'Falta un campo', severity: 'WARNING' }] },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    it('pide a la URL Inspection API y lee el veredicto, las canónicas y lo demás', async () => {
+      const calls = mockFetch([{ body: indexed }]);
+      const r = await client.inspectUrl('sc-domain:a.es', 'https://a.es/precios', 'es-ES');
+      expect(calls[0]!.url).toBe(
+        'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect',
+      );
+      expect(calls[0]!.body).toEqual({
+        inspectionUrl: 'https://a.es/precios',
+        siteUrl: 'sc-domain:a.es',
+        languageCode: 'es-ES',
+      });
+      expect(r).toMatchObject({
+        verdict: 'PASS',
+        googleCanonical: 'https://a.es/precios',
+        crawledAs: 'MOBILE',
+        sitemaps: ['https://a.es/sitemap.xml'],
+        mobileUsability: null,
+        richResults: { verdict: 'PASS', types: ['FAQ'], issues: ['Falta un campo'] },
+      });
+    });
+
+    it('canónica distinta y campos ausentes sin inventar nada', async () => {
+      mockFetch([
+        {
+          body: {
+            inspectionResult: {
+              indexStatusResult: {
+                verdict: 'NEUTRAL',
+                coverageState: 'Duplicada: Google ha elegido otra canónica',
+                googleCanonical: 'https://a.es/',
+              },
+            },
+          },
+        },
+      ]);
+      const r = await client.inspectUrl('sc-domain:a.es', 'https://a.es/b');
+      expect(r).toMatchObject({
+        verdict: 'NEUTRAL',
+        googleCanonical: 'https://a.es/',
+        userCanonical: null,
+        lastCrawlTime: null,
+        sitemaps: [],
+        link: null,
+      });
+    });
+
+    it('reintenta un 429 y, si sigue, lanza el error con su código', async () => {
+      const calls = mockFetch([
+        { status: 429, body: { error: { message: 'Quota exceeded' } } },
+        { body: indexed },
+      ]);
+      await client.inspectUrl('sc-domain:a.es', 'https://a.es/precios');
+      expect(calls).toHaveLength(2);
+      mockFetch(
+        Array.from({ length: 4 }, () => ({ status: 429, body: { error: { message: 'Quota' } } })),
+      );
+      await expect(client.inspectUrl('sc-domain:a.es', 'https://a.es/x')).rejects.toMatchObject({
+        status: 429,
+      });
+    });
+
+    it('simulado: veredictos deterministas por la URL', async () => {
+      process.env.NODE_ENV = 'test';
+      expect((await client.inspectUrl('sc-domain:a.es', 'https://a.es/precios')).verdict).toBe(
+        'PASS',
+      );
+      const noindex = await client.inspectUrl('sc-domain:a.es', 'https://a.es/noindex');
+      expect(noindex).toMatchObject({ verdict: 'NEUTRAL', indexingState: 'BLOCKED_BY_META_TAG' });
+      const canonical = await client.inspectUrl('sc-domain:a.es', 'https://a.es/canonical');
+      expect(canonical.googleCanonical).toBe('https://a.es/');
+      await expect(
+        client.inspectUrl('sc-domain:a.es', 'https://a.es/ratelimit'),
+      ).rejects.toBeInstanceOf(GoogleApiError);
+    });
+  });
 });

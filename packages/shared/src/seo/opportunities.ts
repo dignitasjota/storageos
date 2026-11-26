@@ -9,6 +9,8 @@ import {
   type SeoProviderKey,
 } from './sistrix';
 
+import type { SeoUrlIndexStatusDto } from './inspection';
+
 /**
  * SEO Avanzado, PR 4: motor de oportunidades propio (§9, §18.6 y §19.3).
  * Reglas, no IA, con el motivo visible y una puntuación de 0 a 100 desglosada
@@ -1193,8 +1195,16 @@ export interface SeoOpportunityDetailDto extends SeoScoredOpportunityDto {
     ctr: number | null;
     position: number | null;
   }[];
-  /** Sus páginas en el periodo. */
-  pages: { page: string; clicks: number; impressions: number; position: number | null }[];
+  /** Sus páginas en el periodo, con lo que dice Google de cada una (inspección, PR 9). */
+  pages: {
+    page: string;
+    clicks: number;
+    impressions: number;
+    position: number | null;
+    index: SeoUrlIndexStatusDto | null;
+  }[];
+  /** Lo que dice Google de la página de la oportunidad (la suya o la URL objetivo). */
+  urlIndex: SeoUrlIndexStatusDto | null;
   /** Resultados de Google de esa palabra (si está en tus palabras y se han pedido). */
   serp: {
     origin: SeoDataOriginDto;

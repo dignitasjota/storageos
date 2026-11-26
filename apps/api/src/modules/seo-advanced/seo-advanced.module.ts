@@ -40,6 +40,11 @@ import {
 import { SistrixSyncService } from './sistrix/sistrix-sync.service';
 import { SistrixCron } from './sistrix/sistrix.cron';
 import { SistrixProcessor } from './sistrix/sistrix.processor';
+import { PageSpeedClient } from './technical/pagespeed.client';
+import { SeoInspectionService } from './technical/seo-inspection.service';
+import { SeoPageSpeedService } from './technical/seo-pagespeed.service';
+import { SeoTechnicalReadService } from './technical/seo-technical-read.service';
+import { SeoTechnicalCron } from './technical/seo-technical.cron';
 
 import type { Env } from '../../config/env.schema';
 
@@ -49,7 +54,8 @@ import type { Env } from '../../config/env.schema';
  * y API clásica) con su arquitectura de proveedores y sus tandas, el motor
  * de oportunidades y el diagnóstico (canibalización e indexación), que se
  * recalculan tras cada descarga, los avisos de las tareas SEO del plan y, de la
- * PR 8, las conversiones de Google, las alertas y los informes. Las colas
+ * PR 8, las conversiones de Google, las alertas y los informes, y de la PR 9
+ * la inspección de URL de Google y PageSpeed. Las colas
  * `seo` y `seo-sistrix` y las tareas programadas corren en el worker
  * (`WORKERS_ENABLED_IN_API`). Las rutas, el panel, la importación de Excel y
  * el OAuth de SISTRIX van en `SeoAdvancedHttpModule` (solo en el API: el
@@ -89,8 +95,20 @@ import type { Env } from '../../config/env.schema';
     SeoConversionsService,
     SeoAlertsService,
     SeoReportsService,
+    SeoTechnicalReadService,
+    PageSpeedClient,
+    SeoInspectionService,
+    SeoPageSpeedService,
     ...(WORKERS_ENABLED_IN_API
-      ? [SeoGscProcessor, SeoGscCron, SistrixProcessor, SistrixCron, SeoPlanCron, SeoReportsCron]
+      ? [
+          SeoGscProcessor,
+          SeoGscCron,
+          SistrixProcessor,
+          SistrixCron,
+          SeoPlanCron,
+          SeoReportsCron,
+          SeoTechnicalCron,
+        ]
       : []),
   ],
   exports: [
@@ -110,6 +128,9 @@ import type { Env } from '../../config/env.schema';
     SeoConversionsService,
     SeoAlertsService,
     SeoReportsService,
+    SeoTechnicalReadService,
+    SeoInspectionService,
+    SeoPageSpeedService,
   ],
 })
 export class SeoAdvancedModule {}

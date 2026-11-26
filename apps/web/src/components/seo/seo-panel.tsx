@@ -271,7 +271,7 @@ export function SeoPanel({
         </CardContent>
       </Card>
 
-      {d?.lastDate && <SeoTablesCard client={client} params={params} />}
+      {d?.lastDate && <SeoTablesCard client={client} params={params} inspectScope={planScope} />}
     </div>
   );
 }
