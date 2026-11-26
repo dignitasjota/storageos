@@ -3926,3 +3926,15 @@ Panel super admin. Todo bajo `AdminGuard`; lo marcado _superadmin_ devuelve 403 
 - `POST /admin/opportunities/bulk-propose {addonId, tenantIds (≤100), message?, trialDays?, followupDays}` (_superadmin_) → `{sent, emails, skipped}`.
 - `POST /admin/opportunities/hand-off {tenantId, addonId, note?}` (_superadmin_) → `{salesRepName, followupId}`: seguimiento para su comercial en el prospecto del tenant (si viene de uno), nota en la conversación del tenant y aviso en su campana. 400 `no_sales_rep`.
 - Cada propuesta (suelta o en lote) queda en `platform_addon_offers`.
+
+### SEO Avanzado: mejoras (2026-11-26)
+
+Rutas del tenant bajo `/seo-advanced` (lectura `analytics:read`, escritura `settings:manage`; las mismas en `/admin/seo/projects/:id/...`, escribir solo superadmin y proyectos de la plataforma):
+
+- `GET brand`, `GET pages/devices?onlyWorse=1`, `GET|PUT areas`; `?brand=brand|nonbrand` y `?area=` en las tablas.
+- `GET competition/movers|groups|evolution?domain&keywordId`; competidores con `pathPrefix`.
+- `GET annotations/proposals`, `POST annotations/proposals/confirm {sourceRef}` y `/dismiss {sourceRefs}`.
+- `GET|POST sistrix-imports` (+`/preview`, multipart `kind`, `domain|keyword`, `file`), `DELETE sistrix-imports/:id`.
+- `PATCH keywords-batch`, `POST keywords-batch/accept-suggested-urls`, `POST keyword-groups/rename`.
+- `GET opportunities/:id/year-ago`; `GET sistrix/requests` (historial para el tenant).
+- Admin: `POST /admin/seo/sistrix/api/probe {method,...}` y `GET .../api/samples` (superadmin).

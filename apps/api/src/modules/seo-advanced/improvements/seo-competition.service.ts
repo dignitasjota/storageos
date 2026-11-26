@@ -208,9 +208,14 @@ export class SeoCompetitionService {
     owner: SeoOwner | undefined,
     projectId: string,
     domainRaw: string,
-    keywordId: string,
+    projectKeywordId: string,
   ): Promise<SeoCompetitionEvolutionDto> {
     const ctx = await this.context(owner, projectId);
+    const pk = await this.admin.seoProjectKeyword.findFirst({
+      where: { id: projectKeywordId, projectId },
+      select: { keywordId: true },
+    });
+    const keywordId = pk?.keywordId ?? '';
     const domain = ctx.domains.find((d) => d.domain === stripWww(domainRaw));
     const keyword = ctx.keywords.get(keywordId);
     if (!domain || !keyword) {

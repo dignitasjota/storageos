@@ -26,6 +26,7 @@ export class SeoAutoStartService {
 
   @OnEvent(SEO_DOMAIN_CONNECTED, { async: true })
   async onConnected(event: SeoDomainConnectedEvent): Promise<void> {
+    if (process.env.SEO_AUTO_START === 'off') return;
     try {
       await this.start(event.tenantId, event.projectId);
     } catch (err) {

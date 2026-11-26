@@ -85,6 +85,7 @@ x-app-env: &app-env
   # Clave de PageSpeed Insights (SEO Avanzado; gratuita). Vacía = cuota baja de Google.
   PAGESPEED_API_KEY: ${PAGESPEED_API_KEY:-}
   SEO_ADVANCED_UPSELL_MIN_CLICKS: ${SEO_ADVANCED_UPSELL_MIN_CLICKS:-100}
+  SEO_AUTO_START: ${SEO_AUTO_START:-on}
   # App de Meta de la plataforma para «Conectar con Facebook» (vacías = pegar el token).
   META_APP_ID: ${META_APP_ID:-}
   META_APP_SECRET: ${META_APP_SECRET:-}

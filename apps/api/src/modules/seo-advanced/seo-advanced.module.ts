@@ -103,7 +103,6 @@ import type { Env } from '../../config/env.schema';
     SistrixSyncService,
     SeoOpportunityScheduler,
     SeoZonesService,
-    SeoZonesService,
     SeoAutoStartService,
     SeoOpportunityEngineService,
     SeoDiagnosticsEngineService,
@@ -139,6 +138,7 @@ import type { Env } from '../../config/env.schema';
       : []),
   ],
   exports: [
+    SeoZonesService,
     SeoDomainOwnershipService,
     SeoProjectsService,
     SeoGscSyncService,

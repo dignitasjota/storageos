@@ -51,6 +51,9 @@ process.env.LOG_PRETTY = 'false';
 process.env.SEO_GSC_INITIAL_DAYS = process.env.SEO_GSC_INITIAL_DAYS || '20';
 // Casi todos los e2e usan la web y la reserva sin dejar el negocio configurado.
 process.env.E2E_SKIP_READINESS = 'true';
+// Al conectar un dominio, SEO Avanzado lanza solo un rastreo y una medición: en los e2e, apagado
+// (lo prueba un test unitario; los demás cuentan con los rastreos que lanzan ellos).
+process.env.SEO_AUTO_START = 'off';
 
 // Inbound de mensajes: secrets de test para los webhooks de WhatsApp/email
 // (el ConfigModule tiene `cache: true`, así que deben estar antes de compilar).

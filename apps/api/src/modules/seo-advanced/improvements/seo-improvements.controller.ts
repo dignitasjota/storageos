@@ -196,13 +196,13 @@ export class SeoAdvancedImprovementsController {
   async evolution(
     @CurrentUser() user: AuthenticatedUser,
     @Query('domain') domain: string | undefined,
-    @Query('keywordId', ParseUUIDPipe) keywordId: string,
+    @Query('keywordId', ParseUUIDPipe) projectKeywordId: string,
   ): Promise<SeoCompetitionEvolutionDto> {
     return this.competition.evolution(
       user.tenantId,
       await this.projectId(user),
       domain ?? '',
-      keywordId,
+      projectKeywordId,
     );
   }
 
@@ -404,9 +404,9 @@ export class AdminSeoImprovementsController {
   evolution(
     @Param('id', ParseUUIDPipe) id: string,
     @Query('domain') domain: string | undefined,
-    @Query('keywordId', ParseUUIDPipe) keywordId: string,
+    @Query('keywordId', ParseUUIDPipe) projectKeywordId: string,
   ): Promise<SeoCompetitionEvolutionDto> {
-    return this.competition.evolution(undefined, id, domain ?? '', keywordId);
+    return this.competition.evolution(undefined, id, domain ?? '', projectKeywordId);
   }
 
   @Get('annotations/proposals')
