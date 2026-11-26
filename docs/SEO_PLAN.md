@@ -919,3 +919,30 @@ Rastreador propio de las webs del proyecto (§9, §11, §15.4, §18.7 y §19.5).
 - **Retención**: las páginas de los 10 últimos rastreos de cada proyecto; de los anteriores queda el resumen. Sin variable de entorno.
 
 **Con esto la fase 4 queda completa.** Pendiente: la etiqueta de Google en la lista de canibalización, medir la velocidad de la competencia, las anotaciones automáticas de §18.8 y, si hiciera falta, un navegador sin cabeza para webs que se pintan en el navegador (no es el caso de las nuestras).
+
+## 37. PR 11 hecha — empieza la fase 5 (2026-11-26)
+
+Asistente de SEO con herramientas de solo lectura y borradores de contenido (briefs) (§11 y §12). Lo puro en `packages/shared/src/seo/assistant.ts` (vitest); el API en `apps/api/src/modules/seo-advanced/assistant/`.
+
+**Asistente**
+
+- Pestaña «Asistente» en el proyecto (panel admin y tenant), con conversaciones guardadas por persona y proyecto, sugerencias de preguntas y streaming.
+- Herramientas de lectura sobre los mismos servicios que las pantallas: resumen y comparación, búsquedas y páginas que suben o bajan, ficha de una palabra (evolución, páginas y SISTRIX), oportunidades con su desglose, canibalización e indexación, inspecciones y velocidad, rastreo, competidores y su visibilidad, resultados de Google, conversiones por página, actuaciones con su antes y después y tareas. Cifras con su origen y su fecha; si no hay dato, lo dice.
+- Acciones propuestas con confirmación: crear una tarea SEO, registrar una actuación, poner una oportunidad en curso y seguir una palabra (`seo_ai_actions`). Solo se ofrecen a quien puede cambiar el proyecto.
+- Prompt de sistema en español, en lenguaje llano, que nunca promete causalidad («coincide con»), con la parte fija en la caché de prompts.
+
+**Briefs**
+
+- Desde una palabra seguida, una oportunidad, un grupo o una URL: intención y objetivo, URL objetivo (o una nueva propuesta), búsquedas a cubrir (Search Console de 90 días y lo ya descargado de SISTRIX), estructura (H1, H2 y H3), preguntas frecuentes, enlaces internos del rastreo, primeros resultados de Google (solo dominio y URL), 3 propuestas de título y descripción con su longitud y, en un tenant, los datos públicos del negocio para verificar.
+- Se editan, se copian, se exportan en Markdown y se pasan a una entrada del blog en borrador (el del tenant con Web Premium; el de la plataforma en el admin) y a una tarea SEO de contenido enlazada. Nunca se publica nada.
+
+**Decisiones**
+
+- **Cuota y función**: incluido en SEO Avanzado, sin exigir `ai_assistant`, contando contra el límite mensual de IA del tenant (o su clave propia). Quien paga SEO Avanzado (199 €) espera poder preguntar sobre sus datos sin contratar otra cosa; el límite mensual que ya existe protege el coste igual que en el asistente del panel, y el uso se registra con `feature = 'seo_assistant'` para verlo aparte en «Uso por tenant». Los permisos: `ai:use` para preguntar y generar briefs (como el asistente), `settings:manage` para confirmar acciones, editar y pasar a borrador.
+- **Plataforma**: clave de la plataforma, sin límite, registrada en una tabla propia sin tenant (`platform_ai_usage_events`) en vez de hacer opcional el tenant de `ai_usage_events` (lo leen muchas agregaciones por tenant).
+- **Reutilización**: el bucle con el modelo es el del asistente del panel, sacado a `AiService.runToolLoop` (mismo proveedor, caché de prompts, cuota, clave propia, streaming y registro del consumo); las acciones siguen el patrón de `AiActionsService` en tablas propias (las del asistente van por usuario del negocio y estas pueden ser de un super admin y de un proyecto sin tenant).
+- **Seguridad**: el texto externo va delimitado como dato (`⟦externo⟧ … ⟦/externo⟧`, sin poder cerrar el bloque desde dentro); con una instrucción metida en el nombre de un competidor o en una URL de los resultados de Google no se dispara nada (prueba e2e), y aunque un modelo «obedeciera», la acción queda propuesta sin hacerse.
+- **Brief sin consultas de pago**: solo lo descargado de SISTRIX; si falta, se usa lo que hay y se dice. El texto del borrador del blog sale del brief (estructura con un hueco por sección y las preguntas frecuentes), sin otra llamada a la IA.
+- **Pestaña nueva**: «Asistente» se añade al final de las pestañas de la PR 9; «Preparar contenido» abre el brief en ella.
+
+**Pendiente** (PR 12, fase 5): GA4 y conversiones, visibilidad en buscadores de IA y lo que se decida tras usar el asistente unas semanas.
