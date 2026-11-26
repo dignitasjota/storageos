@@ -106,6 +106,8 @@ export function seoLandingKey(
   const normalized = normalizeSeoUrl(s.startsWith('/') ? s : /^[a-z]+:\/\//i.test(s) ? s : `/${s}`);
   const slash = normalized.indexOf('/');
   let path = slash >= 0 ? normalized.slice(slash) : '/';
+  // Una ruta no lleva espacios: lo que venga después es texto de otra cosa.
+  path = path.split(/\s/)[0] || '/';
   const q = path.indexOf('?');
   if (q >= 0) path = path.slice(0, q);
   if (!keepBusinessPrefix) path = path.replace(/^\/s\/[^/]+(?=\/|$)/, '') || '/';

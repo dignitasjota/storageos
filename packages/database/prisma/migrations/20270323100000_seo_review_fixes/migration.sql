@@ -26,3 +26,17 @@ WHERE m."domain_id" = d."id";
 -- Una descarga «en curso» que lleva horas sin avanzar se da por caída.
 ALTER TABLE "seo_sync_runs"
   ADD COLUMN "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT now();
+
+-- Brief de contenido: si se ha editado el Markdown, el borrador del blog sale de lo editado.
+ALTER TABLE "seo_content_briefs"
+  ADD COLUMN "content_edited" BOOLEAN NOT NULL DEFAULT false;
+
+-- GA4 del proyecto de la plataforma: antes se quitaba el prefijo /s/<negocio> de las
+-- rutas (las webs de los negocios se sumaban a «/», «/precios»…). Se descarta lo
+-- guardado y se vuelve a descargar con la ruta entera.
+DELETE FROM "seo_ga4_landing_daily"
+WHERE "project_id" IN (SELECT "id" FROM "seo_projects" WHERE "tenant_id" IS NULL);
+
+UPDATE "seo_projects"
+SET "ga4_synced_at" = NULL, "ga4_initial_done_at" = NULL
+WHERE "tenant_id" IS NULL AND "ga4_property_id" IS NOT NULL;

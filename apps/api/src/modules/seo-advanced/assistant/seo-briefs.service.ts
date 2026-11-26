@@ -9,6 +9,7 @@ import {
 import {
   normalizeSeoKeyword,
   normalizeSeoUrl,
+  splitSeoUrl,
   parseSeoBriefReply,
   SEO_ASSISTANT_FEATURE,
   SEO_KEYWORD_INTENT_LABELS,
@@ -328,13 +329,18 @@ export class SeoBriefsService {
 
     // Search Console: lo que trae la página objetivo, o las palabras de partida.
     if (domainIds.length > 0 && targetKey) {
+      // Se filtra por la página EN la consulta: las 5.000 parejas de más impresiones de
+      // todo el proyecto no incluyen las de una página floja (justo las que se quieren mejorar).
+      const path = splitSeoUrl(info.targetUrl!).path.toLowerCase();
+      const pathLike = path && path !== '/' ? `%${path.replace(/[\\%_]/g, '\\$&')}%` : null;
       const rows = await this.admin.$queryRaw<
         { query: string; page: string; c: number; i: number; w: number }[]
       >`SELECT query, page, SUM(clicks)::float8 AS c, SUM(impressions)::float8 AS i,
           SUM(position * impressions)::float8 AS w
         FROM seo_gsc_metrics
         WHERE domain_id = ANY(${domainIds}::uuid[]) AND grain = 'query_page' AND date >= ${from}
-        GROUP BY query, page ORDER BY i DESC LIMIT 5000`;
+          AND (${pathLike}::text IS NULL OR lower(page) LIKE ${pathLike}::text)
+        GROUP BY query, page ORDER BY i DESC LIMIT 20000`;
       for (const r of rows) {
         if (normalizeSeoUrl(r.page) !== targetKey) continue;
         const k = normalizeSeoKeyword(r.query);
@@ -414,14 +420,20 @@ export class SeoBriefsService {
           if (typeof value === 'string' && value.trim()) questions.push(value.trim().slice(0, 200));
         }
         const latest = await this.admin.seoSerpResult.findFirst({
-          where: { keywordId: kw.id, country, tenantId: pool },
+          // Los resultados de Google se guardan con el país en minúsculas (`es`).
+          where: { keywordId: kw.id, country: country.toLowerCase(), tenantId: pool },
           orderBy: { sampleDate: 'desc' },
           select: { sampleDate: true },
         });
         if (latest) {
           serpDate = latest.sampleDate.toISOString().slice(0, 10);
           const rows = await this.admin.seoSerpResult.findMany({
-            where: { keywordId: kw.id, country, tenantId: pool, sampleDate: latest.sampleDate },
+            where: {
+              keywordId: kw.id,
+              country: country.toLowerCase(),
+              tenantId: pool,
+              sampleDate: latest.sampleDate,
+            },
             orderBy: { position: 'asc' },
             take: 10,
           });
@@ -559,7 +571,9 @@ export class SeoBriefsService {
       data: {
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.status !== undefined ? { status: input.status } : {}),
-        ...(input.contentMarkdown !== undefined ? { contentMarkdown: input.contentMarkdown } : {}),
+        ...(input.contentMarkdown !== undefined
+          ? { contentMarkdown: input.contentMarkdown, contentEdited: true }
+          : {}),
       },
     });
     return this.toDto(updated);
@@ -589,6 +603,14 @@ export class SeoBriefsService {
     const proposal = structure.metaProposals[0] ?? null;
     let blogLink: string | null = null;
     const data: Prisma.SeoContentBriefUpdateInput = {};
+    // Los dos conflictos antes de crear nada: con la tarea ya creada desde otra pestaña,
+    // no se dejaba un borrador del blog suelto (y otro más al reintentar).
+    if (input.task && row.taskId) {
+      throw new ConflictException({
+        code: 'seo_brief_task_exists',
+        message: 'Este brief ya tiene su tarea.',
+      });
+    }
     if (input.blog) {
       if (row.blogPostId || row.platformBlogPostId) {
         throw new ConflictException({
@@ -598,7 +620,7 @@ export class SeoBriefsService {
       }
       const post = {
         title: structure.h1 || row.title,
-        contentMarkdown: seoBriefBlogDraft(structure),
+        contentMarkdown: row.contentEdited ? row.contentMarkdown : seoBriefBlogDraft(structure),
         excerpt: structure.objective.slice(0, 300),
         ...(proposal
           ? {

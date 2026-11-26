@@ -132,13 +132,32 @@ export type AutomationRunStatusValue = z.infer<typeof AutomationRunStatusEnum>;
 // Leads
 // ============================================================================
 
+/**
+ * La ruta de entrada la manda el navegador (cualquiera puede escribir lo que
+ * quiera): se queda en una ruta (`/algo`, sin espacios ni caracteres de control) o
+ * se descarta. Evita meter frases en lo que luego leen las pantallas y el asistente.
+ */
+export function sanitizeLandingPath(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  // eslint-disable-next-line no-control-regex
+  const clean = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
+  const first = clean.split(/\s/)[0] ?? '';
+  if (!/^\/[^\s]*$/.test(first)) return undefined;
+  return first.slice(0, 300);
+}
+
 /** Parámetros UTM de tracking de campañas (capturados de la URL). */
 export const utmFields = {
   utmSource: z.string().trim().max(120).optional(),
   utmMedium: z.string().trim().max(120).optional(),
   utmCampaign: z.string().trim().max(120).optional(),
   /** Primera página que vio el visitante (la ruta, lo guarda el navegador). */
-  landingPath: z.string().trim().max(300).optional(),
+  landingPath: z
+    .string()
+    .trim()
+    .max(300)
+    .optional()
+    .transform((v) => sanitizeLandingPath(v)),
 };
 
 const clickId = z

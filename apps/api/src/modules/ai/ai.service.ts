@@ -168,6 +168,8 @@ Reglas ESTRICTAS:
 - Si la duda no se puede resolver con lo dado (p. ej. requiere una gestión o una decisión), dile amablemente que escriba a su gestor desde la pestaña «Mensajes» del portal.
 - Español, tono cercano y breve. Devuelve SOLO el texto de la respuesta.`;
 
+/** Herramientas que se ejecutan en una misma vuelta del modelo. */
+const MAX_TOOLS_PER_TURN = 6;
 const MAX_TOOL_ITERATIONS = 8;
 
 /**
@@ -254,7 +256,12 @@ export class AiService {
   ): Promise<TenantAiSettingsDto> {
     // Sin el asistente en el plan solo se puede quitar la clave guardada.
     const onlyRemoves = input.apiKey === '' && (input.model === undefined || input.model === '');
-    if (!onlyRemoves && !(await tenantHasFeature(this.admin, tenantId, 'ai_assistant'))) {
+    // SEO Avanzado también gasta consultas de IA: quien solo tiene eso puede poner su clave.
+    if (
+      !onlyRemoves &&
+      !(await tenantHasFeature(this.admin, tenantId, 'ai_assistant')) &&
+      !(await tenantHasFeature(this.admin, tenantId, 'seo_advanced'))
+    ) {
       throw new ForbiddenException({
         code: 'feature_not_in_plan',
         message: 'El asistente IA no está en tu plan: solo puedes quitar tu clave.',
@@ -464,7 +471,19 @@ export class AiService {
           break;
         }
         const results: AiToolResultBlock[] = [];
-        for (const use of uses) {
+        for (const [n, use] of uses.entries()) {
+          // Un tope por vuelta: el modelo (o un texto de fuera que lo empuje) no puede
+          // pedir decenas de herramientas, ni dejar decenas de propuestas de acción.
+          if (n >= MAX_TOOLS_PER_TURN) {
+            results.push({
+              type: 'tool_result',
+              tool_use_id: use.id,
+              content: JSON.stringify({
+                error: `Demasiadas herramientas a la vez (máximo ${MAX_TOOLS_PER_TURN} por vuelta): pídelas en la siguiente.`,
+              }),
+            });
+            continue;
+          }
           toolsUsed.add(use.name);
           args.hooks?.onTool(use.name);
           let output: string;
@@ -580,7 +599,8 @@ export class AiService {
         messages: [{ role: 'user', content: args.user }],
         tools: [],
       });
-      if (args.accept && !args.accept(textOf(c))) {
+      // Una respuesta cortada por el tope de tokens no sirve aunque parezca texto válido.
+      if (args.accept && (c.stopReason === 'max_tokens' || !args.accept(textOf(c)))) {
         // Los tokens se gastaron igualmente: quedan anotados, sin contar como consulta.
         this.recordUsage(args.tenantId, args.userId, args.feature, c, superAdminId);
         throw (
@@ -591,6 +611,8 @@ export class AiService {
           })
         );
       }
+      // Dentro del contexto de la reserva: con clave propia se apunta como tal y con su modelo.
+      this.recordUsage(args.tenantId, args.userId, args.feature, c, superAdminId);
       return c;
     };
     const tenantId = args.tenantId;
@@ -598,7 +620,6 @@ export class AiService {
       tenantId === null
         ? await this.withPlatformKey(call)
         : await this.withQuota({ tenantId, userId: args.userId, feature: args.feature }, call);
-    this.recordUsage(args.tenantId, args.userId, args.feature, completion, superAdminId);
     return textOf(completion);
   }
 

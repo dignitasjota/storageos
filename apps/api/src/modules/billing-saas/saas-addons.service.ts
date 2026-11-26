@@ -878,11 +878,12 @@ export class SaasAddonsService {
     if (
       addon.grantsAiQueries &&
       addon.grantsAiQueries > 0 &&
-      !(await tenantHasFeature(this.admin, tenantId, 'ai_assistant'))
+      !(await tenantHasFeature(this.admin, tenantId, 'ai_assistant')) &&
+      !(await tenantHasFeature(this.admin, tenantId, 'seo_advanced'))
     ) {
       throw new BadRequestException({
         code: 'addon_requires_ai_assistant',
-        message: 'Este extra amplía el asistente IA, que no tienes en tu plan.',
+        message: 'Este extra amplía las consultas de IA, y no tienes el asistente ni SEO Avanzado.',
       });
     }
     const { planFeatures, planSlug } = await this.planContext(tenantId);

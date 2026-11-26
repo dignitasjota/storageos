@@ -83,11 +83,22 @@ export class Ga4Service {
         message: 'La conexión con Google Analytics no está disponible todavía.',
       });
     }
-    const taken = await this.admin.tenantGa4.findFirst({
-      where: { propertyId, tenantId: { not: tenantId } },
-      select: { id: true },
-    });
-    if (taken) {
+    // La propiedad no puede ser la de otra cuenta (ni la de un proyecto de SEO de otro
+    // negocio o de la plataforma: allí la cuenta de servicio también tiene acceso).
+    const [taken, usedBySeo] = await Promise.all([
+      this.admin.tenantGa4.findFirst({
+        where: { propertyId, tenantId: { not: tenantId } },
+        select: { id: true },
+      }),
+      this.admin.seoProject.findFirst({
+        where: {
+          ga4PropertyId: propertyId,
+          OR: [{ tenantId: null }, { tenantId: { not: tenantId } }],
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (taken || usedBySeo) {
       throw new ConflictException({
         code: 'ga4_property_taken',
         message: 'Esa propiedad ya está conectada en otra cuenta de TrasterOS.',

@@ -139,6 +139,7 @@ export class AiController {
   }
 
   /** Consultas del asistente usadas este mes (y las del usuario hoy). */
+  @AllowWithoutFeature()
   @Get('usage')
   usage(@CurrentUser() user: AuthenticatedUser): Promise<AiUsageDto> {
     return this.ai.usage(user.tenantId, user.sub);
@@ -166,6 +167,7 @@ export class AiController {
   }
 
   @RequirePermission('settings:manage')
+  @AllowWithoutFeature()
   @Post('settings/test')
   @HttpCode(HttpStatus.OK)
   testSettings(

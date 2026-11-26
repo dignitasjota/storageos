@@ -63,6 +63,9 @@ type ProjectRow = Awaited<ReturnType<SeoProjectsService['resolveProject']>>;
  * descarga es otro corte (solo orgánico de Google, por página de entrada), así
  * que va en su tabla (`seo_ga4_landing_daily`).
  */
+/** La propiedad de GA4 del proyecto cambió (o se quitó) mientras se descargaba. */
+class Ga4PropertyChanged extends Error {}
+
 @Injectable()
 export class SeoGa4Service {
   private readonly logger = new Logger(SeoGa4Service.name);
@@ -150,6 +153,7 @@ export class SeoGa4Service {
       }
       propertyId = mk.propertyId;
       source = 'marketing';
+      await this.assertPropertyFree(p, propertyId);
     } else {
       propertyId = input.propertyId;
       source = 'own';
@@ -260,11 +264,21 @@ export class SeoGa4Service {
     return this.settings(owner, projectId);
   }
 
-  async enqueue(projectId: string): Promise<void> {
+  /**
+   * Pone la descarga en la cola. Con `delayMs` (tras un cambio de propiedad mientras
+   * se descargaba) lleva otro id: el de la descarga en curso aún está en la cola.
+   */
+  async enqueue(projectId: string, delayMs = 0): Promise<void> {
     await this.queue.add(
       JOB_SEO_GA4,
       { projectId },
-      { jobId: `seo-ga4-${projectId}`, removeOnComplete: true, removeOnFail: true, attempts: 1 },
+      {
+        jobId: delayMs > 0 ? `seo-ga4-${projectId}-r${Date.now()}` : `seo-ga4-${projectId}`,
+        ...(delayMs > 0 ? { delay: delayMs } : {}),
+        removeOnComplete: true,
+        removeOnFail: true,
+        attempts: 1,
+      },
     );
   }
 
@@ -317,6 +331,12 @@ export class SeoGa4Service {
         rows += normalized.length;
         await this.admin.$transaction(
           async (tx) => {
+            // Si mientras tanto se quitó la propiedad o se cambió por otra, no se escribe
+            // nada más con la antigua.
+            const stillSame = await tx.seoProject.count({
+              where: { id: projectId, ga4PropertyId: p.ga4PropertyId },
+            });
+            if (stillSame === 0) throw new Ga4PropertyChanged();
             await tx.seoGa4LandingDaily.deleteMany({
               where: { projectId, date: { gte: asDate(from), lte: asDate(to) } },
             });
@@ -345,8 +365,8 @@ export class SeoGa4Service {
       await this.admin.seoGa4LandingDaily.deleteMany({
         where: { projectId, date: { lt: asDate(shiftDate(today(), -KEEP_DAYS)) } },
       });
-      await this.admin.seoProject.update({
-        where: { id: projectId },
+      const marked = await this.admin.seoProject.updateMany({
+        where: { id: projectId, ga4PropertyId: p.ga4PropertyId },
         data: {
           ga4Status: 'connected',
           ga4LastError: null,
@@ -354,7 +374,18 @@ export class SeoGa4Service {
           ga4InitialDoneAt: p.ga4InitialDoneAt ?? new Date(),
         },
       });
+      if (marked.count === 0) throw new Ga4PropertyChanged();
     } catch (err) {
+      if (err instanceof Ga4PropertyChanged) {
+        // Lo escrito era de la propiedad anterior: fuera, y si hay otra, se descarga de cero.
+        await this.admin.seoGa4LandingDaily.deleteMany({ where: { projectId } });
+        const now = await this.admin.seoProject.findUnique({
+          where: { id: projectId },
+          select: { ga4PropertyId: true },
+        });
+        if (now?.ga4PropertyId) await this.enqueue(projectId, 5000);
+        return { ok: false, rows: 0 };
+      }
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`[seo-ga4] proyecto ${projectId}: ${message}`);
       return fail(message);
@@ -393,7 +424,16 @@ export class SeoGa4Service {
         _max: { date: true },
       }),
     ]);
-    return { gsc: dateOnly(gsc?._max.date), ga4: dateOnly(ga4._max.date) };
+    // GA4: hasta el último día DESCARGADO (una web con pocas visitas orgánicas puede pasar
+    // días sin filas, y eso no es que falten datos), no hasta el último con filas.
+    const downloaded = p.ga4SyncedAt
+      ? shiftDate(p.ga4SyncedAt.toISOString().slice(0, 10), -1)
+      : null;
+    const withRows = dateOnly(ga4._max.date);
+    return {
+      gsc: dateOnly(gsc?._max.date),
+      ga4: downloaded && (!withRows || downloaded > withRows) ? downloaded : withRows,
+    };
   }
 
   private hostsOf(p: ProjectRow, domainId: string | null): string[] | null {

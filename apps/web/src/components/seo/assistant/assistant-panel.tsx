@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useSeoAi } from './seo-ai-context';
 
 import { AssistantMarkdown } from '@/components/ai/assistant-markdown';
+import { UsageLine } from '@/components/ai/usage-line';
 import { useConfirm } from '@/components/confirm-provider';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useAiUsage } from '@/lib/ai/hooks';
 import { AiStreamStoppedError, AiStreamUnavailableError } from '@/lib/ai/stream';
 import { ApiError } from '@/lib/auth/api';
 import {
@@ -64,6 +66,9 @@ function Panel() {
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messages = detail.data?.messages ?? [];
+  // En el proyecto de un negocio las consultas cuentan en su cuota (o su clave propia).
+  const usage = useAiUsage(scope.kind === 'tenant');
+  const refetchUsage = usage.refetch;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -129,6 +134,7 @@ function Panel() {
         await invalidate(activeId);
       }
     } finally {
+      void refetchUsage();
       abortRef.current = null;
       setPending(null);
       setStreamText('');
@@ -162,6 +168,7 @@ function Panel() {
             ? ' Si te propone una tarea o una actuación, solo se hace cuando la confirmas.'
             : ' Aquí solo lees: no puede preparar cambios.'}
         </CardDescription>
+        {usage.data && scope.kind === 'tenant' && <UsageLine usage={usage.data} />}
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">

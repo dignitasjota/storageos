@@ -11137,6 +11137,8 @@ model SeoContentBrief {
   targetUrl              String?  @map("target_url")
   structure              Json     @default("{}")
   contentMarkdown        String   @map("content_markdown")
+  /// true si alguien ha editado el Markdown: el borrador del blog sale de lo editado.
+  contentEdited          Boolean  @default(false) @map("content_edited")
   /// draft · in_progress · published
   status                 String   @default("draft")
   taskId                 String?  @map("task_id") @db.Uuid
