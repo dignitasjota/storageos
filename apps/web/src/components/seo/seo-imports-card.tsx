@@ -153,6 +153,11 @@ export function SeoImportsCard({
                         Con filtros (no es el total)
                       </Badge>
                     )}
+                    {imp.masterImportId && (
+                      <Badge variant="secondary" className="font-normal">
+                        Del maestro
+                      </Badge>
+                    )}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {imp.domain} · del {formatDate(imp.periodFrom)} al {formatDate(imp.periodTo)} ·{' '}
@@ -168,7 +173,7 @@ export function SeoImportsCard({
                   <Button size="sm" variant="outline" onClick={() => setViewing(imp.id)}>
                     <Eye className="mr-1 size-4" aria-hidden /> Ver
                   </Button>
-                  {client.canImport && (
+                  {client.canImport && !imp.masterImportId && (
                     <Button
                       size="icon"
                       variant="ghost"

@@ -1,6 +1,10 @@
 'use client';
 
-import { type SeoCompetitorDto, type SeoVisibilitySeriesDto } from '@storageos/shared';
+import {
+  seoMasterOriginLabel,
+  type SeoCompetitorDto,
+  type SeoVisibilitySeriesDto,
+} from '@storageos/shared';
 import { ArrowDown, ArrowUp, Loader2, Plus, Trash2 } from 'lucide-react';
 import { type FormEvent, useMemo, useState } from 'react';
 import {
@@ -352,6 +356,7 @@ export function CompetitorsPanel({
                     </span>
                     {c.keywordCount !== null && <span>{formatCount(c.keywordCount)} palabras</span>}
                     {c.visibility && <SeoOrigin origin={c.visibility} />}
+                    {c.masterImportedAt && <span>{seoMasterOriginLabel(c.masterImportedAt)}</span>}
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
@@ -394,6 +399,11 @@ export function CompetitorsPanel({
                   <span className="break-all">{c.domain}</span>
                   {c.source === 'discovered' && (
                     <span className="text-muted-foreground">· SISTRIX</span>
+                  )}
+                  {c.masterImportedAt && (
+                    <span className="text-muted-foreground">
+                      · {seoMasterOriginLabel(c.masterImportedAt)}
+                    </span>
                   )}
                   {canEdit && (
                     <button
