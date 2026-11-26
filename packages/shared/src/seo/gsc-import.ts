@@ -107,6 +107,8 @@ const TAB_ALIASES: Record<SeoImportDimension | 'filters', { es: string[]; en: st
       'aspecto en los resultados de busqueda',
       'apariencia en las busquedas',
       'apariencia en la busqueda',
+      'aparicion en busquedas',
+      'aparicion en las busquedas',
     ],
     en: ['search appearance', 'search appearances'],
   },
@@ -193,15 +195,18 @@ export function parseGscDate(value: string | undefined): string | null {
 /** Dispositivo con el código de la API (MOBILE, DESKTOP, TABLET). */
 export function normalizeGscDevice(value: string): string {
   const v = normalizeGscLabel(value);
-  if (['movil', 'mobile', 'telefono movil'].includes(v)) return 'MOBILE';
-  if (['ordenador', 'desktop', 'escritorio', 'computer'].includes(v)) return 'DESKTOP';
-  if (['tablet', 'tableta'].includes(v)) return 'TABLET';
+  if (['movil', 'moviles', 'mobile', 'telefono movil'].includes(v)) return 'MOBILE';
+  if (['ordenador', 'ordenadores', 'desktop', 'escritorio', 'computer'].includes(v)) {
+    return 'DESKTOP';
+  }
+  if (['tablet', 'tablets', 'tableta', 'tabletas'].includes(v)) return 'TABLET';
   return value.trim();
 }
 
 const DATE_FILTERS = ['fecha', 'date', 'periodo', 'period', 'intervalo de fechas', 'date range'];
 const SEARCH_TYPE_FILTERS = ['tipo de busqueda', 'search type', 'tipo'];
-const WEB = ['web'];
+/** La web: «Web» y, en algunas exportaciones, «Web (basada en texto)». */
+const isWebSearchType = (value: string) => value === 'web' || value.startsWith('web (');
 
 /**
  * ¿El Excel es el total del sitio? Solo si sus filtros son la fecha y, como
@@ -217,7 +222,7 @@ export function analyzeGscFilters(filters: readonly SeoImportFilter[]): {
     const value = normalizeGscLabel(f.value);
     if (DATE_FILTERS.includes(name)) continue;
     if (SEARCH_TYPE_FILTERS.includes(name)) {
-      if (!WEB.includes(value)) {
+      if (!isWebSearchType(value)) {
         reasons.push(`Exportado con el tipo de búsqueda «${f.value}»: no es la búsqueda web.`);
       }
       continue;
@@ -288,7 +293,7 @@ export function parseGscExport(sheets: readonly SeoImportSheet[]): ParsedGscExpo
     languages[detected.language]++;
     if (detected.tab === 'filters') {
       const body = rows.slice(
-        ['filtro', 'filter'].includes(normalizeGscLabel(header[0] ?? '')) ? 1 : 0,
+        ['filtro', 'filter', 'filtrar'].includes(normalizeGscLabel(header[0] ?? '')) ? 1 : 0,
       );
       for (const r of body) {
         const name = (r[0] ?? '').trim();
@@ -342,12 +347,15 @@ export function parseGscExport(sheets: readonly SeoImportSheet[]): ParsedGscExpo
         continue;
       }
       seen.add(value);
+      // Sin impresiones, el CTR y la posición no significan nada (algunas
+      // exportaciones traen ahí cualquier cosa): se ignoran.
+      const shown = impressions > 0;
       parsed.push({
         value: value.slice(0, 2000),
         clicks,
         impressions,
-        ctr: cols.ctr === undefined ? null : parseGscCtr(r[cols.ctr]),
-        position: cols.position === undefined ? null : parseGscDecimal(r[cols.position]),
+        ctr: !shown || cols.ctr === undefined ? null : parseGscCtr(r[cols.ctr]),
+        position: !shown || cols.position === undefined ? null : parseGscDecimal(r[cols.position]),
       });
     }
     if (invalid > 0) {
@@ -426,6 +434,8 @@ export interface SeoImportDto {
   siteDaysImported: number;
   createdAt: string;
   createdBy: string | null;
+  /** Si sale de un maestro (se borra desde la importación del maestro). */
+  masterImportId: string | null;
 }
 
 export interface SeoImportTabDto {
