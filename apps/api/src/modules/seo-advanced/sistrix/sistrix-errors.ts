@@ -8,6 +8,16 @@ export class SistrixInvalidGrantError extends Error {
   }
 }
 
+/** El servidor ya no conoce a nuestra aplicación (registro caducado o purgado): hay que registrarla de nuevo. */
+export class SistrixInvalidClientError extends SistrixInvalidGrantError {
+  constructor(
+    message = 'SISTRIX ya no reconoce la aplicación registrada: hay que volver a conectar',
+  ) {
+    super(message);
+    this.name = 'SistrixInvalidClientError';
+  }
+}
+
 /** El token de acceso no vale (401): se renueva y se repite una vez. */
 export class SistrixUnauthorizedError extends Error {
   constructor(message = 'SISTRIX rechazó el token de acceso') {

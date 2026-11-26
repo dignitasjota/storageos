@@ -455,6 +455,10 @@ export interface SeoSistrixRunDto {
   itemsTotal: number;
   itemsDone: number;
   itemsFailed: number;
+  /** Todo lo que habría que consultar (la tanda hace un trozo: el máximo por tanda). */
+  itemsOverall: number | null;
+  /** Lo que falta de la vuelta en curso tras esta tanda (0 = completa). */
+  itemsPending: number;
   pausedReason: SeoSistrixWaitReason | null;
   pausedUntil: string | null;
   creditsUsed: number;

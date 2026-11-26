@@ -48,6 +48,15 @@ export interface RunItem {
 
 interface RunProgress {
   items: RunItem[];
+  /** Todo lo que habría que pedir (los elementos de esta tanda son un trozo). */
+  total?: number;
+  /**
+   * Lo que falta por consultar en la vuelta en curso tras esta tanda (la siguiente
+   * continúa por ahí; 0 = la vuelta está completa).
+   */
+  remaining?: number;
+  /** Por dónde sigue la rotación. */
+  nextOffset?: number;
 }
 
 export interface SistrixActor {
@@ -79,6 +88,14 @@ export function poolOfProject(p: {
   usePlatformSistrix: boolean;
 }): SeoPool {
   return p.tenantId && !p.usePlatformSistrix ? p.tenantId : null;
+}
+
+/**
+ * ¿Puede el fondo pedir ese tipo de dato? La visibilidad en IA (`ai_check`) solo
+ * existe en el MCP, y un tenant con su clave solo tiene la API clásica.
+ */
+export function sistrixPoolCanServe(pool: SeoPool, dataType: SeoSistrixDataType): boolean {
+  return dataType !== 'ai_visibility' || pool === null;
 }
 
 /** Tipos de dato de SISTRIX que usa el motor de oportunidades. */
@@ -287,18 +304,33 @@ export class SistrixSyncService {
       for (const dataType of SEO_SISTRIX_DATA_TYPES) {
         const days = SEO_SYNC_FREQUENCY_DAYS[freqs[dataType]];
         if (days === null) continue;
+        if (!sistrixPoolCanServe(pool, dataType)) continue;
         const active = await this.activeRun(p.id, dataType);
         if (active) continue;
-        const last = await this.admin.seoSyncRun.findFirst({
-          where: { projectId: p.id, dataType, status: 'done' },
+        const recent = await this.admin.seoSyncRun.findMany({
+          where: { projectId: p.id, dataType, status: { in: ['done', 'failed'] } },
           orderBy: { finishedAt: 'desc' },
-          select: { finishedAt: true },
+          take: 6,
+          select: { status: true, finishedAt: true, progress: true },
         });
+        const last = recent.find((r) => r.status === 'done');
+        // Tandas fallidas seguidas: la espera crece (3 h, 6 h, 12 h…) hasta el
+        // periodo; no se vuelve a pedir cada hora a una clave mala o a SISTRIX caído.
+        const failures = recent.findIndex((r) => r.status === 'done');
+        const failedInARow = failures === -1 ? recent.length : failures;
+        if (failedInARow > 0) {
+          const backoffH = Math.min(days * 24, 3 * 2 ** (failedInARow - 1));
+          const at = recent[0]?.finishedAt;
+          if (at && at.getTime() > now.getTime() - backoffH * 3600_000) continue;
+        }
         // Un poco de margen: la tarea corre cada hora.
-        const due =
+        const periodDue =
           !last?.finishedAt ||
           last.finishedAt.getTime() <= now.getTime() - (days * 24 - 1) * 3600_000;
-        if (!due) continue;
+        // Si la última tanda no cubrió todo (el máximo por tanda), la siguiente
+        // continúa sin esperar al periodo.
+        const unfinished = ((last?.progress as unknown as RunProgress | null)?.remaining ?? 0) > 0;
+        if (!periodDue && !unfinished) continue;
         await this.enqueue(p.id, dataType, 'scheduled');
         enqueued++;
       }
@@ -308,12 +340,52 @@ export class SistrixSyncService {
 
   // ------------------------------------------------------------- procesar
 
-  /** Qué hay que pedir en una tanda (troceado al máximo por tanda). */
+  /** Qué hay que pedir en una tanda (el trozo que toca, al máximo por tanda). */
   async buildItems(
     project: ProjectRow,
     dataType: SeoSistrixDataType,
     maxItems: number,
+    offset = 0,
   ): Promise<RunItem[]> {
+    return (await this.planItems(project, dataType, maxItems, offset)).items;
+  }
+
+  /**
+   * Todo lo que habría que pedir (en grupos que no se parten: las dos consultas
+   * de una palabra o de un dominio van juntas) y el trozo que cabe en esta
+   * tanda. Las palabras empiezan por las que llevan más tiempo sin consulta (o
+   * sin ella); el resto sigue rotando desde donde acabó la tanda anterior: así
+   * la siguiente tanda continúa y no repite siempre las mismas.
+   */
+  async planItems(
+    project: ProjectRow,
+    dataType: SeoSistrixDataType,
+    maxItems: number,
+    offset = 0,
+  ): Promise<{ items: RunItem[]; total: number; remaining: number; nextOffset: number }> {
+    const { groups, rotates } = await this.itemGroups(project, dataType);
+    const total = groups.reduce((n, g) => n + g.length, 0);
+    const start = rotates && groups.length > 0 ? offset % groups.length : 0;
+    const items: RunItem[] = [];
+    let taken = 0;
+    for (let k = 0; k < groups.length; k++) {
+      const g = groups[(start + k) % groups.length]!;
+      if (items.length > 0 && items.length + g.length > Math.max(1, maxItems)) break;
+      items.push(...g);
+      taken++;
+    }
+    return {
+      items,
+      total,
+      remaining: Math.max(0, total - items.length),
+      nextOffset: rotates && groups.length > 0 ? (start + taken) % groups.length : 0,
+    };
+  }
+
+  private async itemGroups(
+    project: ProjectRow,
+    dataType: SeoSistrixDataType,
+  ): Promise<{ groups: RunItem[][]; rotates: boolean }> {
     const country = project.country.toLowerCase();
     const own = [...project.domains]
       .sort((a, b) => (a.role === 'primary' ? -1 : b.role === 'primary' ? 1 : 0))
@@ -321,14 +393,26 @@ export class SistrixSyncService {
     const primary = own[0];
     const competitors = project.competitors.filter((c) => c.isActive).map((c) => c.domain);
     const domains = [...new Set([...own, ...competitors])];
-    const items: RunItem[] = [];
-    const keywords = async () =>
-      this.admin.seoProjectKeyword.findMany({
+    const groups: RunItem[][] = [];
+    const keywords = async () => {
+      const rows = await this.admin.seoProjectKeyword.findMany({
         where: { projectId: project.id, isActive: true },
         include: { keyword: true },
         orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
         take: project.tenantId ? SEO_TENANT_LIMITS.keywords : SEO_PLATFORM_KEYWORD_LIMIT,
       });
+      // Primero las que llevan más tiempo sin consulta o nunca la tuvieron.
+      const last = await this.lastQueried(
+        project,
+        dataType,
+        rows.map((r) => r.keywordId),
+      );
+      return rows
+        .map((r, i) => ({ r, i, at: last.get(r.keywordId) ?? 0 }))
+        .sort((a, b) => a.at - b.at || a.i - b.i)
+        .map((x) => x.r);
+    };
+    let rotates = true;
     switch (dataType) {
       case 'visibility':
         for (const domain of domains) {
@@ -336,41 +420,43 @@ export class SistrixSyncService {
             where: { tenantId: poolOfProject(project), domain, country, metric: 'visibility' },
           });
           // La primera vez, medio año de histórico; después, las últimas semanas.
-          items.push({
-            q: { op: 'visindex', domain, country, history: true, limit: known > 0 ? 4 : 26 },
-          });
-          items.push({ q: { op: 'kwcount', domain, country } });
+          groups.push([
+            { q: { op: 'visindex', domain, country, history: true, limit: known > 0 ? 4 : 26 } },
+            { q: { op: 'kwcount', domain, country } },
+          ]);
         }
         break;
       case 'domain_keywords':
         for (const domain of domains) {
-          items.push({
-            q: { op: 'domain_keywords', domain, country, limit: SEO_SISTRIX_LIST_LIMIT },
-          });
+          groups.push([
+            { q: { op: 'domain_keywords', domain, country, limit: SEO_SISTRIX_LIST_LIMIT } },
+          ]);
         }
         break;
       case 'competitors':
-        if (primary) items.push({ q: { op: 'competitors', domain: primary, country, limit: 10 } });
+        if (primary)
+          groups.push([{ q: { op: 'competitors', domain: primary, country, limit: 10 } }]);
         for (const domain of competitors) {
-          items.push({
-            q: { op: 'domain_keywords', domain, country, limit: SEO_SISTRIX_LIST_LIMIT },
-          });
+          groups.push([
+            { q: { op: 'domain_keywords', domain, country, limit: SEO_SISTRIX_LIST_LIMIT } },
+          ]);
         }
         break;
       case 'opportunities':
         if (primary)
-          items.push({
-            q: { op: 'opportunities', domain: primary, country, limit: SEO_SISTRIX_LIST_LIMIT },
-          });
+          groups.push([
+            { q: { op: 'opportunities', domain: primary, country, limit: SEO_SISTRIX_LIST_LIMIT } },
+          ]);
         break;
       case 'keyword_ideas':
         if (primary)
-          items.push({
-            q: { op: 'ideas', domain: primary, country, limit: SEO_SISTRIX_LIST_LIMIT },
-          });
+          groups.push([
+            { q: { op: 'ideas', domain: primary, country, limit: SEO_SISTRIX_LIST_LIMIT } },
+          ]);
         break;
       case 'backlinks':
-        if (primary) items.push({ q: { op: 'linktargets', domain: primary, country, limit: 50 } });
+        if (primary)
+          groups.push([{ q: { op: 'linktargets', domain: primary, country, limit: 50 } }]);
         break;
       case 'ai_visibility': {
         // `ai_check` (PR 12), siempre en España: resumen y prompts de tu dominio,
@@ -383,60 +469,97 @@ export class SistrixSyncService {
           ...(brands ? [{ brands }] : []),
           ...competitors.map((domain) => ({ domain })),
         ];
-        for (const sub of subjects) items.push({ q: { op: 'ai_overview', country: c, ...sub } });
+        for (const sub of subjects) groups.push([{ q: { op: 'ai_overview', country: c, ...sub } }]);
         for (const sub of subjects) {
-          items.push({ q: { op: 'ai_prompts', country: c, limit: SEO_AI_PROMPTS_LIMIT, ...sub } });
+          groups.push([
+            { q: { op: 'ai_prompts', country: c, limit: SEO_AI_PROMPTS_LIMIT, ...sub } },
+          ]);
         }
-        const own = {
+        const mine = {
           ...(primary ? { domain: primary } : {}),
           ...(brands ? { brands } : {}),
         };
         if (primary || brands) {
-          items.push({
-            q: {
-              op: 'ai_sources',
-              country: c,
-              sourceType: 'url',
-              limit: SEO_AI_SOURCES_LIMIT,
-              ...own,
+          groups.push([
+            {
+              q: {
+                op: 'ai_sources',
+                country: c,
+                sourceType: 'url',
+                limit: SEO_AI_SOURCES_LIMIT,
+                ...mine,
+              },
             },
-          });
-          items.push({ q: { op: 'ai_competitors', country: c, limit: 20, ...own } });
+          ]);
+          groups.push([{ q: { op: 'ai_competitors', country: c, limit: 20, ...mine } }]);
         }
         for (const prompt of seoAiVisibilitySettingsOf(project.aiVisibilitySettings)
           .trackedPrompts) {
-          items.push({ q: { op: 'ai_answers', country: c, prompt, limit: 10 } });
+          groups.push([{ q: { op: 'ai_answers', country: c, prompt, limit: 10 } }]);
         }
         break;
       }
       case 'serp':
+        rotates = false;
         for (const k of await keywords()) {
-          items.push({
-            q: {
-              op: 'serp',
-              keyword: k.keyword.keyword,
-              country: k.keyword.country.toLowerCase(),
-              limit: 10,
+          groups.push([
+            {
+              q: {
+                op: 'serp',
+                keyword: k.keyword.keyword,
+                country: k.keyword.country.toLowerCase(),
+                limit: 10,
+              },
+              keywordId: k.keywordId,
             },
-            keywordId: k.keywordId,
-          });
+          ]);
         }
         break;
       case 'keyword_metrics':
+        rotates = false;
         for (const k of await keywords()) {
           const c = k.keyword.country.toLowerCase();
-          items.push({
-            q: { op: 'metrics', keyword: k.keyword.keyword, country: c },
-            keywordId: k.keywordId,
-          });
-          items.push({
-            q: { op: 'searchintent', keyword: k.keyword.keyword, country: c },
-            keywordId: k.keywordId,
-          });
+          groups.push([
+            {
+              q: { op: 'metrics', keyword: k.keyword.keyword, country: c },
+              keywordId: k.keywordId,
+            },
+            {
+              q: { op: 'searchintent', keyword: k.keyword.keyword, country: c },
+              keywordId: k.keywordId,
+            },
+          ]);
         }
         break;
     }
-    return items.slice(0, Math.max(1, maxItems));
+    return { groups, rotates };
+  }
+
+  /** Cuándo se consultó por última vez cada palabra (ms; nunca = sin entrada). */
+  private async lastQueried(
+    project: ProjectRow,
+    dataType: SeoSistrixDataType,
+    keywordIds: string[],
+  ): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (keywordIds.length === 0) return out;
+    const tenantId = poolOfProject(project);
+    if (dataType === 'serp') {
+      const rows = await this.admin.seoSerpResult.groupBy({
+        by: ['keywordId'],
+        where: { tenantId, keywordId: { in: keywordIds } },
+        _max: { fetchedAt: true },
+      });
+      for (const r of rows) if (r._max.fetchedAt) out.set(r.keywordId, r._max.fetchedAt.getTime());
+    } else {
+      const rows = await this.admin.seoKeywordMetric.groupBy({
+        by: ['keywordId'],
+        where: { tenantId, keywordId: { in: keywordIds } },
+        _max: { fetchedAt: true },
+      });
+      for (const r of rows) if (r._max.fetchedAt) out.set(r.keywordId, r._max.fetchedAt.getTime());
+    }
+    return out;
   }
 
   private get pauseDisabled(): boolean {
@@ -461,9 +584,43 @@ export class SistrixSyncService {
     const dataType = run.dataType as SeoSistrixDataType;
     const settings = await this.connections.settingsRow(pool);
 
+    // Lo que no puede servir el fondo (la visibilidad en IA solo existe en el MCP
+    // de la plataforma) no se queda esperando para siempre: se cierra con su motivo.
+    if (!sistrixPoolCanServe(pool, dataType)) {
+      return this.finish(
+        runId,
+        'cancelled',
+        'Este dato solo se puede pedir con la conexión de SISTRIX de la plataforma.',
+      );
+    }
+
     let progress = run.progress as unknown as RunProgress | null;
     if (!progress) {
-      progress = { items: await this.buildItems(project, dataType, settings.maxRequestsPerBatch) };
+      // Continúa por donde acabó la tanda anterior de este tipo.
+      const prev = await this.admin.seoSyncRun.findFirst({
+        where: { projectId: project.id, dataType, status: 'done', id: { not: runId } },
+        orderBy: { finishedAt: 'desc' },
+        select: { progress: true },
+      });
+      const prevProgress = prev?.progress as unknown as RunProgress | null;
+      const plan = await this.planItems(
+        project,
+        dataType,
+        settings.maxRequestsPerBatch,
+        prevProgress?.nextOffset ?? 0,
+      );
+      // Una vuelta puede tardar varias tandas: lo que falta es lo de la anterior
+      // menos lo que cabe en esta (o, al empezar vuelta, lo que no cabe).
+      const left =
+        (prevProgress?.remaining ?? 0) > 0
+          ? Math.max(0, prevProgress!.remaining! - plan.items.length)
+          : plan.remaining;
+      progress = {
+        items: plan.items,
+        total: plan.total,
+        remaining: left,
+        nextOffset: plan.nextOffset,
+      };
       await this.admin.seoSyncRun.update({
         where: { id: runId },
         data: { progress: progress as unknown as object, itemsTotal: progress.items.length },
@@ -483,10 +640,24 @@ export class SistrixSyncService {
     const route = await this.fetcher.route(pool);
     if (route.provider === 'sistrix_api') {
       const ok = await this.checkCredits(pool);
-      if (!ok) return this.wait(runId, 'api_budget', null);
+      if (ok === 'invalid_key') {
+        // Una clave mala no se reintenta cada hora: la tanda cae con el motivo y
+        // el programador no vuelve a lanzarla hasta que haya otra clave.
+        return this.finish(
+          runId,
+          'failed',
+          'SISTRIX no acepta la clave de API. Revísala en la configuración de SISTRIX.',
+        );
+      }
+      if (ok === 'no_credits') return this.wait(runId, 'api_budget', null);
     }
 
     const ttlBase = SEO_SISTRIX_CACHE_DAYS[dataType];
+    // Las programadas no reutilizan una respuesta tan vieja como el periodo de su
+    // frecuencia: poner «cada día» tiene que traer datos nuevos cada día.
+    const freqDays =
+      SEO_SYNC_FREQUENCY_DAYS[this.connections.frequenciesOf(settings.frequencies)[dataType]];
+    const scheduledMaxAgeMs = freqDays ? Math.max(1, freqDays * 24 - 3) * 3600_000 : null;
     const ctxBase = {
       pool,
       projectId: project.id,
@@ -494,7 +665,8 @@ export class SistrixSyncService {
       userId: run.createdByUserId,
       superAdminId: run.createdBySuperAdminId,
       ttlDays: ttlBase,
-      maxAgeMs: run.kind === 'manual' ? SEO_SISTRIX_MANUAL_CACHE_HOURS * 3600_000 : null,
+      maxAgeMs:
+        run.kind === 'manual' ? SEO_SISTRIX_MANUAL_CACHE_HOURS * 3600_000 : scheduledMaxAgeMs,
       maxPerDay: settings.maxRequestsPerDay,
     };
     let lastError: string | null = run.error;
@@ -508,7 +680,17 @@ export class SistrixSyncService {
       } catch (err) {
         res = { kind: 'error', code: null, message: (err as Error).message, provider: null };
       }
-      if (res.kind === 'wait') return this.wait(runId, res.reason, res.until);
+      if (res.kind === 'wait') {
+        // Lo que esta vía no puede servir no espera en bucle: se cierra.
+        if (res.reason === 'not_supported' && res.until === null) {
+          return this.finish(
+            runId,
+            'cancelled',
+            'Este dato no se puede pedir por la vía de SISTRIX que tienes conectada.',
+          );
+        }
+        return this.wait(runId, res.reason, res.until);
+      }
       let credits = 0;
       let provider: SeoProviderKey | null = null;
       if (res.kind === 'error') {
@@ -562,24 +744,28 @@ export class SistrixSyncService {
     }
   }
 
-  /** Saldo de la API (gratis) antes de una tanda; corta si no quedan créditos. */
-  async checkCredits(pool: SeoPool): Promise<boolean> {
+  /**
+   * Saldo de la API (gratis) antes de una tanda: `ok`, `no_credits` (se espera) o
+   * `invalid_key` (SISTRIX no acepta la clave: no se reintenta cada hora).
+   */
+  async checkCredits(pool: SeoPool): Promise<'ok' | 'no_credits' | 'invalid_key'> {
     const conn = await this.connections.find(pool, 'sistrix_api');
     const key = this.connections.apiKeyOf(conn);
-    if (!conn || !key) return false;
+    if (!conn || !key) return 'no_credits';
     try {
       const balance = await this.api.credits(key);
       await this.connections.update(conn.id, {
         creditsBalance: balance,
         creditsCheckedAt: new Date(),
+        lastError: null,
       });
-      return balance === null || balance > 0;
+      return balance === null || balance > 0 ? 'ok' : 'no_credits';
     } catch (err) {
       await this.connections.update(conn.id, {
         lastError: (err as Error).message,
         lastErrorAt: new Date(),
       });
-      return !(err instanceof SistrixDataError);
+      return err instanceof SistrixDataError ? 'invalid_key' : 'ok';
     }
   }
 

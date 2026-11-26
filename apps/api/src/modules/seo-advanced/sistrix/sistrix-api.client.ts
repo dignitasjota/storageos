@@ -5,6 +5,7 @@ import { SistrixDataError, SistrixTransientError } from './sistrix-errors';
 import {
   type McpToolResult,
   type SistrixPayload,
+  estimateApiCallCredits,
   parseApiCredits,
   parseApiResponse,
   parseMcpResult,
@@ -100,7 +101,14 @@ export class SistrixApiClient {
     params: Record<string, string>,
   ): Promise<SistrixApiResult> {
     if (this.simulated) return this.stubCall(apiKey, method, params);
-    return parseApiResponse(await this.request(apiKey, method, params));
+    const parsed = parseApiResponse(await this.request(apiKey, method, params));
+    // Si la respuesta no dice cuánto gastó, se asume lo estimado (nunca 0): el
+    // presupuesto no se puede quedar corto por no poder leer el coste.
+    const credits =
+      parsed.creditsKnown || parsed.payload.kind !== 'payload'
+        ? parsed.credits
+        : estimateApiCallCredits(method, params);
+    return { payload: parsed.payload, credits };
   }
 
   /** Saldo de créditos (el método `credits` no gasta). */
