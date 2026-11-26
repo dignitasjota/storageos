@@ -9895,6 +9895,8 @@ model SeoProject {
   technicalSettings         Json      @default("{}") @map("technical_settings")
   technicalUpdatedAt        DateTime? @map("technical_updated_at") @db.Timestamptz(6)
   pagespeedScheduledAt      DateTime? @map("pagespeed_scheduled_at") @db.Timestamptz(6)
+  /// Rastreador: semanal (día y hora), páginas como mucho, pausa y rutas excluidas (PR 10).
+  crawlSettings             Json      @default("{}") @map("crawl_settings")
 
   domains           SeoProjectDomain[]
   runs              SeoSyncRun[]
@@ -9913,6 +9915,9 @@ model SeoProject {
   reports           SeoReport[]
   urlInspections    SeoUrlInspection[]
   pagespeedRuns     SeoPageSpeedRun[]
+  crawls            SeoCrawl[]
+  crawlPages        SeoCrawlPage[]
+  crawlIssues       SeoCrawlIssue[]
 
   @@map("seo_projects")
 }
@@ -10897,4 +10902,129 @@ model SeoPageSpeedRun {
   @@index([projectId, urlKey, strategy, createdAt(sort: Desc)], map: "seo_pagespeed_runs_url_idx")
   @@index([tenantId], map: "seo_pagespeed_runs_tenant_idx")
   @@map("seo_pagespeed_runs")
+}
+
+/// Un rastreo de la web del proyecto (PR 10). Uno vivo como mucho por proyecto.
+model SeoCrawl {
+  id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId              String?   @map("tenant_id") @db.Uuid
+  projectId             String    @map("project_id") @db.Uuid
+  /// queued · running · done · failed · cancelled
+  status                String    @default("queued")
+  /// manual · scheduled
+  trigger               String    @default("manual")
+  startUrl              String    @map("start_url")
+  site                  Json      @default("{}")
+  pagesCrawled          Int       @default(0) @map("pages_crawled")
+  pagesFound            Int       @default(0) @map("pages_found")
+  errors                Int       @default(0)
+  /// max_pages · max_time
+  stopReason            String?   @map("stop_reason")
+  error                 String?
+  summary               Json?
+  robots                Json?
+  sitemaps              Json?
+  state                 Json      @default("{}")
+  heartbeatAt           DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+  startedAt             DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt            DateTime? @map("finished_at") @db.Timestamptz(6)
+  createdByUserId       String?   @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId String?   @map("created_by_super_admin_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pages   SeoCrawlPage[]
+
+  @@index([projectId, createdAt(sort: Desc)], map: "seo_crawls_project_idx")
+  @@index([tenantId], map: "seo_crawls_tenant_idx")
+  @@map("seo_crawls")
+}
+
+/// Una URL de un rastreo con sus datos clave (se conservan los 10 últimos rastreos).
+model SeoCrawlPage {
+  id               String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId         String?  @map("tenant_id") @db.Uuid
+  projectId        String   @map("project_id") @db.Uuid
+  crawlId          String   @map("crawl_id") @db.Uuid
+  url              String
+  urlKey           String   @map("url_key")
+  /// home · link · sitemap · gsc · finding · canonical
+  source           String   @default("link")
+  inScope          Boolean  @default(true) @map("in_scope")
+  status           Int?
+  finalStatus      Int?     @map("final_status")
+  finalUrl         String?  @map("final_url")
+  redirectChain    Json     @default("[]") @map("redirect_chain")
+  error            String?
+  responseMs       Int?     @map("response_ms")
+  contentType      String?  @map("content_type")
+  isHtml           Boolean  @default(false) @map("is_html")
+  robotsBlocked    Boolean  @default(false) @map("robots_blocked")
+  googleBlocked    Boolean  @default(false) @map("google_blocked")
+  robotsRule       String?  @map("robots_rule")
+  title            String?
+  description      String?
+  h1               String[] @default([])
+  canonical        String?
+  noindex          Boolean  @default(false)
+  nofollow         Boolean  @default(false)
+  hreflang         Json     @default("[]")
+  jsonLdTypes      String[] @default([]) @map("json_ld_types")
+  jsonLdInvalid    Int      @default(0) @map("json_ld_invalid")
+  imagesTotal      Int      @default(0) @map("images_total")
+  imagesWithoutAlt Int      @default(0) @map("images_without_alt")
+  links            String[] @default([])
+  linkKeys         String[] @default([]) @map("link_keys")
+  externalLinks    Int      @default(0) @map("external_links")
+  inSitemap        Boolean  @default(false) @map("in_sitemap")
+  impressions      Int      @default(0)
+  depth            Int?
+  inlinks          Int      @default(0)
+  issues           Int      @default(0)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  crawl   SeoCrawl   @relation(fields: [crawlId], references: [id], onDelete: Cascade)
+
+  @@unique([crawlId, urlKey], map: "seo_crawl_pages_crawl_url_key")
+  @@index([projectId, urlKey, createdAt(sort: Desc)], map: "seo_crawl_pages_url_idx")
+  @@index([tenantId], map: "seo_crawl_pages_tenant_idx")
+  @@map("seo_crawl_pages")
+}
+
+/// Incidencia del rastreador (una por tipo y URL) con su ciclo de vida.
+model SeoCrawlIssue {
+  id              String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String?   @map("tenant_id") @db.Uuid
+  projectId       String    @map("project_id") @db.Uuid
+  key             String
+  type            String
+  severity        String
+  url             String
+  urlKey          String    @map("url_key")
+  detail          String    @default("")
+  data            Json      @default("{}")
+  /// new · reviewed · fixed · ok
+  status          String    @default("new")
+  notes           String?
+  active          Boolean   @default(true)
+  firstSeenAt     DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt      DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(6)
+  returnedAt      DateTime? @map("returned_at") @db.Timestamptz(6)
+  firstCrawlId    String?   @map("first_crawl_id") @db.Uuid
+  lastCrawlId     String?   @map("last_crawl_id") @db.Uuid
+  appearedCrawlId String?   @map("appeared_crawl_id") @db.Uuid
+  resolvedCrawlId String?   @map("resolved_crawl_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, key], map: "seo_crawl_issues_key")
+  @@index([projectId, active, severity], map: "seo_crawl_issues_open_idx")
+  @@index([projectId, urlKey], map: "seo_crawl_issues_url_idx")
+  @@index([tenantId], map: "seo_crawl_issues_tenant_idx")
+  @@map("seo_crawl_issues")
 }

@@ -210,7 +210,24 @@ export interface SeoReportContentDto {
   alerts: { type: SeoAlertType; severity: SeoAlertSeverity; title: string; status: string }[];
   /** Inspección de URL y velocidad (PR 9) del periodo; null si no se hizo nada. */
   technical?: SeoReportTechnicalDto | null;
+  /** Último rastreo de la web hasta el final del periodo (PR 10); null si no hay. */
+  crawl?: SeoReportCrawlDto | null;
   highlights: string[];
+}
+
+/** Resumen del último rastreo (PR 10). */
+export interface SeoReportCrawlDto {
+  finishedAt: string;
+  pages: number;
+  /** Incidencias que siguen abiertas, por gravedad. */
+  high: number;
+  medium: number;
+  low: number;
+  /** Nuevas y resueltas frente al rastreo anterior. */
+  newIssues: number;
+  resolvedIssues: number;
+  /** Páginas que dan error. */
+  errors: number;
 }
 
 /** Lo inspeccionado y medido en el periodo (PR 9). */
@@ -313,6 +330,16 @@ export function seoReportHighlights(c: Omit<SeoReportContentDto, 'highlights'>):
       tech.slowUrls === 1
         ? 'Hay 1 página lenta en el móvil: mira las mejoras sugeridas en «Velocidad».'
         : `Hay ${seoFmtInt(tech.slowUrls)} páginas lentas en el móvil: mira las mejoras sugeridas en «Velocidad».`,
+    );
+  }
+  const crawl = c.crawl;
+  if (crawl) {
+    out.push(
+      `Último rastreo de la web: ${seoFmtInt(crawl.pages)} páginas, ${seoFmtInt(crawl.high)} incidencias graves abiertas${
+        crawl.newIssues > 0 || crawl.resolvedIssues > 0
+          ? ` (${seoFmtInt(crawl.newIssues)} nuevas y ${seoFmtInt(crawl.resolvedIssues)} resueltas frente al anterior)`
+          : ''
+      }${crawl.errors > 0 ? `; ${seoFmtInt(crawl.errors)} páginas dan error` : ''}.`,
     );
   }
   const open = c.alerts.filter((a) => a.status === 'open');
