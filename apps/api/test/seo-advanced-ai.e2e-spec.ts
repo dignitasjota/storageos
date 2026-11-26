@@ -240,7 +240,7 @@ describe('SEO Avanzado: asistente y borradores de contenido (e2e, IA simulada)',
       await db.seoSerpResult.createMany({
         data: [1, 2].map((position) => ({
           keywordId,
-          country: 'ES',
+          country: 'es',
           provider: 'sistrix_mcp',
           sampleDate: asDate(LAST),
           position,

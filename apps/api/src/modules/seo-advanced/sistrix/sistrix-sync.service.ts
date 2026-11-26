@@ -701,7 +701,8 @@ export class SistrixSyncService {
           await this.store(project, pool, item, res);
           item.status = 'done';
           credits = res.credits;
-          provider = res.provider;
+          // Una respuesta de la caché no cambia por quién se sirvió la tanda.
+          provider = res.fromCache ? null : res.provider;
         } catch (err) {
           item.status = 'failed';
           lastError = `No se pudo guardar: ${(err as Error).message}`;

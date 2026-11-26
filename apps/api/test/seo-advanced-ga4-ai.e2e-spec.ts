@@ -532,6 +532,24 @@ describe('SEO Avanzado: Google Analytics y visibilidad en IA (e2e, simulado)', (
         },
       }),
     );
+    // La última tanda terminó bien y sin consultas fallidas (si no, no se compara).
+    await withAdminDb((db) =>
+      db.seoSyncRun.create({
+        data: {
+          projectId,
+          tenantId: null,
+          provider: 'sistrix_mcp',
+          kind: 'manual',
+          status: 'done',
+          dataType: 'ai_visibility',
+          itemsTotal: 1,
+          itemsDone: 1,
+          itemsFailed: 0,
+          startedAt: new Date(),
+          finishedAt: new Date(),
+        },
+      }),
+    );
     await app.get(SeoAlertsService).evaluate(projectId);
     const alert = await withAdminDb((db) =>
       db.seoAlert.findFirst({ where: { projectId, type: 'ai_visibility_lost', status: 'open' } }),
