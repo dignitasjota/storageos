@@ -765,6 +765,8 @@ function WaitlistSection({ slug }: { slug: string }) {
           contactEmail: form.contactEmail.trim().toLowerCase(),
           ...(form.contactPhone.trim() ? { contactPhone: form.contactPhone.trim() } : {}),
           website,
+          // De dónde vino y su primera página (las de Google cuentan en SEO Avanzado).
+          ...trafficSourceToUtm(currentTrafficSource(slug)),
         },
       });
       setDone(true);

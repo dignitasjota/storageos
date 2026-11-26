@@ -14,6 +14,9 @@ import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-car
 import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoPlanCard } from '@/components/seo/plan/plan-card';
+import { SeoAlertsCard } from '@/components/seo/reports/alerts-card';
+import { SeoConversionsCard } from '@/components/seo/reports/conversions-card';
+import { SeoReportsCard } from '@/components/seo/reports/reports-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SeoImportsCard } from '@/components/seo/seo-imports-card';
@@ -175,6 +178,14 @@ export default function AdminSeoProjectPage() {
         planScope={{ kind: 'admin', projectId: p.id }}
       />
 
+      <SeoConversionsCard
+        scope={{ kind: 'admin', projectId: p.id }}
+        canEdit={canEdit}
+        isPlatformProject={!isTenant}
+      />
+
+      <SeoAlertsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+
       <SeoOpportunitiesCard
         scope={{ kind: 'admin', projectId: p.id }}
         canEdit={canEdit}
@@ -192,6 +203,8 @@ export default function AdminSeoProjectPage() {
         canEdit={canEdit}
         domains={p.domains}
       />
+
+      <SeoReportsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
 
       <SeoDomainsCard
         project={p}
