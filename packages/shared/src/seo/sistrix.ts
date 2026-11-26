@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { normalizeSeoPathPrefix } from './improvements';
+
 /**
  * SEO Avanzado, PR 3: proveedores de datos y SISTRIX.
  *
@@ -321,10 +323,30 @@ const domainField = z
     return d;
   });
 
+/** Directorio del competidor que se analiza («competidor.es/valencia/»): vacío = todo el dominio. */
+const pathPrefixField = z
+  .string()
+  .trim()
+  .max(200)
+  .nullable()
+  .transform((v, ctx) => {
+    if (v === null || v.trim() === '') return null;
+    const p = normalizeSeoPathPrefix(v);
+    if (!p) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Escribe la ruta del directorio, por ejemplo /valencia/.',
+      });
+      return z.NEVER;
+    }
+    return p;
+  });
+
 export const CreateSeoCompetitorSchema = z.object({
   domain: domainField,
   name: z.string().trim().max(120).nullable().optional(),
   notes: z.string().trim().max(1000).nullable().optional(),
+  pathPrefix: pathPrefixField.optional(),
 });
 export type CreateSeoCompetitorInput = z.infer<typeof CreateSeoCompetitorSchema>;
 
@@ -333,6 +355,7 @@ export const UpdateSeoCompetitorSchema = z
     name: z.string().trim().max(120).nullable(),
     notes: z.string().trim().max(1000).nullable(),
     isActive: z.boolean(),
+    pathPrefix: pathPrefixField,
   })
   .partial();
 export type UpdateSeoCompetitorInput = z.infer<typeof UpdateSeoCompetitorSchema>;
@@ -547,6 +570,8 @@ export interface SeoCompetitorDto {
   name: string | null;
   notes: string | null;
   isActive: boolean;
+  /** Directorio que se analiza (null = todo el dominio). */
+  pathPrefix: string | null;
   source: 'manual' | 'discovered' | 'master';
   createdAt: string;
   /** Si lo creó un maestro: cuándo se importó. */
@@ -614,6 +639,8 @@ export interface SeoSerpResultDto {
   position: number;
   domain: string;
   url: string;
+  /** Título del resultado (si el proveedor lo dio al guardarlo). */
+  title: string | null;
   own: boolean;
   competitor: boolean;
 }

@@ -395,6 +395,8 @@ export interface SerpRow {
   position: number;
   domain: string;
   url: string;
+  /** Título del resultado, si la respuesta lo trae. */
+  title?: string;
 }
 
 /** Resultados de Google de una palabra. */
@@ -405,7 +407,13 @@ export function normalizeSerp(value: unknown): SerpRow[] {
     const position = int(r.position ?? r.pos);
     const domain = str(r.domain);
     if (position === null || !domain) continue;
-    out.push({ position, domain: domain.toLowerCase(), url: str(r.url) ?? '' });
+    const title = str(r.title);
+    out.push({
+      position,
+      domain: domain.toLowerCase(),
+      url: str(r.url) ?? '',
+      ...(title ? { title: title.slice(0, 300) } : {}),
+    });
   }
   return out.sort((a, b) => a.position - b.position);
 }
