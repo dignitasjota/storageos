@@ -92,7 +92,15 @@ export const SEO_CONVERSION_QUERIES_MAX = 20;
  * La web de un negocio en la dirección de la plataforma (`/s/<negocio>/…`)
  * cuenta como su propia ruta. Vacío = no se sabe.
  */
-export function seoLandingKey(raw: string | null | undefined): string {
+export function seoLandingKey(
+  raw: string | null | undefined,
+  /**
+   * En el proyecto de la plataforma, `/s/<negocio>/…` son las webs de OTROS
+   * negocios dentro de trasteros.pro: no se confunden con la portada ni con
+   * `/precios` de la plataforma.
+   */
+  keepBusinessPrefix = false,
+): string {
   const s = raw?.trim();
   if (!s) return '';
   const normalized = normalizeSeoUrl(s.startsWith('/') ? s : /^[a-z]+:\/\//i.test(s) ? s : `/${s}`);
@@ -100,13 +108,16 @@ export function seoLandingKey(raw: string | null | undefined): string {
   let path = slash >= 0 ? normalized.slice(slash) : '/';
   const q = path.indexOf('?');
   if (q >= 0) path = path.slice(0, q);
-  path = path.replace(/^\/s\/[^/]+(?=\/|$)/, '') || '/';
+  if (!keepBusinessPrefix) path = path.replace(/^\/s\/[^/]+(?=\/|$)/, '') || '/';
   return path.slice(0, 300);
 }
 
+/** Rutas de la plataforma que son de otros: las webs de los negocios y sus flujos públicos. */
+export const SEO_PLATFORM_FOREIGN_PATH_RE = '^https?://[^/]+/(s|book|sign|portal)(/|$)';
+
 /** Clave de una página de Search Console (URL completa) para cruzarla con la de entrada. */
-export function seoPageLandingKey(page: string): string {
-  return seoLandingKey(splitSeoUrl(page).path);
+export function seoPageLandingKey(page: string, keepBusinessPrefix = false): string {
+  return seoLandingKey(splitSeoUrl(page).path, keepBusinessPrefix);
 }
 
 export interface SeoConversionRanges {

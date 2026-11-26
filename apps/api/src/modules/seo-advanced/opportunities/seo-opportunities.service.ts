@@ -74,14 +74,19 @@ export function parseSeoOpportunityQuery(
           .map((v) => v.trim())
           .filter((v): v is T => (allowed as readonly string[]).includes(v))
       : undefined;
-  const num = (v: string | undefined) => (v !== undefined && v !== '' ? Number(v) : undefined);
+  const num = (v: string | undefined) => {
+    const n = v !== undefined && v !== '' ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const uuid = (v: string | undefined) =>
+    v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : undefined;
   const sort = q.sort === 'detected' || q.sort === 'updated' ? q.sort : 'score';
   return {
     types: list(q.type, SEO_OPPORTUNITY_TYPES),
     statuses: list(q.status, SEO_OPPORTUNITY_STATUSES),
     minScore: num(q.minScore),
     search: q.search?.trim() || undefined,
-    domainId: q.domainId || undefined,
+    domainId: uuid(q.domainId),
     sort,
     offset: num(q.offset),
     limit: num(q.limit),

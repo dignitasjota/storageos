@@ -312,7 +312,8 @@ export class SeoGa4Service {
       for (let from = start; from <= end; from = shiftDate(from, CHUNK_DAYS)) {
         const to = [shiftDate(from, CHUNK_DAYS - 1), end].sort()[0]!;
         const raw = await this.client.organicLandingRows(p.ga4PropertyId, from, to);
-        const normalized = normalizeSeoGa4Rows(raw);
+        // En el proyecto de la plataforma, `/s/<negocio>` son webs de otros: se queda su ruta entera.
+        const normalized = normalizeSeoGa4Rows(raw, p.tenantId === null);
         rows += normalized.length;
         await this.admin.$transaction(
           async (tx) => {
@@ -510,7 +511,7 @@ export class SeoGa4Service {
     ]);
     const items = crossSeoPagePerformance({
       gsc: gscRows.map((r) => ({
-        landing: seoPageLandingKey(r.page),
+        landing: seoPageLandingKey(r.page, p.tenantId === null),
         clicks: Number(r.c),
         impressions: Number(r.i),
         weightedPosition: Number(r.w),
@@ -551,7 +552,10 @@ export class SeoGa4Service {
     days = 90,
   ): Promise<SeoGa4PageDetailDto> {
     const p = await this.projects.resolveProject(owner, projectId);
-    const landing = /^[a-z]+:\/\//i.test(url.trim()) ? seoPageLandingKey(url) : seoLandingKey(url);
+    const keep = p.tenantId === null;
+    const landing = /^[a-z]+:\/\//i.test(url.trim())
+      ? seoPageLandingKey(url, keep)
+      : seoLandingKey(url, keep);
     const last = await this.lastDates(p, []);
     const to = last.ga4 ?? shiftDate(today(), -1);
     const from = shiftDate(to, -(Math.max(1, Math.min(days, 486)) - 1));
@@ -618,6 +622,8 @@ export class SeoGa4Service {
     projectId: string,
     period: { from: string; to: string },
     queryPages: Map<string, string>,
+    /** Proyecto de la plataforma: `/s/<negocio>` no se suma a sus páginas. */
+    keepBusinessPrefix = false,
   ): Promise<Record<string, SeoPageEngagementStat>> {
     if (queryPages.size === 0) return {};
     const rows = await this.admin.$queryRaw<{ landing: string; s: number; e: number }[]>(Prisma.sql`
@@ -628,7 +634,7 @@ export class SeoGa4Service {
     const byLanding = new Map(rows.map((r) => [r.landing, r]));
     const out: Record<string, SeoPageEngagementStat> = {};
     for (const [query, page] of queryPages) {
-      const r = byLanding.get(seoPageLandingKey(page));
+      const r = byLanding.get(seoPageLandingKey(page, keepBusinessPrefix));
       if (r && Number(r.s) > 0) {
         out[normalizeSeoKeyword(query)] = {
           sessions: Number(r.s),

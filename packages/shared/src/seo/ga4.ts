@@ -148,11 +148,15 @@ const hostOf = (raw: string) =>
  * acaban en la misma página y día (p. ej. `/precios?utm=…` y `/precios`) se
  * suman. «(not set)» y vacías quedan como `''` (no se sabe).
  */
-export function normalizeSeoGa4Rows(rows: readonly SeoGa4LandingRowInput[]): SeoGa4StoredRow[] {
+export function normalizeSeoGa4Rows(
+  rows: readonly SeoGa4LandingRowInput[],
+  /** Proyecto de la plataforma: `/s/<negocio>` no se suma a las páginas propias. */
+  keepBusinessPrefix = false,
+): SeoGa4StoredRow[] {
   const out = new Map<string, SeoGa4StoredRow>();
   for (const r of rows) {
     const raw = r.landing.trim();
-    const landingPath = !raw || raw === '(not set)' ? '' : seoLandingKey(raw);
+    const landingPath = !raw || raw === '(not set)' ? '' : seoLandingKey(raw, keepBusinessPrefix);
     const host = r.host === '(not set)' ? '' : hostOf(r.host);
     const key = `${r.date}|${host}|${landingPath}`;
     const prev = out.get(key) ?? {

@@ -42,6 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useMe } from '@/lib/auth/hooks';
 import { formatDate } from '@/lib/format';
 import { useOpportunityAssignees } from '@/lib/seo-advanced/opportunity-hooks';
 import {
@@ -158,23 +159,28 @@ function Board({
   tasks,
   today,
   canEdit,
+  myId,
   onOpen,
   onMove,
 }: {
   tasks: SeoTaskDto[];
   today: string;
   canEdit: boolean;
+  /** La persona que mira el tablero (null en el panel admin). */
+  myId: string | null;
   onOpen: (t: SeoTaskDto) => void;
   onMove: (t: SeoTaskDto, status: SeoTaskStatus, index: number) => void;
 }) {
   const [dragging, setDragging] = useState<SeoTaskDto | null>(null);
+  // El responsable de una tarea la mueve aunque no pueda editar el plan.
+  const movable = (t: SeoTaskDto) => canEdit || (!!myId && t.assignedToId === myId);
   const columns = SEO_TASK_BOARD_STATUSES.map((status) => ({
     status,
     items: tasks.filter((t) => t.status === status).sort((a, b) => a.position - b.position),
   }));
   const cancelled = tasks.filter((t) => t.status === 'cancelled').length;
   const drop = (status: SeoTaskStatus, index: number) => {
-    if (!dragging) return;
+    if (!dragging || !movable(dragging)) return;
     onMove(dragging, status, index);
     setDragging(null);
   };
@@ -186,7 +192,7 @@ function Board({
             key={col.status}
             aria-label={SEO_TASK_STATUS_LABELS[col.status]}
             className="min-w-0 space-y-2 rounded-lg bg-muted/40 p-2"
-            onDragOver={(e) => canEdit && e.preventDefault()}
+            onDragOver={(e) => dragging && movable(dragging) && e.preventDefault()}
             onDrop={() => drop(col.status, col.items.length)}
           >
             <h3 className="flex items-center justify-between px-1 text-sm font-medium">
@@ -199,7 +205,7 @@ function Board({
             {col.items.map((t, i) => (
               <div
                 key={t.id}
-                onDragOver={(e) => canEdit && e.preventDefault()}
+                onDragOver={(e) => dragging && movable(dragging) && e.preventDefault()}
                 onDrop={(e) => {
                   e.stopPropagation();
                   drop(col.status, i);
@@ -208,7 +214,7 @@ function Board({
                 <TaskCard
                   task={t}
                   today={today}
-                  canEdit={canEdit}
+                  canEdit={movable(t)}
                   onOpen={() => onOpen(t)}
                   onDragStart={() => setDragging(t)}
                   onStatus={(s) => onMove(t, s, Number.MAX_SAFE_INTEGER)}
@@ -478,6 +484,7 @@ export function SeoTasksPanel({
   const filters: TaskFilters = { type, assignedTo, search };
   const tasks = useSeoTasks(scope, filters);
   const move = useMoveSeoTask(scope);
+  const me = useMe({ enabled: scope.kind === 'tenant' });
   const items = tasks.data?.items ?? [];
   const today = tasks.data?.today ?? '';
 
@@ -614,6 +621,7 @@ export function SeoTasksPanel({
           tasks={items}
           today={today}
           canEdit={canEdit}
+          myId={me.data?.user.id ?? null}
           onOpen={setEditing}
           onMove={(t, s, i) => void onMove(t, s, i)}
         />

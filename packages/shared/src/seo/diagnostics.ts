@@ -268,6 +268,38 @@ export function seoDailyWinners(
     });
 }
 
+/**
+ * La página ganadora de los días en que de verdad hay una: la única que sale o la
+ * que saca al menos el doble de impresiones que la segunda. Un día en que dos
+ * páginas salen a la vez y casi empatadas no es una «alternancia»: es
+ * convivencia (dos resultados propios en la misma búsqueda).
+ */
+export function seoClearDailyWinners(
+  rows: readonly SeoDailyPageRow[],
+  keys: ReadonlySet<string>,
+): { date: string; page: string }[] {
+  const byDate = new Map<string, Map<string, { page: string; i: number; c: number }>>();
+  for (const r of rows) {
+    if (r.impressions <= 0) continue;
+    const key = normalizeSeoUrl(r.page);
+    if (!keys.has(key)) continue;
+    const day = byDate.get(r.date) ?? new Map();
+    const g = day.get(key) ?? { page: r.page, i: 0, c: 0 };
+    g.i += r.impressions;
+    g.c += r.clicks;
+    day.set(key, g);
+    byDate.set(r.date, day);
+  }
+  const out: { date: string; page: string }[] = [];
+  for (const [date, day] of [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const sorted = [...day.values()].sort((a, b) => b.i - a.i || b.c - a.c);
+    const first = sorted[0]!;
+    const second = sorted[1];
+    if (!second || first.i >= second.i * 2) out.push({ date, page: first.page });
+  }
+  return out;
+}
+
 /** Los días en que cambia la página que más sale (comparando URL normalizadas). */
 export function seoPageChanges(
   winners: readonly { date: string; page: string }[],
@@ -456,7 +488,9 @@ export function analyzeSeoCannibalization(input: {
 
   const relevantKeys = new Set(relevant.map((p) => p.key));
   const timeline = seoDailyWinners(input.daily);
-  const changes = seoPageChanges(timeline);
+  // La alternancia solo cuenta entre días con una ganadora clara: dos páginas que
+  // salen a la vez cada día son convivencia, no un conflicto.
+  const changes = seoPageChanges(seoClearDailyWinners(input.daily, relevantKeys));
   const switches = changes.length;
   const alternating = switches >= t.minSwitches;
   const targetKey = input.targetUrl ? normalizeSeoUrl(input.targetUrl) : null;
@@ -483,7 +517,7 @@ export function analyzeSeoCannibalization(input: {
   }
   const stableSwitch =
     !alternating &&
-    switches >= 1 &&
+    seoPageChanges(timeline).length >= 1 &&
     trailing >= 7 &&
     !!last &&
     !sameSeoUrl(timeline[0]!.page, last.page);

@@ -5,6 +5,7 @@ import {
   SEO_CONVERSIONS_DAILY_DAYS,
   SEO_CONVERSIONS_RECALC_DAYS,
   SEO_CONVERSION_PAGES_MAX,
+  SEO_PLATFORM_FOREIGN_PATH_RE,
   SEO_CONVERSION_MIN_CLICKS,
   SEO_PLATFORM_CONVERSION_TYPES,
   SEO_PRIMARY_CONVERSION_TYPES,
@@ -26,6 +27,7 @@ import {
 
 import { todayInTimezone } from '../../../common/format';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { syncedUntilOf } from '../seo-coverage';
 import { SeoProjectsService, type SeoOwner } from '../seo-projects.service';
 
 import { seoProjectEligible } from './seo-eligible';
@@ -324,8 +326,23 @@ export class SeoConversionsService {
 
   // -------------------------------------------------------------- lectura
 
-  private async siteClicks(domainIds: string[], from: string, to: string): Promise<number> {
+  private async siteClicks(
+    domainIds: string[],
+    from: string,
+    to: string,
+    platform = false,
+  ): Promise<number> {
     if (domainIds.length === 0) return 0;
+    // En la plataforma, los clics a las webs de los negocios (`/s/…`) y a sus
+    // flujos públicos no son clics de trasteros.pro: se suman las páginas propias.
+    if (platform) {
+      const [p] = await this.admin.$queryRaw<{ c: number | null }[]>(Prisma.sql`
+        SELECT SUM(clicks)::float8 AS c FROM seo_gsc_metrics
+        WHERE domain_id = ANY(${domainIds}::uuid[]) AND grain = 'page'
+          AND date BETWEEN ${from}::date AND ${to}::date
+          AND page !~ ${SEO_PLATFORM_FOREIGN_PATH_RE}`);
+      return Number(p?.c ?? 0);
+    }
     const [r] = await this.admin.$queryRaw<{ c: number | null }[]>(Prisma.sql`
       SELECT SUM(clicks)::float8 AS c FROM seo_gsc_metrics
       WHERE domain_id = ANY(${domainIds}::uuid[]) AND grain = 'site'
@@ -396,15 +413,24 @@ export class SeoConversionsService {
         this.counts(projectId, ranges.previousFrom, ranges.previousTo),
         rr ? this.counts(projectId, rr.from, rr.to) : none,
         rr ? this.counts(projectId, rr.previousFrom, rr.previousTo) : none,
-        rr ? this.siteClicks(domainIds, rr.from, rr.to) : Promise.resolve(0),
-        rr ? this.siteClicks(domainIds, rr.previousFrom, rr.previousTo) : Promise.resolve(0),
+        rr ? this.siteClicks(domainIds, rr.from, rr.to, scope === 'platform') : Promise.resolve(0),
+        rr
+          ? this.siteClicks(domainIds, rr.previousFrom, rr.previousTo, scope === 'platform')
+          : Promise.resolve(0),
         rr ? days(rr.from, rr.to) : Promise.resolve(0),
         rr ? days(rr.previousFrom, rr.previousTo) : Promise.resolve(0),
       ],
     );
+    const syncedUntil = await syncedUntilOf(this.admin, domainIds);
     const complete =
       !!rr &&
-      seoPeriodCovered({ firstDate: first, from: rr.from, to: rr.to, daysWithData: curDays });
+      seoPeriodCovered({
+        firstDate: first,
+        from: rr.from,
+        to: rr.to,
+        daysWithData: curDays,
+        syncedUntil,
+      });
     const comparable =
       complete &&
       !!rr &&
@@ -413,6 +439,7 @@ export class SeoConversionsService {
         from: rr.previousFrom,
         to: rr.previousTo,
         daysWithData: prevDays,
+        syncedUntil,
       });
 
     const typeList =
@@ -468,7 +495,10 @@ export class SeoConversionsService {
       if (!isPrimary(r.type)) continue;
       rateByPage.set(r.landing, (rateByPage.get(r.landing) ?? 0) + Number(r.n));
     }
-    const pageClicks = rr ? await this.pageClicks(domainIds, rr.from, rr.to) : new Map();
+    const keepPrefix = scope === 'platform';
+    const pageClicks = rr
+      ? await this.pageClicks(domainIds, rr.from, rr.to, keepPrefix)
+      : new Map();
     for (const [key, c] of pageClicks) {
       const p = pageMap.get(key);
       if (p) p.clicks = c;
@@ -498,6 +528,7 @@ export class SeoConversionsService {
             rr.from,
             rr.to,
             pages.filter((p) => p.landing && p.conversions > 0).map((p) => p.landing),
+            keepPrefix,
           ),
         )
       : [];
@@ -532,7 +563,7 @@ export class SeoConversionsService {
   }
 
   /** Clics de Google por página de entrada (todas las del proyecto, por ruta). */
-  private async pageClicks(domainIds: string[], from: string, to: string) {
+  private async pageClicks(domainIds: string[], from: string, to: string, keepPrefix = false) {
     const out = new Map<string, number>();
     if (domainIds.length === 0) return out;
     const rows = await this.admin.$queryRaw<{ page: string; c: number }[]>(Prisma.sql`
@@ -541,14 +572,20 @@ export class SeoConversionsService {
         AND date BETWEEN ${from}::date AND ${to}::date
       GROUP BY page`);
     for (const r of rows) {
-      const key = seoPageLandingKey(r.page);
+      const key = seoPageLandingKey(r.page, keepPrefix);
       out.set(key, (out.get(key) ?? 0) + Number(r.c));
     }
     return out;
   }
 
   /** Clics por búsqueda y página (cruce `query_page`) de las páginas que convierten. */
-  private async queryPageClicks(domainIds: string[], from: string, to: string, keys: string[]) {
+  private async queryPageClicks(
+    domainIds: string[],
+    from: string,
+    to: string,
+    keys: string[],
+    keepPrefix = false,
+  ) {
     if (domainIds.length === 0 || keys.length === 0) return [];
     const rows = await this.admin.$queryRaw<
       { query: string; page: string; c: number }[]
@@ -561,7 +598,11 @@ export class SeoConversionsService {
       LIMIT 5000`);
     const wanted = new Set(keys);
     return rows
-      .map((r) => ({ query: r.query, pageKey: seoPageLandingKey(r.page), clicks: Number(r.c) }))
+      .map((r) => ({
+        query: r.query,
+        pageKey: seoPageLandingKey(r.page, keepPrefix),
+        clicks: Number(r.c),
+      }))
       .filter((r) => wanted.has(r.pageKey));
   }
 
@@ -592,6 +633,8 @@ export class SeoConversionsService {
     domainId: string,
     period: { from: string; to: string },
     queryPages: Map<string, string>,
+    /** Proyecto de la plataforma: `/s/<negocio>` no se suma a sus páginas. */
+    keepBusinessPrefix = false,
   ): Promise<Record<string, SeoPageConversionStat>> {
     const conv = await this.admin.$queryRaw<{ landing: string; n: number }[]>(Prisma.sql`
       SELECT landing_path AS landing, SUM(count)::int AS n FROM seo_conversions_daily
@@ -601,10 +644,10 @@ export class SeoConversionsService {
       GROUP BY landing_path`);
     if (conv.length === 0) return {};
     const byLanding = new Map(conv.map((c) => [c.landing, Number(c.n)]));
-    const clicks = await this.pageClicks([domainId], period.from, period.to);
+    const clicks = await this.pageClicks([domainId], period.from, period.to, keepBusinessPrefix);
     const out: Record<string, SeoPageConversionStat> = {};
     for (const [query, page] of queryPages) {
-      const key = seoPageLandingKey(page);
+      const key = seoPageLandingKey(page, keepBusinessPrefix);
       const n = byLanding.get(key);
       const c = clicks.get(key) ?? 0;
       if (n && n > 0 && c >= SEO_CONVERSION_MIN_CLICKS) {
