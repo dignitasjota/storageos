@@ -11,6 +11,7 @@ import { SeoDiagnosticsEngineService } from './diagnostics/seo-diagnostics-engin
 import { SeoOpportunityEngineService } from './opportunities/seo-opportunity-engine.service';
 import { SeoOpportunityScheduler } from './opportunities/seo-opportunity-scheduler';
 import { SeoPlanCron } from './plan/seo-plan.cron';
+import { SeoSiteChangesService } from './plan/seo-site-changes.service';
 import { SeoTaskNoticesService } from './plan/seo-task-notices.service';
 import {
   GscSeoProvider,
@@ -19,6 +20,10 @@ import {
   SistrixApiProvider,
   SistrixMcpProvider,
 } from './providers/seo-data-provider';
+import { SeoAlertsService } from './reports/seo-alerts.service';
+import { SeoConversionsService } from './reports/seo-conversions.service';
+import { SeoReportsCron } from './reports/seo-reports.cron';
+import { SeoReportsService } from './reports/seo-reports.service';
 import { SeoGscSyncService } from './seo-gsc-sync.service';
 import { SeoGscCron } from './seo-gsc.cron';
 import { SeoGscProcessor } from './seo-gsc.processor';
@@ -43,7 +48,8 @@ import type { Env } from '../../config/env.schema';
  * la plataforma y de los tenants con el extra, y SISTRIX (MCP de la plataforma
  * y API clásica) con su arquitectura de proveedores y sus tandas, el motor
  * de oportunidades y el diagnóstico (canibalización e indexación), que se
- * recalculan tras cada descarga, y los avisos de las tareas SEO del plan. Las colas
+ * recalculan tras cada descarga, los avisos de las tareas SEO del plan y, de la
+ * PR 8, las conversiones de Google, las alertas y los informes. Las colas
  * `seo` y `seo-sistrix` y las tareas programadas corren en el worker
  * (`WORKERS_ENABLED_IN_API`). Las rutas, el panel, la importación de Excel y
  * el OAuth de SISTRIX van en `SeoAdvancedHttpModule` (solo en el API: el
@@ -79,8 +85,12 @@ import type { Env } from '../../config/env.schema';
     SeoOpportunityEngineService,
     SeoDiagnosticsEngineService,
     SeoTaskNoticesService,
+    SeoSiteChangesService,
+    SeoConversionsService,
+    SeoAlertsService,
+    SeoReportsService,
     ...(WORKERS_ENABLED_IN_API
-      ? [SeoGscProcessor, SeoGscCron, SistrixProcessor, SistrixCron, SeoPlanCron]
+      ? [SeoGscProcessor, SeoGscCron, SistrixProcessor, SistrixCron, SeoPlanCron, SeoReportsCron]
       : []),
   ],
   exports: [
@@ -96,6 +106,10 @@ import type { Env } from '../../config/env.schema';
     SeoOpportunityEngineService,
     SeoDiagnosticsEngineService,
     SeoTaskNoticesService,
+    SeoSiteChangesService,
+    SeoConversionsService,
+    SeoAlertsService,
+    SeoReportsService,
   ],
 })
 export class SeoAdvancedModule {}

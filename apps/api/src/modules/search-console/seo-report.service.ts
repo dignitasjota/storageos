@@ -17,6 +17,8 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { JOB_EMAIL_SEND, QUEUE_EMAIL } from '../queues/queue-names';
 
+import { seoAdvancedReplaces } from './seo-advanced-overlap';
+
 import type { Env } from '../../config/env.schema';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -218,6 +220,8 @@ export class SeoReportService {
     let sent = 0;
     for (const { tenantId } of rows) {
       if (!(await tenantHasFeature(this.admin, tenantId, 'local_seo'))) continue;
+      // Con SEO Avanzado le llega su informe (que incluye esto): no dos.
+      if (await seoAdvancedReplaces(this.admin, tenantId, 'monthly_report')) continue;
       try {
         if ((await this.send(tenantId)).recipients > 0) sent += 1;
       } catch (err) {

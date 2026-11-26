@@ -148,6 +148,18 @@ export class AuthService {
       trialDays: TRIAL_DAYS,
       emailVerified: false,
     });
+    // De dónde vino el alta y por qué página entró (SEO Avanzado cuenta las de Google).
+    if (input.utmSource || input.landingPath) {
+      await this.admin.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          signupUtmSource: input.utmSource?.trim() || null,
+          signupUtmMedium: input.utmMedium?.trim() || null,
+          signupUtmCampaign: input.utmCampaign?.trim() || null,
+          signupLandingPath: input.landingPath?.trim() || null,
+        },
+      });
+    }
     const termsHash = await this.acceptedTermsHash();
     await this.admin.user.update({
       where: { id: user.id },

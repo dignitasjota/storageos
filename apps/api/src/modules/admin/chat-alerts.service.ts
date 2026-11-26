@@ -8,6 +8,10 @@ import {
   PLATFORM_CONTACT_RECEIVED,
   type PlatformContactReceivedEvent,
 } from '../platform-contact/platform-contact.service';
+import {
+  SEO_PLATFORM_ALERT_EVENT,
+  type SeoPlatformAlertEvent,
+} from '../seo-advanced/reports/seo-alert-events';
 
 import { AdminActivityService } from './admin-activity.service';
 import { AdminTodayService } from './admin-today.service';
@@ -153,6 +157,23 @@ export class ChatAlertsService {
       );
     } catch (err) {
       this.logger.warn(`Aviso de contacto: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /** Alerta nueva de un proyecto SEO de la plataforma (SEO Avanzado, PR 8). */
+  @OnEvent(SEO_PLATFORM_ALERT_EVENT, { async: true })
+  async onSeoAlert(e: SeoPlatformAlertEvent): Promise<void> {
+    try {
+      await this.send(
+        [
+          `TrasterOS · SEO (${e.projectName}): ${e.title}`,
+          e.message.slice(0, 300),
+          `${this.webBase}${e.link}`,
+        ].join('\n'),
+        'seo_alert',
+      );
+    } catch (err) {
+      this.logger.warn(`Aviso de SEO: ${err instanceof Error ? err.message : err}`);
     }
   }
 

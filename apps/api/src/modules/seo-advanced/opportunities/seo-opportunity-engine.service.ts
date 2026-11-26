@@ -23,6 +23,7 @@ import {
 } from '@storageos/shared';
 
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { SeoConversionsService } from '../reports/seo-conversions.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -74,7 +75,10 @@ const sums = (
 export class SeoOpportunityEngineService {
   private readonly logger = new Logger(SeoOpportunityEngineService.name);
 
-  constructor(private readonly admin: PrismaAdminService) {}
+  constructor(
+    private readonly admin: PrismaAdminService,
+    private readonly conversions: SeoConversionsService,
+  ) {}
 
   /** Recalcula las oportunidades de un proyecto (null si ya no existe). */
   async recalculate(projectId: string): Promise<SeoOpportunityRecalcDto | null> {
@@ -158,6 +162,19 @@ export class SeoOpportunityEngineService {
     // 3) Las reglas.
     const candidates: (SeoOpportunityCandidate & { domainId: string })[] = [];
     for (const p of perDomain) {
+      // La página que sale convierte (PR 8): solo si el proyecto tiene
+      // conversiones en el periodo; si no, el factor no entra y nada cambia.
+      const converts = await this.conversions.hasConversions(project.id, p.period);
+      const queryPages = converts
+        ? await this.topPages(
+            p.domain.id,
+            p.period,
+            p.queries.map((q) => q.query),
+          )
+        : null;
+      const pageConversionsByQuery = queryPages
+        ? await this.conversions.pageStatsByQuery(project.id, p.domain.id, p.period, queryPages)
+        : {};
       const found = detectSeoOpportunities({
         domain: p.domain.domain,
         brandTerms: project.brandTerms,
@@ -169,6 +186,7 @@ export class SeoOpportunityEngineService {
         sistrixMetricsAvailable,
         sistrixOpportunities: p.sistrix,
         keywordGaps: p.gaps,
+        pageConversionsByQuery,
       });
       const pages = await this.topPages(
         p.domain.id,

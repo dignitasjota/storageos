@@ -205,6 +205,11 @@ export class WaitlistService {
           contactEmail: input.contactEmail,
           ...(input.contactPhone ? { contactPhone: input.contactPhone } : {}),
           notes: 'Alta desde la web',
+          // De dónde vino y su primera página (SEO Avanzado cuenta las de Google).
+          utmSource: input.utmSource || null,
+          utmMedium: input.utmMedium || null,
+          utmCampaign: input.utmCampaign || null,
+          landingPath: input.landingPath || null,
         },
         include: INCLUDE,
       });

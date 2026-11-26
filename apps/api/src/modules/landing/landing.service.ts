@@ -742,6 +742,7 @@ export class LandingService {
         utmSource: input.utmSource,
         utmMedium: input.utmMedium,
         utmCampaign: input.utmCampaign,
+        landingPath: input.landingPath,
         clickIds: input.clickIds,
       },
       meta,

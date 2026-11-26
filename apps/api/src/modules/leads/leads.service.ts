@@ -466,6 +466,7 @@ export class LeadsService {
       utmSource?: string | undefined;
       utmMedium?: string | undefined;
       utmCampaign?: string | undefined;
+      landingPath?: string | undefined;
       clickIds?: AdClickIds | undefined;
     };
     meta: RequestMeta;
@@ -489,6 +490,7 @@ export class LeadsService {
               utmSource: args.input.utmSource || null,
               utmMedium: args.input.utmMedium || null,
               utmCampaign: args.input.utmCampaign || null,
+              landingPath: args.input.landingPath || null,
               ...(clickIdsData(args.input.clickIds)
                 ? { clickIds: clickIdsData(args.input.clickIds)! }
                 : {}),

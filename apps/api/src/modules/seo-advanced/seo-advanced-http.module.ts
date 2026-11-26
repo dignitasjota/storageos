@@ -20,8 +20,12 @@ import {
 } from './opportunities/seo-opportunities.controller';
 import { SeoOpportunitiesService } from './opportunities/seo-opportunities.service';
 import { AdminSeoPlanController, SeoAdvancedPlanController } from './plan/seo-plan.controller';
-import { SeoSiteChangesService } from './plan/seo-site-changes.service';
 import { SeoTasksService } from './plan/seo-tasks.service';
+import { SeoAlertsCron } from './reports/seo-alerts.cron';
+import {
+  AdminSeoReportsController,
+  SeoAdvancedReportsController,
+} from './reports/seo-reports.controller';
 import { SeoAdvancedController } from './seo-advanced.controller';
 import { SeoAdvancedModule } from './seo-advanced.module';
 import { SeoImportsService } from './seo-imports.service';
@@ -41,7 +45,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
  * Excel históricos de Search Console, SISTRIX (integraciones, OAuth y sus
  * datos por proyecto), las oportunidades y el diagnóstico (palabras seguidas,
  * canibalización e indexación), el plan (actuaciones con su antes y después
- * y tareas SEO) y la importación de los Excel maestros.
+ * y tareas SEO), la importación de los Excel maestros y, de la PR 8, lo que
+ * trae Google, las alertas y los informes.
  */
 @Module({
   imports: [JwtModule.register({}), SeoAdvancedModule],
@@ -59,6 +64,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
     AdminSeoPlanController,
     SeoAdvancedMasterImportController,
     AdminSeoMasterImportController,
+    SeoAdvancedReportsController,
+    AdminSeoReportsController,
   ],
   providers: [
     AdminGuard,
@@ -69,9 +76,10 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
     SeoSistrixDataService,
     SeoOpportunitiesService,
     SeoDiagnosticsService,
-    SeoSiteChangesService,
     SeoTasksService,
     SeoMasterImportService,
+    // Alertas cada hora: en el API (los avisos por chat de la plataforma salen del panel admin).
+    SeoAlertsCron,
   ],
 })
 export class SeoAdvancedHttpModule {}

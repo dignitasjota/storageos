@@ -126,6 +126,12 @@ export class PlatformContactService {
         profile: clean(input.profile, asked(settings.contactShowProfile)),
         message: text,
         ipAddress,
+        kind,
+        // De dónde vino y su primera página (SEO Avanzado cuenta las de Google).
+        utmSource: input.utmSource?.trim() || null,
+        utmMedium: input.utmMedium?.trim() || null,
+        utmCampaign: input.utmCampaign?.trim() || null,
+        landingPath: input.landingPath?.trim() || null,
       },
     });
 

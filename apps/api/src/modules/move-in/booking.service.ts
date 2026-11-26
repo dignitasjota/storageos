@@ -637,6 +637,8 @@ export class BookingService {
       source: input.utmSource ?? null,
       medium: input.utmMedium ?? null,
       campaign: input.utmCampaign ?? null,
+      // Primera página que vio (SEO Avanzado reparte las reservas por ella).
+      landing: input.landingPath ?? null,
     };
     // Reserva desde una landing de promoción: sus resultados se cuentan por su id.
     const promoLandingId =
@@ -680,6 +682,7 @@ export class BookingService {
                     utmSource: input.utmSource ?? null,
                     utmMedium: input.utmMedium ?? null,
                     utmCampaign: input.utmCampaign ?? null,
+                    landingPath: input.landingPath ?? null,
                   }
                 : {}),
               ...(channelId ? { marketingChannelId: channelId } : {}),
@@ -724,6 +727,7 @@ export class BookingService {
                 utmSource: input.utmSource ?? null,
                 utmMedium: input.utmMedium ?? null,
                 utmCampaign: input.utmCampaign ?? null,
+                landingPath: input.landingPath ?? null,
                 ...(clickIdsData(input.clickIds)
                   ? { clickIds: clickIdsData(input.clickIds)! }
                   : {}),
