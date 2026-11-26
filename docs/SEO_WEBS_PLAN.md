@@ -438,10 +438,10 @@ Coinciden con el producto: precios y límites de los cuatro planes, segundo usua
 
 ## Decisiones del dueño (2026-11-26)
 
-- **D1 (Mislata)**: pendiente de decidir entre dos opciones. Recomendación de la auditoría: todo en la portada. Alternativa del dueño: `/mislata` como landing con reserva, indexable y con su propia canónica (ver nota de D1 más abajo).
+- **D1 (Mislata)**: decidido: la landing de Mislata es `/trasteros-en-mislata` (con reserva, indexable, canónica a sí misma), y `/mislata` redirige 308 a ella. La portada se centra en la marca y en el resto de búsquedas. Cambia la regla de los negocios con un solo local (ver nota de D1).
 - **D2 (`/precios` y `/contacto`)**: deben indexar y tener página propia con contenido propio (no canónica a la portada). Se hacen con código común (B), con datos reales de la base de datos.
 - **D3 (indexación por tenant)**: ok. Columna `tenants.web_indexing` (automático / sí / no) en la ficha del tenant del panel admin.
-- **D4 (duplicado con dominio propio)**: ok, 308 de `trasteros.pro/s/<slug>` al dominio propio. Pendiente aclarar: qué pasa con los tenants sin dominio propio.
+- **D4 (dominio propio y subdominio)**: decidido: a cada tenant sin dominio propio le damos `<slug>.trasteros.pro`, que no se indexa (noindex y fuera del sitemap). A quien tenga dominio propio, `<slug>.trasteros.pro` le redirige 308 a su dominio. Es decir, el dominio nuestro sirve de entrada, y el indexable es siempre el suyo.
 - **D5 (noindex frente a robots)**: ok.
 - **D6 (inglés)**: ok.
 - **D7 (guía comparativa)**: ok, «Cómo elegir un programa de gestión de trasteros», sin nombrar competidores.
@@ -452,7 +452,7 @@ Coinciden con el producto: precios y límites de los cuatro planes, segundo usua
 
 ### Nota de D1
 
-Con la opción del dueño, `/mislata` es la landing de reserva del local de Mislata, con canónica a sí misma, y la portada se centra en la marca y el resto de búsquedas. Consecuencias:
+Decisión: la landing de reserva es `/trasteros-en-mislata`, con canónica a sí misma; `/mislata` redirige 308 a ella. Consecuencias:
 
 - Cambia una regla común a todos los tenants con un solo local (hoy `/<local>` y `/trasteros-en-<ciudad>` redirigen a la portada). Conviene hacerlo como opción del tenant, con el valor actual por defecto, para no tocar a nadie sin decisión suya.
 - `/trasteros-en-mislata` (460 impresiones en Search Console) volvería a ser una página; Google lleva semanas consolidando la redirección, así que la recuperación no es inmediata.
@@ -464,5 +464,5 @@ Una página «trasteros en Valencia» sin local allí debe ser una guía o landi
 
 ### Pendiente de confirmar
 
-- D4: ¿un tenant sin dominio propio debe tener un dominio nuestro (por ejemplo `<slug>.trasteros.pro`) o solo se le pide que compre el suyo?
-- D1: ¿la opción del dueño (landing con reserva en `/mislata`) o la de la auditoría (todo en la portada)?
+- D1 y D4 necesitan trabajo de infraestructura: DNS comodín `*.trasteros.pro` y certificado comodín en el proxy (Let's Encrypt con desafío DNS). No se puede hacer solo con código.
+- Pendiente de confirmar: `trasteros.pro/s/<slug>` de un tenant con dominio propio (hoy da 200 con canónica): propongo 308 al dominio propio. Y el de un tenant sin dominio propio: propongo 308 a `<slug>.trasteros.pro`.
