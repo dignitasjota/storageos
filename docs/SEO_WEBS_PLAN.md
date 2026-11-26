@@ -435,3 +435,34 @@ Coinciden con el producto: precios y límites de los cuatro planes, segundo usua
 | —     | Excel, contrato de trastero, varios propietarios, cifras del mes | Sin datos                                | Medir antes de escribir      |
 
 **GUÁRDALO**: mejorar las tres entradas (anexo B) y una nueva, «Guardamuebles en Valencia: en qué se diferencia de un trastero y cuánto cuesta» (150 búsquedas al mes; 85 impresiones de «guardamuebles mislata»). Llevan 15–21 días publicadas: volver a medir en 4–6 semanas.
+
+## Decisiones del dueño (2026-11-26)
+
+- **D1 (Mislata)**: pendiente de decidir entre dos opciones. Recomendación de la auditoría: todo en la portada. Alternativa del dueño: `/mislata` como landing con reserva, indexable y con su propia canónica (ver nota de D1 más abajo).
+- **D2 (`/precios` y `/contacto`)**: deben indexar y tener página propia con contenido propio (no canónica a la portada). Se hacen con código común (B), con datos reales de la base de datos.
+- **D3 (indexación por tenant)**: ok. Columna `tenants.web_indexing` (automático / sí / no) en la ficha del tenant del panel admin.
+- **D4 (duplicado con dominio propio)**: ok, 308 de `trasteros.pro/s/<slug>` al dominio propio. Pendiente aclarar: qué pasa con los tenants sin dominio propio.
+- **D5 (noindex frente a robots)**: ok.
+- **D6 (inglés)**: ok.
+- **D7 (guía comparativa)**: ok, «Cómo elegir un programa de gestión de trasteros», sin nombrar competidores.
+- **D8 (título del SaaS)**: ok, el propuesto.
+- **D9 (GUÁRDALO como caso de éxito)**: ok, sin mencionar que es del mismo dueño.
+- **D10 (promesas de la web del SaaS)**: no quitar nada de los extras; marcarlos con un asterisco (\*) y explicar más abajo, en la misma página, que son complementos de pago aparte (add-ons).
+- **D11 (Valencia)**: sí, crear una página orientada a la búsqueda «trasteros Valencia» para posicionar esa palabra clave, sin afirmar que haya trasteros en Valencia. Ver nota de D11 más abajo.
+
+### Nota de D1
+
+Con la opción del dueño, `/mislata` es la landing de reserva del local de Mislata, con canónica a sí misma, y la portada se centra en la marca y el resto de búsquedas. Consecuencias:
+
+- Cambia una regla común a todos los tenants con un solo local (hoy `/<local>` y `/trasteros-en-<ciudad>` redirigen a la portada). Conviene hacerlo como opción del tenant, con el valor actual por defecto, para no tocar a nadie sin decisión suya.
+- `/trasteros-en-mislata` (460 impresiones en Search Console) volvería a ser una página; Google lleva semanas consolidando la redirección, así que la recuperación no es inmediata.
+- Hay que evitar que dos URL compitan por «trasteros Mislata»: una sola URL objetivo, la otra redirige.
+
+### Nota de D11
+
+Una página «trasteros en Valencia» sin local allí debe ser una guía o landing que explique el servicio y ofrezca el centro más cercano (Mislata), sin decir que hay trasteros en Valencia capital ni inventar direcciones. Es el mismo criterio que la regla de «no simular establecimientos» del encargo.
+
+### Pendiente de confirmar
+
+- D4: ¿un tenant sin dominio propio debe tener un dominio nuestro (por ejemplo `<slug>.trasteros.pro`) o solo se le pide que compre el suyo?
+- D1: ¿la opción del dueño (landing con reserva en `/mislata`) o la de la auditoría (todo en la portada)?
