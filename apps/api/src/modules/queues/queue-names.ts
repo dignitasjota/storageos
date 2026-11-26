@@ -23,6 +23,10 @@ export const QUEUE_SEO = 'seo';
 export const JOB_SEO_GSC_SYNC = 'gsc-sync';
 /** Recalcular las oportunidades de un proyecto de SEO Avanzado (cola `seo`). */
 export const JOB_SEO_OPPORTUNITIES = 'opportunities';
+/** Atender la cola de inspecciones de URL de un proyecto (cola `seo`, con pausa entre llamadas). */
+export const JOB_SEO_INSPECTIONS = 'url-inspections';
+/** Atender las mediciones de PageSpeed pendientes de un proyecto (cola `seo`). */
+export const JOB_SEO_PAGESPEED = 'pagespeed';
 /**
  * SEO Avanzado: tandas de SISTRIX (MCP o API). Cola aparte de `seo` porque va
  * con concurrencia 1 y pausa entre llamadas (dos procesadores en la misma cola

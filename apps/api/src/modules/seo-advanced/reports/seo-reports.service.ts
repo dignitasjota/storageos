@@ -20,6 +20,7 @@ import {
   type SeoAlertType,
   type SeoConversionType,
   type SeoReportContentDto,
+  type SeoReportTechnicalDto,
   type SeoReportDto,
   type SeoReportKeywordMoveDto,
   type SeoReportKind,
@@ -371,6 +372,7 @@ export class SeoReportsService {
       ]);
 
     const changesWithResult = await this.changesWithResult(project, period);
+    const technical = await this.technicalSummary(project.id, period);
 
     const content: Omit<SeoReportContentDto, 'highlights'> = {
       period,
@@ -409,8 +411,55 @@ export class SeoReportsService {
         title: a.title,
         status: a.status,
       })),
+      technical,
     };
     return { ...content, highlights: seoReportHighlights(content) };
+  }
+
+  /** Inspección de URL y PageSpeed del periodo (la última de cada URL en el periodo). */
+  private async technicalSummary(
+    projectId: string,
+    period: { from: string; to: string },
+  ): Promise<SeoReportTechnicalDto | null> {
+    const from = new Date(`${period.from}T00:00:00Z`);
+    const to = new Date(`${period.to}T23:59:59.999Z`);
+    const [insp] = await this.admin.$queryRaw<
+      { n: number; ok: number; no: number; canon: number }[]
+    >(Prisma.sql`
+      SELECT COUNT(*)::float8 AS n,
+        COUNT(*) FILTER (WHERE indexed)::float8 AS ok,
+        COUNT(*) FILTER (WHERE indexed = false)::float8 AS no,
+        COUNT(*) FILTER (WHERE canonical_mismatch)::float8 AS canon
+      FROM (
+        SELECT DISTINCT ON (url_key) indexed, canonical_mismatch FROM seo_url_inspections
+        WHERE project_id = ${projectId}::uuid AND status = 'done'
+          AND inspected_at BETWEEN ${from} AND ${to}
+        ORDER BY url_key, inspected_at DESC
+      ) t`);
+    const [psi] = await this.admin.$queryRaw<{ n: number; slow: number; avg: number | null }[]>(
+      Prisma.sql`
+      SELECT COUNT(*)::float8 AS n,
+        COUNT(*) FILTER (WHERE field_overall = 'SLOW' OR performance_score < 50)::float8 AS slow,
+        AVG(performance_score)::float8 AS avg
+      FROM (
+        SELECT DISTINCT ON (url_key) field_overall, performance_score FROM seo_pagespeed_runs
+        WHERE project_id = ${projectId}::uuid AND status = 'done' AND strategy = 'mobile'
+          AND analyzed_at BETWEEN ${from} AND ${to}
+        ORDER BY url_key, analyzed_at DESC
+      ) t`,
+    );
+    const inspected = Number(insp?.n ?? 0);
+    const pagespeedUrls = Number(psi?.n ?? 0);
+    if (inspected === 0 && pagespeedUrls === 0) return null;
+    return {
+      inspected,
+      indexed: Number(insp?.ok ?? 0),
+      notIndexed: Number(insp?.no ?? 0),
+      canonicalMismatch: Number(insp?.canon ?? 0),
+      pagespeedUrls,
+      slowUrls: Number(psi?.slow ?? 0),
+      avgMobileScore: psi?.avg != null ? Math.round(Number(psi.avg)) : null,
+    };
   }
 
   /** Palabras seguidas que más suben y bajan (posición media del periodo frente al anterior). */

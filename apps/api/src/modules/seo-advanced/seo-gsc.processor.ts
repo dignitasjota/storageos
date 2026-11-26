@@ -2,15 +2,24 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
-import { JOB_SEO_GSC_SYNC, JOB_SEO_OPPORTUNITIES, QUEUE_SEO } from '../queues/queue-names';
+import {
+  JOB_SEO_GSC_SYNC,
+  JOB_SEO_INSPECTIONS,
+  JOB_SEO_OPPORTUNITIES,
+  JOB_SEO_PAGESPEED,
+  QUEUE_SEO,
+} from '../queues/queue-names';
 
 import { SeoDiagnosticsEngineService } from './diagnostics/seo-diagnostics-engine.service';
 import { SeoOpportunityEngineService } from './opportunities/seo-opportunity-engine.service';
 import { SeoGscSyncService } from './seo-gsc-sync.service';
+import { SeoInspectionService } from './technical/seo-inspection.service';
+import { SeoPageSpeedService } from './technical/seo-pagespeed.service';
 
 /**
- * Worker de la cola `seo`: descargas de Search Console de SEO Avanzado y
- * recálculo de las oportunidades y del diagnóstico. Se registra solo con `ENABLE_WORKERS_IN_API`
+ * Worker de la cola `seo`: descargas de Search Console de SEO Avanzado,
+ * recálculo de las oportunidades y del diagnóstico, y la cola de
+ * inspecciones de URL y de mediciones de PageSpeed (PR 9). Se registra solo con `ENABLE_WORKERS_IN_API`
  * (dev/test o `apps/worker`); la lógica vive en `SeoGscSyncService` y en
  * `SeoOpportunityEngineService`.
  */
@@ -22,6 +31,8 @@ export class SeoGscProcessor extends WorkerHost {
     private readonly sync: SeoGscSyncService,
     private readonly opportunities: SeoOpportunityEngineService,
     private readonly diagnostics: SeoDiagnosticsEngineService,
+    private readonly inspection: SeoInspectionService,
+    private readonly pagespeed: SeoPageSpeedService,
   ) {
     super();
   }
@@ -31,6 +42,15 @@ export class SeoGscProcessor extends WorkerHost {
       await this.opportunities.recalculate(job.data.projectId);
       // El diagnóstico (canibalización e indexación) sale de los mismos datos.
       await this.diagnostics.recalculate(job.data.projectId);
+      return;
+    }
+    // Inspección de URL y PageSpeed (PR 9).
+    if (job.name === JOB_SEO_INSPECTIONS && job.data.projectId) {
+      await this.inspection.processQueue(job.data.projectId);
+      return;
+    }
+    if (job.name === JOB_SEO_PAGESPEED && job.data.projectId) {
+      await this.pagespeed.processQueue(job.data.projectId);
       return;
     }
     if (job.name !== JOB_SEO_GSC_SYNC || !job.data.runId) {

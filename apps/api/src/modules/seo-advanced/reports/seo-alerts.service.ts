@@ -11,12 +11,17 @@ import {
   seoAlertSettingsOf,
   seoClicksDropAlert,
   seoGscFreshnessAlerts,
+  seoInspectionAlerts,
+  seoInspectionUrlKey,
+  seoPageSpeedAlerts,
   seoPositionDropAlert,
   shiftDate,
   type SeoAlertCandidate,
   type SeoAlertSettings,
   type SeoAlertStatus,
   type SeoAlertType,
+  type SeoFieldCategory,
+  type SeoPageSpeedStrategy,
   type SeoProjectAlertDto,
   type SeoProjectAlertListDto,
   type UpdateSeoAlertSettingsInput,
@@ -29,6 +34,7 @@ import { EmailService } from '../../email/email.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { SeoProjectsService, type SeoOwner } from '../seo-projects.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
+import { SeoTechnicalReadService, indexStatusOf } from '../technical/seo-technical-read.service';
 
 import { SEO_PLATFORM_ALERT_EVENT, type SeoPlatformAlertEvent } from './seo-alert-events';
 import { seoProjectEligible } from './seo-eligible';
@@ -82,6 +88,7 @@ export class SeoAlertsService {
     private readonly email: EmailService,
     private readonly events: EventEmitter2,
     private readonly config: ConfigService<Env, true>,
+    private readonly technical: SeoTechnicalReadService,
   ) {}
 
   private notFound() {
@@ -247,6 +254,7 @@ export class SeoAlertsService {
         alertsCheckedAt: true,
         diagnosticsCalculatedAt: true,
         conversionsCalculatedAt: true,
+        technicalUpdatedAt: true,
         domains: { select: { lastSyncedAt: true, checkedAt: true } },
       },
     });
@@ -256,6 +264,7 @@ export class SeoAlertsService {
       const checked = p.alertsCheckedAt?.getTime() ?? 0;
       const changed = Math.max(
         p.diagnosticsCalculatedAt?.getTime() ?? 0,
+        p.technicalUpdatedAt?.getTime() ?? 0,
         ...p.domains.map((d) =>
           Math.max(d.lastSyncedAt?.getTime() ?? 0, d.checkedAt?.getTime() ?? 0),
         ),
@@ -501,6 +510,60 @@ export class SeoAlertsService {
         message: `${c.reason} ${c.action}`.trim(),
         data: { cannibalizationId: c.id, query: c.query, domain: c.domain },
       });
+    }
+
+    // Inspección de URL (PR 9): URL objetivo que Google no tiene y canónicas distintas.
+    const targetRows = await this.admin.seoProjectKeyword.findMany({
+      where: { projectId: project.id, isActive: true, targetUrl: { not: null } },
+      select: { targetUrl: true, priority: true, keyword: { select: { keyword: true } } },
+      take: 2000,
+    });
+    const base = primary?.domain ?? project.domains[0]?.domain ?? '';
+    const targets = new Map<string, { keywords: string[]; high: boolean }>();
+    for (const k of targetRows) {
+      const key = seoInspectionUrlKey(k.targetUrl!, base);
+      const t = targets.get(key) ?? { keywords: [], high: false };
+      t.keywords.push(k.keyword.keyword);
+      t.high ||= k.priority === 1;
+      targets.set(key, t);
+    }
+    const inspections = await this.technical.latestInspections(project.id);
+    out.push(
+      ...seoInspectionAlerts({
+        inspections: [...inspections.values()].map((r) => {
+          const s = indexStatusOf(r);
+          return {
+            url: r.url,
+            urlKey: r.urlKey,
+            inspectedAt: s.inspectedAt,
+            indexed: r.indexed,
+            reason: s.reason,
+            canonicalMismatch: r.canonicalMismatch,
+            googleCanonical: r.googleCanonical,
+          };
+        }),
+        targets,
+        now: new Date(),
+      }),
+    );
+    // PageSpeed (PR 9): lenta para los usuarios reales o caída de la puntuación.
+    for (const runs of (await this.technical.latestPageSpeed(project.id)).values()) {
+      const [latest, previous] = runs;
+      if (!latest) continue;
+      out.push(
+        ...seoPageSpeedAlerts({
+          url: latest.url,
+          urlKey: latest.urlKey,
+          strategy: latest.strategy as SeoPageSpeedStrategy,
+          latest: {
+            performance: latest.performanceScore,
+            fieldOverall: latest.fieldOverall as SeoFieldCategory | null,
+            analyzedAt: (latest.analyzedAt ?? latest.createdAt).toISOString(),
+          },
+          previous: previous ? { performance: previous.performanceScore } : null,
+          dropPoints: t.pagespeedDropPoints,
+        }),
+      );
     }
 
     // SISTRIX: la conexión del «fondo» del proyecto (su propia API o la de la plataforma).

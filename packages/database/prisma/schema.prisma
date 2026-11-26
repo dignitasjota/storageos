@@ -9891,6 +9891,10 @@ model SeoProject {
   platformConversions       Boolean?  @map("platform_conversions")
   conversionsCalculatedAt   DateTime? @map("conversions_calculated_at") @db.Timestamptz(6)
   alertsCheckedAt           DateTime? @map("alerts_checked_at") @db.Timestamptz(6)
+  /// Inspección de URL y PageSpeed: tope diario, lote programado y medición semanal (PR 9).
+  technicalSettings         Json      @default("{}") @map("technical_settings")
+  technicalUpdatedAt        DateTime? @map("technical_updated_at") @db.Timestamptz(6)
+  pagespeedScheduledAt      DateTime? @map("pagespeed_scheduled_at") @db.Timestamptz(6)
 
   domains           SeoProjectDomain[]
   runs              SeoSyncRun[]
@@ -9907,6 +9911,8 @@ model SeoProject {
   conversionsDaily  SeoConversionDaily[]
   alerts            SeoAlert[]
   reports           SeoReport[]
+  urlInspections    SeoUrlInspection[]
+  pagespeedRuns     SeoPageSpeedRun[]
 
   @@map("seo_projects")
 }
@@ -10479,7 +10485,7 @@ model SeoIndexFinding {
   url         String
   category    String
   rule        String
-  /// performance (la indexación confirmada llega con la inspección de URL)
+  /// performance (reglas sobre lo que tiene impresiones) · inspection (inspección de URL, PR 9)
   evidence    String    @default("performance")
   clicks      Int       @default(0)
   impressions Int       @default(0)
@@ -10502,6 +10508,7 @@ model SeoIndexFinding {
 
   @@unique([projectId, key], map: "seo_index_findings_project_key_key")
   @@index([projectId, status, category], map: "seo_index_findings_list_idx")
+  @@index([projectId, evidence], map: "seo_index_findings_evidence_idx")
   @@index([tenantId], map: "seo_index_findings_tenant_idx")
   @@map("seo_index_findings")
 }
@@ -10797,4 +10804,97 @@ model SeoReport {
   @@index([projectId, createdAt(sort: Desc)], map: "seo_reports_list_idx")
   @@index([tenantId], map: "seo_reports_tenant_idx")
   @@map("seo_reports")
+}
+
+/// Inspección de URL de Google (PR 9). Cada una es una fila; las que esperan, también.
+model SeoUrlInspection {
+  id                      String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                String?   @map("tenant_id") @db.Uuid
+  projectId               String    @map("project_id") @db.Uuid
+  domainId                String?   @map("domain_id") @db.Uuid
+  domain                  String
+  gscProperty             String    @map("gsc_property")
+  url                     String
+  urlKey                  String    @map("url_key")
+  /// queued · running · done · error
+  status                  String    @default("queued")
+  /// manual · batch
+  trigger                 String    @default("manual")
+  /// manual · target_high · index_finding · top_clicks
+  reason                  String    @default("manual")
+  scheduledFor            DateTime? @map("scheduled_for") @db.Timestamptz(6)
+  /// Día de la cuota (hora del Pacífico) en que se gastó la consulta.
+  quotaDay                DateTime? @map("quota_day") @db.Date
+  inspectedAt             DateTime? @map("inspected_at") @db.Timestamptz(6)
+  verdict                 String?
+  indexed                 Boolean?
+  coverageState           String?   @map("coverage_state")
+  robotsTxtState          String?   @map("robots_txt_state")
+  indexingState           String?   @map("indexing_state")
+  pageFetchState          String?   @map("page_fetch_state")
+  crawledAs               String?   @map("crawled_as")
+  lastCrawlAt             DateTime? @map("last_crawl_at") @db.Timestamptz(6)
+  googleCanonical         String?   @map("google_canonical")
+  userCanonical           String?   @map("user_canonical")
+  canonicalMismatch       Boolean   @default(false) @map("canonical_mismatch")
+  result                  Json      @default("{}")
+  error                   String?
+  attempts                Int       @default(0)
+  requestedByUserId       String?   @map("requested_by_user_id") @db.Uuid
+  requestedBySuperAdminId String?   @map("requested_by_super_admin_id") @db.Uuid
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, urlKey, createdAt(sort: Desc)], map: "seo_url_inspections_url_idx")
+  @@index([gscProperty, quotaDay], map: "seo_url_inspections_quota_idx")
+  @@index([tenantId], map: "seo_url_inspections_tenant_idx")
+  @@map("seo_url_inspections")
+}
+
+/// Medición de PageSpeed Insights de una URL y estrategia (PR 9), con histórico.
+model SeoPageSpeedRun {
+  id                      String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                String?   @map("tenant_id") @db.Uuid
+  projectId               String    @map("project_id") @db.Uuid
+  domainId                String?   @map("domain_id") @db.Uuid
+  url                     String
+  urlKey                  String    @map("url_key")
+  /// mobile · desktop
+  strategy                String
+  /// queued · running · done · error
+  status                  String    @default("queued")
+  /// manual · batch
+  trigger                 String    @default("manual")
+  performanceScore        Int?      @map("performance_score")
+  seoScore                Int?      @map("seo_score")
+  accessibilityScore      Int?      @map("accessibility_score")
+  bestPracticesScore      Int?      @map("best_practices_score")
+  lcpMs                   Int?      @map("lcp_ms")
+  cls                     Float?
+  tbtMs                   Int?      @map("tbt_ms")
+  fcpMs                   Int?      @map("fcp_ms")
+  siMs                    Int?      @map("si_ms")
+  ttiMs                   Int?      @map("tti_ms")
+  fieldScope              String?   @map("field_scope")
+  fieldOverall            String?   @map("field_overall")
+  fieldLcpMs              Int?      @map("field_lcp_ms")
+  fieldInpMs              Int?      @map("field_inp_ms")
+  fieldCls                Float?    @map("field_cls")
+  field                   Json      @default("{}")
+  opportunities           Json      @default("[]")
+  error                   String?
+  attempts                Int       @default(0)
+  analyzedAt              DateTime? @map("analyzed_at") @db.Timestamptz(6)
+  requestedByUserId       String?   @map("requested_by_user_id") @db.Uuid
+  requestedBySuperAdminId String?   @map("requested_by_super_admin_id") @db.Uuid
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, urlKey, strategy, createdAt(sort: Desc)], map: "seo_pagespeed_runs_url_idx")
+  @@index([tenantId], map: "seo_pagespeed_runs_tenant_idx")
+  @@map("seo_pagespeed_runs")
 }

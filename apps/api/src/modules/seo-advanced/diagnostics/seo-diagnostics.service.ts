@@ -30,6 +30,7 @@ import {
   normalizeSeoImportHeader,
   normalizeSeoKeyword,
   normalizeSeoUrl,
+  seoInspectionUrlKey,
   planSeoKeywordImport,
   seoDailyWinners,
   seoDiagnosticSettingsOf,
@@ -53,6 +54,7 @@ import {
   type SeoDiagnosticsRecalcDto,
   type SeoIndexCategory,
   type SeoIndexFindingDto,
+  type SeoUrlIndexStatusDto,
   type SeoIndexSummaryDto,
   type SeoKeywordCandidatesDto,
   type SeoKeywordImportExisting,
@@ -82,6 +84,7 @@ import { SeoOpportunityEngineService } from '../opportunities/seo-opportunity-en
 import { SeoProjectsService, type ProjectRow, type SeoOwner } from '../seo-projects.service';
 import { SeoSistrixService } from '../sistrix/seo-sistrix.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
+import { SeoTechnicalReadService } from '../technical/seo-technical-read.service';
 
 import { SeoDiagnosticsEngineService } from './seo-diagnostics-engine.service';
 
@@ -189,6 +192,7 @@ export class SeoDiagnosticsService {
     private readonly engine: SeoDiagnosticsEngineService,
     private readonly opportunityEngine: SeoOpportunityEngineService,
     private readonly sistrix: SeoSistrixService,
+    private readonly technical: SeoTechnicalReadService,
   ) {}
 
   private notFound() {
@@ -429,10 +433,14 @@ export class SeoDiagnosticsService {
         take: LIST_MAX,
       }),
     ]);
+    const statuses = await this.technical.indexStatuses(
+      projectId,
+      rows.map((r) => normalizeSeoUrl(r.url)),
+    );
     return {
       calculatedAt: iso(project.diagnosticsCalculatedAt),
       total,
-      items: rows.map((r) => this.indexDto(r)),
+      items: rows.map((r) => this.indexDto(r, statuses.get(normalizeSeoUrl(r.url)) ?? null)),
     };
   }
 
@@ -478,7 +486,9 @@ export class SeoDiagnosticsService {
       where: { id },
       data: this.statusData(row.status, input),
     });
-    return this.indexDto(updated);
+    const key = normalizeSeoUrl(updated.url);
+    const statuses = await this.technical.indexStatuses(projectId, [key]);
+    return this.indexDto(updated, statuses.get(key) ?? null);
   }
 
   async indexCsv(
@@ -493,6 +503,7 @@ export class SeoDiagnosticsService {
       'Categoría',
       'Regla',
       'Evidencia',
+      'Lo que dice Google (inspección)',
       'Impresiones',
       'Clics',
       'Primer día',
@@ -510,6 +521,7 @@ export class SeoDiagnosticsService {
           csvCell(SEO_INDEX_CATEGORY_LABELS[f.category]),
           csvCell(f.rule),
           csvCell(SEO_INDEX_EVIDENCE_LABELS[f.evidence]),
+          csvCell(f.inspection?.label ?? 'Sin inspeccionar'),
           csvCell(f.impressions),
           csvCell(f.clicks),
           csvCell(f.firstDate),
@@ -645,6 +657,14 @@ export class SeoDiagnosticsService {
         pagesBy.set(r.key, list);
       }
     }
+    // Lo que dice Google de cada URL objetivo (su última inspección, PR 9).
+    const primaryDomain =
+      project.domains.find((d) => d.role === 'primary')?.domain ?? domain?.domain ?? '';
+    const targetKey = (u: string) => seoInspectionUrlKey(u, domain?.domain ?? primaryDomain);
+    const targetIndex = await this.technical.indexStatuses(
+      projectId,
+      catalog.flatMap((c) => (c.targetUrl ? [targetKey(c.targetUrl)] : [])),
+    );
     const items: SeoTrackedKeywordDto[] = catalog.map((c) => {
       const word = normalizeSeoKeyword(c.keyword.keyword);
       const t = totalsOf(cur.get(word));
@@ -685,6 +705,7 @@ export class SeoDiagnosticsService {
         suggestedUrl: target.suggestedUrl,
         volume: m?.volume ?? null,
         volumeOrigin: m ? m.origin : null,
+        targetIndex: c.targetUrl ? (targetIndex.get(targetKey(c.targetUrl)) ?? null) : null,
       };
     });
     const labels = { intent: SEO_KEYWORD_INTENT_LABELS, none: 'Sin decidir' };
@@ -729,6 +750,7 @@ export class SeoDiagnosticsService {
       'Página que enseña Google',
       'Estado de la URL objetivo',
       'URL propuesta',
+      'Indexación de la URL objetivo (Google)',
       'Volumen SISTRIX (estimación)',
       'Origen',
       'Notas',
@@ -750,6 +772,7 @@ export class SeoDiagnosticsService {
           csvCell(k.googlePage),
           csvCell(SEO_TARGET_STATUS_LABELS[k.targetStatus]),
           csvCell(k.suggestedUrl),
+          csvCell(k.targetIndex?.label ?? null),
           csvCell(k.volume),
           csvCell(SEO_KEYWORD_SOURCE_LABELS[k.source] ?? k.source),
           csvLineCell(k.notes),
@@ -1241,7 +1264,10 @@ export class SeoDiagnosticsService {
     };
   }
 
-  private indexDto(r: Prisma.SeoIndexFindingGetPayload<object>): SeoIndexFindingDto {
+  private indexDto(
+    r: Prisma.SeoIndexFindingGetPayload<object>,
+    inspection: SeoUrlIndexStatusDto | null = null,
+  ): SeoIndexFindingDto {
     return {
       ...this.base(r),
       url: r.url,
@@ -1251,9 +1277,10 @@ export class SeoDiagnosticsService {
       impressions: r.impressions,
       firstDate: dateOnly(r.firstDate)!,
       lastDate: dateOnly(r.lastDate)!,
-      evidence: 'performance',
+      evidence: r.evidence === 'inspection' ? 'inspection' : 'performance',
       reason: r.reason,
       action: r.action,
+      inspection,
     };
   }
 }

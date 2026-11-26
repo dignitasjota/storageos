@@ -82,6 +82,8 @@ x-app-env: &app-env
   AI_MODEL: ${AI_MODEL:-claude-sonnet-4-6}
   # Cuenta de servicio de Google para Search Console (extra «SEO local»): el JSON completo.
   GSC_SERVICE_ACCOUNT_JSON: ${GSC_SERVICE_ACCOUNT_JSON:-}
+  # Clave de PageSpeed Insights (SEO Avanzado; gratuita). Vacía = cuota baja de Google.
+  PAGESPEED_API_KEY: ${PAGESPEED_API_KEY:-}
   # App de Meta de la plataforma para «Conectar con Facebook» (vacías = pegar el token).
   META_APP_ID: ${META_APP_ID:-}
   META_APP_SECRET: ${META_APP_SECRET:-}

@@ -411,9 +411,11 @@ export class SeoDiagnosticsEngineService {
               ELSE seo_index_findings.returned_at END,
             resolved_at = CASE WHEN ${iBack} THEN NULL ELSE seo_index_findings.resolved_at END
           RETURNING (xmax = 0) AS inserted, (returned_at = ${now}) AS returned`);
+        // Los de la inspección de URL (PR 9) los mantiene la inspección, no este cálculo.
         const iGone = await tx.$executeRaw`
           UPDATE seo_index_findings SET active = false, updated_at = ${now}
-          WHERE project_id = ${projectId}::uuid AND active AND last_seen_at < ${now}`;
+          WHERE project_id = ${projectId}::uuid AND active AND last_seen_at < ${now}
+            AND evidence = 'performance'`;
         await tx.seoProject.update({
           where: { id: projectId },
           data: { diagnosticsCalculatedAt: now },

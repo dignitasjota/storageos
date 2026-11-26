@@ -38,6 +38,10 @@ import { SeoAdvancedSistrixController } from './sistrix/seo-advanced-sistrix.con
 import { SeoSistrixDataService } from './sistrix/seo-sistrix-data.service';
 import { SeoSistrixService } from './sistrix/seo-sistrix.service';
 import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
+import {
+  AdminSeoTechnicalController,
+  SeoAdvancedTechnicalController,
+} from './technical/seo-technical.controller';
 
 /**
  * SEO Avanzado en el API: las rutas del tenant (`/seo-advanced`) y del panel
@@ -46,7 +50,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
  * datos por proyecto), las oportunidades y el diagnóstico (palabras seguidas,
  * canibalización e indexación), el plan (actuaciones con su antes y después
  * y tareas SEO), la importación de los Excel maestros y, de la PR 8, lo que
- * trae Google, las alertas y los informes.
+ * trae Google, las alertas y los informes, y de la PR 9 la inspección de URL
+ * de Google y PageSpeed.
  */
 @Module({
   imports: [JwtModule.register({}), SeoAdvancedModule],
@@ -66,6 +71,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
     AdminSeoMasterImportController,
     SeoAdvancedReportsController,
     AdminSeoReportsController,
+    SeoAdvancedTechnicalController,
+    AdminSeoTechnicalController,
   ],
   providers: [
     AdminGuard,

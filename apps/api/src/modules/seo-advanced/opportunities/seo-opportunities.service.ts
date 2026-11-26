@@ -12,6 +12,8 @@ import {
   SEO_OPPORTUNITY_TYPES,
   SEO_OPPORTUNITY_TYPE_LABELS,
   normalizeSeoKeyword,
+  normalizeSeoUrl,
+  seoInspectionUrlKey,
   seoThresholdsOf,
   seoWeightsOf,
   shiftDate,
@@ -29,6 +31,7 @@ import {
   type SeoOpportunityType,
   type SeoProviderKey,
   type SeoScoredOpportunityDto,
+  type SeoUrlIndexStatusDto,
   type UpdateSeoOpportunityInput,
   type UpdateSeoOpportunitySettingsInput,
 } from '@storageos/shared';
@@ -37,6 +40,7 @@ import { CSV_BOM, csvCell, csvLineCell } from '../../../common/csv';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { SeoProjectsService, type SeoOwner } from '../seo-projects.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
+import { SeoTechnicalReadService } from '../technical/seo-technical-read.service';
 
 import { SeoOpportunityEngineService } from './seo-opportunity-engine.service';
 
@@ -96,6 +100,7 @@ export class SeoOpportunitiesService {
     private readonly admin: PrismaAdminService,
     private readonly projects: SeoProjectsService,
     private readonly engine: SeoOpportunityEngineService,
+    private readonly technical: SeoTechnicalReadService,
   ) {}
 
   private notFound() {
@@ -268,6 +273,7 @@ export class SeoOpportunitiesService {
             clicks: Number(r.c),
             impressions: i,
             position: Math.round((i > 0 ? Number(r.w) / i : Number(r.ps) / Number(r.n)) * 10) / 10,
+            index: null as SeoUrlIndexStatusDto | null,
           };
         });
       }
@@ -323,7 +329,20 @@ export class SeoOpportunitiesService {
         };
       }
     }
-    return { ...dto!, daily, pages, serp };
+    // Lo que dice Google de sus páginas (última inspección de URL, PR 9).
+    const primary = project.domains.find((d) => d.role === 'primary')?.domain ?? '';
+    const ownDomain = row.domain || primary;
+    const mainUrl = dto!.page ?? dto!.targetUrl;
+    const keys = [
+      ...pages.map((p) => normalizeSeoUrl(p.page)),
+      ...(mainUrl ? [seoInspectionUrlKey(mainUrl, ownDomain)] : []),
+    ];
+    const statuses = await this.technical.indexStatuses(projectId, keys);
+    pages = pages.map((p) => ({ ...p, index: statuses.get(normalizeSeoUrl(p.page)) ?? null }));
+    const urlIndex = mainUrl
+      ? (statuses.get(seoInspectionUrlKey(mainUrl, ownDomain)) ?? null)
+      : null;
+    return { ...dto!, daily, pages, serp, urlIndex };
   }
 
   // ------------------------------------------------------------- cambios

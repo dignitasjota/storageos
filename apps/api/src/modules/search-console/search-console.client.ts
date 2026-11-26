@@ -9,6 +9,7 @@ import {
 } from '@storageos/shared';
 
 import {
+  GoogleApiError,
   GoogleServiceAccount,
   isGoogleTransient,
 } from '../../common/google/google-service-account';
@@ -16,6 +17,8 @@ import {
 import type { Env } from '../../config/env.schema';
 
 const API = 'https://www.googleapis.com/webmasters/v3';
+/** URL Inspection API (Search Console v1). Admite el ámbito de solo lectura. */
+const INSPECT_URL = 'https://searchconsole.googleapis.com/v1/urlInspection/index:inspect';
 const SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
 const PAGE_SIZE = 5000;
 const MAX_ROWS = 25_000;
@@ -70,6 +73,93 @@ export interface GscSitemap {
   errors: number;
   /** URL enviadas (suma de los tipos de contenido). */
   submitted: number;
+}
+
+/** Lo que devuelve la inspección de URL de Google (los campos que se guardan). */
+export interface GscUrlInspection {
+  verdict: string | null;
+  coverageState: string | null;
+  robotsTxtState: string | null;
+  indexingState: string | null;
+  pageFetchState: string | null;
+  lastCrawlTime: string | null;
+  googleCanonical: string | null;
+  userCanonical: string | null;
+  crawledAs: string | null;
+  sitemaps: string[];
+  referringUrls: string[];
+  mobileUsability: { verdict: string | null; issues: string[] } | null;
+  richResults: { verdict: string | null; types: string[]; issues: string[] } | null;
+  link: string | null;
+}
+
+interface RawInspection {
+  inspectionResult?: {
+    inspectionResultLink?: string;
+    indexStatusResult?: {
+      sitemap?: string[];
+      referringUrls?: string[];
+      verdict?: string;
+      coverageState?: string;
+      robotsTxtState?: string;
+      indexingState?: string;
+      lastCrawlTime?: string;
+      pageFetchState?: string;
+      googleCanonical?: string;
+      userCanonical?: string;
+      crawledAs?: string;
+    };
+    mobileUsabilityResult?: {
+      verdict?: string;
+      issues?: { issueType?: string; message?: string }[];
+    };
+    richResultsResult?: {
+      verdict?: string;
+      detectedItems?: {
+        richResultType?: string;
+        items?: { name?: string; issues?: { issueMessage?: string; severity?: string }[] }[];
+      }[];
+    };
+  };
+}
+
+/** Respuesta de Google → lo que se guarda (sin suponer campos que pueden faltar). */
+export function parseGscInspection(raw: RawInspection): GscUrlInspection {
+  const r = raw.inspectionResult ?? {};
+  const idx = r.indexStatusResult ?? {};
+  const mobile = r.mobileUsabilityResult;
+  const rich = r.richResultsResult;
+  return {
+    verdict: idx.verdict ?? null,
+    coverageState: idx.coverageState ?? null,
+    robotsTxtState: idx.robotsTxtState ?? null,
+    indexingState: idx.indexingState ?? null,
+    pageFetchState: idx.pageFetchState ?? null,
+    lastCrawlTime: idx.lastCrawlTime ?? null,
+    googleCanonical: idx.googleCanonical ?? null,
+    userCanonical: idx.userCanonical ?? null,
+    crawledAs: idx.crawledAs ?? null,
+    sitemaps: idx.sitemap ?? [],
+    referringUrls: idx.referringUrls ?? [],
+    mobileUsability: mobile
+      ? {
+          verdict: mobile.verdict ?? null,
+          issues: (mobile.issues ?? []).map((i) => i.message ?? i.issueType ?? '').filter(Boolean),
+        }
+      : null,
+    richResults: rich
+      ? {
+          verdict: rich.verdict ?? null,
+          types: (rich.detectedItems ?? []).map((d) => d.richResultType ?? '').filter(Boolean),
+          issues: (rich.detectedItems ?? []).flatMap((d) =>
+            (d.items ?? []).flatMap((it) =>
+              (it.issues ?? []).map((i) => i.issueMessage ?? '').filter(Boolean),
+            ),
+          ),
+        }
+      : null,
+    link: r.inspectionResultLink ?? null,
+  };
 }
 
 /**
@@ -326,6 +416,31 @@ export class SearchConsoleClient {
     }));
   }
 
+  /**
+   * Inspección de URL (lo que dice Google de una página: si está indexada,
+   * su canónica, el último rastreo…). La URL tiene que ser de la propiedad.
+   * Cuota de Google: 2.000 al día y 600 al minuto por propiedad. Reintenta
+   * ante 429/5xx con espera creciente; si sigue, lanza `GoogleApiError`.
+   *
+   * Simulado (determinista por la URL): `noindex` → excluida por «noindex»;
+   * `canonical` → Google elige la portada; `notfound` → 404; `robots` →
+   * bloqueada; `ratelimit` → 429; propiedad con `noaccess` → 403; el resto,
+   * indexada.
+   */
+  async inspectUrl(
+    siteUrl: string,
+    url: string,
+    languageCode = 'es-ES',
+  ): Promise<GscUrlInspection> {
+    if (this.stub) return stubInspection(siteUrl, url);
+    const raw = await this.requestWithRetry<RawInspection>('POST', INSPECT_URL, {
+      inspectionUrl: url,
+      siteUrl,
+      languageCode,
+    });
+    return parseGscInspection(raw);
+  }
+
   /** Espera base entre reintentos (ms); se dobla en cada intento. */
   retryBaseMs = 1000;
 
@@ -348,6 +463,69 @@ export class SearchConsoleClient {
       }
     }
   }
+}
+
+function stubInspection(siteUrl: string, url: string): GscUrlInspection {
+  if (siteUrl.includes('noaccess')) {
+    throw new GoogleApiError('User does not have sufficient permission for site', 403);
+  }
+  const u = url.toLowerCase();
+  if (u.includes('ratelimit')) throw new GoogleApiError('Quota exceeded', 429);
+  const host = stubHost(url.replace(/^https?:\/\//, 'https://'));
+  const base: GscUrlInspection = {
+    verdict: 'PASS',
+    coverageState: 'Enviada e indexada',
+    robotsTxtState: 'ALLOWED',
+    indexingState: 'INDEXING_ALLOWED',
+    pageFetchState: 'SUCCESSFUL',
+    lastCrawlTime: '2026-11-20T08:00:00Z',
+    googleCanonical: url,
+    userCanonical: url,
+    crawledAs: 'MOBILE',
+    sitemaps: [`https://${host}/sitemap.xml`],
+    referringUrls: [`https://${host}/`],
+    mobileUsability: null,
+    richResults: null,
+    link: `https://search.google.com/search-console/inspect?resource_id=${encodeURIComponent(siteUrl)}&id=${encodeURIComponent(url)}`,
+  };
+  if (u.includes('noindex')) {
+    return {
+      ...base,
+      verdict: 'NEUTRAL',
+      coverageState: 'Excluida por la etiqueta «noindex»',
+      indexingState: 'BLOCKED_BY_META_TAG',
+      googleCanonical: null,
+    };
+  }
+  if (u.includes('canonical')) {
+    return {
+      ...base,
+      verdict: 'NEUTRAL',
+      coverageState: 'Duplicada: Google ha elegido una versión canónica diferente a la del usuario',
+      googleCanonical: `https://${host}/`,
+    };
+  }
+  if (u.includes('notfound')) {
+    return {
+      ...base,
+      verdict: 'FAIL',
+      coverageState: 'No se ha encontrado (404)',
+      pageFetchState: 'NOT_FOUND',
+      googleCanonical: null,
+      userCanonical: null,
+    };
+  }
+  if (u.includes('robots')) {
+    return {
+      ...base,
+      verdict: 'NEUTRAL',
+      coverageState: 'Bloqueada por robots.txt',
+      robotsTxtState: 'DISALLOWED',
+      pageFetchState: 'BLOCKED_ROBOTS_TXT',
+      googleCanonical: null,
+    };
+  }
+  return base;
 }
 
 function stubHost(siteUrl: string): string {
