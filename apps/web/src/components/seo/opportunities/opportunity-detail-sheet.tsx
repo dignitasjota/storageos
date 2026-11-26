@@ -15,6 +15,7 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SeoPlanLinks } from '../plan/plan-links';
 import { SeoTrendChart } from '../seo-charts';
 import { seoErrorMessage } from '../seo-errors';
 import { SeoOrigin } from '../sistrix/seo-origin';
@@ -221,6 +222,25 @@ export function OpportunityDetailSheet({
                   </Button>
                 </div>
               )}
+              <SeoPlanLinks
+                scope={scope}
+                canEdit={canEdit}
+                resolved={o.status === 'done'}
+                task={{
+                  title: `Trabajar «${o.query}»`,
+                  type: 'content',
+                  url: o.targetUrl ?? o.page,
+                  keywords: [o.query],
+                  opportunityId: o.id,
+                }}
+                change={{
+                  title: `Mejora de «${o.query}»`,
+                  type: o.type === 'low_ctr' ? 'title_meta' : 'content',
+                  urls: [o.targetUrl ?? o.page].filter((u): u is string => !!u),
+                  keywords: [o.query],
+                  opportunityId: o.id,
+                }}
+              />
               {o.status === 'dismissed' && o.dismissReason && (
                 <p className="text-sm text-muted-foreground">Descartada: {o.dismissReason}</p>
               )}

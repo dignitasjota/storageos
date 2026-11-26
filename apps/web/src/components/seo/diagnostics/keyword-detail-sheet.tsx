@@ -4,6 +4,7 @@ import {
   SEO_INTENT_SOURCE_LABELS,
   SEO_KEYWORD_INTENT_LABELS,
   SEO_KEYWORD_SOURCE_LABELS,
+  type SeoChartMarkerDto,
   type SeoDashboardDayDto,
   type SeoTrackedKeywordDetailDto,
 } from '@storageos/shared';
@@ -25,6 +26,7 @@ import {
 } from '@/components/ui/sheet';
 import { formatCount, formatDate, formatNumber, formatPct } from '@/lib/format';
 import { type DiagnosticScope, useTrackedKeywordDetail } from '@/lib/seo-advanced/diagnostic-hooks';
+import { useChangeMarkers } from '@/lib/seo-advanced/plan-hooks';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -81,7 +83,7 @@ function MetricRows({
   );
 }
 
-function Body({ d }: { d: SeoTrackedKeywordDetailDto }) {
+function Body({ d, markers }: { d: SeoTrackedKeywordDetailDto; markers: SeoChartMarkerDto[] }) {
   const k = d.keyword;
   const days: SeoDashboardDayDto[] = d.daily.map((x) => ({
     date: x.date,
@@ -148,10 +150,28 @@ function Body({ d }: { d: SeoTrackedKeywordDetailDto }) {
           title={`Día a día en Search Console (${formatDate(d.from)} – ${formatDate(d.to)})`}
         >
           <div className="grid gap-4">
-            <SeoTrendChart title="Posición media" metric="position" days={days} compare={false} />
-            <SeoTrendChart title="Clics" metric="clicks" days={days} compare={false} />
-            <SeoTrendChart title="Impresiones" metric="impressions" days={days} compare={false} />
-            <SeoTrendChart title="CTR" metric="ctr" days={days} compare={false} />
+            <SeoTrendChart
+              title="Posición media"
+              metric="position"
+              days={days}
+              compare={false}
+              markers={markers}
+            />
+            <SeoTrendChart
+              title="Clics"
+              metric="clicks"
+              days={days}
+              compare={false}
+              markers={markers}
+            />
+            <SeoTrendChart
+              title="Impresiones"
+              metric="impressions"
+              days={days}
+              compare={false}
+              markers={markers}
+            />
+            <SeoTrendChart title="CTR" metric="ctr" days={days} compare={false} markers={markers} />
           </div>
         </Section>
       )}
@@ -241,6 +261,19 @@ export function KeywordDetailSheet({
   onClose: () => void;
 }) {
   const detail = useTrackedKeywordDetail(scope, id, { days, domainId });
+  const k = detail.data;
+  // Las actuaciones que tocan esta palabra o su URL objetivo (y las de todo el sitio).
+  const markers = useChangeMarkers(
+    scope,
+    {
+      domainId,
+      from: k?.from ?? null,
+      to: k?.to ?? null,
+      query: k?.keyword.keyword ?? null,
+      url: k?.keyword.targetUrl ?? null,
+    },
+    !!k,
+  );
   return (
     <Sheet open={id !== null} onOpenChange={(v) => !v && onClose()}>
       <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
@@ -258,7 +291,7 @@ export function KeywordDetailSheet({
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <Body d={detail.data} />
+            <Body d={detail.data} markers={markers.data ?? []} />
           )}
         </div>
       </SheetContent>

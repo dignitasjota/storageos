@@ -11,6 +11,7 @@ export * from './gsc-import';
 export * from './sistrix';
 export * from './opportunities';
 export * from './diagnostics';
+export * from './plan';
 
 /**
  * SEO Avanzado: un solo motor para dos ámbitos. Un proyecto sin tenant es de

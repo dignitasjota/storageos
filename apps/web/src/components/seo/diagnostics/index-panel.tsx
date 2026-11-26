@@ -12,10 +12,12 @@ import { Download, Info, Loader2, Map as MapIcon, Search } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
+import { ChangeDialog, type ChangeDraft, type TaskDraft } from '../plan/plan-dialogs';
+import { SeoPlanLinks } from '../plan/plan-links';
 import { seoErrorMessage } from '../seo-errors';
 
 import { DIAGNOSTIC_STATUS_OPTIONS } from './cannibalization-panel';
-import { DiagnosticManage, DiagnosticStatusBadge } from './diagnostic-bits';
+import { DiagnosticManage, DiagnosticStatusBadge, shortUrl } from './diagnostic-bits';
 import { useDebounced } from './use-debounced';
 
 import { SectionError } from '@/components/dashboard/section-state';
@@ -61,12 +63,34 @@ function EvidenceBadges() {
   );
 }
 
+/** Lo que se lleva al plan desde una página que no debería estar en Google. */
+function findingDrafts(f: SeoIndexFindingDto): { task: TaskDraft; change: ChangeDraft } {
+  return {
+    task: {
+      title: `Sacar de Google ${shortUrl(f.url)}`,
+      type: 'technical',
+      url: f.url,
+      keywords: [],
+      indexFindingId: f.id,
+    },
+    change: {
+      title: `Sacar de Google ${shortUrl(f.url)}`,
+      type: f.category === 'redirect_domain' ? 'redirect' : 'noindex',
+      urls: [f.url],
+      keywords: [],
+      indexFindingId: f.id,
+    },
+  };
+}
+
 function Detail({
+  scope,
   f,
   canEdit,
   busy,
   onSave,
 }: {
+  scope: DiagnosticScope;
   f: SeoIndexFindingDto;
   canEdit: boolean;
   busy: boolean;
@@ -94,6 +118,12 @@ function Detail({
         canEdit={canEdit}
         busy={busy}
         onSave={onSave}
+      />
+      <SeoPlanLinks
+        scope={scope}
+        canEdit={canEdit}
+        resolved={f.status === 'fixed'}
+        {...findingDrafts(f)}
       />
       <p className="text-xs text-muted-foreground">
         Detectada el {formatDate(f.detectedAt)} · último cálculo {formatDateTime(f.lastSeenAt)}
@@ -171,12 +201,26 @@ export function IndexPanel({ scope, canEdit }: { scope: DiagnosticScope; canEdit
   const items = list.data?.items ?? [];
   const open = items.find((f) => f.id === openId) ?? null;
 
+  const [recording, setRecording] = useState<ChangeDraft | null>(null);
   const save = async (
     id: string,
     input: { status?: SeoDiagnosticStatus; notes?: string | null },
   ) => {
+    const item = items.find((f) => f.id === id);
     try {
       await update.mutateAsync({ id, input });
+      // Al darla por arreglada, se ofrece registrar el cambio (opcional).
+      if (input.status === 'fixed' && item && canEdit) {
+        toast.success('Arreglada', {
+          description: '¿Registras el cambio para ver su antes y después?',
+          action: {
+            label: 'Registrar la actuación',
+            onClick: () => setRecording(findingDrafts(item).change),
+          },
+          duration: 10_000,
+        });
+        return;
+      }
       toast.success('Guardado');
     } catch (err) {
       toast.error(seoErrorMessage(err));
@@ -313,6 +357,7 @@ export function IndexPanel({ scope, canEdit }: { scope: DiagnosticScope; canEdit
           </DialogHeader>
           {open && (
             <Detail
+              scope={scope}
               f={open}
               canEdit={canEdit}
               busy={update.isPending}
@@ -321,6 +366,13 @@ export function IndexPanel({ scope, canEdit }: { scope: DiagnosticScope; canEdit
           )}
         </DialogContent>
       </Dialog>
+      <ChangeDialog
+        scope={scope}
+        domains={[]}
+        open={recording !== null}
+        onOpenChange={(v) => !v && setRecording(null)}
+        draft={recording}
+      />
     </div>
   );
 }

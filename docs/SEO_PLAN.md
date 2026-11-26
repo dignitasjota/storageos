@@ -764,3 +764,33 @@ Diagnóstico (§18.2–§18.5, §18.7, §19.2 y §19.5). Lo puro en `packages/sh
 - Las palabras seguidas se ven por dominio (el principal por defecto): cada pantalla lee de un cruce y nunca suma dominios.
 
 **Criterios del MVP (§14) que quedan cumplidos con la fase 2**: proyectos con Search Console e histórico; panel con comparativas; SISTRIX con control de créditos; palabras clave con intención, grupo y URL objetivo; competencia; oportunidades con motivo y puntuación; canibalización e indexación como «a revisar» con su estado. De los añadidos: 15 (los totales salen siempre del cruce `site`), 16 y 17 (presupuesto de SISTRIX y panel que sigue con lo guardado, PR 3) y 18 (una posición que no hay sale «—», nunca 0, también en las palabras seguidas). Quedan para las fases 3 y 4: actuaciones con antes y después, conversiones, informes y alertas, importación de los Excel maestros, inspección de URL, rastreador y PageSpeed.
+
+## 32. PR 6 hecha — empieza la fase 3 (2026-11-26)
+
+Actuaciones con su antes y después (§18.8 y §19.6) y tareas SEO con tablero y calendario (§8; el calendario de contenidos es una vista de las tareas, §15.2). Lo puro en `packages/shared/src/seo/plan.ts` (vitest); el API suma con SQL al leer y no guarda los resultados.
+
+**Actuaciones**
+
+- Cada una: día y hora (hora de España), tipo (título o descripción, contenido, página nueva, enlazado interno, redirección, técnica, noindex o robots, URL objetivo, otra), qué se cambió, detalle, alcance (URLs normalizadas con la función de la PR 5 —«/precios» sin dominio vale en cualquier dominio del proyecto— y palabras), quién, notas y enlaces a la oportunidad, canibalización o hallazgo que la motivó y a la tarea.
+- Ventanas de 7, 28 y 90 días: los N días antes y los N después empezando el día siguiente; el día del cambio no cuenta. Una ventana solo se compara cuando han pasado sus días más 3 de margen de Google («faltan N días», con la fecha) y Google ha dado el último; después, si no hay datos de casi todos los días de los dos lados (`seoPeriodCovered` sobre el cruce `site`), «periodo incompleto», y si el histórico empieza después, «sin histórico».
+- Se compara el alcance entero (las URLs si las hay, con cada fila de Google una sola vez aunque case con dos URLs apuntadas; si no, las palabras; sin alcance, el sitio), cada URL (cruce `page`), cada palabra (cruce `query`) y el dominio entero como referencia.
+- Veredicto: mejora, empeora o sin cambio claro, con un mínimo de 50 impresiones en cada lado («pocos datos» si no). Pesan los clics (2: ±15 %), la posición (1: ±1 puesto) y las impresiones (1: ±15 %); hace falta sumar 2. Una página que antes no salía y después sí cuenta como mejora (y al revés). El texto dice «coincide con», nunca «gracias a», y al lado va lo que hizo el sitio («todo el sitio subió parecido: puede ser temporada»).
+- Varias actuaciones del mismo dominio con alcance común (o sin alcance) dentro de las dos ventanas: «resultado mezclado con la actuación del …».
+- Gráfico del alcance día a día con una línea vertical el día del cambio y las de las que se solapan; las actuaciones salen también, discretas y con su título al pasar el ratón, en los gráficos del panel (PR 2) y de la ficha de una palabra (PR 5).
+- Al dar por hecha una oportunidad o arreglada una canibalización o un hallazgo se ofrece «Registrar la actuación» con el alcance puesto (opcional).
+
+**Tareas**
+
+- Tipo (contenido, técnica, enlaces, SEO local, otra), estado (por hacer, en curso, en revisión, hecha, cancelada), prioridad, responsable (equipo del negocio o super admins), fecha límite y, en las de contenido, de publicación; URL, palabras y enlaces a lo que la motivó y a la actuación que se registró al cerrarla (quedan enlazadas en los dos sentidos).
+- Desde una oportunidad, canibalización o hallazgo: «Crear tarea» con el contexto puesto. Al pasarla a «hecha», se ofrece registrar la actuación.
+- Tablero por estado con arrastrar y soltar (en el móvil, un desplegable de estado en cada tarjeta), calendario mensual por fecha límite o de publicación (agenda en el móvil), lista, filtros por tipo y responsable, «Mis tareas», búsqueda y CSV.
+- Avisos al responsable al asignársela y, cada mañana, de las que vencen hoy o van atrasadas: en el tenant, notificación del panel; en la plataforma, aviso del super admin. Uno por tarea, persona y día.
+
+**Decisiones**
+
+- Tabla propia para las tareas SEO (`seo_tasks`) y no la de tareas del negocio (`tasks`, módulo de operaciones): un proyecto puede ser de la plataforma (sin tenant), las tareas SEO llevan URL, palabras, fecha de publicación y enlaces a oportunidades y actuaciones, y sus responsables pueden ser super admins. Se reutilizan los patrones de interfaz del tablero de leads (columnas, arrastrar y soltar) y del calendario de la app (rejilla mensual y agenda en el móvil).
+- El antes y después se calcula al leer, no se guarda: depende de hoy y de lo que haya dado Google, y así no hay que recalcularlo tras cada descarga. La lista solo pide a la base de datos las ventanas que ya se pueden comparar.
+- Las páginas del proyecto no se han reorganizado en pestañas de primer nivel: «Plan» es una tarjeta más con sus pestañas (Tareas y Actuaciones), para no tocar los contenedores ni los componentes de las PR anteriores.
+- Las anotaciones automáticas de §18.8 (leer del registro de acciones los cambios hechos desde la propia plataforma: título de trasteros.pro, entradas del blog, SEO de la web del tenant, páginas de zona) quedan para una PR posterior.
+
+**Pendiente** (PR 7): conversiones (reservas, demos y altas desde Google), alertas e informes semanal y mensual. Aparte: importación de los Excel maestros (cuando Jota los pase) y las anotaciones automáticas.
