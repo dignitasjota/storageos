@@ -21,6 +21,7 @@ export * from './crawler';
 export * from './assistant';
 export * from './ga4';
 export * from './ai-visibility';
+export * from './improvements';
 
 /**
  * SEO Avanzado: un solo motor para dos ámbitos. Un proyecto sin tenant es de
@@ -300,6 +301,8 @@ export interface SeoProjectDto {
   strategy: SeoStrategy;
   targetLocation: string | null;
   brandTerms: string[];
+  /** Municipios y barrios que le importan (SEO local por zona). */
+  localAreas: string[];
   weights: SeoWeights;
   frequencies: SeoFrequencies;
   status: SeoProjectStatus;

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { expectedCtr, isBrandQuery } from '../web/search-console';
 
+import { SEO_AREA_GAP_MIN_IMPRESSIONS } from './improvements';
 import {
   normalizeSeoKeyword,
   type SeoDataOriginDto,
@@ -32,6 +33,8 @@ export const SEO_OPPORTUNITY_TYPES = [
   'keyword_gap',
   // PR 10: el rastreador (enlazado interno).
   'internal_links',
+  // Mejoras: una búsqueda de tu zona (municipio o barrio) sin página propia.
+  'zone_no_page',
 ] as const;
 export type SeoOpportunityType = (typeof SEO_OPPORTUNITY_TYPES)[number];
 export const SeoOpportunityTypeEnum = z.enum(SEO_OPPORTUNITY_TYPES);
@@ -47,6 +50,7 @@ export const SEO_OPPORTUNITY_TYPE_LABELS: Record<SeoOpportunityType, string> = {
   sistrix: 'Oportunidad de SISTRIX',
   keyword_gap: 'La competencia sale y tú no',
   internal_links: 'URL objetivo con pocos enlaces internos',
+  zone_no_page: 'Búsqueda de tu zona sin página propia',
 };
 
 /** Qué hacer con cada tipo (la acción sugerida). */
@@ -71,6 +75,8 @@ export const SEO_OPPORTUNITY_ACTIONS: Record<SeoOpportunityType, string> = {
     'Valora crear una página para esta búsqueda o cubrirla en una que ya tengas: tus competidores la trabajan y tú no sales.',
   internal_links:
     'Enlaza la URL objetivo desde las páginas sugeridas (las que ya salen en Google para búsquedas parecidas), con un texto del enlace que diga de qué trata.',
+  zone_no_page:
+    'La gente busca tu servicio en esta zona y tu web no tiene una página para ella: crea una página de zona (dirección, cómo llegar, precios y reserva) o cubre la zona en una que ya tengas.',
 };
 
 export const SEO_OPPORTUNITY_STATUSES = [
@@ -135,6 +141,12 @@ export const SEO_DEFAULT_WEIGHTS = {
    * conectado y sesiones suficientes; si no, no cuenta y nada cambia.
    */
   engagement: 0.05,
+  /**
+   * Búsquedas de tu zona sin página propia (mejoras). Opcional y de peso bajo
+   * como los dos anteriores: solo entra en la oportunidad «zona sin página», así
+   * que las demás puntuaciones no cambian.
+   */
+  zone: 0.05,
 } as const;
 export type SeoWeightKey = keyof typeof SEO_DEFAULT_WEIGHTS;
 export type SeoWeights = Record<SeoWeightKey, number>;
@@ -149,6 +161,7 @@ export const SEO_WEIGHT_LABELS: Record<SeoWeightKey, string> = {
   difficulty: 'Dificultad (resta)',
   conversions: 'La página convierte',
   engagement: 'Mucho tráfico y poca interacción',
+  zone: 'Búsquedas de tu zona sin página',
 };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -300,7 +313,7 @@ export const UpdateSeoOpportunitySettingsSchema = z
       !v.weights ||
       // La dificultad resta y «la página convierte» y la interacción son opcionales: no cuentan.
       SEO_WEIGHT_KEYS.filter(
-        (k) => k !== 'difficulty' && k !== 'conversions' && k !== 'engagement',
+        (k) => k !== 'difficulty' && k !== 'conversions' && k !== 'engagement' && k !== 'zone',
       ).some((k) => v.weights?.[k] !== 0),
     { message: 'Al menos un peso (sin contar la dificultad) tiene que ser mayor que cero.' },
   );
@@ -423,6 +436,30 @@ export interface SeoOpportunityFactorsInput {
   pageConversions?: SeoPageConversionStat | null;
   /** Sesiones de GA4 de la página que sale (opcional, PR 12). */
   pageEngagement?: SeoPageEngagementStat | null;
+  /** Búsquedas de tu zona sin página propia (opcional, mejoras). */
+  zoneGap?: SeoZoneGapStat | null;
+}
+
+/** Impresiones de las búsquedas de una zona que no tiene página propia. */
+export interface SeoZoneGapStat {
+  area: string;
+  impressions: number;
+  /** Búsquedas distintas de la zona que se han visto. */
+  queries: number;
+}
+
+/** Impresiones de una zona que valen 1 en el factor «zona sin página» (escala logarítmica). */
+export const SEO_ZONE_IMPRESSIONS_CAP = 1000;
+
+/** Una zona del proyecto con lo que se busca en ella y si tiene página (la calcula el API). */
+export interface SeoOpportunityAreaGapRow {
+  area: string;
+  /** La búsqueda de la zona con más impresiones. */
+  query: string;
+  impressions: number;
+  queries: number;
+  /** Alguna página del sitio nombra la zona (o hay un local o una página de zona). */
+  hasPage: boolean;
 }
 
 /** Sesiones orgánicas de GA4 de la página que sale para una búsqueda (PR 12). */
@@ -680,6 +717,16 @@ export function scoreSeoOpportunity(
       },
     ]);
   }
+  // Búsquedas de tu zona sin página: solo en la oportunidad de zona.
+  if (input.zoneGap && input.zoneGap.impressions > 0) {
+    extras.push([
+      'zone',
+      {
+        value: log01(input.zoneGap.impressions, SEO_ZONE_IMPRESSIONS_CAP),
+        detail: `${seoFmtInt(input.zoneGap.impressions)} impresiones en ${seoFmtInt(input.zoneGap.queries)} búsqueda${input.zoneGap.queries === 1 ? '' : 's'} de «${input.zoneGap.area}» y la web no tiene página para esa zona`,
+      },
+    ]);
+  }
   const valueOf = (f: { value: number | null }) => f.value ?? SEO_UNKNOWN_FACTOR_VALUE;
   const sumW = positives.reduce((s, [k]) => s + weights[k], 0);
   const base =
@@ -809,6 +856,8 @@ export interface SeoOpportunityMetricsDto {
   impressionShare: number | null;
   /** Lectura de «Demanda real frente a SISTRIX». */
   demandVariant: 'unseen_by_sistrix' | 'above_volume' | 'low_share' | null;
+  /** Zona sin página (oportunidad «búsqueda de tu zona sin página»). */
+  zoneGap?: SeoZoneGapStat | null;
   /** Enlazado interno de la URL objetivo (oportunidad «pocos enlaces internos», PR 10). */
   internalLinks?: {
     targetUrl: string;
@@ -868,6 +917,8 @@ export interface SeoOpportunityDetectInput {
    * sin rastreo no hay oportunidades de este tipo y nada más cambia.
    */
   internalLinks?: SeoOpportunityInternalLinkRow[];
+  /** Zonas del proyecto y lo que se busca en ellas (mejoras). Opcional: sin zonas, nada. */
+  areaGaps?: SeoOpportunityAreaGapRow[];
 }
 
 /** Una palabra seguida cuya URL objetivo tiene pocos enlaces internos (rastreador, PR 10). */
@@ -944,6 +995,7 @@ export function detectSeoOpportunities(
       competitors?: SeoOpportunityGapRow | null;
       demandVariant?: SeoOpportunityMetricsDto['demandVariant'];
       internalLinks?: SeoOpportunityMetricsDto['internalLinks'];
+      zoneGap?: SeoZoneGapStat | null;
     },
   ): SeoOpportunityCandidate => {
     const norm = normalizeSeoKeyword(query);
@@ -971,6 +1023,7 @@ export function detectSeoOpportunities(
           : null,
       demandVariant: parts.demandVariant ?? null,
       ...(parts.internalLinks ? { internalLinks: parts.internalLinks } : {}),
+      ...(parts.zoneGap ? { zoneGap: parts.zoneGap } : {}),
     };
     const score = scoreSeoOpportunity(
       {
@@ -990,6 +1043,7 @@ export function detectSeoOpportunities(
         comparable: parts.gsc?.previous !== null && parts.gsc?.previous !== undefined,
         pageConversions: input.pageConversionsByQuery?.[norm] ?? null,
         pageEngagement: input.pageEngagementByQuery?.[norm] ?? null,
+        zoneGap: parts.zoneGap ?? null,
       },
       input.weights,
     );
@@ -1209,6 +1263,21 @@ export function detectSeoOpportunities(
     );
   }
 
+  // Búsquedas de tu zona sin página propia (mejoras): una por zona, con su mejor búsqueda.
+  for (const g of input.areaGaps ?? []) {
+    const norm = normalizeSeoKeyword(g.query);
+    if (!norm || g.hasPage || g.impressions < SEO_AREA_GAP_MIN_IMPRESSIONS) continue;
+    const kw = keywords.get(norm);
+    const row = queryRows.get(norm);
+    add(
+      build('zone_no_page', norm, {
+        gsc: row ? gscOf(row) : null,
+        sistrix: sistrixOfKeyword(kw),
+        zoneGap: { area: g.area, impressions: g.impressions, queries: g.queries },
+      }),
+    );
+  }
+
   return [...out.values()].sort((a, b) => b.score - a.score || a.query.localeCompare(b.query));
 }
 
@@ -1259,6 +1328,12 @@ export function seoOpportunityReason(c: SeoOpportunityCandidate, days: number): 
       return best
         ? `${best.domain} sale en la posición ${best.position}${more > 0 ? ` (y ${more} competidor${more === 1 ? '' : 'es'} más)` : ''} y tu web no aparece, ni en Search Console ni en SISTRIX.`
         : 'Tus competidores salen y tu web no aparece.';
+    }
+    case 'zone_no_page': {
+      const z = c.metrics.zoneGap;
+      return z
+        ? `Tu web recibe ${seoFmtInt(z.impressions)} impresiones en ${seoFmtInt(z.queries)} búsqueda${z.queries === 1 ? '' : 's'} de ${z.area} y ninguna página de tu web ni de tu negocio nombra esa zona.`
+        : 'Se busca tu servicio en una de tus zonas y no hay página para ella.';
     }
     case 'internal_links': {
       const l = c.metrics.internalLinks;

@@ -536,3 +536,35 @@ describe('detectSeoOpportunities', () => {
     expect(a[0]!.key).toBe(b[0]!.key);
   });
 });
+
+describe('zona sin página', () => {
+  const gap = {
+    area: 'Mislata',
+    query: 'trasteros mislata',
+    impressions: 120,
+    queries: 3,
+    hasPage: false,
+  };
+  it('propone la zona que se busca y no tiene página', () => {
+    const found = detect({ queries: [q('trasteros mislata', 120, 14)], areaGaps: [gap] });
+    const z = found.filter((o) => o.type === 'zone_no_page');
+    expect(z).toHaveLength(1);
+    expect(z[0]?.factors.some((f) => f.key === 'zone' && f.points > 0)).toBe(true);
+    expect(z[0]?.metrics.zoneGap?.area).toBe('Mislata');
+  });
+  it('no la propone con página, con poca demanda ni sin zonas', () => {
+    expect(
+      detect({ areaGaps: [{ ...gap, hasPage: true }] }).filter((o) => o.type === 'zone_no_page'),
+    ).toHaveLength(0);
+    expect(
+      detect({ areaGaps: [{ ...gap, impressions: 5 }] }).filter((o) => o.type === 'zone_no_page'),
+    ).toHaveLength(0);
+    expect(detect({}).filter((o) => o.type === 'zone_no_page')).toHaveLength(0);
+  });
+  it('el factor de zona no cambia las puntuaciones que no lo usan', () => {
+    const a = scoreSeoOpportunity(base);
+    const b = scoreSeoOpportunity({ ...base, zoneGap: null });
+    expect(b.score).toBe(a.score);
+    expect(b.factors.map((f) => f.key)).not.toContain('zone');
+  });
+});
