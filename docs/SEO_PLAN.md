@@ -857,3 +857,32 @@ Una viva por clave (índice parcial en SQL, sin duplicados entre réplicas); se 
 - **Sin pestañas**: «Lo que trae Google» y «Alertas» van tras el panel y «Informes» tras el plan, como tarjetas; reorganizar la página en pestañas de primer nivel obligaba a tocar los contenedores de las PR anteriores (como en la PR 6).
 
 **Pendiente**: la página de entrada de lo anterior a este despliegue no se puede recuperar; las anotaciones automáticas de §18.8 y, de la fase 4, el rastreador, la inspección de URL y PageSpeed.
+
+## 35. PR 9 hecha — empieza la fase 4 (2026-11-26)
+
+Inspección de URL de Google (§5 y §19.5) y PageSpeed (§10). Lo puro en `packages/shared/src/seo/inspection.ts` (vitest); el API en `apps/api/src/modules/seo-advanced/technical/`.
+
+**Inspección de URL**
+
+- `SearchConsoleClient.inspectUrl` con la misma cuenta de servicio y el ámbito de solo lectura (la documentación de la URL Inspection API lo admite: no hace falta permiso completo en la propiedad). Se guarda todo lo que da Google (veredicto, cobertura, robots.txt, indexación, lectura, último rastreo, rastreador, canónicas, sitemaps, referentes, usabilidad móvil y resultados enriquecidos) en `seo_url_inspections`, una fila por inspección (histórico).
+- Bajo demanda desde una pantalla propia («Técnico» → «Inspeccionar URL») y con un botón en Indexación, palabras seguidas, oportunidades, canibalización y el detalle de una página del panel. Una ruta («/precios») va al dominio principal; una URL de fuera del proyecto, no.
+- **Cuota**: Google deja 2.000 al día y 600 al minuto por propiedad. Se cuenta por día de la hora del Pacífico (Google no dice cuándo reinicia la de la inspección; es cuando reinician las cuotas diarias de sus APIs) y por propiedad, con un tope propio por proyecto (200 tenant, 1.000 plataforma). Lo que no cabe (o un 429 de Google, que no cuenta) espera al reinicio y se avisa una vez al día. «Hoy: 37 de 200 inspecciones» en la pantalla.
+- **Lote programado** (opcional, apagado por defecto): cada día las URL objetivo de las palabras de prioridad alta, los hallazgos de indexación abiertos y las páginas con más clics, sin volver a una URL antes de 14 días y sin pasar del tamaño del lote ni de la cuota. Cola con pausa de 1 s.
+- **Integración**: en Indexación, la etiqueta de Google (`inspection`) junto a «aparece en el rendimiento», sin perder la distinción; hallazgos nuevos de categoría «Canónica distinta a la declarada» y «URL objetivo no indexada» (`evidence = 'inspection'`), con el mismo ciclo de vida y mantenidos por la inspección (el recálculo del diagnóstico ya no los apaga). En la ficha de palabra y de oportunidad, lo que dice Google de su URL. Alertas «URL objetivo desindexada» y «Canónica distinta», con la deduplicación y la autorresolución de la PR 8. En los informes, lo inspeccionado del periodo.
+
+**PageSpeed**
+
+- PageSpeed Insights v5 con las cuatro categorías en una llamada, textos en español, un minuto por intento y tres intentos; clave opcional `PAGESPEED_API_KEY`. Se guarda en `seo_pagespeed_runs` (histórico): puntuaciones, laboratorio (LCP, CLS, TBT, FCP, Speed Index, TTI), campo de Chrome (LCP, INP, CLS con su categoría; de la URL o, si no tiene visitas suficientes, del sitio) y las mejoras con su ahorro estimado.
+- Bajo demanda y cada lunes (portada, URL objetivo de prioridad alta y páginas con más clics; 10 URL en un tenant y 20 en la plataforma, en móvil y ordenador).
+- Pantalla «Velocidad»: puntuación de móvil y ordenador y semáforo de usuarios reales por URL; en la ficha, Core Web Vitals de campo y de laboratorio con su semáforo, la evolución (un gráfico por métrica, un solo eje) y lo que hay que mejorar en palabras. LCP, INP y CLS explicados en una frase.
+- Alertas «Página lenta para los usuarios» (campo lento) y «Baja la puntuación de velocidad» (15 puntos o más frente a la medición anterior, editable).
+
+**Decisiones**
+
+- **Ámbito OAuth**: el de solo lectura basta (comprobado en la documentación de `urlInspection.index.inspect`); no se pide `webmasters`.
+- **Pestañas**: la página del proyecto pasa a pestañas de primer nivel (Rendimiento · Palabras y diagnóstico · Oportunidades · Competencia · Técnico · Plan · Informes y alertas · Ajustes) sin reescribir los componentes de las PR anteriores; la pestaña va en `?tab=` (leída en el navegador, sin `useSearchParams`) y las anclas de los avisos (`#alertas`, `#informes`, `#plan`) abren la suya. Solo se monta la pestaña abierta.
+- **Sin tabla de cuota**: el día y la propiedad van en cada inspección (`quota_day`, `gsc_property`) y se cuentan con un candado por propiedad, así que dos réplicas no se pasan.
+- **Inspecciones que esperan**: son filas de la misma tabla (`queued`, con `scheduled_for`); un índice parcial impide que una URL espere dos veces.
+- **PageSpeed siempre por la cola**: tarda 10-30 s por medición, no cabe en una petición.
+
+**Pendiente** (PR 10): el rastreador propio de las webs. De la PR 9: la etiqueta de Google en la lista de canibalización (hoy solo el botón), y medir la velocidad de las páginas de la competencia (no se hace: solo las del proyecto).
