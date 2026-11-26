@@ -60,6 +60,24 @@ function Delta({ now, before }: { now: number; before: number | null }) {
 const rate = (r: number | null) => (r === null ? '—' : formatPct(r * 100, 1));
 
 /**
+ * Qué días usa la tasa: los recuentos llegan hasta hoy, pero los clics solo
+ * hasta el último día que ha dado Google (los dos lados, los mismos días).
+ */
+function RateNote({ d }: { d: SeoConversionsDto }) {
+  let text: string | null = null;
+  if (!d.rateTo)
+    text = 'Aún no hay datos de Google en este periodo: la tasa y los clics salen cuando lleguen.';
+  else if (d.rateTo < d.to)
+    text = `La tasa y los clics usan hasta el ${formatDate(d.rateTo)}, el último día con datos de Google.`;
+  if (d.rateTo && !d.complete) {
+    text = `${text ?? ''} Google aún no ha dado todos esos días: sin tasa.`.trim();
+  } else if (d.rateTo && !d.comparable) {
+    text = `${text ?? ''} Sin días de Google suficientes antes: la tasa no se compara.`.trim();
+  }
+  return text ? <p className="text-xs text-muted-foreground">{text}</p> : null;
+}
+
+/**
  * «Lo que trae Google»: reservas, contactos y lista de espera (en un negocio)
  * o solicitudes y altas (en trasteros.pro) que llegaron desde Google sin
  * anuncios, con la tasa sobre los clics y el reparto por página de entrada.
@@ -204,11 +222,8 @@ function ConversionsBody({
     <>
       {platformToggle}
       <p className="text-xs text-muted-foreground">
-        Del {formatDate(d.from)} al {formatDate(d.to)}
-        {d.comparable
-          ? `, comparado con el ${formatDate(d.previousFrom)} al ${formatDate(d.previousTo)}`
-          : ''}
-        .{!d.complete && ' Google aún no ha dado todos los días: sin tasa ni comparación.'}
+        Del {formatDate(d.from)} al {formatDate(d.to)}, comparado con el{' '}
+        {formatDate(d.previousFrom)} al {formatDate(d.previousTo)}.
       </p>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -242,9 +257,14 @@ function ConversionsBody({
           </span>
         )}
       </div>
+      <RateNote d={d} />
 
       <div>
-        <h3 className="mb-2 text-sm font-medium">Por página de entrada</h3>
+        <h3 className="text-sm font-medium">Por página de entrada</h3>
+        <p className="mb-2 text-xs text-muted-foreground">
+          Conversiones hasta hoy; clics y tasa con los días de Google
+          {d.rateTo && d.rateTo < d.to ? ` (hasta el ${formatDate(d.rateTo)})` : ''}.
+        </p>
         {d.pages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Aún no ha llegado nada desde Google en este periodo.

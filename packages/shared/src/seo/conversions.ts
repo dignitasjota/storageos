@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
+import { shiftDate } from '../web/search-console';
+
 import { normalizeSeoUrl, splitSeoUrl } from './diagnostics';
+import { seoPanelRange, type SeoPanelPeriod } from './panel';
 
 /**
  * SEO Avanzado, PR 8 (§18.9): lo que trae el tráfico orgánico de Google.
@@ -106,6 +109,61 @@ export function seoPageLandingKey(page: string): string {
   return seoLandingKey(splitSeoUrl(page).path);
 }
 
+export interface SeoConversionRanges {
+  /** Los recuentos: hasta hoy (las conversiones no esperan a Google). */
+  from: string;
+  to: string;
+  /** El periodo anterior de los recuentos: los mismos días, justo antes. */
+  previousFrom: string;
+  previousTo: string;
+  /**
+   * La tasa (conversiones ÷ clics): solo los días con datos de Google, los
+   * mismos para el numerador y el denominador; null si aún no hay ninguno.
+   */
+  rate: { from: string; to: string; previousFrom: string; previousTo: string } | null;
+}
+
+const dayDiff = (a: string, b: string) =>
+  Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+
+/**
+ * Fechas de «Lo que trae Google». Los recuentos van hasta hoy (hora de
+ * España): una reserva de hoy se ve hoy, aunque Google vaya 2 o 3 días por
+ * detrás. La tasa, en cambio, solo usa los días que Google ya ha dado (hasta
+ * `lastDataDate`), y su comparación, los mismos días justo antes. null si el
+ * rango a mano no es válido.
+ */
+export function seoConversionRanges(input: {
+  period: SeoPanelPeriod;
+  from?: string | null;
+  to?: string | null;
+  today: string;
+  /** Último día con datos de Google del dominio principal (null = ninguno). */
+  lastDataDate: string | null;
+}): SeoConversionRanges | null {
+  const r = seoPanelRange({
+    period: input.period,
+    lastDate: input.today,
+    from: input.from ?? null,
+    to: input.to ?? null,
+  });
+  if (!r) return null;
+  let rate: SeoConversionRanges['rate'] = null;
+  if (input.lastDataDate && input.lastDataDate >= r.from) {
+    const to = input.lastDataDate < r.to ? input.lastDataDate : r.to;
+    const days = dayDiff(r.from, to) + 1;
+    const previousTo = shiftDate(r.from, -1);
+    rate = { from: r.from, to, previousFrom: shiftDate(previousTo, -(days - 1)), previousTo };
+  }
+  return {
+    from: r.from,
+    to: r.to,
+    previousFrom: r.previousFrom,
+    previousTo: r.previousTo,
+    rate,
+  };
+}
+
 /** Conversiones ÷ clics (null sin clics). */
 export function seoConversionRate(conversions: number, clicks: number): number | null {
   return clicks > 0 ? Math.round((conversions / clicks) * 10_000) / 10_000 : null;
@@ -176,7 +234,7 @@ export function estimateSeoConversionsByQuery(
 export interface SeoConversionTypeTotalDto {
   type: SeoConversionType;
   count: number;
-  /** null si el periodo anterior no se compara. */
+  /** El periodo anterior (mismos días); null si no se compara. */
   previous: number | null;
   /** Ingresos del primer pago (solo en los pagos). */
   revenue: number | null;
@@ -185,8 +243,11 @@ export interface SeoConversionTypeTotalDto {
 export interface SeoConversionPageDto {
   /** Ruta de entrada (`/precios`); vacío = no se sabe. */
   landing: string;
+  /** Clics de Google de los días de la tasa. */
   clicks: number;
+  /** Hasta hoy. */
   conversions: number;
+  /** Conversiones de los días de la tasa ÷ sus clics. */
   rate: number | null;
   byType: Partial<Record<SeoConversionType, number>>;
 }
@@ -196,19 +257,28 @@ export interface SeoConversionsDto {
   scope: 'tenant' | 'platform' | null;
   /** Proyecto de la plataforma: lo marcado a mano (null = por el dominio). */
   platformConversions: boolean | null;
+  /** Los recuentos (hasta hoy) y su periodo anterior (los mismos días, justo antes). */
   from: string;
   to: string;
   previousFrom: string;
   previousTo: string;
-  /** El periodo tiene datos de Google de casi todos sus días (si no, sin tasa). */
+  /** Días de la tasa: los que tiene Google (null si ninguno). */
+  rateFrom: string | null;
+  rateTo: string | null;
+  /** Último día con datos de Google (del dominio principal). */
+  lastDataDate: string | null;
+  /** Los días de la tasa tienen datos de Google de casi todos sus días (si no, sin tasa). */
   complete: boolean;
-  /** El anterior también (si no, sin comparación). */
+  /** Los de antes también (si no, sin comparar la tasa). */
   comparable: boolean;
   types: SeoConversionTypeTotalDto[];
   /** Conversiones principales (`SEO_PRIMARY_CONVERSION_TYPES`), clics y tasa. */
   primary: {
     count: number;
     previous: number | null;
+    /** Las principales de los días de la tasa (el numerador). */
+    rateCount: number;
+    /** Clics de Google de los días de la tasa (el denominador). */
     clicks: number;
     previousClicks: number | null;
     rate: number | null;

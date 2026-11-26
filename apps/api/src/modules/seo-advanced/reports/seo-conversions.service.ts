@@ -14,7 +14,7 @@ import {
   seoConversionRate,
   seoLandingKey,
   seoPageLandingKey,
-  seoPanelRange,
+  seoConversionRanges,
   seoPeriodCovered,
   shiftDate,
   type SeoConversionPageDto,
@@ -361,19 +361,22 @@ export class SeoConversionsService {
         })
       : null;
     const first = dateOnly(bounds?._min.date);
-    const last = dateOnly(bounds?._max.date) ?? today();
-    const range = seoPanelRange({
+    const last = dateOnly(bounds?._max.date);
+    // Recuentos hasta hoy; la tasa, solo con los días que Google ya ha dado.
+    const ranges = seoConversionRanges({
       period: q.period,
-      lastDate: last,
       from: q.from ?? null,
       to: q.to ?? null,
+      today: today(),
+      lastDataDate: last,
     });
-    if (!range) {
+    if (!ranges) {
       throw new BadRequestException({
         code: 'seo_invalid_range',
         message: 'Elige las dos fechas del periodo.',
       });
     }
+    const rr = ranges.rate;
     const days = async (from: string, to: string) =>
       primary
         ? this.admin.seoGscMetric.count({
@@ -384,26 +387,31 @@ export class SeoConversionsService {
             },
           })
         : 0;
-    const [cur, prev, clicks, prevClicks, curDays, prevDays] = await Promise.all([
-      this.counts(projectId, range.from, range.to),
-      this.counts(projectId, range.previousFrom, range.previousTo),
-      this.siteClicks(domainIds, range.from, range.to),
-      this.siteClicks(domainIds, range.previousFrom, range.previousTo),
-      days(range.from, range.to),
-      days(range.previousFrom, range.previousTo),
-    ]);
-    const complete = seoPeriodCovered({
-      firstDate: first,
-      from: range.from,
-      to: range.to,
-      daysWithData: curDays,
-    });
+    const none = Promise.resolve<
+      { type: string; landing: string; n: number; revenue: number | null }[]
+    >([]);
+    const [cur, prev, rateCur, ratePrev, clicks, prevClicks, curDays, prevDays] = await Promise.all(
+      [
+        this.counts(projectId, ranges.from, ranges.to),
+        this.counts(projectId, ranges.previousFrom, ranges.previousTo),
+        rr ? this.counts(projectId, rr.from, rr.to) : none,
+        rr ? this.counts(projectId, rr.previousFrom, rr.previousTo) : none,
+        rr ? this.siteClicks(domainIds, rr.from, rr.to) : Promise.resolve(0),
+        rr ? this.siteClicks(domainIds, rr.previousFrom, rr.previousTo) : Promise.resolve(0),
+        rr ? days(rr.from, rr.to) : Promise.resolve(0),
+        rr ? days(rr.previousFrom, rr.previousTo) : Promise.resolve(0),
+      ],
+    );
+    const complete =
+      !!rr &&
+      seoPeriodCovered({ firstDate: first, from: rr.from, to: rr.to, daysWithData: curDays });
     const comparable =
       complete &&
+      !!rr &&
       seoPeriodCovered({
         firstDate: first,
-        from: range.previousFrom,
-        to: range.previousTo,
+        from: rr.previousFrom,
+        to: rr.previousTo,
         daysWithData: prevDays,
       });
 
@@ -421,23 +429,25 @@ export class SeoConversionsService {
         ? Math.round(list.reduce((s, r) => s + Number(r.revenue), 0) * 100) / 100
         : null;
     };
+    const isPrimary = (t: string) => SEO_PRIMARY_CONVERSION_TYPES.includes(t as SeoConversionType);
+    const primarySum = (rows: typeof cur) =>
+      rows.filter((r) => isPrimary(r.type)).reduce((s, r) => s + Number(r.n), 0);
+    // Los recuentos se comparan siempre: los mismos días justo antes (no dependen de Google).
     const types = typeList.map((type) => ({
       type,
       count: sumBy(cur, type),
-      previous: comparable ? sumBy(prev, type) : null,
+      previous: sumBy(prev, type),
       revenue: type === 'booking_paid' || type === 'paid_signup' ? revenueBy(cur, type) : null,
     }));
-    const primaryCount = types
-      .filter((t) => SEO_PRIMARY_CONVERSION_TYPES.includes(t.type))
-      .reduce((s, t) => s + t.count, 0);
-    const primaryPrev = comparable
-      ? types
-          .filter((t) => SEO_PRIMARY_CONVERSION_TYPES.includes(t.type))
-          .reduce((s, t) => s + (t.previous ?? 0), 0)
-      : null;
+    const primaryCount = types.filter((t) => isPrimary(t.type)).reduce((s, t) => s + t.count, 0);
+    const primaryPrev = types
+      .filter((t) => isPrimary(t.type))
+      .reduce((s, t) => s + (t.previous ?? 0), 0);
+    const rateCount = primarySum(rateCur);
+    const ratePrevCount = primarySum(ratePrev);
     const revenues = types.map((t) => t.revenue).filter((r): r is number => r !== null);
 
-    // Por página de entrada (las principales), con los clics de esa página en Google.
+    // Por página de entrada: conversiones hasta hoy; clics y tasa, con los días de Google.
     const pageMap = new Map<string, SeoConversionPageDto>();
     for (const r of cur) {
       if (!typeList.includes(r.type as SeoConversionType)) continue;
@@ -450,10 +460,15 @@ export class SeoConversionsService {
       };
       const type = r.type as SeoConversionType;
       p.byType[type] = (p.byType[type] ?? 0) + Number(r.n);
-      if (SEO_PRIMARY_CONVERSION_TYPES.includes(type)) p.conversions += Number(r.n);
+      if (isPrimary(type)) p.conversions += Number(r.n);
       pageMap.set(r.landing, p);
     }
-    const pageClicks = await this.pageClicks(domainIds, range.from, range.to);
+    const rateByPage = new Map<string, number>();
+    for (const r of rateCur) {
+      if (!isPrimary(r.type)) continue;
+      rateByPage.set(r.landing, (rateByPage.get(r.landing) ?? 0) + Number(r.n));
+    }
+    const pageClicks = rr ? await this.pageClicks(domainIds, rr.from, rr.to) : new Map();
     for (const [key, c] of pageClicks) {
       const p = pageMap.get(key);
       if (p) p.clicks = c;
@@ -461,7 +476,10 @@ export class SeoConversionsService {
     const pages = [...pageMap.values()]
       .map((p) => ({
         ...p,
-        rate: complete && p.landing ? seoConversionRate(p.conversions, p.clicks) : null,
+        rate:
+          complete && p.landing
+            ? seoConversionRate(rateByPage.get(p.landing) ?? 0, p.clicks)
+            : null,
       }))
       .sort(
         (a, b) =>
@@ -471,34 +489,40 @@ export class SeoConversionsService {
       )
       .slice(0, SEO_CONVERSION_PAGES_MAX);
 
-    const queries = estimateSeoConversionsByQuery(
-      pages.map((p) => ({ landingKey: p.landing, conversions: p.conversions })),
-      await this.queryPageClicks(
-        domainIds,
-        range.from,
-        range.to,
-        pages.filter((p) => p.landing && p.conversions > 0).map((p) => p.landing),
-      ),
-    );
+    // Por búsqueda (estimación): las conversiones hasta hoy, repartidas según los clics de Google.
+    const queries = rr
+      ? estimateSeoConversionsByQuery(
+          pages.map((p) => ({ landingKey: p.landing, conversions: p.conversions })),
+          await this.queryPageClicks(
+            domainIds,
+            rr.from,
+            rr.to,
+            pages.filter((p) => p.landing && p.conversions > 0).map((p) => p.landing),
+          ),
+        )
+      : [];
 
     return {
       scope,
       platformConversions: project.tenantId ? null : project.platformConversions,
-      from: range.from,
-      to: range.to,
-      previousFrom: range.previousFrom,
-      previousTo: range.previousTo,
+      from: ranges.from,
+      to: ranges.to,
+      previousFrom: ranges.previousFrom,
+      previousTo: ranges.previousTo,
+      rateFrom: rr?.from ?? null,
+      rateTo: rr?.to ?? null,
+      lastDataDate: last,
       complete,
       comparable,
       types,
       primary: {
         count: primaryCount,
         previous: primaryPrev,
+        rateCount,
         clicks,
         previousClicks: comparable ? prevClicks : null,
-        rate: complete ? seoConversionRate(primaryCount, clicks) : null,
-        previousRate:
-          comparable && primaryPrev !== null ? seoConversionRate(primaryPrev, prevClicks) : null,
+        rate: complete ? seoConversionRate(rateCount, clicks) : null,
+        previousRate: comparable ? seoConversionRate(ratePrevCount, prevClicks) : null,
       },
       revenue: revenues.length ? Math.round(revenues.reduce((s, r) => s + r, 0) * 100) / 100 : null,
       pages,

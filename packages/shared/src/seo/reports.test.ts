@@ -12,6 +12,7 @@ import {
 import {
   estimateSeoConversionsByQuery,
   isOrganicGoogleSource,
+  seoConversionRanges,
   seoConversionRate,
   seoLandingKey,
   seoPageLandingKey,
@@ -42,6 +43,49 @@ describe('conversiones orgánicas', () => {
     expect(seoLandingKey(null)).toBe('');
     expect(seoPageLandingKey('https://www.guardalobox.es/Precios/')).toBe('/precios');
     expect(seoPageLandingKey('https://guardalobox.es/')).toBe('/');
+  });
+
+  it('recuentos hasta hoy; la tasa, solo con los días de Google (y los mismos antes)', () => {
+    const r = seoConversionRanges({
+      period: '7d',
+      today: '2026-11-26',
+      lastDataDate: '2026-11-24',
+    });
+    expect(r).toEqual({
+      from: '2026-11-20',
+      to: '2026-11-26',
+      previousFrom: '2026-11-13',
+      previousTo: '2026-11-19',
+      rate: {
+        from: '2026-11-20',
+        to: '2026-11-24',
+        previousFrom: '2026-11-15',
+        previousTo: '2026-11-19',
+      },
+    });
+    // A mano: no pasa de hoy, y con Google al día la tasa usa el periodo entero.
+    const custom = seoConversionRanges({
+      period: 'custom',
+      from: '2026-11-20',
+      to: '2026-11-30',
+      today: '2026-11-26',
+      lastDataDate: '2026-11-26',
+    });
+    expect(custom?.to).toBe('2026-11-26');
+    expect(custom?.rate).toMatchObject({ from: '2026-11-20', to: '2026-11-26' });
+    // Sin datos de Google en el periodo: sin tasa, pero con recuentos.
+    const none = seoConversionRanges({
+      period: '7d',
+      today: '2026-11-26',
+      lastDataDate: '2026-11-10',
+    });
+    expect(none?.rate).toBeNull();
+    expect(
+      seoConversionRanges({ period: '7d', today: '2026-11-26', lastDataDate: null })?.rate,
+    ).toBeNull();
+    expect(
+      seoConversionRanges({ period: 'custom', today: '2026-11-26', lastDataDate: null }),
+    ).toBeNull();
   });
 
   it('tasa con clics; sin clics, null', () => {

@@ -547,4 +547,38 @@ describe('SEO Avanzado: conversiones, alertas e informes (e2e)', () => {
     ).toBe(404);
     expect((await http().post(`${tBase}/alerts/check`).set(asSuper())).status).toBe(404);
   });
+
+  it('lo de hoy se cuenta aunque Google vaya por detrás; la tasa usa solo sus días', async () => {
+    const a = { Authorization: `Bearer ${owner.accessToken}` };
+    // Google solo tiene datos hasta anteayer.
+    await withAdminDb((db) =>
+      db.seoGscMetric.deleteMany({
+        where: { domainId: tenantDomain, date: { gt: asDate(shiftDate(TODAY, -2)) } },
+      }),
+    );
+    const res = await http().get('/seo-advanced/conversions?period=7d').set(a);
+    expect(res.status).toBe(200);
+    // Los recuentos llegan hasta hoy: la reserva de hoy sale.
+    expect(res.body.to).toBe(TODAY);
+    expect(res.body.lastDataDate).toBe(shiftDate(TODAY, -2));
+    const count = (type: string) =>
+      (res.body.types as { type: string; count: number }[]).find((t) => t.type === type)?.count;
+    expect(count('booking_started')).toBe(1);
+    expect(res.body.primary.count).toBe(2);
+    // La tasa: del primer día a anteayer (5 días), con las conversiones de esos días.
+    expect(res.body.rateFrom).toBe(shiftDate(TODAY, -6));
+    expect(res.body.rateTo).toBe(shiftDate(TODAY, -2));
+    expect(res.body.primary).toMatchObject({ clicks: 50, rateCount: 0, rate: 0 });
+    // Por página: conversiones hasta hoy, clics y tasa de los días de Google.
+    const precios = (
+      res.body.pages as { landing: string; clicks: number; conversions: number; rate: number }[]
+    ).find((p) => p.landing === '/precios');
+    expect(precios).toMatchObject({ conversions: 1, clicks: 25, rate: 0 });
+    // A mano hasta hoy: no se recorta al último día de Google.
+    const custom = await http()
+      .get(`/seo-advanced/conversions?period=custom&from=${shiftDate(TODAY, -6)}&to=${TODAY}`)
+      .set(a);
+    expect(custom.body.to).toBe(TODAY);
+    expect(custom.body.primary.count).toBe(2);
+  });
 });
