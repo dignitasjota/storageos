@@ -11,6 +11,8 @@ import { SeoAssistantPanel } from '@/components/seo/assistant/assistant-panel';
 import { SeoBriefsCard } from '@/components/seo/assistant/briefs-card';
 import { SeoAiProvider } from '@/components/seo/assistant/seo-ai-context';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
+import { SeoGa4ConnectionCard } from '@/components/seo/ga4/ga4-connection-card';
+import { SeoGa4PagesCard } from '@/components/seo/ga4/ga4-pages-card';
 import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoPlanCard } from '@/components/seo/plan/plan-card';
@@ -188,6 +190,7 @@ export default function SeoAdvancedPage() {
                   planScope={{ kind: 'tenant' }}
                 />
                 <SeoConversionsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+                <SeoGa4PagesCard scope={{ kind: 'tenant' }} />
               </>
             ),
             palabras: (
@@ -250,6 +253,7 @@ export default function SeoAdvancedPage() {
                     setRole: (id, role) => updateDomain.mutateAsync({ id, role }),
                   }}
                 />
+                <SeoGa4ConnectionCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
                 <SeoImportsCard client={client} domains={project.domains} />
                 <SeoMasterImportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
                 <SeoRunsCard

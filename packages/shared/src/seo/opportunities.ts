@@ -128,6 +128,13 @@ export const SEO_DEFAULT_WEIGHTS = {
    * puntuaciones sin ese dato no cambian.
    */
   conversions: 0.05,
+  /**
+   * Mucho tráfico y poca interacción (GA4, PR 12): la página que sale tiene
+   * muchas sesiones orgánicas y pocas con interacción, así que mejorar su
+   * contenido rinde. Opcional como «La página convierte»: solo entra con GA4
+   * conectado y sesiones suficientes; si no, no cuenta y nada cambia.
+   */
+  engagement: 0.05,
 } as const;
 export type SeoWeightKey = keyof typeof SEO_DEFAULT_WEIGHTS;
 export type SeoWeights = Record<SeoWeightKey, number>;
@@ -141,6 +148,7 @@ export const SEO_WEIGHT_LABELS: Record<SeoWeightKey, string> = {
   trend: 'Tendencia',
   difficulty: 'Dificultad (resta)',
   conversions: 'La página convierte',
+  engagement: 'Mucho tráfico y poca interacción',
 };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -290,10 +298,10 @@ export const UpdateSeoOpportunitySettingsSchema = z
   .refine(
     (v) =>
       !v.weights ||
-      // La dificultad resta y «la página convierte» es opcional: no cuentan.
-      SEO_WEIGHT_KEYS.filter((k) => k !== 'difficulty' && k !== 'conversions').some(
-        (k) => v.weights?.[k] !== 0,
-      ),
+      // La dificultad resta y «la página convierte» y la interacción son opcionales: no cuentan.
+      SEO_WEIGHT_KEYS.filter(
+        (k) => k !== 'difficulty' && k !== 'conversions' && k !== 'engagement',
+      ).some((k) => v.weights?.[k] !== 0),
     { message: 'Al menos un peso (sin contar la dificultad) tiene que ser mayor que cero.' },
   );
 export type UpdateSeoOpportunitySettingsInput = z.infer<typeof UpdateSeoOpportunitySettingsSchema>;
@@ -413,6 +421,35 @@ export interface SeoOpportunityFactorsInput {
   comparable: boolean;
   /** Conversiones de Google de la página que sale y sus clics (opcional, PR 8). */
   pageConversions?: SeoPageConversionStat | null;
+  /** Sesiones de GA4 de la página que sale (opcional, PR 12). */
+  pageEngagement?: SeoPageEngagementStat | null;
+}
+
+/** Sesiones orgánicas de GA4 de la página que sale para una búsqueda (PR 12). */
+export interface SeoPageEngagementStat {
+  sessions: number;
+  engagedSessions: number;
+}
+
+/** Sesiones mínimas de la página para que cuente «Mucho tráfico y poca interacción». */
+export const SEO_ENGAGEMENT_MIN_SESSIONS = 50;
+/**
+ * Tasa de interacción (60 %) a partir de la cual no hay nada que mejorar: por
+ * debajo, cuanto más baja, más vale el factor.
+ */
+export const SEO_ENGAGEMENT_TARGET_RATE = 0.6;
+
+/**
+ * Valor del factor «Mucho tráfico y poca interacción» (0–1), o null si la
+ * página no tiene sesiones suficientes (entonces el factor no entra).
+ */
+export function seoEngagementFactorValue(
+  stat: SeoPageEngagementStat | null | undefined,
+): { value: number; rate: number } | null {
+  if (!stat || stat.sessions < SEO_ENGAGEMENT_MIN_SESSIONS) return null;
+  const rate = stat.engagedSessions / stat.sessions;
+  const value = clamp01((SEO_ENGAGEMENT_TARGET_RATE - rate) / SEO_ENGAGEMENT_TARGET_RATE);
+  return { value, rate };
 }
 
 /** Conversiones orgánicas de una página y sus clics de Google en el mismo periodo. */
@@ -627,6 +664,17 @@ export function scoreSeoOpportunity(
       },
     ]);
   }
+  // Mucho tráfico y poca interacción (GA4): solo con sesiones suficientes.
+  const eng = seoEngagementFactorValue(input.pageEngagement);
+  if (eng && input.pageEngagement) {
+    positives.push([
+      'engagement',
+      {
+        value: eng.value,
+        detail: `La página que sale tiene ${seoFmtInt(input.pageEngagement.sessions)} sesiones de Google en GA4 y solo el ${fmtPct(eng.rate)} con interacción`,
+      },
+    ]);
+  }
   const valueOf = (f: { value: number | null }) => f.value ?? SEO_UNKNOWN_FACTOR_VALUE;
   const sumW = positives.reduce((s, [k]) => s + weights[k], 0);
   const base =
@@ -795,6 +843,11 @@ export interface SeoOpportunityDetectInput {
    */
   pageConversionsByQuery?: Record<string, SeoPageConversionStat>;
   /**
+   * Sesiones de GA4 de la página que sale por cada búsqueda (clave: la
+   * búsqueda normalizada). Opcional (PR 12): el factor «Mucho tráfico y poca interacción».
+   */
+  pageEngagementByQuery?: Record<string, SeoPageEngagementStat>;
+  /**
    * Enlazado interno de las URL objetivo (último rastreo, PR 10). Opcional:
    * sin rastreo no hay oportunidades de este tipo y nada más cambia.
    */
@@ -920,6 +973,7 @@ export function detectSeoOpportunities(
         hasSistrix: sistrix !== null || !!parts.competitors,
         comparable: parts.gsc?.previous !== null && parts.gsc?.previous !== undefined,
         pageConversions: input.pageConversionsByQuery?.[norm] ?? null,
+        pageEngagement: input.pageEngagementByQuery?.[norm] ?? null,
       },
       input.weights,
     );

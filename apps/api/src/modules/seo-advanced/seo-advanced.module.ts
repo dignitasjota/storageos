@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { WORKERS_ENABLED_IN_API } from '../../config/workers-enabled';
 import { PlatformAlertLogService } from '../admin/platform-alert-log.service';
 import { PlatformAlertsService } from '../admin/platform-alerts.service';
+import { Ga4Client } from '../marketing/ga4/ga4.client';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SearchConsoleModule } from '../search-console/search-console.module';
 
@@ -12,6 +13,8 @@ import { SeoCrawlCron } from './crawler/seo-crawl.cron';
 import { SeoCrawlProcessor } from './crawler/seo-crawl.processor';
 import { SeoCrawlerService } from './crawler/seo-crawler.service';
 import { SeoDiagnosticsEngineService } from './diagnostics/seo-diagnostics-engine.service';
+import { SeoGa4Cron } from './ga4/seo-ga4.cron';
+import { SeoGa4Service } from './ga4/seo-ga4.service';
 import { SeoOpportunityEngineService } from './opportunities/seo-opportunity-engine.service';
 import { SeoOpportunityScheduler } from './opportunities/seo-opportunity-scheduler';
 import { SeoPlanCron } from './plan/seo-plan.cron';
@@ -32,6 +35,7 @@ import { SeoGscSyncService } from './seo-gsc-sync.service';
 import { SeoGscCron } from './seo-gsc.cron';
 import { SeoGscProcessor } from './seo-gsc.processor';
 import { SeoProjectsService } from './seo-projects.service';
+import { SeoAiVisibilityService } from './sistrix/seo-ai-visibility.service';
 import { SistrixApiClient } from './sistrix/sistrix-api.client';
 import { SistrixConnectionsService } from './sistrix/sistrix-connections.service';
 import { SistrixFetchService } from './sistrix/sistrix-fetch.service';
@@ -106,6 +110,10 @@ import type { Env } from '../../config/env.schema';
     SeoPageSpeedService,
     SeoCrawlFetcher,
     SeoCrawlerService,
+    // PR 12: GA4 del tráfico orgánico (el mismo cliente que Marketing).
+    Ga4Client,
+    SeoGa4Service,
+    SeoAiVisibilityService,
     ...(WORKERS_ENABLED_IN_API
       ? [
           SeoGscProcessor,
@@ -117,6 +125,7 @@ import type { Env } from '../../config/env.schema';
           SeoTechnicalCron,
           SeoCrawlProcessor,
           SeoCrawlCron,
+          SeoGa4Cron,
         ]
       : []),
   ],
@@ -142,6 +151,8 @@ import type { Env } from '../../config/env.schema';
     SeoPageSpeedService,
     SeoCrawlFetcher,
     SeoCrawlerService,
+    SeoGa4Service,
+    SeoAiVisibilityService,
   ],
 })
 export class SeoAdvancedModule {}

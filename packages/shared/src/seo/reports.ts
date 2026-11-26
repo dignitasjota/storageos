@@ -212,7 +212,30 @@ export interface SeoReportContentDto {
   technical?: SeoReportTechnicalDto | null;
   /** Último rastreo de la web hasta el final del periodo (PR 10); null si no hay. */
   crawl?: SeoReportCrawlDto | null;
+  /** Tráfico orgánico de Google según GA4 (PR 12); null sin GA4 conectado. */
+  ga4?: SeoReportGa4Dto | null;
+  /** Visibilidad en buscadores de IA (PR 12, estimación de SISTRIX); null sin datos. */
+  aiVisibility?: SeoReportAiVisibilityDto | null;
   highlights: string[];
+}
+
+/** GA4 del periodo (PR 12): sesiones orgánicas de Google e interacción. */
+export interface SeoReportGa4Dto {
+  sessions: number;
+  previousSessions: number | null;
+  engagementRate: number | null;
+  keyEvents: number;
+}
+
+/** Visibilidad en IA (PR 12): la última consulta hasta el final del periodo. */
+export interface SeoReportAiVisibilityDto {
+  date: string;
+  /** Prompts en los que sales (tu dominio o tu marca). */
+  own: number;
+  previous: number | null;
+  /** Prompts en los que dejaste de salir frente a la consulta anterior. */
+  lost: number;
+  competitors: { subject: string; promptCount: number }[];
 }
 
 /** Resumen del último rastreo (PR 10). */
@@ -340,6 +363,24 @@ export function seoReportHighlights(c: Omit<SeoReportContentDto, 'highlights'>):
           ? ` (${seoFmtInt(crawl.newIssues)} nuevas y ${seoFmtInt(crawl.resolvedIssues)} resueltas frente al anterior)`
           : ''
       }${crawl.errors > 0 ? `; ${seoFmtInt(crawl.errors)} páginas dan error` : ''}.`,
+    );
+  }
+  const ga4 = c.ga4;
+  if (ga4 && ga4.sessions > 0) {
+    out.push(
+      `Google Analytics cuenta ${seoFmtInt(ga4.sessions)} visitas desde Google${
+        ga4.engagementRate !== null
+          ? `, el ${String(Math.round(ga4.engagementRate * 1000) / 10).replace('.', ',')} % con interacción`
+          : ''
+      } (solo quien acepta las cookies).`,
+    );
+  }
+  const ai = c.aiVisibility;
+  if (ai) {
+    out.push(
+      ai.lost > 0
+        ? `Buscadores de IA: sales en ${seoFmtInt(ai.own)} prompts y has dejado de salir en ${seoFmtInt(ai.lost)} (estimación de SISTRIX).`
+        : `Buscadores de IA: sales en ${seoFmtInt(ai.own)} prompts (estimación de SISTRIX).`,
     );
   }
   const open = c.alerts.filter((a) => a.status === 'open');

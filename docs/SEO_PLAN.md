@@ -945,4 +945,47 @@ Asistente de SEO con herramientas de solo lectura y borradores de contenido (bri
 - **Brief sin consultas de pago**: solo lo descargado de SISTRIX; si falta, se usa lo que hay y se dice. El texto del borrador del blog sale del brief (estructura con un hueco por sección y las preguntas frecuentes), sin otra llamada a la IA.
 - **Pestaña nueva**: «Asistente» se añade al final de las pestañas de la PR 9; «Preparar contenido» abre el brief en ella.
 
-**Pendiente** (PR 12, fase 5): GA4 y conversiones, visibilidad en buscadores de IA y lo que se decida tras usar el asistente unas semanas.
+**Pendiente** (PR 12, fase 5): GA4 y conversiones, visibilidad en buscadores de IA y lo que se decida tras usar el asistente unas semanas. → Hecho en la PR 12 (§38).
+
+## 38. PR 12 hecha — plan completo (2026-11-26)
+
+Google Analytics del tráfico orgánico por página (§12 y §18.9) y visibilidad en buscadores de IA con SISTRIX (§12, §25, §28 y §29). Lo puro en `packages/shared/src/seo/ga4.ts` y `ai-visibility.ts` (vitest); el API en `apps/api/src/modules/seo-advanced/ga4/` y `sistrix/seo-ai-visibility.*`.
+
+**Google Analytics**
+
+- Una propiedad de GA4 (Data API) por proyecto, de la plataforma o del tenant, con la misma cuenta de servicio que Search Console y Marketing (Lector en la propiedad; la pantalla da el correo y los pasos). En un tenant con GA4 en Marketing, «Usar esa conexión»: la misma propiedad, ya comprobada, sin pedir nada más. Una propiedad propia de un tenant pasa la misma comprobación que Marketing (mide su web por el ID de medición); ninguna propiedad se comparte entre dueños.
+- Solo el tráfico orgánico de Google (`sessionDefaultChannelGroup = Organic Search` y fuente `google`) por día, host y página de entrada (`landingPagePlusQueryString` normalizada con la clave de las conversiones de la PR 8): sesiones, usuarios, sesiones con interacción, duración, páginas vistas y eventos clave. 16 meses en la carga inicial y los últimos días cada mañana; repetir no duplica.
+- «Páginas: Google, Analytics y conversiones» (Rendimiento): cada página con Search Console, GA4 y las conversiones propias, ordenable (también por «mucho tráfico y poca interacción»), con el aviso de que un clic no es una sesión y de que GA4 depende de las cookies. Cifras de GA4 en la ficha de la palabra y de la página.
+- Oportunidades: factor opcional «Mucho tráfico y poca interacción» (peso 0,05, como «La página convierte»): solo con 50 sesiones o más de la página que sale; vale (60 % − interacción) ÷ 60 %. Sin dato no existe y nada cambia.
+
+**Visibilidad en IA**
+
+- En la tanda «Visibilidad en IA» de SISTRIX (mensual por defecto, España siempre, solo por el MCP, con caché y cuota): `ai_check` `overview` y `prompts` de tu dominio principal, tu marca y cada competidor activo; `sources` y `competitors` de lo tuyo; `ai_prompt_answers` de los prompts que sigues. Nunca `ai_topicresearch` vista `list` ni `ai_tracker*`.
+- Pantalla en «Competencia» → «Visibilidad en IA»: tus prompts frente a la media de tus competidores por consulta (un eje), el reparto por modelo, los prompts en los que sale la competencia y tú no (con «Preparar contenido» y «Seguir»), las fuentes que citan las IA y tus páginas citadas, y las respuestas de los prompts seguidos (texto de terceros, sin enlaces ni HTML; al asistente le llegan delimitadas).
+- Alerta «Dejas de salir en los buscadores de IA» y resumen en el informe mensual (prompts tuyos, perdidos y los competidores con más).
+
+**Decisiones**
+
+- **Reutilización de GA4**: el mismo cliente (`Ga4Client`), la misma cuenta de servicio y, en un tenant, la misma propiedad que Marketing; no se comparten las filas porque `ga4_page_rows` es todo el tráfico por página vista (sin canal ni página de entrada) y este corte es otro. Tabla propia `seo_ga4_landing_daily`, una fila por proyecto, día, host y página.
+- **Tablas de IA**: se amplía `seo_ai_visibility` con `subject_type` (la marca es otro sujeto del resumen) y se añaden `seo_ai_prompts` (prompts y respuestas de los seguidos) y `seo_ai_sources` (fuentes y marcas que compiten). Datos por «fondo», como el resto de SISTRIX: un tenant solo ve lo pedido con su clave (o la de la plataforma si el super admin se la da).
+- **Coste de `ai_check`**: con 10 competidores y 20 prompts seguidos, unas 45 consultas al mes por proyecto; por el MCP no gastan créditos y cuentan en el tope diario de peticiones del fondo. La API clásica no tiene `ai_check`: si el MCP agota su cuota, la tanda espera.
+- **Formato de las vistas nuevas**: comprobado con el servidor real (26-11-2026, fixtures en `__tests__/fixtures/sistrix-mcp/ai_check-*`): `prompts` da `{ prompts: [{ prompt, model, message, country }] }` con la respuesta **en HTML** (listas, `<highlight>`, `<sup>` con referencias en números romanos), que se guarda y se enseña como texto plano limpio (`seoAiAnswerText`: listas a líneas con guion, sin etiquetas ni referencias, entidades decodificadas; el HTML original no se guarda); `sources` da `{ competitor: [{ source, amount, prompt_count }] }` (se guarda `amount`, las veces citada) y `competitors` da `{ competitor: [{ brand }] }`, solo marcas, sin dominio ni recuento. `ai_prompt_answers` da `{ answers: [{ answer, model, country }] }`, sin el prompt en cada fila y con la respuesta también en HTML: el normalizador la acepta sin prompt y la tanda pone el de la consulta (fixture `ai_prompt_answers-barakaldo.json`).
+
+**Resumen de las 12 PR**
+
+| PR  | Qué                                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------- |
+| 1   | Proyectos y dominios, Search Console con 16 meses e histórico por cruces, cola `seo` y extra SEO Avanzado |
+| 2   | Dominios secundarios, importación de los Excel de Search Console y panel con comparativas                 |
+| 3   | SISTRIX por MCP y por API con proveedores, enrutador, caché, presupuesto y datos de competencia           |
+| 4   | Motor de oportunidades con puntuación y motivo                                                            |
+| 5   | Palabras seguidas, URL objetivo, canibalización e indexación                                              |
+| 6   | Actuaciones con su antes y después y tareas SEO con tablero y calendario                                  |
+| 7   | Importación de los Excel maestros                                                                         |
+| 8   | Conversiones de Google, alertas e informes semanal y mensual                                              |
+| 9   | Inspección de URL y PageSpeed, página en pestañas                                                         |
+| 10  | Rastreador propio de las webs                                                                             |
+| 11  | Asistente de SEO y borradores de contenido                                                                |
+| 12  | Google Analytics del tráfico orgánico y visibilidad en buscadores de IA                                   |
+
+**Fuera del plan** (por si se retoma): anotaciones automáticas de §18.8, editar los grupos desde la pantalla de palabras, la etiqueta de Google en la lista de canibalización, la velocidad de la competencia, un navegador sin cabeza para webs que se pintan en el navegador, posiciones geolocalizadas (§16.7), backlinks más allá de `linktargets`, AI Tracker de SISTRIX (necesita proyectos suyos) y comprobar con la primera llamada real el formato de `ai_prompt_answers` y de la API clásica.

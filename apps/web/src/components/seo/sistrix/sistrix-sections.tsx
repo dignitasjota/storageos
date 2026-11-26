@@ -2,9 +2,10 @@
 
 import { Loader2 } from 'lucide-react';
 
+import { SeoAiVisibilityPanel } from './ai-visibility-panel';
 import { CompetitorsPanel } from './competitors-panel';
 import { KeywordIdeasPanel } from './keyword-ideas-panel';
-import { BacklinksPanel, AiVisibilityPanel } from './links-ai-panels';
+import { BacklinksPanel } from './links-ai-panels';
 import { SistrixStatus } from './sistrix-status';
 import { TenantSistrixCard } from './tenant-sistrix-card';
 
@@ -93,7 +94,7 @@ export function SeoSistrixSections({
                 <BacklinksPanel scope={scope} />
               </TabsContent>
               <TabsContent value="ai">
-                <AiVisibilityPanel scope={scope} />
+                <SeoAiVisibilityPanel scope={scope} canEdit={canEdit} />
               </TabsContent>
             </Tabs>
           </CardContent>

@@ -121,7 +121,8 @@ function parseCreateBrief(raw: unknown): CreateSeoBriefInput {
   if (!parsed.success) {
     throw new BadRequestException({
       code: 'validation_failed',
-      message: 'Elige de dónde sale el brief: una palabra, una oportunidad, un grupo o una URL.',
+      message:
+        'Elige de dónde sale el brief: una palabra, una oportunidad, un grupo, una URL o un prompt.',
     });
   }
   return parsed.data;

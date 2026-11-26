@@ -599,7 +599,12 @@ export class SeoSistrixDataService {
       ...new Set([...own, ...p.competitors.filter((c) => c.isActive).map((c) => c.domain)]),
     ];
     const rows = await this.admin.seoAiVisibility.findMany({
-      where: { tenantId: pool, domain: { in: domains }, country: p.country.toLowerCase() },
+      where: {
+        tenantId: pool,
+        subjectType: 'domain',
+        domain: { in: domains },
+        country: p.country.toLowerCase(),
+      },
       orderBy: { sampleDate: 'desc' },
       distinct: ['domain'],
     });

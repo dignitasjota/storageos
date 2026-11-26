@@ -5,6 +5,7 @@ import { ArrowUpDown, Download, Loader2, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { SeoGa4PageFigures } from './ga4/ga4-pages-card';
 import { SeoChange } from './seo-change';
 import { seoErrorMessage } from './seo-errors';
 import { InspectUrlButton } from './technical/inspection-bits';
@@ -321,6 +322,12 @@ function CrossSheet({
         {inspectScope && dimension === 'page' && value && (
           <div className="mt-3">
             <InspectUrlButton scope={inspectScope} url={value} canEdit={client.canImport} />
+          </div>
+        )}
+        {/* PR 12: las visitas desde Google de esta página en Google Analytics. */}
+        {inspectScope && dimension === 'page' && value && (
+          <div className="mt-3">
+            <SeoGa4PageFigures scope={inspectScope} url={value} />
           </div>
         )}
         <div className="mt-4">

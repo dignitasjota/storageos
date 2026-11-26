@@ -151,13 +151,14 @@ export const SEO_ASSISTANT_SUGGESTIONS = [
 
 // ------------------------------------------------------------------ briefs
 
-export const SEO_BRIEF_SOURCES = ['keyword', 'opportunity', 'group', 'url'] as const;
+export const SEO_BRIEF_SOURCES = ['keyword', 'opportunity', 'group', 'url', 'prompt'] as const;
 export type SeoBriefSource = (typeof SEO_BRIEF_SOURCES)[number];
 export const SEO_BRIEF_SOURCE_LABELS: Record<SeoBriefSource, string> = {
   keyword: 'Palabra seguida',
   opportunity: 'Oportunidad',
   group: 'Grupo de palabras',
   url: 'URL',
+  prompt: 'Prompt de buscadores de IA',
 };
 
 export const SEO_BRIEF_STATUSES = ['draft', 'in_progress', 'published'] as const;
@@ -174,6 +175,8 @@ export const CreateSeoBriefSchema = z.discriminatedUnion('source', [
   z.object({ source: z.literal('opportunity'), opportunityId: z.string().uuid() }),
   z.object({ source: z.literal('group'), groupName: z.string().trim().min(1).max(80) }),
   z.object({ source: z.literal('url'), url: z.string().trim().min(1).max(2000) }),
+  // PR 12: un prompt de los buscadores de IA en el que sale la competencia y tú no.
+  z.object({ source: z.literal('prompt'), prompt: z.string().trim().min(3).max(300) }),
 ]);
 export type CreateSeoBriefInput = z.infer<typeof CreateSeoBriefSchema>;
 

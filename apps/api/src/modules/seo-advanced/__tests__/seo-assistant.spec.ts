@@ -51,6 +51,8 @@ function makeTools() {
     none,
     none,
     actions as unknown as SeoAssistantActionsService,
+    none,
+    none,
   );
   return { service, sistrixData, panel, actions };
 }

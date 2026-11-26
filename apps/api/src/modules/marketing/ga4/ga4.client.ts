@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { shiftDate, type Ga4PageRowInput, type Ga4SourceRowInput } from '@storageos/shared';
+import {
+  SEO_GA4_DIMENSIONS,
+  SEO_GA4_METRICS,
+  SEO_GA4_ORGANIC_FILTER,
+  shiftDate,
+  type Ga4PageRowInput,
+  type Ga4SourceRowInput,
+  type SeoGa4LandingRowInput,
+} from '@storageos/shared';
 
 import {
   GoogleApiError,
@@ -165,6 +173,44 @@ export class Ga4Client {
     }));
   }
 
+  /**
+   * SEO Avanzado (PR 12): solo el tráfico orgánico de Google
+   * (`sessionDefaultChannelGroup = Organic Search` y fuente `google`) por día,
+   * host y página de entrada, con sesiones, usuarios, sesiones con
+   * interacción, duración media, páginas vistas y eventos clave.
+   */
+  async organicLandingRows(
+    propertyId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<SeoGa4LandingRowInput[]> {
+    if (this.stub) {
+      stubAccess(propertyId);
+      return stubOrganicLanding(startDate, endDate);
+    }
+    const rows = await this.paged(propertyId, {
+      dateRanges: [{ startDate, endDate }],
+      dimensions: SEO_GA4_DIMENSIONS.map((name) => ({ name })),
+      metrics: SEO_GA4_METRICS.map((name) => ({ name })),
+      dimensionFilter: SEO_GA4_ORGANIC_FILTER,
+    });
+    const num = (v: string | undefined) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    return rows.map((r) => ({
+      date: isoDate(r.dimensionValues[0]?.value ?? ''),
+      host: (r.dimensionValues[1]?.value ?? '').slice(0, 255),
+      landing: (r.dimensionValues[2]?.value ?? '').slice(0, 2000),
+      sessions: int(r.metricValues[0]?.value),
+      users: int(r.metricValues[1]?.value),
+      engagedSessions: int(r.metricValues[2]?.value),
+      averageSessionDuration: num(r.metricValues[3]?.value),
+      pageViews: int(r.metricValues[4]?.value),
+      keyEvents: num(r.metricValues[5]?.value),
+    }));
+  }
+
   private async paged(
     propertyId: string,
     body: Record<string, unknown>,
@@ -230,6 +276,41 @@ function stubPages(startDate: string, endDate: string): Ga4PageRowInput[] {
       // Dos firmas con su enlace secreto en la dirección (lo que mandaba la web).
       { date: d, pagePath: '/sign/tok-abc', pageViews: 1, sessions: 1 },
       { date: d, pagePath: '/sign/tok-def', pageViews: 1, sessions: 1 },
+    );
+  }
+  return out;
+}
+
+/**
+ * Tráfico orgánico simulado (determinista): la portada con buena interacción,
+ * «/precios» con mucho tráfico y poca interacción (y una variante con
+ * parámetros que se junta con ella) y una entrada sin página.
+ */
+function stubOrganicLanding(startDate: string, endDate: string): SeoGa4LandingRowInput[] {
+  const out: SeoGa4LandingRowInput[] = [];
+  const row = (
+    date: string,
+    landing: string,
+    sessions: number,
+    engaged: number,
+    keyEvents: number,
+  ): SeoGa4LandingRowInput => ({
+    date,
+    host: '',
+    landing,
+    sessions,
+    users: Math.max(1, sessions - 1),
+    engagedSessions: engaged,
+    averageSessionDuration: engaged > sessions / 2 ? 95 : 20,
+    pageViews: sessions * 2,
+    keyEvents,
+  });
+  for (let d = startDate, i = 0; d <= endDate && i < 500; d = shiftDate(d, 1), i++) {
+    out.push(
+      row(d, '/', 20, 15, 1),
+      row(d, '/precios', 12, 3, 0),
+      row(d, '/precios?utm_source=newsletter', 2, 1, 0),
+      row(d, '(not set)', 1, 0, 0),
     );
   }
   return out;

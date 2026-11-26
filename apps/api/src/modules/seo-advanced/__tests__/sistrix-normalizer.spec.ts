@@ -29,7 +29,15 @@ function opOf(f: Fixture): SistrixOp {
   const view = String(f.args.view ?? '');
   if (f.tool === 'keyword_domain_seo') return 'domain_keywords';
   if (f.tool === 'links') return 'linktargets';
-  if (f.tool === 'ai_check') return 'ai_overview';
+  if (f.tool === 'ai_check') {
+    return view === 'prompts'
+      ? 'ai_prompts'
+      : view === 'sources'
+        ? 'ai_sources'
+        : view === 'competitors'
+          ? 'ai_competitors'
+          : 'ai_overview';
+  }
   if (f.tool === 'keyword') return view === 'seo' ? 'serp' : (view as SistrixOp);
   return view as SistrixOp;
 }

@@ -27,6 +27,8 @@ export const JOB_SEO_OPPORTUNITIES = 'opportunities';
 export const JOB_SEO_INSPECTIONS = 'url-inspections';
 /** Atender las mediciones de PageSpeed pendientes de un proyecto (cola `seo`). */
 export const JOB_SEO_PAGESPEED = 'pagespeed';
+/** Descargar el tráfico orgánico de GA4 de un proyecto (cola `seo`, PR 12). */
+export const JOB_SEO_GA4 = 'ga4-sync';
 /**
  * SEO Avanzado: tandas de SISTRIX (MCP o API). Cola aparte de `seo` porque va
  * con concurrencia 1 y pausa entre llamadas (dos procesadores en la misma cola

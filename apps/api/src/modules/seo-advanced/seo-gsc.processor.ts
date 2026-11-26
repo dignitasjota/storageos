@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 
 import {
+  JOB_SEO_GA4,
   JOB_SEO_GSC_SYNC,
   JOB_SEO_INSPECTIONS,
   JOB_SEO_OPPORTUNITIES,
@@ -11,6 +12,7 @@ import {
 } from '../queues/queue-names';
 
 import { SeoDiagnosticsEngineService } from './diagnostics/seo-diagnostics-engine.service';
+import { SeoGa4Service } from './ga4/seo-ga4.service';
 import { SeoOpportunityEngineService } from './opportunities/seo-opportunity-engine.service';
 import { SeoGscSyncService } from './seo-gsc-sync.service';
 import { SeoInspectionService } from './technical/seo-inspection.service';
@@ -33,6 +35,7 @@ export class SeoGscProcessor extends WorkerHost {
     private readonly diagnostics: SeoDiagnosticsEngineService,
     private readonly inspection: SeoInspectionService,
     private readonly pagespeed: SeoPageSpeedService,
+    private readonly ga4: SeoGa4Service,
   ) {
     super();
   }
@@ -51,6 +54,11 @@ export class SeoGscProcessor extends WorkerHost {
     }
     if (job.name === JOB_SEO_PAGESPEED && job.data.projectId) {
       await this.pagespeed.processQueue(job.data.projectId);
+      return;
+    }
+    // GA4 del tráfico orgánico (PR 12).
+    if (job.name === JOB_SEO_GA4 && job.data.projectId) {
+      await this.ga4.sync(job.data.projectId);
       return;
     }
     if (job.name !== JOB_SEO_GSC_SYNC || !job.data.runId) {

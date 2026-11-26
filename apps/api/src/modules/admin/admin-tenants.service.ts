@@ -2968,6 +2968,10 @@ export class AdminTenantsService {
       await tx.seoDomainOpportunity.deleteMany({ where: { tenantId } });
       await tx.seoBacklinkTarget.deleteMany({ where: { tenantId } });
       await tx.seoAiVisibility.deleteMany({ where: { tenantId } });
+      // PR 12: visibilidad en IA (prompts, respuestas y fuentes) y GA4 del tráfico orgánico.
+      await tx.seoAiPrompt.deleteMany({ where: { tenantId } });
+      await tx.seoAiSource.deleteMany({ where: { tenantId } });
+      await tx.seoGa4LandingDaily.deleteMany({ where: { tenantId } });
       await tx.seoProjectKeyword.deleteMany({ where: { tenantId } });
       await tx.seoCompetitor.deleteMany({ where: { tenantId } });
       await tx.seoProviderConnection.deleteMany({ where: { tenantId } });
