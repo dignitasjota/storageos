@@ -17,6 +17,8 @@ import { stubMcpResult } from '../sistrix/sistrix-stub-data';
 import { aiSubject } from '../sistrix/sistrix-sync.service';
 
 const DIR = join(__dirname, 'fixtures', 'sistrix-mcp');
+const real = (name: string) =>
+  (JSON.parse(readFileSync(join(DIR, `${name}.json`), 'utf8')) as { result: McpToolResult }).result;
 const realOverview = (
   JSON.parse(readFileSync(join(DIR, 'ai_check-overview-bluespace.es.json'), 'utf8')) as {
     result: McpToolResult;
@@ -144,7 +146,7 @@ describe('SISTRIX ai_check (PR 12): respuestas', () => {
       data: {
         op: 'ai_prompts',
         prompts: [
-          { prompt: 'Mejores trasteros en Valencia', model: 'aio', answer: 'Texto <b>A</b>' },
+          { prompt: 'Mejores trasteros en Valencia', model: 'aio', answer: 'Texto A' },
           { prompt: 'trastero barato', model: 'ai_mode', answer: 'Texto B', rank: 2 },
         ],
       },
@@ -210,5 +212,68 @@ describe('SISTRIX ai_check (PR 12): respuestas', () => {
     };
     expect(count('mio.es')).toBe(3);
     expect(count('competidor.es')).toBe(6);
+  });
+});
+
+describe('SISTRIX ai_check (PR 12): respuestas reales (bluespace.es, 26-11-2026)', () => {
+  it('prompts: la respuesta llega en HTML en `message` y se guarda como texto plano', () => {
+    const out = normalizeSistrix(
+      'ai_prompts',
+      parseMcpResult(real('ai_check-prompts-bluespace.es')),
+    );
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok' || out.data.op !== 'ai_prompts') return;
+    expect(out.data.prompts.map((p) => [p.prompt, p.model])).toEqual([
+      ['trasteros en barakaldo', 'aio'],
+      ['trasteros madrid precio', 'ai_mode'],
+      ['cajas mudanza barcelona', 'ai_mode'],
+    ]);
+    for (const p of out.data.prompts) {
+      expect(p.answer).toBeTruthy();
+      // Ni etiquetas, ni referencias, ni entidades: texto con líneas de lista.
+      expect(p.answer).not.toMatch(/<[a-z/]/i);
+      expect(p.answer).not.toMatch(/&[a-z]+;/i);
+      expect(p.answer!.length).toBeLessThanOrEqual(4000);
+    }
+    const first = out.data.prompts[0]!.answer!;
+    expect(first.startsWith('- Bluespace Barakaldo:')).toBe(true);
+    expect(first).not.toContain('XV');
+    expect(first.split('\n').every((l) => l.trim() === l && l !== '' && l !== '-')).toBe(true);
+  });
+
+  it('sources: `{ competitor: [{ source, amount, prompt_count }] }`, con las veces citada', () => {
+    const out = normalizeSistrix(
+      'ai_sources',
+      parseMcpResult(real('ai_check-sources-bluespace.es')),
+    );
+    expect(out).toMatchObject({
+      kind: 'ok',
+      data: {
+        op: 'ai_sources',
+        sources: [
+          { source: 'www.google.com', count: 730 },
+          { source: 'www.bluespace.es', count: 393 },
+          { source: 'www.idealista.com', count: 266 },
+        ],
+      },
+    });
+  });
+
+  it('competitors: solo marcas (sin dominio ni recuento)', () => {
+    const out = normalizeSistrix(
+      'ai_competitors',
+      parseMcpResult(real('ai_check-competitors-bluespace.es')),
+    );
+    expect(out).toMatchObject({
+      kind: 'ok',
+      data: {
+        op: 'ai_competitors',
+        sources: [
+          { source: 'Bluespace', count: 0 },
+          { source: 'idealista', count: 0 },
+          { source: 'fotocasa', count: 0 },
+        ],
+      },
+    });
   });
 });

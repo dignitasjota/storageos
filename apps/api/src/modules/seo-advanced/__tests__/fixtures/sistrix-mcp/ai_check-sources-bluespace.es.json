@@ -1,0 +1,39 @@
+{
+  "tool": "ai_check",
+  "args": {
+    "view": "sources",
+    "domains": "bluespace.es",
+    "country": "es",
+    "limit": 3
+  },
+  "ms": 1891,
+  "at": "2026-11-26T12:33:02.457Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"competitor\":[{\"source\":\"www.google.com\",\"amount\":730,\"prompt_count\":68},{\"source\":\"www.bluespace.es\",\"amount\":393,\"prompt_count\":127},{\"source\":\"www.idealista.com\",\"amount\":266,\"prompt_count\":87}]}"
+      }
+    ],
+    "structuredContent": {
+      "competitor": [
+        {
+          "source": "www.google.com",
+          "amount": 730,
+          "prompt_count": 68
+        },
+        {
+          "source": "www.bluespace.es",
+          "amount": 393,
+          "prompt_count": 127
+        },
+        {
+          "source": "www.idealista.com",
+          "amount": 266,
+          "prompt_count": 87
+        }
+      ]
+    },
+    "isError": false
+  }
+}

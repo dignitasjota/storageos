@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { seoAiAnswerText } from '@storageos/shared';
+
 /**
  * Consultas a SISTRIX y normalización de sus respuestas. Lo mismo vale para el
  * MCP y para la API clásica: cada consulta (`SistrixQuery`) se traduce a una
@@ -510,11 +512,14 @@ export function normalizeAiPrompts(value: unknown): AiPromptRow[] {
     const prompt = str(r.prompt) ?? str(r.query) ?? str(r.keyword) ?? str(r.question);
     if (!prompt) continue;
     const model = (str(r.model) ?? str(r.llm) ?? str(r.engine) ?? '').toLowerCase();
-    const answer = str(r.answer) ?? str(r.response) ?? str(r.text) ?? str(r.content);
+    // La vista `prompts` la da en HTML en `message` (comprobado con el servidor
+    // real): se guarda como texto plano limpio, nunca el HTML.
+    const raw = str(r.message) ?? str(r.answer) ?? str(r.response) ?? str(r.text) ?? str(r.content);
+    const answer = raw ? seoAiAnswerText(raw) || null : null;
     out.push({
       prompt: prompt.slice(0, 500),
       model: model === 'aimode' ? 'ai_mode' : model,
-      answer: answer ? answer.slice(0, 4000) : null,
+      answer,
       rank: int(r.rank ?? r.position),
     });
   }
@@ -526,12 +531,18 @@ export interface AiSourceRow {
   count: number;
 }
 
-/** Vista `sources` (dominio o URL citados) o `competitors` (marcas que compiten). */
+/**
+ * Vista `sources` (dominio o URL citados: `{ competitor: [{ source, amount,
+ * prompt_count }] }`) o `competitors` (marcas que compiten: `{ competitor:
+ * [{ brand }] }`, sin dominio ni recuento: queda a 0).
+ */
 export function normalizeAiSources(value: unknown, field: 'source' | 'brand'): AiSourceRow[] {
   const keys =
     field === 'brand'
       ? ['competitors', 'competitor', 'brands', 'brand', 'result', 'data']
       : [
+          // `{ competitor: [{ source, amount, prompt_count }] }` (servidor real).
+          'competitor',
           'sources',
           'source',
           'urls',
@@ -553,7 +564,9 @@ export function normalizeAiSources(value: unknown, field: 'source' | 'brand'): A
     if (!name) continue;
     out.push({
       source: name.slice(0, 1000),
-      count: int(r.prompt_count ?? r.count ?? r.citations ?? r.mentions ?? r.value) ?? 0,
+      // `amount` = veces citada (real); si no, el recuento que traiga.
+      count:
+        int(r.amount ?? r.count ?? r.citations ?? r.mentions ?? r.prompt_count ?? r.value) ?? 0,
     });
   }
   return out;

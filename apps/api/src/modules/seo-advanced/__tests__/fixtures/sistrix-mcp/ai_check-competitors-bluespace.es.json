@@ -1,0 +1,33 @@
+{
+  "tool": "ai_check",
+  "args": {
+    "view": "competitors",
+    "domains": "bluespace.es",
+    "country": "es",
+    "limit": 3
+  },
+  "ms": 1465,
+  "at": "2026-11-26T12:33:04.482Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"competitor\":[{\"brand\":\"Bluespace\"},{\"brand\":\"idealista\"},{\"brand\":\"fotocasa\"}]}"
+      }
+    ],
+    "structuredContent": {
+      "competitor": [
+        {
+          "brand": "Bluespace"
+        },
+        {
+          "brand": "idealista"
+        },
+        {
+          "brand": "fotocasa"
+        }
+      ]
+    },
+    "isError": false
+  }
+}

@@ -485,11 +485,18 @@ describe('SEO Avanzado: Google Analytics y visibilidad en IA (e2e, simulado)', (
       `https://${HOST}/precios`,
     ]);
     expect(r.competitorBrands.length).toBe(2);
-    // Las respuestas del prompt seguido: texto de terceros, tal cual.
+    // Las respuestas (HTML en SISTRIX) llegan como texto plano limpio, sin etiquetas.
     expect(r.tracked[0].answers.length).toBe(2);
-    expect(r.tracked[0].answers.map((a: { answer: string }) => a.answer).join(' ')).toContain(
-      '<b>texto</b>',
-    );
+    const answers = r.tracked[0].answers.map((a: { answer: string }) => a.answer).join(' ');
+    expect(answers).toContain('compara precios y tamaños. texto https://ejemplo-ia.es/trasteros');
+    expect(answers).not.toMatch(/<[a-z/]/i);
+    expect(r.ownPrompts[0].answer).toMatch(/^- Respuesta de demostración/);
+    expect(r.ownPrompts[0].answer).not.toContain('<');
+    // Marcas que compiten: sin dominio ni recuento.
+    expect(r.competitorBrands.map((b: { source: string }) => b.source)).toEqual([
+      'Bluespace',
+      'Lock & Go',
+    ]);
 
     // «Preparar contenido» con el prompt como búsqueda (PR 11).
     const brief = await http()

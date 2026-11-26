@@ -39,6 +39,91 @@ export const seoAiModel = (m: string | null | undefined): string => {
   return v === 'aimode' ? 'ai_mode' : v;
 };
 
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  euro: '€',
+  hellip: '…',
+  laquo: '«',
+  raquo: '»',
+  ndash: '–',
+  mdash: '—',
+  rsquo: '’',
+  lsquo: '‘',
+  rdquo: '”',
+  ldquo: '“',
+  middot: '·',
+};
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]{1,6}|#\d{1,7}|[a-z]{2,8});/gi, (all, code: string) => {
+    if (code[0] === '#') {
+      const n =
+        code[1] === 'x' || code[1] === 'X'
+          ? Number.parseInt(code.slice(2), 16)
+          : Number.parseInt(code.slice(1), 10);
+      // Sin caracteres de control (salvo salto y tabulador) ni sustitutos sueltos.
+      if (!Number.isFinite(n) || n > 0x10ffff || (n >= 0xd800 && n <= 0xdfff)) return ' ';
+      if ((n < 32 && n !== 9 && n !== 10) || (n >= 0x7f && n < 0xa0)) return ' ';
+      return String.fromCodePoint(n);
+    }
+    return ENTITIES[code.toLowerCase()] ?? all;
+  });
+}
+
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS =
+  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g;
+
+/**
+ * La respuesta de una IA (SISTRIX la da en HTML: listas, `<highlight>` y
+ * `<sup>` con números romanos de referencia) como texto plano limpio: cada
+ * elemento de lista en su línea con guion, párrafos en líneas, sin las
+ * referencias ni ninguna etiqueta, con las entidades decodificadas y los
+ * espacios colapsados. Nunca se renderiza como HTML: el resultado se enseña
+ * como texto (y lo que pareciera una etiqueta, se ve tal cual).
+ */
+export function seoAiAnswerText(raw: string | null | undefined, max = SEO_AI_ANSWER_MAX): string {
+  if (!raw) return '';
+  let t = String(raw)
+    // Las referencias (I, II, …) y lo que no es texto.
+    .replace(/<sup\b[^>]*>[\s\S]*?<\/sup\s*>/gi, '')
+    .replace(/<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Listas a líneas con guion (las vacías, fuera); párrafos, saltos y bloques a líneas.
+    .replace(/<li\b[^>]*>\s*<\/li\s*>/gi, '')
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(p|div|ul|ol|li|h[1-6]|tr|table|section|article|blockquote)\b[^>]*>/gi, '\n')
+    // Cualquier otra etiqueta (highlight, a, b, span…), fuera.
+    .replace(/<\/?[a-z][^>]*>/gi, '');
+  t = decodeEntities(t).replace(CONTROL_CHARS, ' ');
+  const raw2 = t
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[ \t\u00a0]+/g, ' ').trim())
+    .filter((l) => l !== '');
+  // Un guion suelto («<li><p>…</p></li>») va con la línea siguiente; uno vacío, fuera.
+  const lines: string[] = [];
+  for (let i = 0; i < raw2.length; i++) {
+    const l = raw2[i]!;
+    if (l === '-') {
+      const next = raw2[i + 1];
+      if (next !== undefined && next !== '-' && !next.startsWith('- ')) {
+        lines.push(`- ${next}`);
+        i += 1;
+      }
+      continue;
+    }
+    lines.push(l);
+  }
+  const out = lines.join('\n');
+  return out.length > max ? `${out.slice(0, max - 1).trimEnd()}…` : out;
+}
+
 /** Clave de un prompt: minúsculas, sin espacios de más ni signos al final. */
 export function seoAiPromptKey(prompt: string): string {
   return prompt

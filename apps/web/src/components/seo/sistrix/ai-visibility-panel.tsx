@@ -296,11 +296,11 @@ function Sources({ d }: { d: SeoAiVisibilityReportDto }) {
       <div className="space-y-2">
         <h3 className="text-sm font-medium">Fuentes que citan las IA</h3>
         {d.citedPages.length > 0 ? (
-          <p className="text-xs text-green-700 dark:text-green-400">
-            Citan {formatCount(d.citedPages.length)} página(s) de tu web.
+          <p className="break-all text-xs text-green-700 dark:text-green-400">
+            Citan tu web: {d.citedPages.map((c) => c.source).join(', ')}.
           </p>
         ) : (
-          <p className="text-xs text-muted-foreground">No citan ninguna página de tu web.</p>
+          <p className="text-xs text-muted-foreground">No citan tu web.</p>
         )}
         <ul className="divide-y rounded-md border text-sm">
           {d.sources.slice(0, 15).map((s) => (
@@ -311,7 +311,9 @@ function Sources({ d }: { d: SeoAiVisibilityReportDto }) {
               <span className="min-w-0 break-all">{s.source}</span>
               <span className="flex shrink-0 items-center gap-2">
                 {s.own && <Badge variant="secondary">Tu web</Badge>}
-                <span className="tabular-nums text-muted-foreground">{formatCount(s.count)}</span>
+                <span className="tabular-nums text-muted-foreground" title="Veces citada">
+                  {formatCount(s.count)}
+                </span>
               </span>
             </li>
           ))}
@@ -324,9 +326,11 @@ function Sources({ d }: { d: SeoAiVisibilityReportDto }) {
             {d.competitorBrands.map((s) => (
               <li key={s.source} className="flex items-center justify-between gap-2 p-2">
                 <span className="min-w-0 break-words">{s.source}</span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {formatCount(s.count)}
-                </span>
+                {s.count > 0 && (
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {formatCount(s.count)}
+                  </span>
+                )}
               </li>
             ))}
           </ul>

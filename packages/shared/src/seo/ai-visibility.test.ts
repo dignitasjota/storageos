@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   UpdateSeoAiTrackedPromptsSchema,
+  seoAiAnswerText,
   seoAiBrandSubject,
   seoAiPromptGaps,
   seoAiPromptKey,
@@ -79,5 +80,36 @@ describe('Visibilidad en IA (PR 12)', () => {
         prompts: Array.from({ length: 21 }, (_, i) => `prompt ${i}`),
       }).success,
     ).toBe(false);
+  });
+
+  it('la respuesta de la IA en HTML (como la da SISTRIX) pasa a texto plano limpio', () => {
+    // Trozo real de la vista `prompts` de `ai_check` (bluespace.es, 26-11-2026).
+    const html =
+      '<ul class="ai-mode-list"><li><highlight id="ref_2" class="">Bluespace Barakaldo:Dirección: Askatasun Etorbidea, 69.<sup>I</sup></highlight></li>\n' +
+      '<li>Dirección: Kareaga K., 5 (San Vicente).</li>\n' +
+      '<li><highlight id="ref_24" class="">Tiendas online: <highlight id="ref_22" class="ai-mode-link ">TeleCajas</highlight> desde 25&nbsp;&euro;/mes &amp; más.<sup>III</sup></highlight></li>\n' +
+      '<li></li></ul><p class="ai-mode-item">google.com</p><sup>XV</sup><sup>XV</sup>';
+    expect(seoAiAnswerText(html)).toBe(
+      [
+        '- Bluespace Barakaldo:Dirección: Askatasun Etorbidea, 69.',
+        '- Dirección: Kareaga K., 5 (San Vicente).',
+        '- Tiendas online: TeleCajas desde 25 €/mes & más.',
+        'google.com',
+      ].join('\n'),
+    );
+  });
+
+  it('sin etiquetas ni HTML peligroso: lo que parece una etiqueta queda como texto', () => {
+    expect(
+      seoAiAnswerText(
+        '<script>alert(1)</script><p>Hola <b>mundo</b>&#33;</p><img src=x onerror=y>',
+      ),
+    ).toBe('Hola mundo!');
+    expect(seoAiAnswerText('Usa &lt;script&gt; con cuidado')).toBe('Usa <script> con cuidado');
+    expect(seoAiAnswerText('<li><p>Uno</p></li><li>Dos</li>')).toBe('- Uno\n- Dos');
+    expect(seoAiAnswerText('Texto   plano\n\n\n con espacios')).toBe('Texto plano\ncon espacios');
+    expect(seoAiAnswerText('&#0;&#x7;nada&bogus;')).toBe('nada&bogus;');
+    expect(seoAiAnswerText(null)).toBe('');
+    expect(seoAiAnswerText('a'.repeat(50), 10)).toHaveLength(10);
   });
 });

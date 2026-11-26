@@ -304,7 +304,8 @@ export class SeoAiVisibilityService {
       ownPrompts,
       gaps,
       sources,
-      citedPages: sources.filter((s) => s.own && s.sourceType === 'url'),
+      // Tu web citada: por URL o por host (la vista puede dar solo el host).
+      citedPages: sources.filter((s) => s.own),
       competitorBrands,
       tracked,
       settings,
