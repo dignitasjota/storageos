@@ -815,7 +815,7 @@ export class TenantDataExportService {
           include: { project: { select: { name: true } } },
         }),
       ]);
-    this.sheet(wb, 'SEO: proyecto', projects, [
+    this.sheet(wb, 'SEO - proyecto', projects, [
       { header: 'Nombre', width: 24, value: (p) => p.name },
       { header: 'Estrategia', value: (p) => p.strategy },
       { header: 'País', value: (p) => p.country },
@@ -825,7 +825,7 @@ export class TenantDataExportService {
       { header: 'Estado', value: (p) => p.status },
       { header: 'Alta', value: (p) => p.createdAt },
     ]);
-    this.sheet(wb, 'SEO: competidores', competitors, [
+    this.sheet(wb, 'SEO - competidores', competitors, [
       { header: 'Proyecto', width: 24, value: (c) => c.project.name },
       { header: 'Dominio', width: 28, value: (c) => c.domain },
       { header: 'Directorio analizado', value: (c) => c.pathPrefix },
@@ -834,7 +834,7 @@ export class TenantDataExportService {
       { header: 'Se sigue', value: (c) => c.isActive },
       { header: 'Origen', value: (c) => c.source },
     ]);
-    this.sheet(wb, 'SEO: CSV de SISTRIX importados', imports, [
+    this.sheet(wb, 'SEO - CSV de SISTRIX importados', imports, [
       { header: 'Proyecto', width: 24, value: (i) => i.project.name },
       { header: 'Tipo', value: (i) => i.kind },
       { header: 'Fichero', width: 28, value: (i) => i.filename },
