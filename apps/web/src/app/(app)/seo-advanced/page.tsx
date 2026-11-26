@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
+import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoPlanCard } from '@/components/seo/plan/plan-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
@@ -190,6 +191,8 @@ export default function SeoAdvancedPage() {
       />
 
       <SeoImportsCard client={client} domains={project.domains} />
+
+      <SeoMasterImportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
 
       <SeoRunsCard
         runs={runs.data}

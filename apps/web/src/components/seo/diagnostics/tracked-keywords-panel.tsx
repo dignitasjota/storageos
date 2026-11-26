@@ -9,6 +9,7 @@ import {
   SEO_TARGET_STATUSES,
   SEO_TARGET_STATUS_LABELS,
   SEO_TRACKED_PERIODS,
+  seoMasterOriginLabel,
   type SeoKeywordIntent,
   type SeoProjectDomainDto,
   type SeoProjectKeywordDto,
@@ -93,6 +94,7 @@ function asProjectKeyword(k: SeoTrackedKeywordDto): SeoProjectKeywordDto {
     source: k.source,
     isActive: k.isActive,
     createdAt: k.createdAt,
+    masterImportedAt: k.masterImportedAt,
     metrics: null,
     serp: null,
   };
@@ -522,6 +524,11 @@ export function TrackedKeywordsPanel({
                         <p className="text-xs text-muted-foreground">
                           {SEO_KEYWORD_INTENT_LABELS[k.intent]}
                           {k.intentSource ? ` (${SEO_INTENT_SOURCE_LABELS[k.intentSource]})` : ''}
+                        </p>
+                      )}
+                      {k.masterImportedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          {seoMasterOriginLabel(k.masterImportedAt)}
                         </p>
                       )}
                     </div>

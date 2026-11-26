@@ -344,6 +344,7 @@ export const SeoKeywordSourceEnum = z.enum([
   'import',
   'search_console',
   'opportunity',
+  'master',
 ]);
 export type SeoKeywordSource = z.infer<typeof SeoKeywordSourceEnum>;
 
@@ -357,7 +358,7 @@ export const AddSeoProjectKeywordsSchema = z.object({
   priority: z.number().int().min(1).max(3).optional(),
   /** Intención para todas las que se añaden (vacía = se deduce). */
   intent: SeoKeywordIntentEnum.nullable().optional(),
-  source: SeoKeywordSourceEnum.exclude(['import']).default('manual'),
+  source: SeoKeywordSourceEnum.exclude(['import', 'master']).default('manual'),
 });
 export type AddSeoProjectKeywordsInput = z.infer<typeof AddSeoProjectKeywordsSchema>;
 
@@ -542,8 +543,10 @@ export interface SeoCompetitorDto {
   name: string | null;
   notes: string | null;
   isActive: boolean;
-  source: 'manual' | 'discovered';
+  source: 'manual' | 'discovered' | 'master';
   createdAt: string;
+  /** Si lo creó un maestro: cuándo se importó. */
+  masterImportedAt: string | null;
   visibility: (SeoDataOriginDto & { value: number }) | null;
   keywordCount: number | null;
 }
@@ -591,6 +594,8 @@ export interface SeoProjectKeywordDto {
   source: SeoKeywordSource;
   isActive: boolean;
   createdAt: string;
+  /** Si la creó un maestro: cuándo se importó. */
+  masterImportedAt: string | null;
   metrics: SeoKeywordMetricsDto | null;
   serp:
     | (SeoDataOriginDto & {

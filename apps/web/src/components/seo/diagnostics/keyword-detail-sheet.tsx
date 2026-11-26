@@ -4,6 +4,7 @@ import {
   SEO_INTENT_SOURCE_LABELS,
   SEO_KEYWORD_INTENT_LABELS,
   SEO_KEYWORD_SOURCE_LABELS,
+  seoMasterOriginLabel,
   type SeoChartMarkerDto,
   type SeoDashboardDayDto,
   type SeoTrackedKeywordDetailDto,
@@ -117,7 +118,9 @@ function Body({ d, markers }: { d: SeoTrackedKeywordDetailDto; markers: SeoChart
           </Badge>
         )}
         <span className="text-xs text-muted-foreground">
-          Añadida {SEO_KEYWORD_SOURCE_LABELS[k.source].toLowerCase()} el {formatDate(k.createdAt)}
+          {k.masterImportedAt
+            ? seoMasterOriginLabel(k.masterImportedAt)
+            : `Añadida ${SEO_KEYWORD_SOURCE_LABELS[k.source].toLowerCase()} el ${formatDate(k.createdAt)}`}
         </span>
       </div>
 

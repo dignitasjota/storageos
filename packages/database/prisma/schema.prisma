@@ -9875,6 +9875,8 @@ model SeoProject {
   indexFindings     SeoIndexFinding[]
   siteChanges       SeoSiteChange[]
   tasks             SeoTask[]
+  masterImports     SeoMasterImport[]
+  keywordGroups     SeoKeywordGroup[]
 
   @@map("seo_projects")
 }
@@ -9902,9 +9904,10 @@ model SeoProjectDomain {
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   project SeoProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  metrics SeoGscMetric[]
-  runs    SeoSyncRun[]
-  imports SeoGscImport[]
+  metrics       SeoGscMetric[]
+  runs          SeoSyncRun[]
+  imports       SeoGscImport[]
+  masterImports SeoMasterImport[]
 
   @@unique([projectId, domain], map: "seo_project_domains_project_domain_key")
   @@index([tenantId], map: "seo_project_domains_tenant_idx")
@@ -9967,11 +9970,14 @@ model SeoGscImport {
   createdByUserId       String?  @map("created_by_user_id") @db.Uuid
   createdBySuperAdminId String?  @map("created_by_super_admin_id") @db.Uuid
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// La importación de un maestro de la que salen estas pestañas (se borra con ella).
+  masterImportId        String?  @map("master_import_id") @db.Uuid
 
-  project SeoProject         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  domain  SeoProjectDomain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  rows    SeoGscImportRow[]
-  metrics SeoGscMetric[]
+  project      SeoProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domain       SeoProjectDomain  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  rows         SeoGscImportRow[]
+  metrics      SeoGscMetric[]
+  masterImport SeoMasterImport?  @relation(fields: [masterImportId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, fileHash], map: "seo_gsc_imports_project_hash_key")
   @@index([projectId, createdAt(sort: Desc)], map: "seo_gsc_imports_project_created_idx")
@@ -10130,12 +10136,15 @@ model SeoCompetitor {
   name      String?
   notes     String?
   isActive  Boolean  @default(true) @map("is_active")
-  /// manual · discovered
+  /// manual · discovered · master
   source    String   @default("manual")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// El maestro que lo creó (null si no, o si se borró la importación).
+  masterImportId String? @map("master_import_id") @db.Uuid
 
-  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      SeoProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, domain], map: "seo_competitors_project_domain_key")
   @@index([tenantId], map: "seo_competitors_tenant_idx")
@@ -10171,14 +10180,17 @@ model SeoProjectKeyword {
   priority       Int      @default(2)
   notes          String?
   strategyLocked Boolean  @default(false) @map("strategy_locked")
-  /// manual · sistrix_ideas · sistrix_opportunities · import
+  /// manual · sistrix_ideas · sistrix_opportunities · import · search_console · opportunity · master
   source         String   @default("manual")
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// El maestro que la creó (null si no, o si se borró la importación).
+  masterImportId String?  @map("master_import_id") @db.Uuid
 
-  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  keyword SeoKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  project      SeoProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keyword      SeoKeyword       @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: SetNull)
 
   @@unique([projectId, keywordId], map: "seo_project_keywords_project_keyword_key")
   @@index([tenantId], map: "seo_project_keywords_tenant_idx")
@@ -10205,11 +10217,15 @@ model SeoKeywordMetric {
   mobileShare   Decimal?  @map("mobile_share") @db.Decimal(5, 4)
   desktopShare  Decimal?  @map("desktop_share") @db.Decimal(5, 4)
   questions     Json?
+  /// La importación de un maestro que la añadió (se borra con ella).
+  masterImportId String?  @map("master_import_id") @db.Uuid
 
-  keyword SeoKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  keyword      SeoKeyword       @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: Cascade)
 
   @@index([keywordId, country, fetchedAt(sort: Desc)], map: "seo_keyword_metrics_lookup_idx")
   @@index([tenantId], map: "seo_keyword_metrics_tenant_idx")
+  @@index([masterImportId], map: "seo_keyword_metrics_master_import_idx")
   @@map("seo_keyword_metrics")
 }
 
@@ -10245,8 +10261,13 @@ model SeoDomainKeyword {
   keyword    String
   position   Int
   url        String   @default("")
+  /// La importación de un maestro que la añadió (se borra con ella).
+  masterImportId String? @map("master_import_id") @db.Uuid
+
+  masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: Cascade)
 
   @@index([domain, country, sampleDate(sort: Desc)], map: "seo_domain_keywords_lookup_idx")
+  @@index([masterImportId], map: "seo_domain_keywords_master_import_idx")
   @@index([tenantId], map: "seo_domain_keywords_tenant_idx")
   @@map("seo_domain_keywords")
 }
@@ -10524,13 +10545,102 @@ model SeoTask {
   createdBySuperAdminId  String?   @map("created_by_super_admin_id") @db.Uuid
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// Id del plan del maestro (P01…): no se duplica al reimportar.
+  externalRef            String?   @map("external_ref")
+  /// El maestro que la creó (null si no, o si se borró la importación).
+  masterImportId         String?   @map("master_import_id") @db.Uuid
 
-  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      SeoProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: SetNull)
 
   @@index([projectId, status, position], map: "seo_tasks_board_idx")
+  @@index([projectId, externalRef], map: "seo_tasks_external_ref_idx")
   @@index([projectId, dueDate], map: "seo_tasks_due_idx")
   @@index([tenantId], map: "seo_tasks_tenant_idx")
   @@map("seo_tasks")
+}
+
+/// Un Excel maestro importado en un proyecto (catálogo, métricas, competencia,
+/// grupos, plan y Search Console), con su Resumen y sus reglas.
+model SeoMasterImport {
+  id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId              String?   @map("tenant_id") @db.Uuid
+  projectId             String    @map("project_id") @db.Uuid
+  domainId              String    @map("domain_id") @db.Uuid
+  fileName              String    @map("file_name")
+  fileHash              String    @map("file_hash")
+  fileSize              Int       @default(0) @map("file_size")
+  domain                String
+  extractedAt           DateTime? @map("extracted_at") @db.Date
+  gscFrom               DateTime? @map("gsc_from") @db.Date
+  gscTo                 DateTime? @map("gsc_to") @db.Date
+  summary               Json      @default("[]")
+  rules                 Json      @default("[]")
+  sheets                Json      @default("[]")
+  issues                Json      @default("[]")
+  issuesTotal           Int       @default(0) @map("issues_total")
+  createdByUserId       String?   @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId String?   @map("created_by_super_admin_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project        SeoProject            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domainRow      SeoProjectDomain      @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  items          SeoMasterImportItem[]
+  gscImports     SeoGscImport[]
+  keywords       SeoProjectKeyword[]
+  competitors    SeoCompetitor[]
+  tasks          SeoTask[]
+  groups         SeoKeywordGroup[]
+  keywordMetrics SeoKeywordMetric[]
+  domainKeywords SeoDomainKeyword[]
+
+  @@unique([projectId, fileHash], map: "seo_master_imports_project_hash_key")
+  @@index([projectId, createdAt(sort: Desc)], map: "seo_master_imports_project_created_idx")
+  @@index([tenantId], map: "seo_master_imports_tenant_idx")
+  @@map("seo_master_imports")
+}
+
+/// Lo que creó o rellenó un maestro, con los valores que puso.
+model SeoMasterImportItem {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  importId  String   @map("import_id") @db.Uuid
+  /// keyword_created · keyword_filled · competitor_created · competitor_filled · task_created · group_created · group_filled
+  kind      String
+  entityId  String   @map("entity_id") @db.Uuid
+  ref       String   @default("")
+  fields    Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  masterImport SeoMasterImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId, kind], map: "seo_master_import_items_import_idx")
+  @@index([tenantId], map: "seo_master_import_items_tenant_idx")
+  @@map("seo_master_import_items")
+}
+
+/// Grupo del catálogo de palabras de un proyecto (prioridad, URL objetivo y nota).
+model SeoKeywordGroup {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String?  @map("tenant_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  name           String
+  /// 1 alta · 2 media · 3 baja
+  priority       Int?
+  targetUrl      String?  @map("target_url")
+  notes          String?
+  /// manual · master
+  source         String   @default("manual")
+  masterImportId String?  @map("master_import_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project      SeoProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, name], map: "seo_keyword_groups_project_name_key")
+  @@index([tenantId], map: "seo_keyword_groups_tenant_idx")
+  @@map("seo_keyword_groups")
 }
 
 /// Petición a un proveedor de pago (sin secretos).

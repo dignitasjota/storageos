@@ -52,7 +52,10 @@ const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 const dateOnly = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 
 type ProjectWithRelations = Prisma.SeoProjectGetPayload<{
-  include: { domains: true; competitors: true };
+  include: {
+    domains: true;
+    competitors: { include: { masterImport: { select: { createdAt: true } } } };
+  };
 }>;
 
 /**
@@ -94,7 +97,10 @@ export class SeoSistrixService {
       where: { id: projectId, ...(owner === undefined ? {} : { tenantId: owner }) },
       include: {
         domains: { orderBy: { createdAt: 'asc' } },
-        competitors: { orderBy: { createdAt: 'asc' } },
+        competitors: {
+          orderBy: { createdAt: 'asc' },
+          include: { masterImport: { select: { createdAt: true } } },
+        },
       },
     });
     if (!row) throw this.notFound();

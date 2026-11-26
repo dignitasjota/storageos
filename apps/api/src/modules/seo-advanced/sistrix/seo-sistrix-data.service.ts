@@ -91,8 +91,9 @@ export class SeoSistrixDataService {
           name: c.name,
           notes: c.notes,
           isActive: c.isActive,
-          source: c.source as 'manual' | 'discovered',
+          source: c.source as 'manual' | 'discovered' | 'master',
           createdAt: iso(c.createdAt),
+          masterImportedAt: c.masterImport ? iso(c.masterImport.createdAt) : null,
           visibility: m
             ? { ...origin(m.provider, m.fetchedAt, m.metricDate), value: Number(m.value) }
             : null,
@@ -321,7 +322,7 @@ export class SeoSistrixDataService {
     const pool = poolOfProject(p);
     const rows = await this.admin.seoProjectKeyword.findMany({
       where: { projectId },
-      include: { keyword: true },
+      include: { keyword: true, masterImport: { select: { createdAt: true } } },
       orderBy: [{ isActive: 'desc' }, { priority: 'asc' }, { createdAt: 'asc' }],
     });
     const ids = rows.map((r) => r.keywordId);
@@ -362,6 +363,7 @@ export class SeoSistrixDataService {
         source: r.source as SeoKeywordSource,
         isActive: r.isActive,
         createdAt: iso(r.createdAt),
+        masterImportedAt: r.masterImport ? iso(r.masterImport.createdAt) : null,
         metrics: m
           ? {
               ...origin(m.provider, m.fetchedAt, m.dataDate),

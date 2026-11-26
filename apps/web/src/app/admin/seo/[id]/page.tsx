@@ -11,6 +11,7 @@ import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
 import { BackLink } from '@/components/layout/back-link';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
+import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoPlanCard } from '@/components/seo/plan/plan-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
@@ -206,6 +207,8 @@ export default function AdminSeoProjectPage() {
       />
 
       <SeoImportsCard client={client} domains={p.domains} />
+
+      <SeoMasterImportsCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
 
       <SeoRunsCard
         runs={runs.data}

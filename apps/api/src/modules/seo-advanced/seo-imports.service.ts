@@ -48,17 +48,20 @@ type ImportRow = Prisma.SeoGscImportGetPayload<{
   include: { domain: { select: { domain: true } } };
 }>;
 
-interface Analysis {
+/** Qué días de «Fechas» entran en el cruce `site` y cuáles ya estaban. */
+export interface SiteDaysPlan {
+  toAdd: SeoImportRowInput[];
+  siteDaysApi: number;
+  siteDaysImported: number;
+}
+
+interface Analysis extends SiteDaysPlan {
   domain: { id: string; domain: string };
   fileName: string;
   fileHash: string;
   fileSize: number;
   format: SeoImportFormat;
   parsed: ParsedGscExport;
-  /** Días de la pestaña Fechas que entran en el cruce `site`. */
-  toAdd: SeoImportRowInput[];
-  siteDaysApi: number;
-  siteDaysImported: number;
 }
 
 /**
@@ -113,69 +116,20 @@ export class SeoImportsService {
     let importId: string;
     try {
       importId = await this.admin.$transaction(
-        async (tx) => {
-          const created = await tx.seoGscImport.create({
-            data: {
-              tenantId: owner,
-              projectId,
-              domainId: a.domain.id,
-              fileName: a.fileName,
-              fileHash: a.fileHash,
-              fileSize: a.fileSize,
-              format: a.format,
-              language: a.parsed.language,
-              periodFrom: day(a.parsed.periodFrom),
-              periodTo: day(a.parsed.periodTo),
-              filters: a.parsed.filters as unknown as Prisma.InputJsonValue,
-              filtered: a.parsed.filtered,
-              tabRows: tabRows(a.parsed) as Prisma.InputJsonValue,
-              siteDaysApi: a.siteDaysApi,
-              siteDaysImported: a.siteDaysImported,
-              createdByUserId: actor.userId ?? null,
-              createdBySuperAdminId: actor.superAdminId ?? null,
-            },
-            select: { id: true },
-          });
-          const rows = a.parsed.tabs.flatMap((t) =>
-            t.rows.map((r) => ({
-              tenantId: owner,
-              importId: created.id,
-              dimension: t.dimension,
-              value: r.value,
-              clicks: r.clicks,
-              impressions: r.impressions,
-              ctr: r.ctr,
-              position: r.position === null ? null : Math.min(99999, r.position),
-            })),
-          );
-          for (let i = 0; i < rows.length; i += CHUNK) {
-            await tx.seoGscImportRow.createMany({ data: rows.slice(i, i + CHUNK) });
-          }
-          // Solo los días que no tiene nadie: si a la vez entra la API, el
-          // índice único deja fuera el día repetido (y manda la API).
-          const inserted = await tx.seoGscMetric.createMany({
-            data: a.toAdd.map((r) => ({
-              tenantId: owner,
-              domainId: a.domain.id,
-              grain: 'site',
-              date: day(r.value),
-              clicks: r.clicks,
-              impressions: r.impressions,
-              ctr:
-                r.ctr ??
-                (r.impressions > 0 ? Math.round((r.clicks / r.impressions) * 1e6) / 1e6 : 0),
-              position: Math.min(99999, r.position ?? 0),
-              source: 'import',
-              importId: created.id,
-            })),
-            skipDuplicates: true,
-          });
-          await tx.seoGscImport.update({
-            where: { id: created.id },
-            data: { siteDaysAdded: inserted.count },
-          });
-          return created.id;
-        },
+        (tx) =>
+          this.writeImport(tx, {
+            owner,
+            projectId,
+            domainId: a.domain.id,
+            fileName: a.fileName,
+            fileHash: a.fileHash,
+            fileSize: a.fileSize,
+            format: a.format,
+            parsed: a.parsed,
+            days: a,
+            actor,
+            masterImportId: null,
+          }),
         { timeout: 120_000 },
       );
     } catch (err) {
@@ -183,6 +137,117 @@ export class SeoImportsService {
       throw err;
     }
     return this.get(owner, projectId, importId);
+  }
+
+  /**
+   * Guarda una importación ya analizada (dentro de la transacción de quien
+   * llama): sus pestañas y los días de «Fechas» que no tiene nadie. La usan
+   * la importación de Search Console y la de los maestros (sus pestañas GSC_*).
+   */
+  async writeImport(
+    tx: Prisma.TransactionClient,
+    args: {
+      owner: SeoOwner;
+      projectId: string;
+      domainId: string;
+      fileName: string;
+      fileHash: string;
+      fileSize: number;
+      format: SeoImportFormat;
+      parsed: ParsedGscExport;
+      days: SiteDaysPlan;
+      actor: SeoActor;
+      masterImportId: string | null;
+    },
+  ): Promise<string> {
+    const { parsed, days } = args;
+    const created = await tx.seoGscImport.create({
+      data: {
+        tenantId: args.owner,
+        projectId: args.projectId,
+        domainId: args.domainId,
+        fileName: args.fileName,
+        fileHash: args.fileHash,
+        fileSize: args.fileSize,
+        format: args.format,
+        language: parsed.language,
+        periodFrom: day(parsed.periodFrom),
+        periodTo: day(parsed.periodTo),
+        filters: parsed.filters as unknown as Prisma.InputJsonValue,
+        filtered: parsed.filtered,
+        tabRows: tabRows(parsed) as Prisma.InputJsonValue,
+        siteDaysApi: days.siteDaysApi,
+        siteDaysImported: days.siteDaysImported,
+        createdByUserId: args.actor.userId ?? null,
+        createdBySuperAdminId: args.actor.superAdminId ?? null,
+        masterImportId: args.masterImportId,
+      },
+      select: { id: true },
+    });
+    const rows = parsed.tabs.flatMap((t) =>
+      t.rows.map((r) => ({
+        tenantId: args.owner,
+        importId: created.id,
+        dimension: t.dimension,
+        value: r.value,
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.ctr,
+        position: r.position === null ? null : Math.min(99999, r.position),
+      })),
+    );
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      await tx.seoGscImportRow.createMany({ data: rows.slice(i, i + CHUNK) });
+    }
+    // Solo los días que no tiene nadie: si a la vez entra la API, el
+    // índice único deja fuera el día repetido (y manda la API).
+    const inserted = await tx.seoGscMetric.createMany({
+      data: days.toAdd.map((r) => ({
+        tenantId: args.owner,
+        domainId: args.domainId,
+        grain: 'site',
+        date: day(r.value),
+        clicks: r.clicks,
+        impressions: r.impressions,
+        ctr: r.ctr ?? (r.impressions > 0 ? Math.round((r.clicks / r.impressions) * 1e6) / 1e6 : 0),
+        position: Math.min(99999, r.position ?? 0),
+        source: 'import',
+        importId: created.id,
+      })),
+      skipDuplicates: true,
+    });
+    await tx.seoGscImport.update({
+      where: { id: created.id },
+      data: { siteDaysAdded: inserted.count },
+    });
+    return created.id;
+  }
+
+  /**
+   * Qué días de la pestaña Fechas entran en el cruce del sitio: los que no
+   * tiene ni la API ni otra importación (y ninguno si el fichero lleva filtros).
+   */
+  async planSiteDays(domainId: string, parsed: ParsedGscExport): Promise<SiteDaysPlan> {
+    const dates = parsed.tabs.find((t) => t.dimension === 'date')?.rows ?? [];
+    const stored = await this.admin.seoGscMetric.findMany({
+      where: {
+        domainId,
+        grain: 'site',
+        date: { gte: day(parsed.periodFrom), lte: day(parsed.periodTo) },
+      },
+      select: { date: true, source: true },
+    });
+    const bySource = new Map(stored.map((r) => [dateOnly(r.date), r.source]));
+    let siteDaysApi = 0;
+    let siteDaysImported = 0;
+    const toAdd: SeoImportRowInput[] = [];
+    for (const d of dates) {
+      const source = bySource.get(d.value);
+      if (source === 'api') siteDaysApi++;
+      else if (source) siteDaysImported++;
+      else if (!parsed.filtered) toAdd.push(d);
+    }
+    return { toAdd, siteDaysApi, siteDaysImported };
   }
 
   async list(owner: SeoOwner | undefined, projectId: string): Promise<SeoImportDto[]> {
@@ -239,7 +304,14 @@ export class SeoImportsService {
   /** Borra la importación: sus filas y los días que añadió al cruce del sitio. */
   async remove(owner: SeoOwner, projectId: string, importId: string): Promise<void> {
     await this.projects.resolveProject(owner, projectId);
-    await this.findImport(projectId, importId);
+    const row = await this.findImport(projectId, importId);
+    if (row.masterImportId) {
+      throw new ConflictException({
+        code: 'seo_import_from_master',
+        message:
+          'Estas pestañas vienen de un maestro: se borran al borrar la importación del maestro.',
+      });
+    }
     await this.admin.seoGscImport.delete({ where: { id: importId } });
   }
 
@@ -292,25 +364,7 @@ export class SeoImportsService {
       }
       throw err;
     }
-    const dates = parsed.tabs.find((t) => t.dimension === 'date')?.rows ?? [];
-    const stored = await this.admin.seoGscMetric.findMany({
-      where: {
-        domainId,
-        grain: 'site',
-        date: { gte: day(parsed.periodFrom), lte: day(parsed.periodTo) },
-      },
-      select: { date: true, source: true },
-    });
-    const bySource = new Map(stored.map((r) => [dateOnly(r.date), r.source]));
-    let siteDaysApi = 0;
-    let siteDaysImported = 0;
-    const toAdd: SeoImportRowInput[] = [];
-    for (const d of dates) {
-      const source = bySource.get(d.value);
-      if (source === 'api') siteDaysApi++;
-      else if (source) siteDaysImported++;
-      else if (!parsed.filtered) toAdd.push(d);
-    }
+    const days = await this.planSiteDays(domainId, parsed);
     return {
       domain: { id: domain.id, domain: domain.domain },
       fileName: (file.originalname || 'search-console').slice(0, 200),
@@ -318,9 +372,7 @@ export class SeoImportsService {
       fileSize: file.buffer.length,
       format,
       parsed,
-      toAdd,
-      siteDaysApi,
-      siteDaysImported,
+      ...days,
     };
   }
 
@@ -383,6 +435,7 @@ export class SeoImportsService {
       createdAt: r.createdAt.toISOString(),
       createdBy:
         names.get(r.createdByUserId ?? '') ?? names.get(r.createdBySuperAdminId ?? '') ?? null,
+      masterImportId: r.masterImportId,
     }));
   }
 }

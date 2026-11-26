@@ -2955,6 +2955,11 @@ export class AdminTenantsService {
       await tx.seoCompetitor.deleteMany({ where: { tenantId } });
       await tx.seoProviderConnection.deleteMany({ where: { tenantId } });
       await tx.seoSyncSettings.deleteMany({ where: { tenantId } });
+      // SEO Avanzado: los maestros importados (su Resumen, sus reglas y lo que hicieron) y
+      // los grupos del catálogo de palabras.
+      await tx.seoMasterImportItem.deleteMany({ where: { tenantId } });
+      await tx.seoKeywordGroup.deleteMany({ where: { tenantId } });
+      await tx.seoMasterImport.deleteMany({ where: { tenantId } });
       // SEO Avanzado: el proyecto, sus dominios, lo descargado, lo importado y las descargas.
       await tx.seoSyncRun.deleteMany({ where: { tenantId } });
       await tx.seoGscImportRow.deleteMany({ where: { tenantId } });

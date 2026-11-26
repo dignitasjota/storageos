@@ -1045,6 +1045,8 @@ export interface SeoTrackedKeywordDto {
   source: SeoKeywordSource;
   isActive: boolean;
   createdAt: string;
+  /** Si la creó un maestro: cuándo se importó. */
+  masterImportedAt: string | null;
   clicks: number;
   impressions: number;
   ctr: number | null;
@@ -1486,4 +1488,5 @@ export const SEO_KEYWORD_SOURCE_LABELS: Record<SeoKeywordSource, string> = {
   import: 'Importada',
   search_console: 'Search Console',
   opportunity: 'Oportunidad',
+  master: 'Del maestro',
 };

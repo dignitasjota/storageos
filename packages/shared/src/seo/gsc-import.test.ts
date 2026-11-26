@@ -121,3 +121,58 @@ describe('parseGscExport', () => {
     );
   });
 });
+
+describe('exportaciones del maestro de SEO', () => {
+  it('ignora el CTR y la posición de los días sin impresiones', () => {
+    const parsed = parseGscExport([
+      {
+        name: 'Fechas',
+        rows: [
+          ['Fecha', ...header],
+          ['2026-10-04', '0', '0', '6', '6'],
+          ['2026-10-06', '0', '2', '0', '50'],
+        ],
+      },
+    ]);
+    expect(parsed.tabs[0]!.rows).toEqual([
+      { value: '2026-10-04', clicks: 0, impressions: 0, ctr: null, position: null },
+      { value: '2026-10-06', clicks: 0, impressions: 2, ctr: 0, position: 50 },
+    ]);
+  });
+
+  it('«Web (basada en texto)», la cabecera «Filtrar» y «Aparición en búsquedas»', () => {
+    const parsed = parseGscExport([
+      { name: 'Aspecto', rows: [['Aparición en búsquedas', ...header]] },
+      {
+        name: 'Dispositivos',
+        rows: [
+          ['Dispositivo', ...header],
+          ['Móviles', '17', '271', '0.0627', '7.64'],
+          ['Ordenador', '3', '552', '0.0054', '24.93'],
+        ],
+      },
+      {
+        name: 'Fechas',
+        rows: [
+          ['Fecha', ...header],
+          ['2026-10-06', '0', '2', '0', '50'],
+        ],
+      },
+      {
+        name: 'Filtros',
+        rows: [
+          ['Filtrar', 'Valor'],
+          ['Tipo de búsqueda', 'Web (basada en texto)'],
+          ['Fecha', 'Últimos 16 meses'],
+        ],
+      },
+    ]);
+    expect(parsed.filtered).toBe(false);
+    expect(parsed.filters).toHaveLength(2);
+    expect(parsed.tabs.find((t) => t.dimension === 'device')!.rows.map((r) => r.value)).toEqual([
+      'MOBILE',
+      'DESKTOP',
+    ]);
+    expect(detectGscTab('x', ['Aparición en búsquedas'])?.tab).toBe('search_appearance');
+  });
+});
