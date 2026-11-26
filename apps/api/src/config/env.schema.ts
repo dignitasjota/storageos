@@ -347,6 +347,11 @@ const envSchemaBase = z.object({
   PAGESPEED_API_KEY: z.string().optional(),
   /** PageSpeed: `stub` = sin llamar a Google (desarrollo). En tests siempre simulado. */
   PAGESPEED_MODE: z.enum(['stub', 'live']).optional(),
+  /**
+   * Clics al mes de Google a partir de los que «Oportunidades de venta» propone SEO
+   * Avanzado a un tenant con SEO local y dominio propio.
+   */
+  SEO_ADVANCED_UPSELL_MIN_CLICKS: z.coerce.number().int().positive().default(100),
   /** Instagram y Facebook orgánico: `stub` = sin llamar a Meta. En tests siempre simulado. */
   SOCIAL_MODE: z.enum(['stub', 'live']).optional(),
   /**
