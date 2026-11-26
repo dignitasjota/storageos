@@ -886,3 +886,36 @@ Inspección de URL de Google (§5 y §19.5) y PageSpeed (§10). Lo puro en `pack
 - **PageSpeed siempre por la cola**: tarda 10-30 s por medición, no cabe en una petición.
 
 **Pendiente** (PR 10): el rastreador propio de las webs. De la PR 9: la etiqueta de Google en la lista de canibalización (hoy solo el botón), y medir la velocidad de las páginas de la competencia (no se hace: solo las del proyecto).
+
+## 36. PR 10 hecha — fase 4 completa (2026-11-26)
+
+Rastreador propio de las webs del proyecto (§9, §11, §15.4, §18.7 y §19.5). Lo puro en `packages/shared/src/seo/crawler.ts` (vitest); el API en `apps/api/src/modules/seo-advanced/crawler/`.
+
+**El rastreo**
+
+- Ligero, sin navegador sin cabeza (§15.4): peticiones GET con el agente de usuario `TrasterOS-SEO-Crawler/1.0 (+https://trasteros.pro/rastreador)`; la página `/rastreador` explica qué es y cómo pararlo (`User-agent: trasteros-seo-crawler`).
+- Empieza por la portada del dominio principal (o por la ruta de su propiedad si es de prefijo, como `https://trasteros.pro/s/negocio/`), sigue los enlaces internos en anchura y después pide las URL de los mapas del sitio, las que tienen impresiones en Search Console (90 días) y las de los hallazgos de indexación abiertos (solo para confirmar su motivo).
+- robots.txt respetado (grupo más específico, regla más larga, comodines); lo bloqueado no se pide y se dice qué regla lo bloquea; también se calcula si Google puede leer cada URL. Los mapas del sitio se leen aquí (la PR 5 no los descargaba porque sería pedir una dirección que pone el cliente; ahora el rastreo solo va a los dominios del proyecto).
+- **Seguridad (§11)**: solo hosts de los dominios del proyecto, IP validada al conectar en cada petición y en cada redirección (nada privado, de loopback, link-local ni de metadatos), redirecciones seguidas a mano con tope de 5, 3 MB y 15 s por petición, solo se analiza `text/html`. En pruebas, un servidor local simulado (`useTestRouting`, lo único que deja 127.0.0.1, imposible fuera de las pruebas) y sin él no sale nada a la red.
+- Topes: 500 páginas en un tenant y 2.000 en la plataforma (editables), 1 s de pausa, 60/240 minutos, una petición a la vez y dos proyectos a la vez como mucho (cola `seo-crawl`).
+- Un rastreo vivo por proyecto, cancelable y reanudable tras reiniciar el worker (sigue sin volver a pedir lo guardado). Semanal con día y hora: apagado por defecto en los tenants, encendido en la plataforma (lunes 03:00).
+
+**Incidencias con histórico**: 37 tipos en seis grupos (respuesta, contenido, canónica e indexación, enlaces, mapa del sitio, otras), cada uno con «qué pasa» y «qué hacer»; una por tipo y URL, con gravedad (la portada y las URL objetivo suben a alta). Ciclo de vida de la PR 5: volver a rastrear no pisa estado ni notas; lo que desaparece se resuelve solo y vuelve como nueva si reaparece. Comparación con el rastreo anterior: nuevas, resueltas y las que siguen.
+
+**Integración**
+
+- Indexación: la ficha del hallazgo dice lo que confirma el rastreador (página privada que responde sin «noindex» ni bloqueo, variante sin canónica a la buena, dominio que debería redirigir y responde 200) o que ya está arreglado en la web.
+- Enlazado interno: por cada URL objetivo de las palabras seguidas, cuántos enlaces internos le llegan y desde dónde, y las páginas desde las que enlazarla (las que tienen impresiones para búsquedas relacionadas en el cruce `query_page`). Oportunidad nueva «URL objetivo con pocos enlaces internos» (menos de 3, editable) con la misma fórmula de puntuación (los datos de Google de la búsqueda si los hay).
+- Alertas: «Páginas que dan error nuevas» y «Portada o URL objetivo con «noindex» o sin responder» (alta). Informes: el último rastreo (páginas, incidencias por gravedad, nuevas, resueltas y errores).
+- La ficha de cada URL ofrece «Inspeccionar en Google» (la PR 9): el rastreador sugiere, no inspecciona solo.
+
+**Decisiones**
+
+- **Lector de HTML propio, sin dependencias**: las webs se sirven ya renderizadas y solo hacen falta unas pocas etiquetas (title, meta, link, h1, a, img, html y los JSON-LD); un lector tolerante de etiquetas basta y evita añadir `cheerio` (§10).
+- **GET seguro nuevo** (`SeoCrawlFetcher`) a partir de los helpers de `safe-http-post.ts` (`checkOutboundUrlShape` y la validación de la IP en el `lookup` del socket), con la lista de hosts del proyecto y las redirecciones a mano.
+- **Cola aparte `seo-crawl`**: un rastreo dura minutos y no debe retrasar las descargas de Search Console de la cola `seo`.
+- **La página que redirige a su propia variante** (http → https, sin `www` → con `www`) se toma por la página final: se analiza lo que llega.
+- **El informe usa el último rastreo**, no el del periodo: el semanal suele hacerse justo antes de que salga.
+- **Retención**: las páginas de los 10 últimos rastreos de cada proyecto; de los anteriores queda el resumen. Sin variable de entorno.
+
+**Con esto la fase 4 queda completa.** Pendiente: la etiqueta de Google en la lista de canibalización, medir la velocidad de la competencia, las anotaciones automáticas de §18.8 y, si hiciera falta, un navegador sin cabeza para webs que se pintan en el navegador (no es el caso de las nuestras).
