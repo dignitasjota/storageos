@@ -10,6 +10,7 @@ import {
   SEO_TARGET_STATUS_LABELS,
   SEO_TRACKED_PERIODS,
   seoMasterOriginLabel,
+  detectSeoArea,
   type SeoKeywordIntent,
   type SeoProjectDomainDto,
   type SeoProjectKeywordDto,
@@ -32,6 +33,11 @@ import {
 import { type FormEvent, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+  AcceptSuggestedUrlsButton,
+  KeywordBatchBar,
+  RenameGroupDialog,
+} from '../improvements/keyword-batch-bar';
 import { seoErrorMessage } from '../seo-errors';
 import { EditKeywordDialog, SerpDialog } from '../sistrix/keywords-panel';
 import { SeoOrigin } from '../sistrix/seo-origin';
@@ -47,6 +53,7 @@ import { SectionError } from '@/components/dashboard/section-state';
 import { PrepareContentButton } from '@/components/seo/assistant/prepare-content-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -63,6 +70,7 @@ import {
   downloadDiagnosticCsv,
   useTrackedKeywords,
 } from '@/lib/seo-advanced/diagnostic-hooks';
+import { useSeoAreas } from '@/lib/seo-advanced/improvement-hooks';
 import {
   useAddKeywords,
   useRemoveKeyword,
@@ -71,6 +79,7 @@ import {
 import { cn } from '@/lib/utils';
 
 const ALL = 'all';
+const NO_AREA = '__none__';
 type View = 'list' | 'intent' | 'group';
 type Sort = 'impressions' | 'clicks' | 'position' | 'change' | 'keyword';
 const SORT_LABELS: Record<Sort, string> = {
@@ -127,11 +136,14 @@ function GroupTable({
   rows,
   title,
   prepare = false,
+  onRename,
 }: {
   rows: SeoTrackedGroupDto[];
   title: string;
   /** «Preparar contenido» en cada grupo (solo en la vista por grupo). */
   prepare?: boolean;
+  /** Renombrar un grupo (solo con permiso, en la vista por grupo). */
+  onRename?: ((group: string) => void) | undefined;
 }) {
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -167,7 +179,19 @@ function GroupTable({
               {prepare && (
                 <td className="px-3 py-2 text-right">
                   {g.key !== SEO_NO_GROUP && (
-                    <PrepareContentButton source={{ source: 'group', groupName: g.key }} />
+                    <div className="flex justify-end gap-1">
+                      {onRename && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onRename(g.key)}
+                          aria-label={`Renombrar el grupo ${g.label}`}
+                        >
+                          <Pencil className="mr-1 size-3.5" aria-hidden /> Renombrar
+                        </Button>
+                      )}
+                      <PrepareContentButton source={{ source: 'group', groupName: g.key }} />
+                    </div>
                   )}
                 </td>
               )}
@@ -216,6 +240,12 @@ export function TrackedKeywordsPanel({
   const [editing, setEditing] = useState<SeoProjectKeywordDto | null>(null);
   const [candidatesOpen, setCandidatesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  // Mejora 10: palabras elegidas para cambiarlas a la vez y grupo que se renombra.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [renaming, setRenaming] = useState<string | null>(null);
+  // Mejora 5: filtro por zona (municipio o barrio) del proyecto.
+  const areas = useSeoAreas(scope);
+  const [area, setArea] = useState(ALL);
 
   const items = data.data?.items;
   const groups = useMemo(
@@ -230,7 +260,11 @@ export function TrackedKeywordsPanel({
         (group === ALL || (k.groupName ?? SEO_NO_GROUP) === group) &&
         (intent === ALL || (k.intent ?? SEO_NO_INTENT) === intent) &&
         (target === ALL || k.targetStatus === target) &&
-        (priority === ALL || String(k.priority) === priority),
+        (priority === ALL || String(k.priority) === priority) &&
+        (area === ALL ||
+          (area === NO_AREA
+            ? !detectSeoArea(k.keyword, areas.data?.areas ?? [])
+            : detectSeoArea(k.keyword, [area]) !== null)),
     );
     const pos = (n: number | null) => n ?? Number.POSITIVE_INFINITY;
     return [...list].sort((a, b) => {
@@ -247,7 +281,7 @@ export function TrackedKeywordsPanel({
           return b.impressions - a.impressions || b.clicks - a.clicks;
       }
     });
-  }, [items, search, group, intent, target, priority, sort]);
+  }, [items, search, group, intent, target, priority, sort, area, areas.data?.areas]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -417,6 +451,18 @@ export function TrackedKeywordsPanel({
                   <Download className="mr-1 size-4" aria-hidden /> Descargar CSV
                 </Button>
               )}
+              <AcceptSuggestedUrlsButton
+                scope={scope}
+                count={
+                  (d?.items ?? []).filter(
+                    (k) =>
+                      k.isActive &&
+                      !k.targetUrl &&
+                      k.targetStatus === 'no_target' &&
+                      !!k.suggestedUrl,
+                  ).length
+                }
+              />
             </div>
           </form>
         </div>
@@ -436,7 +482,12 @@ export function TrackedKeywordsPanel({
       ) : view === 'intent' ? (
         <GroupTable rows={d.byIntent} title="Intención" />
       ) : view === 'group' ? (
-        <GroupTable rows={d.byGroup} title="Grupo" prepare />
+        <GroupTable
+          rows={d.byGroup}
+          title="Grupo"
+          prepare
+          onRename={canEdit ? setRenaming : undefined}
+        />
       ) : (
         <>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -509,6 +560,43 @@ export function TrackedKeywordsPanel({
             </div>
           </div>
 
+          {(areas.data?.areas.length ?? 0) > 0 && (
+            <Select value={area} onValueChange={setArea}>
+              <SelectTrigger aria-label="Zona" className="sm:w-[260px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Todas las zonas</SelectItem>
+                {(areas.data?.areas ?? []).map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {a}
+                  </SelectItem>
+                ))}
+                <SelectItem value={NO_AREA}>Sin zona</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {canEdit && rows.length > 0 && (
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={rows.length > 0 && rows.every((k) => picked.has(k.id))}
+                onCheckedChange={(v) =>
+                  setPicked(v === true ? new Set(rows.map((k) => k.id)) : new Set())
+                }
+                aria-label="Elegir todas las palabras de la lista"
+              />
+              Elegir todas las de la lista ({rows.length})
+            </label>
+          )}
+          {canEdit && (
+            <KeywordBatchBar
+              scope={scope}
+              ids={rows.filter((k) => picked.has(k.id)).map((k) => k.id)}
+              groups={groups.filter((g) => g !== SEO_NO_GROUP)}
+              onDone={() => setPicked(new Set())}
+            />
+          )}
+
           {rows.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
               Ninguna palabra con estos filtros.
@@ -518,42 +606,57 @@ export function TrackedKeywordsPanel({
               {rows.map((k) => (
                 <li key={k.id} className={cn('space-y-1.5 p-3', !k.isActive && 'opacity-60')}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setOpen(k.id)}
-                          className="break-words text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
-                        >
-                          {k.keyword}
-                        </button>
-                        <Badge variant="outline" className="font-normal">
-                          {SEO_KEYWORD_PRIORITY_LABELS[k.priority]}
-                        </Badge>
-                        {k.groupName && (
-                          <Badge variant="secondary" className="font-normal">
-                            {k.groupName}
+                    <div className="flex min-w-0 gap-2">
+                      {canEdit && (
+                        <Checkbox
+                          className="mt-1"
+                          checked={picked.has(k.id)}
+                          onCheckedChange={(v) => {
+                            const next = new Set(picked);
+                            if (v === true) next.add(k.id);
+                            else next.delete(k.id);
+                            setPicked(next);
+                          }}
+                          aria-label={`Elegir ${k.keyword}`}
+                        />
+                      )}
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setOpen(k.id)}
+                            className="break-words text-left font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+                          >
+                            {k.keyword}
+                          </button>
+                          <Badge variant="outline" className="font-normal">
+                            {SEO_KEYWORD_PRIORITY_LABELS[k.priority]}
                           </Badge>
+                          {k.groupName && (
+                            <Badge variant="secondary" className="font-normal">
+                              {k.groupName}
+                            </Badge>
+                          )}
+                          <TargetStatusBadge status={k.targetStatus as SeoTargetStatus} />
+                          {k.strategyLocked && (
+                            <Lock
+                              className="size-3.5 text-muted-foreground"
+                              aria-label="Decisión fijada"
+                            />
+                          )}
+                        </div>
+                        {k.intent && (
+                          <p className="text-xs text-muted-foreground">
+                            {SEO_KEYWORD_INTENT_LABELS[k.intent]}
+                            {k.intentSource ? ` (${SEO_INTENT_SOURCE_LABELS[k.intentSource]})` : ''}
+                          </p>
                         )}
-                        <TargetStatusBadge status={k.targetStatus as SeoTargetStatus} />
-                        {k.strategyLocked && (
-                          <Lock
-                            className="size-3.5 text-muted-foreground"
-                            aria-label="Decisión fijada"
-                          />
+                        {k.masterImportedAt && (
+                          <p className="text-xs text-muted-foreground">
+                            {seoMasterOriginLabel(k.masterImportedAt)}
+                          </p>
                         )}
                       </div>
-                      {k.intent && (
-                        <p className="text-xs text-muted-foreground">
-                          {SEO_KEYWORD_INTENT_LABELS[k.intent]}
-                          {k.intentSource ? ` (${SEO_INTENT_SOURCE_LABELS[k.intentSource]})` : ''}
-                        </p>
-                      )}
-                      {k.masterImportedAt && (
-                        <p className="text-xs text-muted-foreground">
-                          {seoMasterOriginLabel(k.masterImportedAt)}
-                        </p>
-                      )}
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-1">
                       <Button
@@ -645,6 +748,7 @@ export function TrackedKeywordsPanel({
         onClose={() => setOpen(null)}
       />
       <SerpDialog scope={scope} keyword={serpOf} onClose={() => setSerpOf(null)} />
+      <RenameGroupDialog scope={scope} group={renaming} onClose={() => setRenaming(null)} />
       <EditKeywordDialog
         keyword={editing}
         onClose={() => setEditing(null)}

@@ -2,6 +2,12 @@
 
 import { Loader2 } from 'lucide-react';
 
+import {
+  SistrixAiVisibilityNote,
+  TenantSistrixFrequenciesCard,
+  TenantSistrixHistoryCard,
+} from '../improvements/tenant-sistrix-extras';
+
 import { SeoAiVisibilityPanel } from './ai-visibility-panel';
 import { CompetitorsPanel } from './competitors-panel';
 import { KeywordIdeasPanel } from './keyword-ideas-panel';
@@ -55,6 +61,12 @@ export function SeoSistrixSections({
       {scope.kind === 'tenant' && settings && (
         <TenantSistrixCard settings={settings} canEdit={canConfigure} />
       )}
+      {scope.kind === 'tenant' && settings && !settings.usingPlatform && settings.api.hasKey && (
+        <>
+          <TenantSistrixFrequenciesCard settings={settings.settings} canEdit={canConfigure} />
+          <TenantSistrixHistoryCard />
+        </>
+      )}
       {workspace && (
         <Card>
           <CardHeader>
@@ -93,7 +105,10 @@ export function SeoSistrixSections({
               <TabsContent value="links">
                 <BacklinksPanel scope={scope} />
               </TabsContent>
-              <TabsContent value="ai">
+              <TabsContent value="ai" className="space-y-3">
+                {scope.kind === 'tenant' && settings && !settings.usingPlatform && (
+                  <SistrixAiVisibilityNote />
+                )}
                 <SeoAiVisibilityPanel scope={scope} canEdit={canEdit} />
               </TabsContent>
             </Tabs>
