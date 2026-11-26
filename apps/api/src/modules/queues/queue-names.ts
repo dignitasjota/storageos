@@ -46,6 +46,12 @@ export const JOB_SEO_SISTRIX_SYNC = 'sistrix-sync';
 export const QUEUE_SEO_CRAWL = 'seo-crawl';
 /** Un rastreo (`seo_crawls`). */
 export const JOB_SEO_CRAWL = 'crawl';
+/**
+ * SEO Avanzado: mediciones de PageSpeed. Cola aparte de `seo` (una medición
+ * tarda hasta 3 minutos si Google va lento) para que no retrase las descargas de
+ * Search Console de los demás negocios. Concurrencia 1.
+ */
+export const QUEUE_SEO_PAGESPEED = 'seo-pagespeed';
 
 /** Job de envío de un email ad-hoc (broadcasts del super admin). */
 export const JOB_EMAIL_SEND = 'email.send';

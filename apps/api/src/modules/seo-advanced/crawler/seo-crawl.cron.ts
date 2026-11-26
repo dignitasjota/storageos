@@ -27,6 +27,8 @@ export class SeoCrawlCron implements OnApplicationBootstrap {
   @Cron('5 * * * *', { name: 'seo.crawl-weekly', timeZone: 'Europe/Madrid' })
   async weekly(): Promise<void> {
     try {
+      // Lo que se quedó en cola o en curso sin nadie (reinicio, trabajo perdido) vuelve a la cola.
+      await this.crawler.requeueStale();
       const n = await this.crawler.scheduleDue();
       if (n > 0) this.logger.log(`SEO: ${n} rastreo(s) semanal(es) en la cola`);
     } catch (err) {

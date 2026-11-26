@@ -51,6 +51,7 @@ import { SistrixCron } from './sistrix/sistrix.cron';
 import { SistrixProcessor } from './sistrix/sistrix.processor';
 import { PageSpeedClient } from './technical/pagespeed.client';
 import { SeoInspectionService } from './technical/seo-inspection.service';
+import { SeoPageSpeedProcessor } from './technical/seo-pagespeed.processor';
 import { SeoPageSpeedService } from './technical/seo-pagespeed.service';
 import { SeoTechnicalReadService } from './technical/seo-technical-read.service';
 import { SeoTechnicalCron } from './technical/seo-technical.cron';
@@ -125,6 +126,7 @@ import type { Env } from '../../config/env.schema';
           SeoPlanCron,
           SeoReportsCron,
           SeoTechnicalCron,
+          SeoPageSpeedProcessor,
           SeoCrawlProcessor,
           SeoCrawlCron,
           SeoGa4Cron,

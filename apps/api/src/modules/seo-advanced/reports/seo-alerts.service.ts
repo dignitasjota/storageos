@@ -617,7 +617,7 @@ export class SeoAlertsService {
             status: { not: 'ok' },
           },
           orderBy: { url: 'asc' },
-          take: 50,
+          take: 200,
         }),
         this.admin.seoCrawlPage.findMany({
           where: { crawlId: crawl.id, urlKey: { in: [homeKey, ...targets.keys()] } },
@@ -627,17 +627,22 @@ export class SeoAlertsService {
         ...seoCrawlAlerts({
           crawlId: crawl.id,
           finishedAt: (crawl.finishedAt ?? crawl.createdAt).toISOString(),
-          newErrors: newErrors.map((e) => ({
-            url: e.url,
-            status:
-              typeof e.data === 'object' && e.data && 'status' in e.data
-                ? ((e.data as { status?: number }).status ?? null)
-                : null,
-            error: e.type === 'fetch_failed' ? e.detail : null,
-          })),
+          // Lo que el servidor no deja leer al rastreador (403, 429) no es un error de la web.
+          newErrors: newErrors
+            .filter((e) => !(e.data as { blocked?: boolean } | null)?.blocked)
+            .map((e) => ({
+              url: e.url,
+              status:
+                typeof e.data === 'object' && e.data && 'status' in e.data
+                  ? ((e.data as { status?: number }).status ?? null)
+                  : null,
+              error: e.type === 'fetch_failed' ? e.detail : null,
+            })),
           critical: critical.flatMap((p) => {
             const problem =
-              p.error || (p.status !== null && p.status >= 400)
+              // 401, 403 y 429: el servidor bloquea al rastreador, no es que la portada falle.
+              p.error ||
+              (p.status !== null && p.status >= 400 && ![401, 403, 429].includes(p.status))
                 ? ('error' as const)
                 : p.noindex
                   ? ('noindex' as const)

@@ -767,6 +767,38 @@ export function seoIndexRuleCategory(pattern: string): SeoIndexCategory {
   return DEFAULT_CATEGORY.get(pattern) ?? 'custom';
 }
 
+/** Lo máximo que se mira de un patrón y de un texto al comparar con comodines. */
+export const SEO_GLOB_MAX_PATTERN = 500;
+export const SEO_GLOB_MAX_TEXT = 4000;
+
+/**
+ * Casa un texto con un patrón con comodines `*` (cualquier cosa), SIN expresiones
+ * regulares: los patrones los escribe un tercero (el robots.txt de una web, o las
+ * rutas excluidas de un negocio) y una expresión con varios `*` retrocede sin
+ * límite y congela el proceso. Aquí cada trozo del patrón se busca una sola vez,
+ * de izquierda a derecha, con topes de longitud: el coste es lineal.
+ * El patrón empieza donde empieza el texto; con `anchorEnd`, acaba donde acaba.
+ */
+export function seoGlobMatch(pattern: string, text: string, anchorEnd: boolean): boolean {
+  const p = pattern.slice(0, SEO_GLOB_MAX_PATTERN);
+  const t = text.slice(0, SEO_GLOB_MAX_TEXT);
+  const parts = p.split('*');
+  if (parts.length === 1) return anchorEnd ? t === p : t.startsWith(p);
+  const first = parts[0]!;
+  if (!t.startsWith(first)) return false;
+  let pos = first.length;
+  for (let i = 1; i < parts.length - 1; i++) {
+    const part = parts[i]!;
+    if (!part) continue;
+    const at = t.indexOf(part, pos);
+    if (at === -1) return false;
+    pos = at + part.length;
+  }
+  const last = parts[parts.length - 1]!;
+  if (anchorEnd) return t.length - last.length >= pos && t.endsWith(last);
+  return !last || t.indexOf(last, pos) !== -1;
+}
+
 /** ¿La URL casa con la regla? */
 export function seoIndexRuleMatches(pattern: string, url: string): boolean {
   const p = pattern.trim();
@@ -782,15 +814,8 @@ export function seoIndexRuleMatches(pattern: string, url: string): boolean {
     );
   }
   if (p.includes('*')) {
-    const re = new RegExp(
-      `^${p
-        .toLowerCase()
-        .split('*')
-        .map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-        .join('.*')}$`,
-    );
     const full = `${lowerPath}${params.length ? `?${params.map(([k, v]) => `${k}=${v}`).join('&')}` : ''}`;
-    return re.test(full.toLowerCase());
+    return seoGlobMatch(p.toLowerCase(), full.toLowerCase(), true);
   }
   if (p.startsWith('/')) return matchesPathPrefix(lowerPath, p.toLowerCase());
   return lowerPath.includes(p.toLowerCase());
