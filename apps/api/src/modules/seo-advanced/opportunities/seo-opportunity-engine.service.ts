@@ -14,6 +14,7 @@ import {
   type SeoKeywordIntent,
   type SeoOpportunityCandidate,
   type SeoOpportunityGapRow,
+  type SeoOpportunityInternalLinkRow,
   type SeoOpportunityKeywordRow,
   type SeoOpportunityQueryRow,
   type SeoOpportunityRecalcDto,
@@ -25,6 +26,7 @@ import {
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { SeoConversionsService } from '../reports/seo-conversions.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
+import { SeoTechnicalReadService } from '../technical/seo-technical-read.service';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const dateOnly = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
@@ -78,6 +80,7 @@ export class SeoOpportunityEngineService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly conversions: SeoConversionsService,
+    private readonly technical: SeoTechnicalReadService,
   ) {}
 
   /** Recalcula las oportunidades de un proyecto (null si ya no existe). */
@@ -159,6 +162,21 @@ export class SeoOpportunityEngineService {
     }
     const sistrixMetricsAvailable = catalogWords.some((w) => metrics.has(w));
 
+    // Enlazado interno de las URL objetivo (último rastreo, PR 10; sin rastreo, nada).
+    const links = await this.technical.internalLinks(projectId, thresholds.internalLinksMin);
+    const linkRows: SeoOpportunityInternalLinkRow[] = links.crawledAt
+      ? links.items.flatMap((it) =>
+          it.keywords.map((k) => ({
+            keyword: k.keyword,
+            targetUrl: it.url,
+            inlinks: it.inlinks,
+            crawled: it.crawled,
+            crawledAt: links.crawledAt!,
+            suggestions: it.suggestions,
+          })),
+        )
+      : [];
+
     // 3) Las reglas.
     const candidates: (SeoOpportunityCandidate & { domainId: string })[] = [];
     for (const p of perDomain) {
@@ -187,6 +205,9 @@ export class SeoOpportunityEngineService {
         sistrixOpportunities: p.sistrix,
         keywordGaps: p.gaps,
         pageConversionsByQuery,
+        ...(primary && p.domain.id === primary.id && linkRows.length > 0
+          ? { internalLinks: linkRows }
+          : {}),
       });
       const pages = await this.topPages(
         p.domain.id,

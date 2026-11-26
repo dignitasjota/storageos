@@ -26,6 +26,7 @@ import {
   QUEUE_WEBHOOKS,
   QUEUE_SEO,
   QUEUE_SEO_SISTRIX,
+  QUEUE_SEO_CRAWL,
 } from '../queues/queues.module';
 
 import { AdminAudit } from './admin-audit.decorator';
@@ -84,6 +85,7 @@ export class AdminQueuesController {
     @InjectQueue(QUEUE_WEBHOOKS) webhooks: Queue,
     @InjectQueue(QUEUE_SEO) seo: Queue,
     @InjectQueue(QUEUE_SEO_SISTRIX) seoSistrix: Queue,
+    @InjectQueue(QUEUE_SEO_CRAWL) seoCrawl: Queue,
   ) {
     this.queues = [
       billing,
@@ -97,6 +99,7 @@ export class AdminQueuesController {
       webhooks,
       seo,
       seoSistrix,
+      seoCrawl,
     ];
   }
 

@@ -164,6 +164,14 @@ export function renderSeoReportHtml(
       : ''
   }
   ${
+    c.crawl
+      ? section(
+          'Rastreo de la web',
+          `<ul><li>Último rastreo: ${esc(c.crawl.finishedAt.slice(0, 10).split('-').reverse().join('/'))}, ${seoFmtInt(c.crawl.pages)} páginas${c.crawl.errors > 0 ? ` (${seoFmtInt(c.crawl.errors)} dan error)` : ''}.</li><li>Incidencias: ${seoFmtInt(c.crawl.high)} graves, ${seoFmtInt(c.crawl.medium)} medias y ${seoFmtInt(c.crawl.low)} leves; ${seoFmtInt(c.crawl.newIssues)} nuevas y ${seoFmtInt(c.crawl.resolvedIssues)} resueltas frente al rastreo anterior.</li></ul>`,
+        )
+      : ''
+  }
+  ${
     c.changesWithResult.length
       ? section(
           'Actuaciones con resultado',

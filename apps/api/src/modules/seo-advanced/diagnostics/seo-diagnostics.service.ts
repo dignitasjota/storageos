@@ -30,6 +30,7 @@ import {
   normalizeSeoImportHeader,
   normalizeSeoKeyword,
   normalizeSeoUrl,
+  seoIndexCrawlConfirmation,
   seoInspectionUrlKey,
   planSeoKeywordImport,
   seoDailyWinners,
@@ -47,6 +48,7 @@ import {
   type SeoCannibalizationKind,
   type SeoCannibalizationPageDto,
   type SeoCannibalizationSummaryDto,
+  type SeoCrawlUrlFacts,
   type SeoDataOriginDto,
   type SeoDiagnosticListDto,
   type SeoDiagnosticSettingsDto,
@@ -433,14 +435,18 @@ export class SeoDiagnosticsService {
         take: LIST_MAX,
       }),
     ]);
-    const statuses = await this.technical.indexStatuses(
-      projectId,
-      rows.map((r) => normalizeSeoUrl(r.url)),
-    );
+    const keys = rows.map((r) => normalizeSeoUrl(r.url));
+    const [statuses, crawled] = await Promise.all([
+      this.technical.indexStatuses(projectId, keys),
+      this.technical.crawlFacts(projectId, keys),
+    ]);
     return {
       calculatedAt: iso(project.diagnosticsCalculatedAt),
       total,
-      items: rows.map((r) => this.indexDto(r, statuses.get(normalizeSeoUrl(r.url)) ?? null)),
+      items: rows.map((r) => {
+        const k = normalizeSeoUrl(r.url);
+        return this.indexDto(r, statuses.get(k) ?? null, crawled.get(k) ?? null);
+      }),
     };
   }
 
@@ -487,8 +493,11 @@ export class SeoDiagnosticsService {
       data: this.statusData(row.status, input),
     });
     const key = normalizeSeoUrl(updated.url);
-    const statuses = await this.technical.indexStatuses(projectId, [key]);
-    return this.indexDto(updated, statuses.get(key) ?? null);
+    const [statuses, crawled] = await Promise.all([
+      this.technical.indexStatuses(projectId, [key]),
+      this.technical.crawlFacts(projectId, [key]),
+    ]);
+    return this.indexDto(updated, statuses.get(key) ?? null, crawled.get(key) ?? null);
   }
 
   async indexCsv(
@@ -504,6 +513,7 @@ export class SeoDiagnosticsService {
       'Regla',
       'Evidencia',
       'Lo que dice Google (inspección)',
+      'Lo que ve el rastreador',
       'Impresiones',
       'Clics',
       'Primer día',
@@ -522,6 +532,7 @@ export class SeoDiagnosticsService {
           csvCell(f.rule),
           csvCell(SEO_INDEX_EVIDENCE_LABELS[f.evidence]),
           csvCell(f.inspection?.label ?? 'Sin inspeccionar'),
+          csvLineCell(f.crawl?.text ?? 'Sin rastrear'),
           csvCell(f.impressions),
           csvCell(f.clicks),
           csvCell(f.firstDate),
@@ -1267,6 +1278,7 @@ export class SeoDiagnosticsService {
   private indexDto(
     r: Prisma.SeoIndexFindingGetPayload<object>,
     inspection: SeoUrlIndexStatusDto | null = null,
+    crawled: SeoCrawlUrlFacts | null = null,
   ): SeoIndexFindingDto {
     return {
       ...this.base(r),
@@ -1281,6 +1293,10 @@ export class SeoDiagnosticsService {
       reason: r.reason,
       action: r.action,
       inspection,
+      // Lo que confirma el rastreador (PR 10): el motivo, o que ya está resuelto en la web.
+      crawl: crawled
+        ? { ...crawled, ...seoIndexCrawlConfirmation(r.category as SeoIndexCategory, crawled) }
+        : null,
     };
   }
 }

@@ -11,6 +11,8 @@ import {
   seoAlertSettingsOf,
   seoClicksDropAlert,
   seoGscFreshnessAlerts,
+  normalizeSeoUrl,
+  seoCrawlAlerts,
   seoInspectionAlerts,
   seoInspectionUrlKey,
   seoPageSpeedAlerts,
@@ -562,6 +564,64 @@ export class SeoAlertsService {
           },
           previous: previous ? { performance: previous.performanceScore } : null,
           dropPoints: t.pagespeedDropPoints,
+        }),
+      );
+    }
+
+    // Rastreador (PR 10): páginas que dan error nuevas y la portada o una URL
+    // objetivo con «noindex», bloqueada para Google o que no responde.
+    const crawl = await this.technical.latestCrawl(project.id);
+    if (crawl) {
+      const homeKey = normalizeSeoUrl(crawl.startUrl);
+      const [newErrors, critical] = await Promise.all([
+        this.admin.seoCrawlIssue.findMany({
+          where: {
+            projectId: project.id,
+            active: true,
+            appearedCrawlId: crawl.id,
+            type: { in: ['http_error', 'fetch_failed'] },
+            status: { not: 'ok' },
+          },
+          orderBy: { url: 'asc' },
+          take: 50,
+        }),
+        this.admin.seoCrawlPage.findMany({
+          where: { crawlId: crawl.id, urlKey: { in: [homeKey, ...targets.keys()] } },
+        }),
+      ]);
+      out.push(
+        ...seoCrawlAlerts({
+          crawlId: crawl.id,
+          finishedAt: (crawl.finishedAt ?? crawl.createdAt).toISOString(),
+          newErrors: newErrors.map((e) => ({
+            url: e.url,
+            status:
+              typeof e.data === 'object' && e.data && 'status' in e.data
+                ? ((e.data as { status?: number }).status ?? null)
+                : null,
+            error: e.type === 'fetch_failed' ? e.detail : null,
+          })),
+          critical: critical.flatMap((p) => {
+            const problem =
+              p.error || (p.status !== null && p.status >= 400)
+                ? ('error' as const)
+                : p.noindex
+                  ? ('noindex' as const)
+                  : p.googleBlocked
+                    ? ('blocked' as const)
+                    : null;
+            if (!problem) return [];
+            return [
+              {
+                url: p.url,
+                urlKey: p.urlKey,
+                home: p.urlKey === homeKey,
+                keywords: targets.get(p.urlKey)?.keywords ?? [],
+                problem,
+                status: p.status,
+              },
+            ];
+          }),
         }),
       );
     }

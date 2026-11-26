@@ -35,6 +35,15 @@ export const JOB_SEO_PAGESPEED = 'pagespeed';
 export const QUEUE_SEO_SISTRIX = 'seo-sistrix';
 /** Una tanda de SISTRIX de un proyecto y tipo de dato (`seo_sync_runs`). */
 export const JOB_SEO_SISTRIX_SYNC = 'sistrix-sync';
+/**
+ * SEO Avanzado, PR 10: rastreos de las webs de los proyectos. Cola aparte de
+ * `seo` porque un rastreo dura minutos (con pausa entre peticiones) y no debe
+ * retrasar las descargas de Search Console. Concurrencia 2: dos proyectos a la
+ * vez como mucho, cada uno con una sola petición en marcha.
+ */
+export const QUEUE_SEO_CRAWL = 'seo-crawl';
+/** Un rastreo (`seo_crawls`). */
+export const JOB_SEO_CRAWL = 'crawl';
 
 /** Job de envío de un email ad-hoc (broadcasts del super admin). */
 export const JOB_EMAIL_SEND = 'email.send';
