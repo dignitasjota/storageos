@@ -65,6 +65,8 @@ export interface SeoCrawlSettings {
   /** Día de la semana (0 domingo … 6 sábado) y hora (España). */
   weekday: number;
   hour: number;
+  /** Cada cuántas semanas (1 = cada semana, 4 = una vez al mes). */
+  intervalWeeks: number;
   /** Páginas como mucho en cada rastreo. */
   maxPages: number;
   /** Pausa entre dos peticiones (milisegundos). */
@@ -80,6 +82,7 @@ export const SEO_CRAWL_DEFAULTS: Record<SeoCrawlScope, SeoCrawlSettings> = {
     weeklyEnabled: false,
     weekday: 1,
     hour: 3,
+    intervalWeeks: 1,
     maxPages: 500,
     pauseMs: 1000,
     maxMinutes: 60,
@@ -89,6 +92,7 @@ export const SEO_CRAWL_DEFAULTS: Record<SeoCrawlScope, SeoCrawlSettings> = {
     weeklyEnabled: true,
     weekday: 1,
     hour: 3,
+    intervalWeeks: 1,
     maxPages: 2000,
     pauseMs: 1000,
     maxMinutes: 240,
@@ -140,6 +144,9 @@ export function seoCrawlSettingsOf(stored: unknown, scope: SeoCrawlScope): SeoCr
     }
   }
   if (typeof s.weeklyEnabled === 'boolean') out.weeklyEnabled = s.weeklyEnabled;
+  if (s.intervalWeeks === 1 || s.intervalWeeks === 2 || s.intervalWeeks === 4) {
+    out.intervalWeeks = s.intervalWeeks;
+  }
   if (Array.isArray(s.excludePaths)) {
     out.excludePaths = [
       ...new Set(
@@ -158,6 +165,7 @@ export const UpdateSeoCrawlSettingsSchema = z
     weeklyEnabled: z.boolean(),
     weekday: z.number().int().min(0).max(6),
     hour: z.number().int().min(0).max(23),
+    intervalWeeks: z.union([z.literal(1), z.literal(2), z.literal(4)]),
     maxPages: z.number().int().min(10).max(2000),
     pauseMs: z.number().int().min(500).max(10_000),
     maxMinutes: z.number().int().min(5).max(360),
@@ -194,7 +202,8 @@ export function seoCrawlDue(input: {
   const sinceScheduled = hoursSince < 0 ? hoursSince + 168 : hoursSince;
   if (sinceScheduled >= 24) return false;
   if (!input.lastStartedAt) return true;
-  return input.now.getTime() - Date.parse(input.lastStartedAt) >= 6 * 86_400_000;
+  const gapDays = Math.max(1, input.settings.intervalWeeks) * 7 - 1;
+  return input.now.getTime() - Date.parse(input.lastStartedAt) >= gapDays * 86_400_000;
 }
 
 // ------------------------------------------------------------- alcance
@@ -430,6 +439,8 @@ export const SEO_CRAWL_ISSUE_TYPES = [
   'sitemap_redirect',
   'sitemap_noindex',
   'sitemap_blocked',
+  // Mejoras: con impresiones en Google y fuera del mapa del sitio.
+  'not_in_sitemap',
 ] as const;
 export type SeoCrawlIssueType = (typeof SEO_CRAWL_ISSUE_TYPES)[number];
 export const SeoCrawlIssueTypeEnum = z.enum(SEO_CRAWL_ISSUE_TYPES);
@@ -715,6 +726,13 @@ export const SEO_CRAWL_ISSUES: Record<SeoCrawlIssueType, SeoCrawlIssueInfo> = {
     severity: 'high',
     what: 'El mapa del sitio pide a Google que mire una página que a la vez dice «no me indexes».',
     how: 'Decide: si debe salir en Google, quita el «noindex»; si no, sácala del mapa del sitio.',
+  },
+  not_in_sitemap: {
+    label: 'Con impresiones y fuera del mapa del sitio',
+    group: 'sitemap',
+    severity: 'low',
+    what: 'Google enseña esta página, pero no está en el mapa del sitio (sitemap.xml): se la encuentra por enlaces, no porque tú se la hayas dicho.',
+    how: 'Añádela al mapa del sitio (o, si no quieres que salga en Google, ponle «noindex»).',
   },
   sitemap_blocked: {
     label: 'En el mapa del sitio y bloqueada',
@@ -1184,6 +1202,22 @@ export function analyzeSeoCrawl(input: {
       });
     else if (p.googleBlocked && !p.robotsBlocked)
       add('sitemap_blocked', p, 'robots.txt no deja leerla a Google y está en el mapa del sitio.');
+  }
+
+  // Con impresiones en Google y fuera del mapa del sitio (solo si el sitio tiene mapa).
+  if (input.sitemapFound) {
+    for (const p of pages) {
+      if (p.inSitemap || !p.inScope || p.impressions <= 0 || p.noindex || p.robotsBlocked) continue;
+      if (isError(p) || isRedirect(p) || !p.isHtml) continue;
+      // Una variante que declara otra canónica ya apunta a la buena.
+      if (p.canonical && normalizeSeoUrl(p.canonical) !== p.key) continue;
+      add(
+        'not_in_sitemap',
+        p,
+        `Tiene ${seoFmtInt(p.impressions)} impresiones en Google y no está en el mapa del sitio.`,
+        { impressions: p.impressions },
+      );
+    }
   }
 
   // Con impresiones y sin rastrear.

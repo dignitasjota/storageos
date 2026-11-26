@@ -7,10 +7,13 @@ import {
   SEO_SITE_CHANGE_TYPE_LABELS,
   SEO_SITE_CHANGE_VERDICT_LABELS,
   SEO_SITE_CHANGE_WINDOWS,
+  SEO_YEAR_AGO_MISSING,
   normalizeSeoKeyword,
   seoOverlappingChanges,
   seoChange,
   seoPageMatchesKey,
+  seoPeriodCovered,
+  seoShiftYears,
   seoSiteChangeRange,
   seoSiteChangeScope,
   seoSiteChangeVerdict,
@@ -29,6 +32,7 @@ import {
   type SeoSiteChangeOverlapInput,
   type SeoSiteChangeType,
   type SeoSiteChangeWindowDto,
+  type SeoSiteChangeYearAgoDto,
   type SeoTotalsDto,
   type UpdateSeoSiteChangeInput,
 } from '@storageos/shared';
@@ -753,6 +757,30 @@ export class SeoSiteChangesService {
       const range = seoSiteChangeRange(date, widest);
       data = await this.scopeData(domainId, r, range.beforeFrom, range.afterTo);
     }
+    // El mismo antes y después un año antes (solo en la ficha; Search Console guarda 16 meses).
+    let yearData: ScopeData | null = null;
+    if (withItems && domainId && ready.length > 0) {
+      const widest = Math.max(...ready.map((s) => s.days));
+      const range = seoSiteChangeRange(date, widest);
+      yearData = await this.scopeData(
+        domainId,
+        r,
+        seoShiftYears(range.beforeFrom, -1),
+        seoShiftYears(range.afterTo, -1),
+      );
+    }
+    const yearCovered = (from: string, to: string) => {
+      if (!yearData) return false;
+      let n = 0;
+      for (const d of yearData.site.keys()) if (d >= from && d <= to) n++;
+      return seoPeriodCovered({
+        firstDate: bounds.first,
+        from,
+        to,
+        daysWithData: n,
+        syncedUntil,
+      });
+    };
     const labelOf = new Map<string, string>();
     for (const u of r.urls) {
       const key = seoUrlKey(u);
@@ -809,8 +837,39 @@ export class SeoSiteChangesService {
             ...[...data.byKeyword].map(([key, sums]) => item('keyword', key, sums)),
           ]
         : [];
+      let yearAgo: SeoSiteChangeYearAgoDto | null = null;
+      if (withItems) {
+        const yb = {
+          from: seoShiftYears(range.beforeFrom, -1),
+          to: seoShiftYears(range.beforeTo, -1),
+        };
+        const ya = {
+          from: seoShiftYears(range.afterFrom, -1),
+          to: seoShiftYears(range.afterTo, -1),
+        };
+        if (yearData && yearCovered(yb.from, yb.to) && yearCovered(ya.from, ya.to)) {
+          const yBefore = sumRange(yearData.total, yb.from, yb.to);
+          const yAfter = sumRange(yearData.total, ya.from, ya.to);
+          yearAgo = {
+            available: true,
+            message: null,
+            before: yBefore,
+            after: yAfter,
+            variation: seoChange(yAfter, yBefore),
+          };
+        } else {
+          yearAgo = {
+            available: false,
+            message: SEO_YEAR_AGO_MISSING,
+            before: null,
+            after: null,
+            variation: null,
+          };
+        }
+      }
       return {
         ...base,
+        yearAgo,
         scope: {
           before,
           after,

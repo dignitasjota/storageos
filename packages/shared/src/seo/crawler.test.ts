@@ -571,3 +571,23 @@ describe('análisis: repetidos, bloqueos del servidor y arreglos', () => {
     expect(due(1, 2)).toBe(false);
   });
 });
+
+describe('con impresiones y fuera del mapa del sitio', () => {
+  const home = page('/', { inSitemap: true, links: [`${H}/precios`, `${H}/vieja`, `${H}/l/en`] });
+  it('lo marca solo si el sitio tiene mapa y la página sale en Google', () => {
+    const pages = [
+      home,
+      page('/precios', { inSitemap: true, impressions: 200 }),
+      page('/vieja', { impressions: 80 }),
+      page('/sin-impresiones', { impressions: 0 }),
+      page('/l/en', { impressions: 12, noindex: true }),
+    ];
+    const withMap = analyzeSeoCrawl({ pages, homeKey: HOME, sitemapFound: true });
+    expect(typesOf(withMap.issues, '/vieja')).toContain('not_in_sitemap');
+    expect(typesOf(withMap.issues, '/precios')).not.toContain('not_in_sitemap');
+    expect(typesOf(withMap.issues, '/sin-impresiones')).not.toContain('not_in_sitemap');
+    expect(typesOf(withMap.issues, '/l/en')).not.toContain('not_in_sitemap');
+    const noMap = analyzeSeoCrawl({ pages, homeKey: HOME, sitemapFound: false });
+    expect(noMap.issues.some((i) => i.type === 'not_in_sitemap')).toBe(false);
+  });
+});

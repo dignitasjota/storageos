@@ -4,6 +4,7 @@ import { ImportFormatEnum } from '../imports/schemas';
 import { ROBOTS_PRIVATE_PATHS, WEB_NOINDEX_PREFIXES, matchesPathPrefix } from '../web/noindex';
 import { isBrandQuery } from '../web/search-console';
 
+import { seoIsLanguagePair } from './improvements';
 import { seoFmtInt, seoResolveIntent, type SeoIntentSource } from './opportunities';
 import {
   normalizeSeoKeyword,
@@ -387,6 +388,10 @@ export const SEO_SEVERITY_LABELS: Record<SeoSeverity, string> = {
   low: 'Baja',
 };
 
+/** Qué hacer cuando compiten las versiones de idioma de una misma página. */
+export const SEO_LANGUAGE_PAIR_ACTION =
+  'Comprueba que cada versión de idioma declara su etiqueta hreflang hacia la otra y su propia canónica (no la de la otra): así Google enseña a cada persona la de su idioma.';
+
 /** Las acciones que se pueden sugerir ante una canibalización. */
 export const SEO_CANNIBALIZATION_ACTIONS = {
   target:
@@ -481,9 +486,17 @@ export function analyzeSeoCannibalization(input: {
   const total = merged.reduce((n, p) => n + p.impressions, 0);
   const totalClicks = merged.reduce((n, p) => n + p.clicks, 0);
   if (total < t.minImpressions) return null;
-  const relevant = merged.filter(
+  let relevant = merged.filter(
     (p) => p.impressions >= t.minPageImpressions && p.impressions / total >= t.minSecondShare,
   );
+  // Sin URL objetivo, la portada que sale de vez en cuando como enlace de sitio de otra
+  // página (con poca parte) no es canibalización: se deja fuera y, si no quedan dos, no hay caso.
+  if (!input.targetUrl) {
+    const rest = relevant.filter(
+      (p) => !(isSeoHomeUrl(p.page) && p.impressions / total < t.homeLowShare),
+    );
+    if (rest.length < relevant.length) relevant = rest;
+  }
   if (relevant.length < 2) return null;
 
   const relevantKeys = new Set(relevant.map((p) => p.key));
@@ -547,6 +560,10 @@ export function analyzeSeoCannibalization(input: {
     (a, b) => b.clicks - a.clicks || b.impressions - a.impressions || a.key.localeCompare(b.key),
   );
   const suggestedUrl = input.targetUrl ?? byClicks[0]!.page;
+  // Dos versiones de idioma de la misma página (/precios y /l/en/precios): es otro caso.
+  const languagePair =
+    relevant.length === 2 && seoIsLanguagePair(relevant[0]!.page, relevant[1]!.page);
+  if (languagePair && severity === 'high') severity = 'medium';
   const daysOnTop = new Map<string, number>();
   for (const w of timeline) {
     const k = normalizeSeoUrl(w.page);
@@ -605,6 +622,10 @@ export function analyzeSeoCannibalization(input: {
   };
   candidate.reason = seoCannibalizationReason(candidate, t);
   candidate.action = seoCannibalizationAction(candidate);
+  if (languagePair) {
+    candidate.reason = `Son dos versiones de idioma de la misma página (${shortPath(relevant[0]!.page)} y ${shortPath(relevant[1]!.page)}) que salen para la misma búsqueda. ${candidate.reason}`;
+    candidate.action = SEO_LANGUAGE_PAIR_ACTION;
+  }
   return candidate;
 }
 
