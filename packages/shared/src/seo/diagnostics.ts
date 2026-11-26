@@ -14,6 +14,7 @@ import {
   type SeoProviderKey,
 } from './sistrix';
 
+import type { SeoIndexCrawlEvidenceDto } from './crawler';
 import type { SeoUrlIndexStatusDto } from './inspection';
 
 /**
@@ -978,6 +979,8 @@ export interface SeoIndexFindingDto extends SeoDiagnosticBaseDto {
   action: string;
   /** Lo que dice Google de esta URL en su última inspección (si la hay). */
   inspection: SeoUrlIndexStatusDto | null;
+  /** Lo que confirma el rastreador de esta URL en su último rastreo (PR 10), si la ha pedido. */
+  crawl?: SeoIndexCrawlEvidenceDto | null;
 }
 
 export const SEO_INDEX_EVIDENCE_LABELS = {

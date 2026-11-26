@@ -30,6 +30,8 @@ export const SEO_OPPORTUNITY_TYPES = [
   'demand_gap',
   'sistrix',
   'keyword_gap',
+  // PR 10: el rastreador (enlazado interno).
+  'internal_links',
 ] as const;
 export type SeoOpportunityType = (typeof SEO_OPPORTUNITY_TYPES)[number];
 export const SeoOpportunityTypeEnum = z.enum(SEO_OPPORTUNITY_TYPES);
@@ -44,6 +46,7 @@ export const SEO_OPPORTUNITY_TYPE_LABELS: Record<SeoOpportunityType, string> = {
   demand_gap: 'Demanda real frente a SISTRIX',
   sistrix: 'Oportunidad de SISTRIX',
   keyword_gap: 'La competencia sale y tú no',
+  internal_links: 'URL objetivo con pocos enlaces internos',
 };
 
 /** Qué hacer con cada tipo (la acción sugerida). */
@@ -66,6 +69,8 @@ export const SEO_OPPORTUNITY_ACTIONS: Record<SeoOpportunityType, string> = {
     'Revisa la página que posiciona y mejórala: SISTRIX estima que ganarías visitas subiendo unos puestos.',
   keyword_gap:
     'Valora crear una página para esta búsqueda o cubrirla en una que ya tengas: tus competidores la trabajan y tú no sales.',
+  internal_links:
+    'Enlaza la URL objetivo desde las páginas sugeridas (las que ya salen en Google para búsquedas parecidas), con un texto del enlace que diga de qué trata.',
 };
 
 export const SEO_OPPORTUNITY_STATUSES = [
@@ -180,6 +185,8 @@ export const SEO_DEFAULT_OPPORTUNITY_THRESHOLDS = {
   keywordGapMaxPosition: 20,
   /** Puntos que tiene que subir una descartada para que vuelva como nueva. */
   reappearPoints: 20,
+  /** Enlaces internos por debajo de los que una URL objetivo tiene pocos (rastreador, PR 10). */
+  internalLinksMin: 3,
 } as const;
 export type SeoOpportunityThresholdKey = keyof typeof SEO_DEFAULT_OPPORTUNITY_THRESHOLDS;
 export type SeoOpportunityThresholds = Record<SeoOpportunityThresholdKey, number>;
@@ -236,6 +243,12 @@ export const SEO_OPPORTUNITY_THRESHOLD_RANGES: Record<
     max: 100,
     integer: true,
     label: 'Puntos para que vuelva una descartada',
+  },
+  internalLinksMin: {
+    min: 1,
+    max: 50,
+    integer: true,
+    label: 'Enlaces internos mínimos de una URL objetivo',
   },
 };
 
@@ -732,6 +745,15 @@ export interface SeoOpportunityMetricsDto {
   impressionShare: number | null;
   /** Lectura de «Demanda real frente a SISTRIX». */
   demandVariant: 'unseen_by_sistrix' | 'above_volume' | 'low_share' | null;
+  /** Enlazado interno de la URL objetivo (oportunidad «pocos enlaces internos», PR 10). */
+  internalLinks?: {
+    targetUrl: string;
+    inlinks: number;
+    min: number;
+    crawled: boolean;
+    crawledAt: string;
+    suggestions: { url: string; impressions: number; query: string }[];
+  } | null;
 }
 
 export interface SeoOpportunityCandidate extends SeoOpportunityScoreDto {
@@ -772,6 +794,24 @@ export interface SeoOpportunityDetectInput {
    * la búsqueda normalizada). Opcional (PR 8): el factor «La página convierte».
    */
   pageConversionsByQuery?: Record<string, SeoPageConversionStat>;
+  /**
+   * Enlazado interno de las URL objetivo (último rastreo, PR 10). Opcional:
+   * sin rastreo no hay oportunidades de este tipo y nada más cambia.
+   */
+  internalLinks?: SeoOpportunityInternalLinkRow[];
+}
+
+/** Una palabra seguida cuya URL objetivo tiene pocos enlaces internos (rastreador, PR 10). */
+export interface SeoOpportunityInternalLinkRow {
+  keyword: string;
+  targetUrl: string;
+  /** Enlaces internos que le llegan en el último rastreo (0 si no se alcanzó). */
+  inlinks: number;
+  /** El rastreo llegó a ella. */
+  crawled: boolean;
+  crawledAt: string;
+  /** Páginas desde las que conviene enlazarla. */
+  suggestions: { url: string; impressions: number; query: string }[];
 }
 
 const pctChange = (now: number, before: number): number | null =>
@@ -834,6 +874,7 @@ export function detectSeoOpportunities(
       sistrix: SeoOpportunityMetricsDto['sistrix'];
       competitors?: SeoOpportunityGapRow | null;
       demandVariant?: SeoOpportunityMetricsDto['demandVariant'];
+      internalLinks?: SeoOpportunityMetricsDto['internalLinks'];
     },
   ): SeoOpportunityCandidate => {
     const norm = normalizeSeoKeyword(query);
@@ -860,6 +901,7 @@ export function detectSeoOpportunities(
           ? Math.round((impressions / volume) * 1000) / 1000
           : null,
       demandVariant: parts.demandVariant ?? null,
+      ...(parts.internalLinks ? { internalLinks: parts.internalLinks } : {}),
     };
     const score = scoreSeoOpportunity(
       {
@@ -1073,6 +1115,30 @@ export function detectSeoOpportunities(
     );
   }
 
+  // URL objetivo con pocos enlaces internos (rastreador, PR 10). La puntuación
+  // es la de siempre (con los datos de Google de la búsqueda si los hay).
+  for (const l of input.internalLinks ?? []) {
+    const norm = normalizeSeoKeyword(l.keyword);
+    if (!norm || isBrandQuery(norm, input.brandTerms)) continue;
+    if (l.inlinks >= t.internalLinksMin) continue;
+    const kw = keywords.get(norm);
+    const row = queryRows.get(norm);
+    add(
+      build('internal_links', norm, {
+        gsc: row ? gscOf(row) : null,
+        sistrix: sistrixOfKeyword(kw),
+        internalLinks: {
+          targetUrl: l.targetUrl,
+          inlinks: l.inlinks,
+          min: t.internalLinksMin,
+          crawled: l.crawled,
+          crawledAt: l.crawledAt,
+          suggestions: l.suggestions.slice(0, 5),
+        },
+      }),
+    );
+  }
+
   return [...out.values()].sort((a, b) => b.score - a.score || a.query.localeCompare(b.query));
 }
 
@@ -1123,6 +1189,17 @@ export function seoOpportunityReason(c: SeoOpportunityCandidate, days: number): 
       return best
         ? `${best.domain} sale en la posición ${best.position}${more > 0 ? ` (y ${more} competidor${more === 1 ? '' : 'es'} más)` : ''} y tu web no aparece, ni en Search Console ni en SISTRIX.`
         : 'Tus competidores salen y tu web no aparece.';
+    }
+    case 'internal_links': {
+      const l = c.metrics.internalLinks;
+      if (!l) return 'Su URL objetivo recibe pocos enlaces desde otras páginas de tu web.';
+      const links = l.crawled
+        ? l.inlinks === 0
+          ? 'ninguna página de tu web la enlaza'
+          : `solo ${seoFmtInt(l.inlinks)} página${l.inlinks === 1 ? '' : 's'} de tu web la enlaza${l.inlinks === 1 ? '' : 'n'}`
+        : 'el rastreo no llegó a ella siguiendo los enlaces de tu web';
+      const day = l.crawledAt.slice(0, 10).split('-').reverse().join('/');
+      return `Su URL objetivo (${l.targetUrl}) es la página que quieres que salga, pero ${links} (rastreo del ${day}; mínimo recomendado: ${seoFmtInt(l.min)}).${g ? ` Sale en ${posText} con ${impr}.` : ''}`;
     }
   }
 }

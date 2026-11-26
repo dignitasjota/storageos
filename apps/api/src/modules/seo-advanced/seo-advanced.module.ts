@@ -7,6 +7,10 @@ import { PlatformAlertsService } from '../admin/platform-alerts.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SearchConsoleModule } from '../search-console/search-console.module';
 
+import { SeoCrawlFetcher } from './crawler/seo-crawl-fetcher';
+import { SeoCrawlCron } from './crawler/seo-crawl.cron';
+import { SeoCrawlProcessor } from './crawler/seo-crawl.processor';
+import { SeoCrawlerService } from './crawler/seo-crawler.service';
 import { SeoDiagnosticsEngineService } from './diagnostics/seo-diagnostics-engine.service';
 import { SeoOpportunityEngineService } from './opportunities/seo-opportunity-engine.service';
 import { SeoOpportunityScheduler } from './opportunities/seo-opportunity-scheduler';
@@ -55,8 +59,9 @@ import type { Env } from '../../config/env.schema';
  * de oportunidades y el diagnóstico (canibalización e indexación), que se
  * recalculan tras cada descarga, los avisos de las tareas SEO del plan y, de la
  * PR 8, las conversiones de Google, las alertas y los informes, y de la PR 9
- * la inspección de URL de Google y PageSpeed. Las colas
- * `seo` y `seo-sistrix` y las tareas programadas corren en el worker
+ * la inspección de URL de Google y PageSpeed, y de la PR 10 el rastreador
+ * de las webs. Las colas `seo`, `seo-sistrix` y `seo-crawl` y las tareas
+ * programadas corren en el worker
  * (`WORKERS_ENABLED_IN_API`). Las rutas, el panel, la importación de Excel y
  * el OAuth de SISTRIX van en `SeoAdvancedHttpModule` (solo en el API: el
  * worker no las necesita ni lleva sus dependencias de lectura de ficheros).
@@ -99,6 +104,8 @@ import type { Env } from '../../config/env.schema';
     PageSpeedClient,
     SeoInspectionService,
     SeoPageSpeedService,
+    SeoCrawlFetcher,
+    SeoCrawlerService,
     ...(WORKERS_ENABLED_IN_API
       ? [
           SeoGscProcessor,
@@ -108,6 +115,8 @@ import type { Env } from '../../config/env.schema';
           SeoPlanCron,
           SeoReportsCron,
           SeoTechnicalCron,
+          SeoCrawlProcessor,
+          SeoCrawlCron,
         ]
       : []),
   ],
@@ -131,6 +140,8 @@ import type { Env } from '../../config/env.schema';
     SeoTechnicalReadService,
     SeoInspectionService,
     SeoPageSpeedService,
+    SeoCrawlFetcher,
+    SeoCrawlerService,
   ],
 })
 export class SeoAdvancedModule {}

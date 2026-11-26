@@ -20,6 +20,7 @@ import {
   type SeoAlertType,
   type SeoConversionType,
   type SeoReportContentDto,
+  type SeoReportCrawlDto,
   type SeoReportTechnicalDto,
   type SeoReportDto,
   type SeoReportKeywordMoveDto,
@@ -373,6 +374,7 @@ export class SeoReportsService {
 
     const changesWithResult = await this.changesWithResult(project, period);
     const technical = await this.technicalSummary(project.id, period);
+    const crawl = await this.crawlSummary(project.id);
 
     const content: Omit<SeoReportContentDto, 'highlights'> = {
       period,
@@ -412,8 +414,36 @@ export class SeoReportsService {
         status: a.status,
       })),
       technical,
+      crawl,
     };
     return { ...content, highlights: seoReportHighlights(content) };
+  }
+
+  /**
+   * El último rastreo terminado (PR 10). Es el estado de la web cuando sale el
+   * informe, no el del periodo: el rastreo semanal suele hacerse justo antes.
+   */
+  private async crawlSummary(projectId: string): Promise<SeoReportCrawlDto | null> {
+    const c = await this.admin.seoCrawl.findFirst({
+      where: { projectId, status: 'done' },
+      orderBy: { finishedAt: 'desc' },
+    });
+    if (!c || !c.finishedAt) return null;
+    const s = (c.summary ?? {}) as {
+      bySeverity?: Record<string, number>;
+      newIssues?: number;
+      resolvedIssues?: number;
+    };
+    return {
+      finishedAt: c.finishedAt.toISOString(),
+      pages: c.pagesCrawled,
+      high: s.bySeverity?.high ?? 0,
+      medium: s.bySeverity?.medium ?? 0,
+      low: s.bySeverity?.low ?? 0,
+      newIssues: s.newIssues ?? 0,
+      resolvedIssues: s.resolvedIssues ?? 0,
+      errors: c.errors,
+    };
   }
 
   /** Inspección de URL y PageSpeed del periodo (la última de cada URL en el periodo). */

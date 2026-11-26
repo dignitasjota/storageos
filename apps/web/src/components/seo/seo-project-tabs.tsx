@@ -29,6 +29,7 @@ const HASH_TAB: Record<string, SeoProjectTab> = {
   plan: 'plan',
   inspeccion: 'tecnico',
   velocidad: 'tecnico',
+  rastreo: 'tecnico',
 };
 
 /**

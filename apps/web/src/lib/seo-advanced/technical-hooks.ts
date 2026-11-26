@@ -5,6 +5,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SistrixScope } from './sistrix-hooks';
 import type {
   RunSeoPageSpeedInput,
+  SeoCrawlInternalLinksDto,
+  SeoCrawlIssueDto,
+  SeoCrawlIssueListDto,
+  SeoCrawlOverviewDto,
+  SeoCrawlPageDetailDto,
+  SeoCrawlPageListDto,
+  SeoCrawlSettings,
+  SeoCrawlStartResultDto,
+  UpdateSeoCrawlSettingsInput,
+  UpdateSeoDiagnosticInput,
   SeoInspectResultDto,
   SeoInspectionHistoryDto,
   SeoInspectionsDto,
@@ -16,8 +26,8 @@ import type {
   UpdateSeoTechnicalSettingsInput,
 } from '@storageos/shared';
 
-import { adminApiFetch } from '@/lib/admin/api';
-import { apiFetch } from '@/lib/auth/api';
+import { adminApiFetch, adminApiFetchBlob } from '@/lib/admin/api';
+import { apiFetch, apiFetchBlob } from '@/lib/auth/api';
 
 /**
  * Inspección de URL de Google y PageSpeed de un proyecto SEO (PR 9), desde el
@@ -143,4 +153,150 @@ export function useRunPageSpeed(scope: TechnicalScope) {
       fetcher<SeoPageSpeedRunDto[]>(`${base}/pagespeed`, { method: 'POST', json: input }),
     onSuccess: invalidate,
   });
+}
+
+// ----------------------------------------------------------------- rastreo
+
+/** Filtros de la lista de incidencias del rastreo. */
+export interface CrawlIssueFilters {
+  severity: string;
+  group: string;
+  view: 'open' | 'resolved' | 'all';
+  onlyNew: boolean;
+  search: string;
+}
+
+/** Filtros de la lista de páginas del rastreo. */
+export interface CrawlPageFilters {
+  filter: 'all' | 'errors' | 'redirects' | 'noindex' | 'blocked' | 'orphans' | 'issues';
+  search: string;
+}
+
+const qs = (params: Record<string, string | boolean | undefined>) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '' && v !== false) p.set(k, String(v));
+  }
+  return p.toString();
+};
+
+const issueQs = (f: CrawlIssueFilters) =>
+  qs({
+    severity: f.severity,
+    group: f.group,
+    view: f.view,
+    onlyNew: f.onlyNew,
+    search: f.search.trim(),
+  });
+
+/** El rastreo del proyecto: el último, el que está en marcha y el historial. */
+export function useSeoCrawl(scope: TechnicalScope) {
+  const { fetcher, base, key } = scopeApi(scope);
+  return useQuery({
+    queryKey: [...key, 'crawl'],
+    queryFn: () => fetcher<SeoCrawlOverviewDto>(`${base}/crawl`),
+    // Mientras haya un rastreo en marcha, se refresca solo.
+    refetchInterval: (q) => (q.state.data?.live ? 4000 : false),
+  });
+}
+
+/** Lo que cambia al terminar un rastreo: incidencias, páginas, indexación, oportunidades y alertas. */
+function useInvalidateCrawl(scope: TechnicalScope) {
+  return useInvalidate(scope, true);
+}
+
+export function useStartCrawl(scope: TechnicalScope) {
+  const { fetcher, base } = scopeApi(scope);
+  const invalidate = useInvalidateCrawl(scope);
+  return useMutation({
+    mutationFn: () => fetcher<SeoCrawlStartResultDto>(`${base}/crawl`, { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCancelCrawl(scope: TechnicalScope) {
+  const { fetcher, base } = scopeApi(scope);
+  const invalidate = useInvalidateCrawl(scope);
+  return useMutation({
+    mutationFn: (crawlId: string) =>
+      fetcher<void>(`${base}/crawl/${crawlId}/cancel`, { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateCrawlSettings(scope: TechnicalScope) {
+  const { fetcher, base } = scopeApi(scope);
+  const invalidate = useInvalidate(scope);
+  return useMutation({
+    mutationFn: (input: UpdateSeoCrawlSettingsInput) =>
+      fetcher<SeoCrawlSettings>(`${base}/crawl/settings`, { method: 'PUT', json: input }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCrawlIssues(scope: TechnicalScope, filters: CrawlIssueFilters, enabled = true) {
+  const { fetcher, base, key } = scopeApi(scope);
+  return useQuery({
+    queryKey: [...key, 'crawl-issues', filters],
+    queryFn: () => fetcher<SeoCrawlIssueListDto>(`${base}/crawl/issues?${issueQs(filters)}`),
+    enabled,
+  });
+}
+
+export function useUpdateCrawlIssue(scope: TechnicalScope) {
+  const { fetcher, base } = scopeApi(scope);
+  const invalidate = useInvalidate(scope);
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateSeoDiagnosticInput }) =>
+      fetcher<SeoCrawlIssueDto>(`${base}/crawl/issues/${id}`, { method: 'PATCH', json: input }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCrawlPages(scope: TechnicalScope, filters: CrawlPageFilters, enabled = true) {
+  const { fetcher, base, key } = scopeApi(scope);
+  return useQuery({
+    queryKey: [...key, 'crawl-pages', filters],
+    queryFn: () =>
+      fetcher<SeoCrawlPageListDto>(
+        `${base}/crawl/pages?${qs({ filter: filters.filter, search: filters.search.trim() })}`,
+      ),
+    enabled,
+  });
+}
+
+export function useCrawlPage(scope: TechnicalScope, url: string | null) {
+  const { fetcher, base, key } = scopeApi(scope);
+  return useQuery({
+    queryKey: [...key, 'crawl-page', url],
+    queryFn: () =>
+      fetcher<SeoCrawlPageDetailDto>(`${base}/crawl/page?url=${encodeURIComponent(url ?? '')}`),
+    enabled: !!url,
+    retry: false,
+  });
+}
+
+export function useCrawlInternalLinks(scope: TechnicalScope, enabled = true) {
+  const { fetcher, base, key } = scopeApi(scope);
+  return useQuery({
+    queryKey: [...key, 'crawl-internal-links'],
+    queryFn: () => fetcher<SeoCrawlInternalLinksDto>(`${base}/crawl/internal-links`),
+    enabled,
+  });
+}
+
+/** Descarga el CSV de las incidencias con los filtros puestos. */
+export async function downloadCrawlIssuesCsv(
+  scope: TechnicalScope,
+  filters: CrawlIssueFilters,
+): Promise<void> {
+  const { base } = scopeApi(scope);
+  const blob = scope.kind === 'admin' ? adminApiFetchBlob : apiFetchBlob;
+  const file = await blob(`${base}/crawl/issues/csv?${issueQs(filters)}`);
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'rastreo-incidencias.csv';
+  a.click();
+  URL.revokeObjectURL(url);
 }

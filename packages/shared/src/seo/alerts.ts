@@ -24,6 +24,9 @@ export const SEO_ALERT_TYPES = [
   'canonical_mismatch',
   'pagespeed_slow',
   'pagespeed_drop',
+  // PR 10: el rastreador.
+  'crawl_errors',
+  'crawl_critical',
 ] as const;
 export type SeoAlertType = (typeof SEO_ALERT_TYPES)[number];
 export const SeoAlertTypeEnum = z.enum(SEO_ALERT_TYPES);
@@ -41,6 +44,8 @@ export const SEO_ALERT_TYPE_LABELS: Record<SeoAlertType, string> = {
   canonical_mismatch: 'Canónica distinta',
   pagespeed_slow: 'Página lenta para los usuarios',
   pagespeed_drop: 'Baja la puntuación de velocidad',
+  crawl_errors: 'Páginas que dan error nuevas',
+  crawl_critical: 'Portada o URL objetivo con «noindex» o sin responder',
 };
 
 export const SEO_ALERT_SEVERITIES = ['high', 'medium', 'low'] as const;

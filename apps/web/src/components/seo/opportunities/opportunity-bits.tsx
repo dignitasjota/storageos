@@ -49,6 +49,7 @@ const TYPE_TONE: Record<SeoOpportunityType, string> = {
   demand_gap: 'border-violet-300 text-violet-800 dark:border-violet-700 dark:text-violet-300',
   sistrix: 'border-slate-300 text-slate-700 dark:border-slate-600 dark:text-slate-300',
   keyword_gap: 'border-sky-300 text-sky-800 dark:border-sky-700 dark:text-sky-300',
+  internal_links: 'border-teal-300 text-teal-800 dark:border-teal-700 dark:text-teal-300',
 };
 
 export function OpportunityTypeBadge({ type }: { type: SeoOpportunityType }) {

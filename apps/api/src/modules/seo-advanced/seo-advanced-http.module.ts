@@ -4,6 +4,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { AdminGuard } from '../admin/admin.guard';
 
 import { AdminSeoController } from './admin-seo.controller';
+import { SeoCrawlViewsService } from './crawler/seo-crawl-views.service';
+import {
+  AdminSeoCrawlController,
+  SeoAdvancedCrawlController,
+} from './crawler/seo-crawl.controller';
 import {
   AdminSeoDiagnosticsController,
   SeoAdvancedDiagnosticsController,
@@ -51,7 +56,7 @@ import {
  * canibalización e indexación), el plan (actuaciones con su antes y después
  * y tareas SEO), la importación de los Excel maestros y, de la PR 8, lo que
  * trae Google, las alertas y los informes, y de la PR 9 la inspección de URL
- * de Google y PageSpeed.
+ * de Google y PageSpeed, y de la PR 10 el rastreador de las webs.
  */
 @Module({
   imports: [JwtModule.register({}), SeoAdvancedModule],
@@ -73,6 +78,8 @@ import {
     AdminSeoReportsController,
     SeoAdvancedTechnicalController,
     AdminSeoTechnicalController,
+    SeoAdvancedCrawlController,
+    AdminSeoCrawlController,
   ],
   providers: [
     AdminGuard,
@@ -85,6 +92,7 @@ import {
     SeoDiagnosticsService,
     SeoTasksService,
     SeoMasterImportService,
+    SeoCrawlViewsService,
     // Alertas cada hora: en el API (los avisos por chat de la plataforma salen del panel admin).
     SeoAlertsCron,
   ],
