@@ -803,7 +803,7 @@ export class TenantDataExportService {
         include: { project: { select: { name: true } } },
       }),
     ]);
-    this.sheet(wb, 'SEO: proyectos y dominios', domains, [
+    this.sheet(wb, 'SEO - proyectos y dominios', domains, [
       { header: 'Proyecto', width: 24, value: (d) => d.project.name },
       { header: 'Dominio', width: 28, value: (d) => d.domain },
       { header: 'Propiedad de Search Console', width: 32, value: (d) => d.gscProperty },
@@ -812,7 +812,7 @@ export class TenantDataExportService {
       { header: 'Descargado hasta', value: (d) => d.syncedUntil },
       { header: 'Alta', value: (d) => d.createdAt },
     ]);
-    this.sheet(wb, 'SEO: palabras', keywords, [
+    this.sheet(wb, 'SEO - palabras', keywords, [
       { header: 'Proyecto', width: 24, value: (k) => k.project.name },
       { header: 'Palabra', width: 32, value: (k) => k.keyword.keyword },
       { header: 'Grupo', value: (k) => k.groupName },
@@ -822,7 +822,7 @@ export class TenantDataExportService {
       { header: 'Activa', value: (k) => k.isActive },
       { header: 'Origen', value: (k) => k.source },
     ]);
-    this.sheet(wb, 'SEO: oportunidades', opportunities, [
+    this.sheet(wb, 'SEO - oportunidades', opportunities, [
       { header: 'Proyecto', width: 24, value: (o) => o.project.name },
       { header: 'Tipo', value: (o) => o.type },
       { header: 'Búsqueda', width: 32, value: (o) => o.query },
@@ -832,7 +832,7 @@ export class TenantDataExportService {
       { header: 'Notas', width: 32, value: (o) => o.notes },
       { header: 'Detectada', value: (o) => o.detectedAt },
     ]);
-    this.sheet(wb, 'SEO: tareas', tasks, [
+    this.sheet(wb, 'SEO - tareas', tasks, [
       { header: 'Proyecto', width: 24, value: (t) => t.project.name },
       { header: 'Título', width: 36, value: (t) => t.title },
       { header: 'Tipo', value: (t) => t.type },
@@ -842,7 +842,7 @@ export class TenantDataExportService {
       { header: 'URL', width: 36, value: (t) => t.url },
       { header: 'Completada', value: (t) => t.completedAt },
     ]);
-    this.sheet(wb, 'SEO: actuaciones', changes, [
+    this.sheet(wb, 'SEO - actuaciones', changes, [
       { header: 'Proyecto', width: 24, value: (c) => c.project.name },
       { header: 'Fecha', value: (c) => c.changeDate },
       { header: 'Tipo', value: (c) => c.type },
