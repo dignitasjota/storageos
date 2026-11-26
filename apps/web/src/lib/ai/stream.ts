@@ -50,6 +50,19 @@ export async function streamAiChat(
     if (err instanceof ApiError) throw err;
     throw new AiStreamUnavailableError();
   }
+  return readAiChatStream<ChatResultDto>(res, handlers, signal);
+}
+
+/**
+ * Lee la respuesta en streaming de un chat con IA (Server-Sent Events): el
+ * asistente del panel y el de SEO usan los mismos eventos (`start`, `text`,
+ * `tool`, `done`, `error`). Resuelve con el resultado final.
+ */
+export async function readAiChatStream<R extends { conversationId: string; message: unknown }>(
+  res: Response,
+  handlers: AiStreamHandlers,
+  signal?: AbortSignal,
+): Promise<R> {
   // Con respuesta del servidor la pregunta ya está en marcha: un corte a partir
   // de aquí NO se reintenta (se preguntaría dos veces).
   if (!res.body) throw new Error('stream_not_supported');
@@ -57,7 +70,7 @@ export async function streamAiChat(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let result: ChatResultDto | null = null;
+  let result: R | null = null;
 
   const handle = (block: string) => {
     const line = block
@@ -72,12 +85,12 @@ export async function streamAiChat(
       name?: string;
       code?: string;
       message?: string;
-    } & Partial<ChatResultDto>;
+    } & Partial<R>;
     if (event.type === 'start' && event.conversationId) handlers.onStart?.(event.conversationId);
     else if (event.type === 'text' && event.delta) handlers.onText(event.delta);
     else if (event.type === 'tool' && event.name) handlers.onTool(event.name);
     else if (event.type === 'done' && event.conversationId && event.message) {
-      result = { conversationId: event.conversationId, message: event.message };
+      result = { conversationId: event.conversationId, message: event.message } as R;
     } else if (event.type === 'error') {
       throw new ApiError({
         statusCode: 500,

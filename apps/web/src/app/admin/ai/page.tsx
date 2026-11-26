@@ -157,6 +157,13 @@ export default function AdminAiPage() {
                   value={`${formatNumber(usage.data.projectedCostUsd)} $`}
                 />
               </div>
+              {usage.data.platformOwn.calls > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Uso de la propia plataforma (asistente de SEO del panel admin):{' '}
+                  {formatNumber(usage.data.platformOwn.calls, 0)} llamadas ·{' '}
+                  {formatNumber(usage.data.platformOwn.costUsd)} $ (incluido en el gasto).
+                </p>
+              )}
               {usage.data.topTenants.length > 0 && (
                 <div className="text-sm">
                   <p className="mb-1 font-medium">Los que más gastan</p>
