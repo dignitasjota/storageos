@@ -98,6 +98,11 @@ describe('Exportar los datos del tenant (e2e)', () => {
       'Proveedores',
       'Gastos (desglose fiscal)',
       'Remesas SEPA',
+      'SEO - proyectos y dominios',
+      'SEO - palabras',
+      'SEO - oportunidades',
+      'SEO - tareas',
+      'SEO - actuaciones',
     ]);
     const customers = wb.getWorksheet('Inquilinos')!;
     expect(customers.rowCount).toBe(2);
