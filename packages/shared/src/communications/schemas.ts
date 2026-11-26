@@ -137,6 +137,8 @@ export const utmFields = {
   utmSource: z.string().trim().max(120).optional(),
   utmMedium: z.string().trim().max(120).optional(),
   utmCampaign: z.string().trim().max(120).optional(),
+  /** Primera página que vio el visitante (la ruta, lo guarda el navegador). */
+  landingPath: z.string().trim().max(300).optional(),
 };
 
 const clickId = z

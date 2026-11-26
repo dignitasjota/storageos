@@ -57,6 +57,8 @@ export const RegisterSchema = z.object({
   utmSource: z.string().trim().max(120).optional(),
   utmMedium: z.string().trim().max(120).optional(),
   utmCampaign: z.string().trim().max(120).optional(),
+  /** Primera página que vio en trasteros.pro (la ruta; cuenta las altas desde Google). */
+  landingPath: z.string().trim().max(300).optional(),
   /** Código de comercial: del enlace o el QR del comercial, o escrito a mano. */
   salesCode: z.string().trim().max(40).optional(),
   /** `link` si lo puso el enlace del comercial; `typed` si lo escribió el cliente. */

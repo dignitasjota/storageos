@@ -1074,6 +1074,8 @@ export const SubmitPlatformContactSchema = z
     utmSource: z.string().trim().max(120).optional(),
     utmMedium: z.string().trim().max(120).optional(),
     utmCampaign: z.string().trim().max(120).optional(),
+    /** Primera página que vio el visitante (la ruta). */
+    landingPath: z.string().trim().max(300).optional(),
     /** Código del comercial (de su enlace o escrito a mano). */
     salesCode: z.string().trim().max(40).optional(),
   })
