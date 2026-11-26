@@ -21,6 +21,14 @@ export const QUEUE_SEO = 'seo';
 
 /** Una descarga de Search Console de un dominio (`seo_sync_runs`). */
 export const JOB_SEO_GSC_SYNC = 'gsc-sync';
+/**
+ * SEO Avanzado: tandas de SISTRIX (MCP o API). Cola aparte de `seo` porque va
+ * con concurrencia 1 y pausa entre llamadas (dos procesadores en la misma cola
+ * se quitarían los trabajos el uno al otro).
+ */
+export const QUEUE_SEO_SISTRIX = 'seo-sistrix';
+/** Una tanda de SISTRIX de un proyecto y tipo de dato (`seo_sync_runs`). */
+export const JOB_SEO_SISTRIX_SYNC = 'sistrix-sync';
 
 /** Job de envío de un email ad-hoc (broadcasts del super admin). */
 export const JOB_EMAIL_SEND = 'email.send';

@@ -159,7 +159,8 @@ export class SeoGscSyncService {
   /** Tras reiniciar: vuelve a poner en la cola lo que quedó a medias. */
   async resumePending(): Promise<number> {
     const runs = await this.admin.seoSyncRun.findMany({
-      where: { status: { in: ['queued', 'running'] } },
+      // Solo las de Search Console: las de SISTRIX van por su cola.
+      where: { status: { in: ['queued', 'running'] }, dataType: null },
       select: { id: true },
     });
     for (const r of runs) await this.addJob(r.id);

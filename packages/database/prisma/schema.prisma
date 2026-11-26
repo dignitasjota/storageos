@@ -9856,10 +9856,14 @@ model SeoProject {
   status         String   @default("active")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// Proyecto de tenant que usa la conexión de SISTRIX de la plataforma (solo superadmin).
+  usePlatformSistrix Boolean @default(false) @map("use_platform_sistrix")
 
-  domains SeoProjectDomain[]
-  runs    SeoSyncRun[]
-  imports SeoGscImport[]
+  domains     SeoProjectDomain[]
+  runs        SeoSyncRun[]
+  imports     SeoGscImport[]
+  competitors SeoCompetitor[]
+  keywords    SeoProjectKeyword[]
 
   @@map("seo_projects")
 }
@@ -10007,6 +10011,16 @@ model SeoSyncRun {
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   startedAt              DateTime? @map("started_at") @db.Timestamptz(6)
   finishedAt             DateTime? @map("finished_at") @db.Timestamptz(6)
+  /// SISTRIX: tipo de dato de la tanda (null = Search Console).
+  dataType               String?   @map("data_type")
+  /// SISTRIX: lo que hay que pedir y por dónde va.
+  progress               Json?
+  itemsTotal             Int       @default(0) @map("items_total")
+  itemsDone              Int       @default(0) @map("items_done")
+  itemsFailed            Int       @default(0) @map("items_failed")
+  pausedReason           String?   @map("paused_reason")
+  pausedUntil            DateTime? @map("paused_until") @db.Timestamptz(6)
+  creditsUsed            Int       @default(0) @map("credits_used")
 
   project SeoProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   domain  SeoProjectDomain? @relation(fields: [domainId], references: [id], onDelete: Cascade)
@@ -10014,4 +10028,334 @@ model SeoSyncRun {
   @@index([projectId, createdAt(sort: Desc)], map: "seo_sync_runs_project_created_idx")
   @@index([tenantId], map: "seo_sync_runs_tenant_idx")
   @@map("seo_sync_runs")
+}
+
+// ---------------------------------------------------------------------------
+// SEO Avanzado, PR 3: SISTRIX. «Fondo» (`tenantId`): null = datos pedidos con
+// la conexión de la plataforma; con valor = con la clave de API de ese tenant.
+// Las claves únicas con COALESCE(tenant_id) viven solo en SQL.
+// ---------------------------------------------------------------------------
+
+/// Conexión con un proveedor de pago (MCP y API de la plataforma; API de un tenant).
+model SeoProviderConnection {
+  id                          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                    String?   @map("tenant_id") @db.Uuid
+  /// sistrix_mcp · sistrix_api
+  provider                    String
+  /// disconnected · connected · needs_reauth · error
+  status                      String    @default("disconnected")
+  enabled                     Boolean   @default(false)
+  clientInfoEncrypted         String?   @map("client_info_encrypted")
+  redirectUri                 String?   @map("redirect_uri")
+  oauthMetadata               Json?     @map("oauth_metadata")
+  accessTokenEncrypted        String?   @map("access_token_encrypted")
+  refreshTokenEncrypted       String?   @map("refresh_token_encrypted")
+  tokenExpiresAt              DateTime? @map("token_expires_at") @db.Timestamptz(6)
+  scope                       String?
+  apiKeyEncrypted             String?   @map("api_key_encrypted")
+  apiKeyLast4                 String?   @map("api_key_last4")
+  tools                       Json?
+  toolsHash                   String?   @map("tools_hash")
+  toolsCheckedAt              DateTime? @map("tools_checked_at") @db.Timestamptz(6)
+  toolsChangedAt              DateTime? @map("tools_changed_at") @db.Timestamptz(6)
+  toolsChanges                Json?     @map("tools_changes")
+  quotaExhaustedUntil         DateTime? @map("quota_exhausted_until") @db.Timestamptz(6)
+  quotaNotifiedAt             DateTime? @map("quota_notified_at") @db.Timestamptz(6)
+  apiAuthorizedUntil          DateTime? @map("api_authorized_until") @db.Timestamptz(6)
+  apiAuthorizedBySuperAdminId String?   @map("api_authorized_by_super_admin_id") @db.Uuid
+  weeklyBudget                Int       @default(0) @map("weekly_budget")
+  weekStart                   DateTime? @map("week_start") @db.Date
+  weekSpent                   Int       @default(0) @map("week_spent")
+  creditsBalance              Int?      @map("credits_balance")
+  creditsCheckedAt            DateTime? @map("credits_checked_at") @db.Timestamptz(6)
+  lastSuccessAt               DateTime? @map("last_success_at") @db.Timestamptz(6)
+  lastError                   String?   @map("last_error")
+  lastErrorAt                 DateTime? @map("last_error_at") @db.Timestamptz(6)
+  connectedAt                 DateTime? @map("connected_at") @db.Timestamptz(6)
+  connectedBySuperAdminId     String?   @map("connected_by_super_admin_id") @db.Uuid
+  createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId], map: "seo_provider_connections_tenant_idx")
+  @@map("seo_provider_connections")
+}
+
+/// Autorización OAuth en curso (un solo uso, 10 minutos). Tabla global.
+model SeoOauthState {
+  id                    String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  stateHash             String    @unique(map: "seo_oauth_states_state_hash_key") @map("state_hash")
+  provider              String
+  superAdminId          String    @map("super_admin_id") @db.Uuid
+  codeVerifierEncrypted String    @map("code_verifier_encrypted")
+  redirectUri           String    @map("redirect_uri")
+  expiresAt             DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt                DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("seo_oauth_states")
+}
+
+/// Frecuencias y límites de un fondo (null = la plataforma).
+model SeoSyncSettings {
+  id                  String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId            String?  @map("tenant_id") @db.Uuid
+  frequencies         Json     @default("{}")
+  maxRequestsPerDay   Int      @default(300) @map("max_requests_per_day")
+  maxRequestsPerBatch Int      @default(60) @map("max_requests_per_batch")
+  pauseMs             Int      @default(1000) @map("pause_ms")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("seo_sync_settings")
+}
+
+/// Competidor de un proyecto (los descubiertos entran inactivos).
+model SeoCompetitor {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  domain    String
+  name      String?
+  notes     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  /// manual · discovered
+  source    String   @default("manual")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, domain], map: "seo_competitors_project_domain_key")
+  @@index([tenantId], map: "seo_competitors_tenant_idx")
+  @@map("seo_competitors")
+}
+
+/// Diccionario global de palabras (sin datos de nadie). Tabla global.
+model SeoKeyword {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  keyword   String
+  country   String
+  language  String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  projects SeoProjectKeyword[]
+  metrics  SeoKeywordMetric[]
+  serps    SeoSerpResult[]
+
+  @@unique([keyword, country, language], map: "seo_keywords_keyword_country_language_key")
+  @@map("seo_keywords")
+}
+
+/// Palabra de un proyecto con lo que se decide a mano.
+model SeoProjectKeyword {
+  id             String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String?  @map("tenant_id") @db.Uuid
+  projectId      String   @map("project_id") @db.Uuid
+  keywordId      String   @map("keyword_id") @db.Uuid
+  groupName      String?  @map("group_name")
+  intent         String?
+  targetUrl      String?  @map("target_url")
+  /// 1 alta · 2 media · 3 baja
+  priority       Int      @default(2)
+  notes          String?
+  strategyLocked Boolean  @default(false) @map("strategy_locked")
+  /// manual · sistrix_ideas · sistrix_opportunities · import
+  source         String   @default("manual")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keyword SeoKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, keywordId], map: "seo_project_keywords_project_keyword_key")
+  @@index([tenantId], map: "seo_project_keywords_tenant_idx")
+  @@map("seo_project_keywords")
+}
+
+/// Observación de las métricas de una palabra (nunca se pisa: se añade otra).
+model SeoKeywordMetric {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String?   @map("tenant_id") @db.Uuid
+  keywordId     String    @map("keyword_id") @db.Uuid
+  country       String
+  provider      String
+  fetchedAt     DateTime  @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  dataDate      DateTime? @map("data_date") @db.Date
+  traffic       Int?
+  clicks        Int?
+  cpc           Decimal?  @db.Decimal(10, 2)
+  competition   Int?
+  intentKnow    Int?      @map("intent_know")
+  intentDo      Int?      @map("intent_do")
+  intentVisit   Int?      @map("intent_visit")
+  intentWebsite Int?      @map("intent_website")
+  mobileShare   Decimal?  @map("mobile_share") @db.Decimal(5, 4)
+  desktopShare  Decimal?  @map("desktop_share") @db.Decimal(5, 4)
+  questions     Json?
+
+  keyword SeoKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@index([keywordId, country, fetchedAt(sort: Desc)], map: "seo_keyword_metrics_lookup_idx")
+  @@index([tenantId], map: "seo_keyword_metrics_tenant_idx")
+  @@map("seo_keyword_metrics")
+}
+
+/// Métrica de un dominio en una fecha (visibilidad, nº de palabras, top 10).
+model SeoDomainMetric {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  domain      String
+  country     String
+  provider    String
+  /// visibility · keyword_count · top10_count
+  metric      String
+  /// weekly · daily
+  granularity String   @default("weekly")
+  metricDate  DateTime @map("metric_date") @db.Date
+  value       Decimal  @db.Decimal(16, 4)
+  fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+
+  @@index([domain, country, metric, metricDate], map: "seo_domain_metrics_lookup_idx")
+  @@index([tenantId], map: "seo_domain_metrics_tenant_idx")
+  @@map("seo_domain_metrics")
+}
+
+/// Palabra de un dominio con su posición y URL en una fecha de muestra.
+model SeoDomainKeyword {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  domain     String
+  country    String
+  provider   String
+  sampleDate DateTime @map("sample_date") @db.Date
+  fetchedAt  DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  keyword    String
+  position   Int
+  url        String   @default("")
+
+  @@index([domain, country, sampleDate(sort: Desc)], map: "seo_domain_keywords_lookup_idx")
+  @@index([tenantId], map: "seo_domain_keywords_tenant_idx")
+  @@map("seo_domain_keywords")
+}
+
+/// Un resultado de Google de una palabra en una fecha.
+model SeoSerpResult {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  keywordId  String   @map("keyword_id") @db.Uuid
+  country    String
+  provider   String
+  sampleDate DateTime @map("sample_date") @db.Date
+  fetchedAt  DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  position   Int
+  domain     String
+  url        String   @default("")
+
+  keyword SeoKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@index([keywordId, country, sampleDate(sort: Desc)], map: "seo_serp_results_lookup_idx")
+  @@index([tenantId], map: "seo_serp_results_tenant_idx")
+  @@map("seo_serp_results")
+}
+
+/// Oportunidad o idea de palabra de un dominio.
+model SeoDomainOpportunity {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  domain      String
+  country     String
+  provider    String
+  /// opportunity · idea
+  kind        String   @default("opportunity")
+  sampleDate  DateTime @map("sample_date") @db.Date
+  fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  keyword     String
+  position    Int?
+  url         String?
+  gain        Int?
+  competition Int?
+  traffic     Int?
+
+  @@index([domain, country, kind, sampleDate(sort: Desc)], map: "seo_domain_opportunities_lookup_idx")
+  @@index([tenantId], map: "seo_domain_opportunities_tenant_idx")
+  @@map("seo_domain_opportunities")
+}
+
+/// Página enlazada de un dominio con sus recuentos.
+model SeoBacklinkTarget {
+  id         String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId   String?  @map("tenant_id") @db.Uuid
+  domain     String
+  provider   String
+  sampleDate DateTime @map("sample_date") @db.Date
+  fetchedAt  DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  url        String
+  links      Int      @default(0)
+  domains    Int      @default(0)
+  hosts      Int      @default(0)
+
+  @@index([domain, sampleDate(sort: Desc)], map: "seo_backlink_targets_lookup_idx")
+  @@index([tenantId], map: "seo_backlink_targets_tenant_idx")
+  @@map("seo_backlink_targets")
+}
+
+/// Visibilidad de un dominio en buscadores de IA.
+model SeoAiVisibility {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  domain      String
+  country     String
+  provider    String
+  sampleDate  DateTime @map("sample_date") @db.Date
+  fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  promptCount Int      @default(0) @map("prompt_count")
+  models      Json     @default("[]")
+
+  @@index([tenantId], map: "seo_ai_visibility_tenant_idx")
+  @@map("seo_ai_visibility")
+}
+
+/// Petición a un proveedor de pago (sin secretos).
+model SeoApiRequest {
+  id                    String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId              String?  @map("tenant_id") @db.Uuid
+  projectId             String?  @map("project_id") @db.Uuid
+  runId                 String?  @map("run_id") @db.Uuid
+  provider              String
+  tool                  String
+  view                  String?
+  args                  Json     @default("{}")
+  queryHash             String   @map("query_hash")
+  /// ok · empty · error · quota · cached
+  status                String
+  errorCode             String?  @map("error_code")
+  errorMessage          String?  @map("error_message")
+  durationMs            Int      @default(0) @map("duration_ms")
+  credits               Int      @default(0)
+  createdByUserId       String?  @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId String?  @map("created_by_super_admin_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt(sort: Desc)], map: "seo_api_requests_tenant_created_idx")
+  @@index([createdAt], map: "seo_api_requests_created_idx")
+  @@index([queryHash], map: "seo_api_requests_query_hash_idx")
+  @@map("seo_api_requests")
+}
+
+/// Respuesta normalizada guardada por huella de la consulta (por fondo).
+model SeoApiCache {
+  id        String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String?   @map("tenant_id") @db.Uuid
+  queryHash String    @map("query_hash")
+  provider  String
+  tool      String
+  view      String?
+  data      Json
+  dataDate  DateTime? @map("data_date") @db.Date
+  fetchedAt DateTime  @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+
+  @@index([expiresAt], map: "seo_api_cache_expires_idx")
+  @@map("seo_api_cache")
 }

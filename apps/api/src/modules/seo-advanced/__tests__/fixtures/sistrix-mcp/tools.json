@@ -1,0 +1,1304 @@
+[
+  {
+    "name": "domain",
+    "description": "SISTRIX domain analytics. Pick `view`:\n- 'visindex': Visibility Index (organic Google visibility score). Modifiers: history, daily, date, limit.\n- 'visindex_overview': current value + country/SERP breakdown. Modifier: daily.\n- 'kwcount': total number of organic keywords the domain ranks for. Modifiers: history, date, limit.\n- 'kwcount_top10': number of keywords ranking in the organic top 10. Modifiers: history, date, limit, extended.\n- 'urlcount': number of the domain's URLs ranking in the organic top 10 and top 100. Modifiers: history, date, limit.\n- 'competitors': closest organic-search competitor domains (returns domain names). Modifier: limit.\n- 'ideas': relevant keyword ideas for the domain (returns keyword strings). Modifiers: limit, page, regex_keyword.\n- 'opportunities': keywords with high ranking-improvement potential. Modifiers: limit, offset.\n- 'ranking_distribution': how ranking keywords spread across SERP pages. Modifiers: history, percent, date.\n- 'traffic_estimation': estimated organic traffic by top keywords. Modifiers: limit, offset.\n- 'hosts': top-ranking hostnames (subdomains) of the domain. Modifiers: limit, offset.\n- 'paths': top-ranking directories of the domain or host. Modifiers: limit, offset.\nView-specific params are ignored for views that do not use them.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "description": "Domain to analyze, without protocol or path, e.g. 'example.com'.",
+          "type": "string"
+        },
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": [
+            "visindex",
+            "visindex_overview",
+            "kwcount",
+            "kwcount_top10",
+            "urlcount",
+            "competitors",
+            "ideas",
+            "opportunities",
+            "ranking_distribution",
+            "traffic_estimation",
+            "hosts",
+            "paths"
+          ],
+          "type": "string"
+        },
+        "country": {
+          "default": "de",
+          "description": "Two-letter SISTRIX country code, e.g. 'de', 'us', 'uk', 'fr'.",
+          "type": "string"
+        },
+        "history": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, return the historic time series instead of only the latest value."
+        },
+        "daily": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, use daily instead of weekly Visibility Index data points."
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Date in YYYY-MM-DD format to query a specific point in time; omit for the latest data."
+        },
+        "percent": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, return the ranking distribution as percentages instead of absolute counts."
+        },
+        "extended": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, include extended keyword-count data (view='kwcount_top10')."
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of result rows to return."
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of result rows to skip (offset-based pagination)."
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        },
+        "regex_keyword": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex to filter keyword ideas, e.g. 'shoes?.*'."
+        }
+      },
+      "required": ["domain", "view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "keyword",
+    "description": "SISTRIX keyword analytics (keyword-centric). Pass the search term as `keyword` (alias: `kw`). Pick `view`:\n- 'seo': top organic ranking positions for the keyword (returns domain/position/url). Modifiers: limit, domain, url, history, date.\n- 'metrics': key data points (competition, CPC, traffic, clicks, device split).\n- 'traffic': search volume + clicks. Modifiers: show_all (full history), show_all_countries.\n- 'competition': how contested the keyword is in organic search.\n- 'searchintent': search-intent classification with shares.\n- 'serpfeatures': SERP features present. Modifiers: show_all_types, date.\n- 'traffic_estimation': estimated organic clicks per SERP position. Modifier: limit.\n- 'questions': Google queries phrased as questions containing the keyword. Modifiers: lang, limit, page.\nView-specific params are ignored for views that do not use them.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": [
+            "seo",
+            "metrics",
+            "traffic",
+            "competition",
+            "searchintent",
+            "serpfeatures",
+            "traffic_estimation",
+            "questions"
+          ],
+          "type": "string"
+        },
+        "keyword": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Search term to analyze, e.g. 'running shoes'. Provide this or `kw`."
+        },
+        "kw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alias for `keyword` (SISTRIX API naming). Provide one of the two."
+        },
+        "country": {
+          "default": "de",
+          "description": "Two-letter SISTRIX country code, e.g. 'de', 'us', 'uk', 'fr'.",
+          "type": "string"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of result rows to return."
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only return rankings of this domain, e.g. 'example.com' (view='seo')."
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only return rankings of this exact URL (view='seo')."
+        },
+        "history": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, return the historic time series instead of only the latest value."
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Date in YYYY-MM-DD format to query a specific point in time; omit for the latest data."
+        },
+        "show_all": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, return the full search-volume history (view='traffic')."
+        },
+        "show_all_countries": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, include search volume for all countries (view='traffic')."
+        },
+        "show_all_types": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, list all SERP feature types, not only those present (view='serpfeatures')."
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO 639 language code for the questions, e.g. 'de' (view='questions')."
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        }
+      },
+      "required": ["view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "keyword_domain_seo",
+    "description": "All organic Google keywords the given domain ranks for, each with its position and ranking URL. Filter by position range (`from_pos`/`to_pos`), `serp_feature`, `ai_answer`, or regex on keyword/url/host; paginate with `limit`/`offset`. Domain-centric counterpart of the keyword tool (which is keyword-centric).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "description": "Domain to analyze, without protocol or path, e.g. 'example.com'.",
+          "type": "string"
+        },
+        "country": {
+          "default": "de",
+          "description": "Two-letter SISTRIX country code, e.g. 'de', 'us', 'uk', 'fr'.",
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "description": "Maximum number of result rows to return.",
+          "type": "integer"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of result rows to skip (offset-based pagination)."
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Date in YYYY-MM-DD format to query a specific point in time; omit for the latest data."
+        },
+        "search": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Substring filter on the keyword text, e.g. 'shoes'."
+        },
+        "from_pos": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only keywords ranking at this position or worse (lower bound, e.g. 1)."
+        },
+        "to_pos": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only keywords ranking at this position or better (upper bound, e.g. 10)."
+        },
+        "ai_answer": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, only keywords whose SERP shows an AI answer (e.g. Google AI Overview)."
+        },
+        "serp_feature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only keywords whose SERP contains this feature, e.g. 'video', 'featured_snippet'."
+        },
+        "regex_keyword": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex filter on the keyword text."
+        },
+        "regex_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex filter on the ranking URL."
+        },
+        "regex_host": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex filter on the ranking hostname."
+        }
+      },
+      "required": ["domain"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "links",
+    "description": "SISTRIX backlink analytics for a domain. Pick `view`:\n- 'list': individual backlinks (up to 10,000), each with link_from, link_to, and anchor text. Modifiers: offset, regex_link_from, regex_link_to, regex_link_text.\n- 'linktexts': most common anchor texts by frequency (returns strings).\n- 'linktargets': the domain's most-linked-to URLs with backlink/linking-domain counts.\nAll views accept `limit`. The offset/regex_* filters only apply to view='list'.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "description": "Domain to analyze, without protocol or path, e.g. 'example.com'.",
+          "type": "string"
+        },
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": ["list", "linktexts", "linktargets"],
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "description": "Maximum number of result rows to return.",
+          "type": "integer"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of result rows to skip (offset-based pagination)."
+        },
+        "regex_link_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex filter on the linking page URL (view='list')."
+        },
+        "regex_link_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex filter on the link target URL (view='list')."
+        },
+        "regex_link_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex filter on the anchor text (view='list')."
+        }
+      },
+      "required": ["domain", "view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "project",
+    "description": "SISTRIX Optimizer project analytics (excluding onpage-crawl data — use project_onpage for those). Pick `view`:\n- 'overview': list all Optimizer projects with their hash IDs. Needs no `project`; call this first to obtain the hash for the other views.\n- 'competitors': competitor domains configured for the project. Modifiers: limit, page.\n- 'ranking': registered rankings with positions/traffic. Modifiers: limit, offset, tag, date, regex_keyword.\n- 'visibilityindex': Visibility Index timeline for the project's domain. Modifiers: competitors (bool, include competitor curves), tag, date.\n- 'keyword_serps': SERPs for a keyword within the project. Requires `keyword` (alias: `kw`). Modifiers: searchengine, country, city, device, date.\n- 'external_links': outgoing external links of the project. Modifiers: limit, page.\nEvery view except 'overview' requires the `project` hash.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": [
+            "overview",
+            "competitors",
+            "ranking",
+            "visibilityindex",
+            "keyword_serps",
+            "external_links"
+          ],
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optimizer project hash ID; get it from view='overview'. Required for every other view."
+        },
+        "keyword": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Search term for view='keyword_serps'. Provide this or `kw`."
+        },
+        "kw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alias for `keyword` (SISTRIX API naming). Provide one of the two."
+        },
+        "limit": {
+          "default": 10,
+          "description": "Maximum number of result rows to return.",
+          "type": "integer"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of result rows to skip (offset-based pagination)."
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        },
+        "tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only include keywords carrying this project tag."
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Date in YYYY-MM-DD format to query a specific point in time; omit for the latest data."
+        },
+        "regex_keyword": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RE2 regex filter on the keyword text (view='ranking')."
+        },
+        "competitors": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If true, include competitor domains' visibility curves (view='visibilityindex')."
+        },
+        "searchengine": {
+          "default": "google",
+          "description": "Search engine for view='keyword_serps', e.g. 'google'.",
+          "type": "string"
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Two-letter SISTRIX country code, e.g. 'de', 'us', 'uk', 'fr'."
+        },
+        "city": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "City for localized SERPs, e.g. 'Berlin' (view='keyword_serps')."
+        },
+        "device": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Device type for view='keyword_serps': 'desktop', 'tablet' or 'mobile'."
+        }
+      },
+      "required": ["view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "project_onpage",
+    "description": "SISTRIX Optimizer onpage-crawl data. Requires the `project` hash (from project view='overview'). Pick `view`:\n- 'meta': project name and tags.\n- 'overview': high-level error/warning totals from the latest crawl.\n- 'crawl': per-category breakdown of errors/warnings. Modifier: date.\n- 'issue': rows behind a single issue type. Requires `issue` (one of 105 keys; common: title_tag_missing, title_tag_empty, same_title, long_title, missing_meta_snippet, empty_meta_snippet, same_meta_snippet, missing_h1, empty_h1, same_h1, duplicate_content, thin_content, broken_external_link, broken_external_links_3xx, page_not_found, noindex, robots_block_crawling, alt_attribute_missing). Modifiers: limit, offset, date.\n- 'links': internal/outbound links found during the crawl. Modifiers: limit, page.\n- 'urls': all crawled URLs. Modifiers: limit, offset.\n- 'resources': loaded resources (CSS/JS/images/...). Modifiers: limit, page.\n- 'resources_usage': per-resource usage counts. Modifiers: limit, page.\n- 'cookies': cookies set during the crawl. Modifiers: limit, page.\nInvalid issue keys are rejected at runtime with the full list of valid options.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "description": "Optimizer project hash ID; get it from the project tool, view='overview'.",
+          "type": "string"
+        },
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": [
+            "meta",
+            "overview",
+            "crawl",
+            "issue",
+            "links",
+            "urls",
+            "resources",
+            "resources_usage",
+            "cookies"
+          ],
+          "type": "string"
+        },
+        "issue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Issue key, required for view='issue'; e.g. 'title_tag_missing'. Invalid keys are rejected with the full list of valid options."
+        },
+        "limit": {
+          "default": 10,
+          "description": "Maximum number of result rows to return.",
+          "type": "integer"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Number of result rows to skip (offset-based pagination)."
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Date in YYYY-MM-DD format to query a specific point in time; omit for the latest data."
+        }
+      },
+      "required": ["project", "view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "ai_check",
+    "description": "SISTRIX AI Check: visibility of brands and domains across AI chatbots (ChatGPT, Google AI Overviews, Google AI Mode). Pass any number of `brands` and/or `domains` (single string or list, up to 100 each; at least one of the two is required). Pick `view`: 'overview' (analyzed scope, prompt count, per-model + per-country breakdown), 'competitors' (competing brands), 'prompts' (most relevant prompts incl. model and answer), 'prompts_count' (historical prompt counts per day, `limit` = history days), 'sources' (cited sources, use `source_type`=host/domain/url). Covers ai.check.overview, .competitors, .prompts, .prompts.count, .sources. Note: view-specific optional params (model, source_type, limit, page) are silently ignored when the chosen view does not accept them.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": ["overview", "competitors", "prompts", "prompts_count", "sources"],
+          "type": "string"
+        },
+        "brands": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Brand name(s) to check, string or list of up to 100, e.g. 'Adidas'. At least one of brands/domains is required."
+        },
+        "domains": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Domain(s) to check, string or list of up to 100, e.g. 'adidas.com'. At least one of brands/domains is required."
+        },
+        "brand": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alias for `brands`."
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alias for `domains`."
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter by AI model: 'aimode' (Google AI Mode), 'aio' (Google AI Overviews), 'chatgpt'; omit or 'all' for all."
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Two-letter SISTRIX country code, e.g. 'de', 'us', 'uk', 'fr'."
+        },
+        "source_type": {
+          "anyOf": [
+            {
+              "enum": ["host", "domain", "url"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Granularity of cited sources (view='sources')."
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of result rows to return."
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        }
+      },
+      "required": ["view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "ai_topicresearch",
+    "description": "SISTRIX AI Topic Research: which topics people discuss with AI chatbots around a keyword. Pick `view`: 'overview' (aggregate for a `keyword`: number of topics, avg. dialog length, journey-stage and intent distribution), 'list' (the individual topics for a `keyword` incl. topic_label, search volume, dialog length, journey stage, intent; filter via `intent`/`journey_stage`/`country`, paginate via `limit`/`page` — costs 1 credit per returned topic), 'topic' (full detail for one `topic` = a topic_label from 'list': buyer persona, emotional driver, next best action, unasked questions, leading brands, per-model prompt library). Covers ai.topicresearch.overview, .list, .topic. Typical flow: overview → list → topic.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": ["overview", "list", "topic"],
+          "type": "string"
+        },
+        "keyword": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Keyword to research topics for, e.g. 'holidays'. Required for view='overview'/'list'. Provide this or `kw`."
+        },
+        "kw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Alias for `keyword` (SISTRIX API naming). Provide one of the two."
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Topic identifier: the `topic_label` returned by view='list'. Required for view='topic'."
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter by intent group ('learning', 'commercial', 'transactional', 'informational') or a fine-grained intent value (view='list')."
+        },
+        "journey_stage": {
+          "anyOf": [
+            {
+              "enum": ["awareness", "consideration", "decision", "retention"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter by customer journey stage (view='list')."
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO 3166-1 alpha-2 country code, e.g. 'DE' (view='list'). Omit for all countries."
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of result rows to return."
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        }
+      },
+      "required": ["view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "ai_tracker_overview",
+    "description": "SISTRIX AI: list AI tracker projects available to this API key, with their hash IDs (use those in ai_tracker). Covers ai.tracker.overview.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "ai_tracker",
+    "description": "SISTRIX AI: per-project tracker views. Pass the project hash from ai_tracker_overview. Pick `view`: 'environment' (entities seen by the tracker), 'prompts' (tracked prompts with brand visibility), 'competitors' (competing brands, supports `model`), or one of 'sources_domains'/'sources_urls'/'sources_hosts' (source rankings at different granularities, support `model`). Covers ai.tracker.environment, .prompts, .competitors, .sources.domains, .sources.urls, .sources.hosts.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "description": "AI tracker project hash ID; get it from ai_tracker_overview.",
+          "type": "string"
+        },
+        "view": {
+          "description": "Which data view to return; the tool description explains each value and its modifiers.",
+          "enum": [
+            "environment",
+            "prompts",
+            "competitors",
+            "sources_domains",
+            "sources_urls",
+            "sources_hosts"
+          ],
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter by AI model: 'chatgpt', 'perplexity', 'aio' (Google AI Overviews), 'aimode' (Google AI Mode); omit or 'all' for all (competitors/sources views)."
+        },
+        "limit": {
+          "default": 100,
+          "description": "Maximum number of result rows to return.",
+          "type": "integer"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        }
+      },
+      "required": ["project", "view"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  },
+  {
+    "name": "ai_prompt_answers",
+    "description": "SISTRIX AI: fetch the answers generated by AI models for a given prompt. Optionally filter by `model` (aimode/aio/chatgpt) or `country`. Covers ai.prompt.answers.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "description": "The prompt text to fetch AI-generated answers for, e.g. 'best running shoes'.",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter by AI model: 'aimode' (Google AI Mode), 'aio' (Google AI Overviews), 'chatgpt'; omit or 'all' for all."
+        },
+        "country": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Two-letter SISTRIX country code, e.g. 'de', 'us', 'uk', 'fr'."
+        },
+        "limit": {
+          "default": 100,
+          "description": "Maximum number of result rows to return.",
+          "type": "integer"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Result page number (page-based pagination)."
+        }
+      },
+      "required": ["prompt"],
+      "additionalProperties": false
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    },
+    "_meta": {
+      "fastmcp": {
+        "tags": []
+      }
+    }
+  }
+]

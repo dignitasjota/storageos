@@ -1,0 +1,19 @@
+{
+  "tool": "links",
+  "args": {
+    "domain": "bluespace.es",
+    "view": "linktargets",
+    "limit": 3
+  },
+  "ms": 973,
+  "at": "2026-11-25T19:31:51.479Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"url\":\"http://www.bluespace.es/\",\"links\":263,\"domains\":95,\"hosts\":119,\"nets\":53,\"ips\":57},{\"url\":\"https://bluespace.es/\",\"links\":230,\"domains\":133,\"hosts\":135,\"nets\":37,\"ips\":37},{\"url\":\"https://www.bluespace.es/\",\"links\":127,\"domains\":61,\"hosts\":64,\"nets\":50,\"ips\":50}]"
+      }
+    ],
+    "isError": false
+  }
+}

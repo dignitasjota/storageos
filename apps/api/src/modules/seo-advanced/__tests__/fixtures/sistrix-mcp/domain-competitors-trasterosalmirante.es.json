@@ -1,0 +1,20 @@
+{
+  "tool": "domain",
+  "args": {
+    "domain": "trasterosalmirante.es",
+    "view": "competitors",
+    "country": "es",
+    "limit": 8
+  },
+  "ms": 4626,
+  "at": "2026-11-25T19:31:46.963Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[\"idealista.com\",\"fotocasa.es\",\"callejero.net\",\"bluespace.es\",\"milanuncios.com\",\"fierostorage.com\",\"yaencontre.com\",\"instagram.com\"]"
+      }
+    ],
+    "isError": false
+  }
+}

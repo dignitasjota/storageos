@@ -1,0 +1,40 @@
+{
+  "tool": "domain",
+  "args": {
+    "domain": "bluespace.es",
+    "view": "visindex",
+    "country": "es",
+    "history": true,
+    "limit": 3
+  },
+  "ms": 4530,
+  "at": "2026-11-25T19:31:58.803Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"sichtbarkeitsindex\":[{\"domain\":\"bluespace.es\",\"date\":\"2026-11-23\",\"value\":0.7578},{\"domain\":\"bluespace.es\",\"date\":\"2026-11-16\",\"value\":0.8194},{\"domain\":\"bluespace.es\",\"date\":\"2026-11-09\",\"value\":0.7619}]}"
+      }
+    ],
+    "structuredContent": {
+      "sichtbarkeitsindex": [
+        {
+          "domain": "bluespace.es",
+          "date": "2026-11-23",
+          "value": 0.7578
+        },
+        {
+          "domain": "bluespace.es",
+          "date": "2026-11-16",
+          "value": 0.8194
+        },
+        {
+          "domain": "bluespace.es",
+          "date": "2026-11-09",
+          "value": 0.7619
+        }
+      ]
+    },
+    "isError": false
+  }
+}

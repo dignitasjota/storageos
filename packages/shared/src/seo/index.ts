@@ -7,6 +7,7 @@ import type { SeoChangeDto, SeoUndetailedDto } from './metrics';
 export * from './metrics';
 export * from './panel';
 export * from './gsc-import';
+export * from './sistrix';
 
 /**
  * SEO Avanzado: un solo motor para dos ámbitos. Un proyecto sin tenant es de

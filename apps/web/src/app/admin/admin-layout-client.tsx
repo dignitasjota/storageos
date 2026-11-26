@@ -40,6 +40,7 @@ import {
   Trash2,
   TrendingUp,
   SearchCheck,
+  Plug,
   Wallet,
   MessageCircle,
   Target,
@@ -182,7 +183,10 @@ const ADMIN_NAV: AdminNavGroup[] = [
   {
     label: 'SEO',
     icon: SearchCheck,
-    children: [{ href: '/admin/seo', label: 'Proyectos', icon: SearchCheck }],
+    children: [
+      { href: '/admin/seo', label: 'Proyectos', icon: SearchCheck },
+      { href: '/admin/seo/integrations', label: 'Integraciones', icon: Plug },
+    ],
   },
   {
     label: 'Plataforma',

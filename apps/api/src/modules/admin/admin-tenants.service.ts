@@ -2933,6 +2933,21 @@ export class AdminTenantsService {
       await tx.searchConsoleDevice.deleteMany({ where: { tenantId } });
       await tx.seoTrackedKeyword.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
+      // SEO Avanzado: SISTRIX (su clave cifrada, sus ajustes, lo descargado con
+      // ella, el registro de peticiones, competidores y palabras del proyecto).
+      await tx.seoApiRequest.deleteMany({ where: { tenantId } });
+      await tx.seoApiCache.deleteMany({ where: { tenantId } });
+      await tx.seoKeywordMetric.deleteMany({ where: { tenantId } });
+      await tx.seoDomainMetric.deleteMany({ where: { tenantId } });
+      await tx.seoDomainKeyword.deleteMany({ where: { tenantId } });
+      await tx.seoSerpResult.deleteMany({ where: { tenantId } });
+      await tx.seoDomainOpportunity.deleteMany({ where: { tenantId } });
+      await tx.seoBacklinkTarget.deleteMany({ where: { tenantId } });
+      await tx.seoAiVisibility.deleteMany({ where: { tenantId } });
+      await tx.seoProjectKeyword.deleteMany({ where: { tenantId } });
+      await tx.seoCompetitor.deleteMany({ where: { tenantId } });
+      await tx.seoProviderConnection.deleteMany({ where: { tenantId } });
+      await tx.seoSyncSettings.deleteMany({ where: { tenantId } });
       // SEO Avanzado: el proyecto, sus dominios, lo descargado, lo importado y las descargas.
       await tx.seoSyncRun.deleteMany({ where: { tenantId } });
       await tx.seoGscImportRow.deleteMany({ where: { tenantId } });

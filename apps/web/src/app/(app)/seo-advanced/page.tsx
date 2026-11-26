@@ -13,6 +13,7 @@ import { SeoImportsCard } from '@/components/seo/seo-imports-card';
 import { SeoPanel } from '@/components/seo/seo-panel';
 import { SeoProjectDialog } from '@/components/seo/seo-project-dialog';
 import { SeoRunsCard } from '@/components/seo/seo-runs-card';
+import { SeoSistrixSections } from '@/components/seo/sistrix/sistrix-sections';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -185,6 +186,8 @@ export default function SeoAdvancedPage() {
         canEdit={canEdit}
         onCancel={(id) => cancel.mutateAsync(id)}
       />
+
+      <SeoSistrixSections scope={{ kind: 'tenant' }} canEdit={canEdit} />
 
       <SeoProjectDialog
         open={editing}

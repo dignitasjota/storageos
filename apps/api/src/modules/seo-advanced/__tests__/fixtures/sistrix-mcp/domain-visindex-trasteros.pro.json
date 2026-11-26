@@ -1,0 +1,28 @@
+{
+  "tool": "domain",
+  "args": {
+    "domain": "trasteros.pro",
+    "view": "visindex",
+    "country": "es"
+  },
+  "ms": 875,
+  "at": "2026-11-25T19:32:09.810Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"sichtbarkeitsindex\":[{\"domain\":\"trasteros.pro\",\"date\":\"2026-11-23\",\"value\":\"0\"}]}"
+      }
+    ],
+    "structuredContent": {
+      "sichtbarkeitsindex": [
+        {
+          "domain": "trasteros.pro",
+          "date": "2026-11-23",
+          "value": "0"
+        }
+      ]
+    },
+    "isError": false
+  }
+}

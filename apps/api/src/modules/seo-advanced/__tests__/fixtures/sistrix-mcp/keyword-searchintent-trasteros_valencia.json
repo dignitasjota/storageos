@@ -1,0 +1,29 @@
+{
+  "tool": "keyword",
+  "args": {
+    "view": "searchintent",
+    "keyword": "trasteros valencia",
+    "country": "es"
+  },
+  "ms": 1140,
+  "at": "2026-11-25T19:31:23.343Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":[{\"intent_website\":20,\"intent_know\":0,\"intent_visit\":80,\"intent_do\":80}]}"
+      }
+    ],
+    "structuredContent": {
+      "result": [
+        {
+          "intent_website": 20,
+          "intent_know": 0,
+          "intent_visit": 80,
+          "intent_do": 80
+        }
+      ]
+    },
+    "isError": false
+  }
+}

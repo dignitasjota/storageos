@@ -1,0 +1,32 @@
+{
+  "tool": "keyword",
+  "args": {
+    "view": "metrics",
+    "keyword": "trasteros valencia",
+    "country": "es"
+  },
+  "ms": 1046,
+  "at": "2026-11-25T19:31:19.344Z",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"result\":[{\"kw\":\"trasteros valencia\",\"competition\":35,\"cpc\":3,\"traffic\":300,\"clicks\":250,\"desktop_distribution\":0.26,\"mobile_distribution\":0.74}]}"
+      }
+    ],
+    "structuredContent": {
+      "result": [
+        {
+          "kw": "trasteros valencia",
+          "competition": 35,
+          "cpc": 3,
+          "traffic": 300,
+          "clicks": 250,
+          "desktop_distribution": 0.26,
+          "mobile_distribution": 0.74
+        }
+      ]
+    },
+    "isError": false
+  }
+}
