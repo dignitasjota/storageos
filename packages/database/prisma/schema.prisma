@@ -9897,6 +9897,17 @@ model SeoProject {
   pagespeedScheduledAt      DateTime? @map("pagespeed_scheduled_at") @db.Timestamptz(6)
   /// Rastreador: semanal (día y hora), páginas como mucho, pausa y rutas excluidas (PR 10).
   crawlSettings             Json      @default("{}") @map("crawl_settings")
+  /// GA4 (Data API) del proyecto, PR 12: la propiedad y de dónde sale ('own' · 'marketing').
+  ga4PropertyId             String?   @map("ga4_property_id")
+  ga4Source                 String?   @map("ga4_source")
+  /// pending · connected · error
+  ga4Status                 String?   @map("ga4_status")
+  ga4LastError              String?   @map("ga4_last_error")
+  ga4ConnectedAt            DateTime? @map("ga4_connected_at") @db.Timestamptz(6)
+  ga4SyncedAt               DateTime? @map("ga4_synced_at") @db.Timestamptz(6)
+  ga4InitialDoneAt          DateTime? @map("ga4_initial_done_at") @db.Timestamptz(6)
+  /// Visibilidad en IA (PR 12): prompts que se siguen (sus respuestas).
+  aiVisibilitySettings      Json      @default("{}") @map("ai_visibility_settings")
 
   domains           SeoProjectDomain[]
   runs              SeoSyncRun[]
@@ -9921,6 +9932,7 @@ model SeoProject {
   aiConversations   SeoAiConversation[]
   aiActions         SeoAiAction[]
   contentBriefs     SeoContentBrief[]
+  ga4LandingDaily   SeoGa4LandingDaily[]
 
   @@map("seo_projects")
 }
@@ -10381,6 +10393,8 @@ model SeoBacklinkTarget {
 model SeoAiVisibility {
   id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
   tenantId    String?  @map("tenant_id") @db.Uuid
+  /// domain · brand (PR 12); `domain` guarda el dominio o la marca.
+  subjectType String   @default("domain") @map("subject_type")
   domain      String
   country     String
   provider    String
@@ -11132,6 +11146,71 @@ model SeoContentBrief {
   @@index([projectId, updatedAt(sort: Desc)], map: "seo_content_briefs_project_idx")
   @@index([tenantId], map: "seo_content_briefs_tenant_idx")
   @@map("seo_content_briefs")
+}
+
+/// Tráfico orgánico de Google por página de entrada y día según GA4 (PR 12).
+model SeoGa4LandingDaily {
+  id              String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId        String?  @map("tenant_id") @db.Uuid
+  projectId       String   @map("project_id") @db.Uuid
+  date            DateTime @db.Date
+  host            String   @default("")
+  landingPath     String   @map("landing_path")
+  sessions        Int      @default(0)
+  users           Int      @default(0)
+  engagedSessions Int      @default(0) @map("engaged_sessions")
+  durationSeconds Float    @default(0) @map("duration_seconds")
+  pageViews       Int      @default(0) @map("page_views")
+  keyEvents       Float    @default(0) @map("key_events")
+  fetchedAt       DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, date, host, landingPath], map: "seo_ga4_landing_daily_key")
+  @@index([tenantId], map: "seo_ga4_landing_daily_tenant_idx")
+  @@map("seo_ga4_landing_daily")
+}
+
+/// Prompts de los buscadores de IA en los que sale un dominio o una marca, y
+/// respuestas de los prompts que se siguen (PR 12). La respuesta es texto de terceros.
+model SeoAiPrompt {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  /// domain · brand · tracked
+  subjectType String   @map("subject_type")
+  subject     String
+  country     String
+  provider    String
+  sampleDate  DateTime @map("sample_date") @db.Date
+  fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  prompt      String
+  promptKey   String   @map("prompt_key")
+  model       String   @default("")
+  answer      String?
+  rank        Int?
+
+  @@index([subjectType, subject, country, sampleDate], map: "seo_ai_prompts_subject_idx")
+  @@index([tenantId], map: "seo_ai_prompts_tenant_idx")
+  @@map("seo_ai_prompts")
+}
+
+/// Fuentes que citan las IA y marcas que compiten (PR 12).
+model SeoAiSource {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  subjectType String   @map("subject_type")
+  subject     String
+  country     String
+  provider    String
+  sampleDate  DateTime @map("sample_date") @db.Date
+  fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  /// domain · url · brand
+  sourceType  String   @map("source_type")
+  source      String
+  count       Int      @default(0)
+
+  @@index([tenantId], map: "seo_ai_sources_tenant_idx")
+  @@map("seo_ai_sources")
 }
 
 /// Consumo de IA de la plataforma (sin tenant): el asistente de SEO en el panel admin.

@@ -27,6 +27,8 @@ export const SEO_ALERT_TYPES = [
   // PR 10: el rastreador.
   'crawl_errors',
   'crawl_critical',
+  // PR 12: visibilidad en buscadores de IA.
+  'ai_visibility_lost',
 ] as const;
 export type SeoAlertType = (typeof SEO_ALERT_TYPES)[number];
 export const SeoAlertTypeEnum = z.enum(SEO_ALERT_TYPES);
@@ -46,6 +48,7 @@ export const SEO_ALERT_TYPE_LABELS: Record<SeoAlertType, string> = {
   pagespeed_drop: 'Baja la puntuación de velocidad',
   crawl_errors: 'Páginas que dan error nuevas',
   crawl_critical: 'Portada o URL objetivo con «noindex» o sin responder',
+  ai_visibility_lost: 'Dejas de salir en los buscadores de IA',
 };
 
 export const SEO_ALERT_SEVERITIES = ['high', 'medium', 'low'] as const;
@@ -90,6 +93,8 @@ export const SEO_DEFAULT_ALERT_SETTINGS = {
   silenceDays: 7,
   /** Puntos que tiene que caer la puntuación de velocidad (PageSpeed) para avisar. */
   pagespeedDropPoints: 15,
+  /** Prompts de IA en los que dejas de salir para avisar (PR 12). */
+  aiLostPrompts: 1,
 } as const;
 export type SeoAlertThresholdKey = keyof typeof SEO_DEFAULT_ALERT_SETTINGS;
 
@@ -104,6 +109,7 @@ export const SEO_ALERT_THRESHOLD_RANGES: Record<
   gscStaleDays: { min: 3, max: 60, label: 'Días sin datos de Google' },
   silenceDays: { min: 1, max: 90, label: 'Días que se silencia una alerta' },
   pagespeedDropPoints: { min: 5, max: 80, label: 'Puntos que baja la velocidad para avisar' },
+  aiLostPrompts: { min: 1, max: 100, label: 'Prompts de IA en los que dejas de salir para avisar' },
 };
 
 export interface SeoAlertSettings {
