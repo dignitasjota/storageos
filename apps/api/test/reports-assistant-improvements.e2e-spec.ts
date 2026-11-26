@@ -22,7 +22,10 @@ import type { ReportGenerator } from '../src/modules/reports/generators/types';
 import type { INestApplication } from '@nestjs/common';
 
 const DAY = 86_400_000;
-const today = () => new Date().toISOString().slice(0, 10);
+// «Hoy» en hora de España: las facturas se fechan así, y entre las 00:00 y las 01:00/02:00
+// de España la fecha UTC aún es la del día anterior.
+const today = () =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
 
 /** Mejoras de Informes y del Asistente IA. */
 describe('Mejoras de Informes y Asistente IA (e2e)', () => {
