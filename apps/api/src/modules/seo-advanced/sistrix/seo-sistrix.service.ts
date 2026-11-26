@@ -1,9 +1,15 @@
+import { createHash } from 'node:crypto';
+
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@storageos/database';
 import {
   SEO_PLATFORM_COMPETITOR_LIMIT,
   SEO_PLATFORM_KEYWORD_LIMIT,
   SEO_TENANT_LIMITS,
   type SeoProviderKey,
+  type ProbeSistrixApiInput,
+  type SeoApiProbeResultDto,
+  type SeoApiSampleDto,
   type SeoSistrixApiDto,
   type SeoSistrixConnectionStatus,
   type SeoSistrixDataType,
@@ -35,6 +41,7 @@ import { type SeoPool, SistrixConnectionsService } from './sistrix-connections.s
 import { SistrixFetchService } from './sistrix-fetch.service';
 import { SistrixMcpClient } from './sistrix-mcp.client';
 import {
+  estimateApiCallCredits,
   normalizeSistrix,
   parseMcpResult,
   sistrixQueryHash,
@@ -43,7 +50,7 @@ import {
 import { SistrixOAuthService } from './sistrix-oauth.service';
 import { poolOfProject, type SistrixActor, SistrixSyncService } from './sistrix-sync.service';
 
-import type { Prisma, SeoProviderConnection } from '@storageos/database';
+import type { SeoProviderConnection } from '@storageos/database';
 
 /** Dueño visto desde un endpoint: tenant, plataforma (null) o el super admin leyendo cualquiera (undefined). */
 export type SeoOwnerScope = string | null | undefined;
@@ -436,6 +443,113 @@ export class SeoSistrixService {
       });
       return { ok: false, provider: 'sistrix_api', message };
     }
+  }
+
+  /**
+   * «Probar la API con una consulta» (solo la plataforma): UNA llamada real de la
+   * API clásica, solo con «Continuar por API» autorizado y si cabe en el
+   * presupuesto. Guarda la respuesta tal cual como muestra (para ver su forma y
+   * cómo cuenta los créditos) y anota el gasto real en el presupuesto y el registro.
+   */
+  async probeApi(superAdminId: string, input: ProbeSistrixApiInput): Promise<SeoApiProbeResultDto> {
+    const conn = await this.connections.find(null, 'sistrix_api');
+    const key = this.connections.apiKeyOf(conn);
+    if (!conn || !key || !conn.enabled) {
+      throw new BadRequestException({
+        code: 'sistrix_api_not_ready',
+        message: 'Activa antes la API clásica con su clave.',
+      });
+    }
+    if (!conn.apiAuthorizedUntil || conn.apiAuthorizedUntil.getTime() <= Date.now()) {
+      throw new BadRequestException({
+        code: 'sistrix_api_not_authorized',
+        message:
+          'Pulsa antes «Continuar por API»: esta prueba gasta créditos y solo se hace con tu autorización.',
+      });
+    }
+    const country = (input.country ?? 'es').toLowerCase();
+    const params: Record<string, string> =
+      input.method === 'domain.kwcount.seo'
+        ? { domain: (input.domain ?? 'trasteros.pro').toLowerCase(), country }
+        : input.method === 'keyword.seo'
+          ? { kw: (input.keyword ?? 'trasteros valencia').toLowerCase(), country, num: '10' }
+          : { kw: (input.keyword ?? 'trasteros valencia').toLowerCase(), country };
+    const estimate = estimateApiCallCredits(input.method, params);
+    const week = this.connections.weekSpent(conn);
+    if (apiBudgetRemaining({ weeklyBudget: conn.weeklyBudget, weekSpent: week }) < estimate) {
+      throw new BadRequestException({
+        code: 'sistrix_api_budget',
+        message: `La prueba cuesta hasta ${estimate} créditos y no caben en lo que queda del presupuesto de esta semana.`,
+      });
+    }
+    const started = Date.now();
+    const res = await this.api.call(key, input.method, params);
+    const durationMs = Date.now() - started;
+    await this.connections.addSpent(conn.id, res.credits);
+    const outcome: SeoApiProbeResultDto['outcome'] =
+      res.payload.kind === 'payload' ? 'ok' : res.payload.kind === 'empty' ? 'empty' : 'error';
+    // La clave nunca se guarda: se tapa cualquier aparición en lo recibido.
+    const safe = (v: unknown): Prisma.InputJsonValue | typeof Prisma.JsonNull =>
+      v === undefined || v === null
+        ? Prisma.JsonNull
+        : (JSON.parse(JSON.stringify(v).split(key).join('***')) as Prisma.InputJsonValue);
+    const sample = await this.admin.seoApiSample.create({
+      data: {
+        method: input.method,
+        params: params as Prisma.InputJsonValue,
+        response: safe(res.raw),
+        credits: res.credits,
+        creditsKnown: res.creditsKnown ?? false,
+        createdBySuperAdminId: superAdminId,
+      },
+    });
+    await this.admin.seoApiRequest.create({
+      data: {
+        tenantId: null,
+        provider: 'sistrix_api',
+        tool: input.method,
+        args: params as Prisma.InputJsonValue,
+        queryHash: createHash('sha1')
+          .update(`${input.method}|${JSON.stringify(params)}`)
+          .digest('hex'),
+        status: outcome === 'ok' ? 'ok' : outcome === 'empty' ? 'empty' : 'error',
+        errorCode: res.payload.kind === 'error' ? res.payload.code : null,
+        errorMessage: res.payload.kind === 'error' ? res.payload.message.slice(0, 500) : null,
+        durationMs,
+        credits: res.credits,
+        createdBySuperAdminId: superAdminId,
+      },
+    });
+    const message =
+      outcome === 'error'
+        ? `SISTRIX respondió con un error: ${(res.payload as { message: string }).message}`
+        : res.creditsKnown
+          ? `Respuesta guardada como muestra. SISTRIX dice que gastó ${res.credits} crédito${res.credits === 1 ? '' : 's'}.`
+          : `Respuesta guardada como muestra. La respuesta no decía cuánto gastó: se anotan ${res.credits} (estimados).`;
+    return {
+      sampleId: sample.id,
+      method: input.method,
+      credits: res.credits,
+      creditsKnown: res.creditsKnown ?? false,
+      outcome,
+      message,
+    };
+  }
+
+  async apiSamples(): Promise<SeoApiSampleDto[]> {
+    const rows = await this.admin.seoApiSample.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      method: r.method,
+      params: (r.params ?? {}) as Record<string, unknown>,
+      credits: r.credits,
+      creditsKnown: r.creditsKnown,
+      createdAt: r.createdAt.toISOString(),
+      response: r.response,
+    }));
   }
 
   updateSettings(pool: SeoPool, input: UpdateSeoSyncSettingsInput) {
