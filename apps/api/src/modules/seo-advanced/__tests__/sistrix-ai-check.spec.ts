@@ -241,6 +241,22 @@ describe('SISTRIX ai_check (PR 12): respuestas reales (bluespace.es, 26-11-2026)
     expect(first.split('\n').every((l) => l.trim() === l && l !== '' && l !== '-')).toBe(true);
   });
 
+  it('ai_prompt_answers: `{ answers: [{ answer, model, country }] }` sin el prompt en cada fila', () => {
+    const out = normalizeSistrix('ai_answers', parseMcpResult(real('ai_prompt_answers-barakaldo')));
+    expect(out.kind).toBe('ok');
+    if (out.kind !== 'ok' || out.data.op !== 'ai_answers') return;
+    expect(out.data.prompts.length).toBeGreaterThan(0);
+    for (const p of out.data.prompts) {
+      // El prompt lo pone quien consulta (la tanda guarda el de la consulta).
+      expect(p.prompt).toBe('');
+      expect(p.answer).toBeTruthy();
+      expect(p.answer).not.toMatch(/<[a-z/]/i);
+    }
+    expect(out.data.prompts[0]!.answer!.startsWith('- Bluespace Barakaldo:')).toBe(true);
+    // En la vista `prompts` una fila sin prompt se sigue descartando.
+    expect(normalizeAiPrompts([{ answer: 'x', model: 'aio' }])).toEqual([]);
+  });
+
   it('sources: `{ competitor: [{ source, amount, prompt_count }] }`, con las veces citada', () => {
     const out = normalizeSistrix(
       'ai_sources',

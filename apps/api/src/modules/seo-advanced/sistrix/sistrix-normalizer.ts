@@ -504,13 +504,26 @@ export interface AiPromptRow {
   rank: number | null;
 }
 
-/** Vista `prompts` de `ai_check` y respuestas de `ai_prompt_answers`. */
-export function normalizeAiPrompts(value: unknown): AiPromptRow[] {
+/**
+ * Vista `prompts` de `ai_check` y respuestas de `ai_prompt_answers`.
+ * `ai_prompt_answers` (comprobado con el servidor real) no repite el prompt en
+ * cada fila (`{ answers: [{ answer, model, country }] }`): con `answers`, la fila
+ * sin prompt se acepta y el prompt lo pone quien hizo la consulta.
+ */
+export function normalizeAiPrompts(
+  value: unknown,
+  opts: { answers?: boolean } = {},
+): AiPromptRow[] {
   const rows = aiRows(value, ['prompts', 'prompt', 'answers', 'answer', 'result', 'data']);
   const out: AiPromptRow[] = [];
   for (const r of rows) {
-    const prompt = str(r.prompt) ?? str(r.query) ?? str(r.keyword) ?? str(r.question);
-    if (!prompt) continue;
+    const prompt =
+      str(r.prompt) ??
+      str(r.query) ??
+      str(r.keyword) ??
+      str(r.question) ??
+      (opts.answers ? '' : null);
+    if (prompt === null) continue;
     const model = (str(r.model) ?? str(r.llm) ?? str(r.engine) ?? '').toLowerCase();
     // La vista `prompts` la da en HTML en `message` (comprobado con el servidor
     // real): se guarda como texto plano limpio, nunca el HTML.
@@ -641,7 +654,7 @@ export function normalizeSistrix(op: SistrixOp, payload: SistrixPayload): Sistri
     }
     case 'ai_prompts':
     case 'ai_answers': {
-      const prompts = normalizeAiPrompts(value);
+      const prompts = normalizeAiPrompts(value, { answers: op === 'ai_answers' });
       return prompts.length
         ? { kind: 'ok', data: { op, prompts }, dataDate: null }
         : { kind: 'empty' };
