@@ -815,3 +815,45 @@ Los maestros de GUÁRDALO y TRASTEROS.PRO (§8 y §18) se importan en su proyect
 - Los datos de Search Console de `Maestro_keywords` no se guardan aparte: son los mismos que `GSC_consultas` y van en su importación; si una palabra con datos del mismo periodo no estuviera en `GSC_consultas`, se añade a las consultas.
 
 **Pendiente**: editar los grupos desde la pantalla de palabras (hoy se ven en la ficha de la importación) y, de la fase 3, conversiones, alertas e informes.
+
+## 34. PR 8 hecha — fase 3 completa (2026-11-26)
+
+Lo que trae Google (§18.9), alertas e informes semanal y mensual (§7, §8 y §12). Lo puro en `packages/shared/src/seo/conversions.ts`, `alerts.ts` y `reports.ts` (vitest); el API en `apps/api/src/modules/seo-advanced/reports/`.
+
+**Conversiones orgánicas**
+
+- Cuenta lo que llega desde los resultados de Google sin anuncios: `utm_source=google` con `utm_medium=organic` o sin medio (lo que guarda `detectTrafficSource` al venir de Google; un clic en un anuncio llega como `cpc` y no cuenta).
+- Negocio: reservas online iniciadas, firmadas y pagadas (la primera factura, sin la fianza; sus ingresos), contactos de la web y lista de espera. Plataforma: formulario de trasteros.pro (contacto, demo y calculadora: decisión 12 de §16, «demo» = el formulario), altas de prueba y altas que pagan (primer pago de la suscripción). Un proyecto de la plataforma cuenta trasteros.pro si su dominio es el de la web de la plataforma o si se marca a mano (los demás proyectos de la plataforma no cuentan nada).
+- Origen de una reserva: el de esa visita (`metadata.bookingUtm`), o el del contacto si no lo hay.
+- **Página de entrada**: la atribución de la web ya guardaba en el navegador la primera página de cada origen; ahora viaja con la reserva, el contacto, la lista de espera, el formulario y el registro (`landingPath`) y se guarda (`leads.landing_path`, `waitlist_entries`, `platform_contact_messages`, `tenants.signup_landing_path`). Con el mínimo cambio: la lista de espera y el formulario de la plataforma no guardaban ni el origen, y el registro solo lo pasaba al lead del admin (que conserva el primer origen del contacto). Lo anterior no tiene página («No se sabe»).
+- `seo_conversions_daily` por día (hora de España), tipo y página; cron diario de los últimos 7 días y «Recalcular» de 90, que borran y vuelven a contar su rango (idempotente; lo de fuera se conserva).
+- Tarjeta «Lo que trae Google» (panel admin y tenant): por tipo frente al periodo anterior (solo si es comparable), clics de Google, tasa (principales ÷ clics, solo con el periodo completo), tabla por página de entrada y, marcado como estimación, por búsqueda (cada página repartida entre sus búsquedas según los clics del cruce búsqueda + página).
+- **Oportunidades**: factor opcional «La página convierte» (`conversions`, peso por defecto 0,05, editable): la tasa de conversión de la página que sale (5 % = 1), con 20 clics como mínimo. Solo entra cuando hay ese dato; si no, el factor no existe (ni como desconocido) y la puntuación es la misma que antes.
+
+**Alertas**
+
+| Tipo                          | Regla (por defecto, editable)                                                                                                             |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Caída de clics                | 7 días hasta el último dato frente a los 7 anteriores, las dos semanas completas, ≥ 20 clics antes y ≥ 30 % de caída (alta desde el 50 %) |
+| Palabra importante que baja   | seguida, prioridad alta, ≥ 3 puestos con ≥ 30 impresiones en cada semana (alta si sale de la primera página)                              |
+| Google sin datos / sin acceso | sin datos nuevos desde hace 5 días (con la carga inicial hecha) o la conexión con error                                                   |
+| Página privada en Google      | hallazgo nuevo de indexación de acceso, interna o de pruebas                                                                              |
+| Canibalización importante     | nueva y de gravedad alta                                                                                                                  |
+| SISTRIX                       | hay que volver a conectar o cuota del día agotada (ya avisa su conexión: solo se listan)                                                  |
+
+Una viva por clave (índice parcial en SQL, sin duplicados entre réplicas); se resuelve sola cuando la condición desaparece; silenciada N días (7 por defecto) vuelve a avisar si sigue al acabar el plazo; «Resuelta» a mano, y si sigue pasando la próxima revisión abre otra. Las tareas atrasadas no son alerta (ya las avisa la PR 6): cuentan en el informe. Aviso de las nuevas: en el tenant, notificación del panel a quien configura y, si se activa, correo con su marca; en la plataforma, aviso del super admin y Telegram/Slack. Cron cada hora en el API (solo proyectos con datos nuevos o sin mirar en 6 horas) y «Comprobar ahora».
+
+**Informes**
+
+- Semanal (lunes 09:00: la semana de lunes a domingo anterior) y mensual (día 3 09:00: el mes anterior), frente al periodo anterior del mismo tamaño, con periodo completo: cifras clave, lo que trae Google, visibilidad de SISTRIX tuya y de los competidores (estimación), palabras que más suben y bajan, oportunidades nuevas, canibalización e indexación abiertas, actuaciones con resultado ya disponible («coincide con»), tareas hechas y atrasadas, alertas y un resumen en frases sencillas.
+- Destinatarios: en el tenant, quien tiene `settings:manage` (todos o los elegidos); en la plataforma, los super admins (todos o los elegidos) y correos de fuera. Mensual activado por defecto; semanal, no.
+- «Ver el informe» y «Enviármelo ahora» en la pantalla; historial (`seo_reports`) con el PDF.
+
+**Decisiones**
+
+- **PDF por enlace, no adjunto**: el envío de correo (SMTP, Brevo, Resend y la cola `email`) no admite adjuntos; añadirlos tocaba los tres proveedores y la cola guarda el cuerpo en Redis. El correo lleva un enlace firmado de 7 días (lo máximo de una URL firmada) y el informe queda siempre en el panel.
+- **Relación con el informe de SEO local**: con SEO Avanzado (que incluye SEO local) y el informe mensual del proyecto activado, el mensual de «Posiciones en Google» no se envía, y su aviso de caída de clics tampoco si la alerta del proyecto está activa: no llegan dos. Si se apagan en SEO Avanzado, vuelven los de SEO local.
+- **Alertas en el API**: el cron `seo.alerts` corre en el API (los avisos por Telegram o Slack de la plataforma salen del panel admin, que no está en el worker). Conversiones e informes, en el worker.
+- **Sin pestañas**: «Lo que trae Google» y «Alertas» van tras el panel y «Informes» tras el plan, como tarjetas; reorganizar la página en pestañas de primer nivel obligaba a tocar los contenedores de las PR anteriores (como en la PR 6).
+
+**Pendiente**: la página de entrada de lo anterior a este despliegue no se puede recuperar; las anotaciones automáticas de §18.8 y, de la fase 4, el rastreador, la inspección de URL y PageSpeed.
