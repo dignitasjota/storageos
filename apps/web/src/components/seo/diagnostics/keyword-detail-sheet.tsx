@@ -19,6 +19,7 @@ import { TargetStatusBadge, shortUrl } from './diagnostic-bits';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { PrepareContentButton } from '@/components/seo/assistant/prepare-content-button';
+import { SeoGa4PageFigures } from '@/components/seo/ga4/ga4-pages-card';
 import { Badge } from '@/components/ui/badge';
 import {
   Sheet,
@@ -161,6 +162,9 @@ function Body({
           )}
         </div>
       </Section>
+
+      {/* PR 12: las visitas desde Google de su página en Google Analytics. */}
+      <SeoGa4PageFigures scope={scope} url={k.targetUrl ?? k.googlePage} />
 
       {days.length === 0 ? (
         <p className="text-sm text-muted-foreground">

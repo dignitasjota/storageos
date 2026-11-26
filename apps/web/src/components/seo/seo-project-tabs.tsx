@@ -26,6 +26,8 @@ const isTab = (v: string | null): v is SeoProjectTab => SEO_PROJECT_TABS.some((t
  */
 const HASH_TAB: Record<string, SeoProjectTab> = {
   conversiones: 'rendimiento',
+  'paginas-ga4': 'rendimiento',
+  ga4: 'ajustes',
   alertas: 'informes',
   informes: 'informes',
   plan: 'plan',
