@@ -22,6 +22,7 @@ import { SeoProjectDialog } from '@/components/seo/seo-project-dialog';
 import { SeoProjectTabs } from '@/components/seo/seo-project-tabs';
 import { SeoRunsCard } from '@/components/seo/seo-runs-card';
 import { SeoSistrixSections } from '@/components/seo/sistrix/sistrix-sections';
+import { SeoCrawlCard } from '@/components/seo/technical/crawl-card';
 import { SeoInspectionCard } from '@/components/seo/technical/inspection-card';
 import { SeoPageSpeedCard } from '@/components/seo/technical/pagespeed-card';
 import { Badge } from '@/components/ui/badge';
@@ -196,6 +197,7 @@ export default function SeoAdvancedPage() {
             <>
               <SeoInspectionCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
               <SeoPageSpeedCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+              <SeoCrawlCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
             </>
           ),
           plan: (

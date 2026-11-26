@@ -48,6 +48,7 @@ import {
   useSitemaps,
   useUpdateDiagnostic,
 } from '@/lib/seo-advanced/diagnostic-hooks';
+import { cn } from '@/lib/utils';
 
 const ALL = 'all';
 
@@ -112,6 +113,23 @@ function Detail({
       <EvidenceBadges f={f} />
       <InspectUrlButton scope={scope} url={f.url} canEdit={canEdit} />
       <p className="text-xs text-muted-foreground">{SEO_INDEX_EVIDENCE_NOTE}</p>
+      {f.crawl && (
+        <section
+          className={cn(
+            'space-y-1 rounded-md border p-2',
+            f.crawl.confirmed
+              ? 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100'
+              : 'border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-100',
+          )}
+        >
+          <h3 className="font-medium">
+            {f.crawl.confirmed
+              ? 'El rastreador lo confirma'
+              : 'El rastreador ve que ya está arreglado'}
+          </h3>
+          <p>{f.crawl.text}</p>
+        </section>
+      )}
       <section className="space-y-1">
         <h3 className="font-medium">Qué hacer</h3>
         <p>{f.action}</p>
@@ -331,6 +349,11 @@ export function IndexPanel({ scope, canEdit }: { scope: DiagnosticScope; canEdit
                 </Badge>
                 <DiagnosticStatusBadge status={f.status} returned={!!f.returnedAt} />
                 <SeoIndexStatusBadge status={f.inspection} />
+                {f.crawl && (
+                  <Badge variant="outline" className="font-normal">
+                    {f.crawl.confirmed ? 'Confirmado por el rastreador' : 'Ya arreglado en la web'}
+                  </Badge>
+                )}
               </div>
               <button
                 type="button"

@@ -26,6 +26,7 @@ import { SeoProjectTabs } from '@/components/seo/seo-project-tabs';
 import { SeoRunsCard } from '@/components/seo/seo-runs-card';
 import { PlatformSistrixToggle } from '@/components/seo/sistrix/platform-sistrix-toggle';
 import { SeoSistrixSections } from '@/components/seo/sistrix/sistrix-sections';
+import { SeoCrawlCard } from '@/components/seo/technical/crawl-card';
 import { SeoInspectionCard } from '@/components/seo/technical/inspection-card';
 import { SeoPageSpeedCard } from '@/components/seo/technical/pagespeed-card';
 import { Badge } from '@/components/ui/badge';
@@ -215,6 +216,7 @@ export default function AdminSeoProjectPage() {
             <>
               <SeoInspectionCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
               <SeoPageSpeedCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+              <SeoCrawlCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
             </>
           ),
           plan: (
