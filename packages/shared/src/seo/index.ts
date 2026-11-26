@@ -13,6 +13,9 @@ export * from './opportunities';
 export * from './diagnostics';
 export * from './plan';
 export * from './master-import';
+export * from './conversions';
+export * from './alerts';
+export * from './reports';
 
 /**
  * SEO Avanzado: un solo motor para dos ámbitos. Un proyecto sin tenant es de

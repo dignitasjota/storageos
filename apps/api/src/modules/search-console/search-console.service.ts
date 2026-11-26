@@ -33,6 +33,7 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
 import { SearchConsoleClient } from './search-console.client';
+import { seoAdvancedReplaces } from './seo-advanced-overlap';
 
 import type { Env } from '../../config/env.schema';
 
@@ -386,9 +387,12 @@ export class SearchConsoleService {
       const { ok } = await this.sync(tenantId);
       if (ok) {
         synced += 1;
-        await this.checkDrop(tenantId).catch((err: unknown) =>
-          this.logger.warn(`[search-console] aviso de caída ${tenantId}: ${String(err)}`),
-        );
+        // Con SEO Avanzado avisa su alerta de caída de clics (no dos avisos).
+        if (!(await seoAdvancedReplaces(this.admin, tenantId, 'clicks_drop'))) {
+          await this.checkDrop(tenantId).catch((err: unknown) =>
+            this.logger.warn(`[search-console] aviso de caída ${tenantId}: ${String(err)}`),
+          );
+        }
       }
       const error = ok
         ? null

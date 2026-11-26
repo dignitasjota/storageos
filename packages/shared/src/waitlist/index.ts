@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { utmFields } from '../communications/schemas';
+
 /** `expired` = se le avisó y no respondió a tiempo: el hueco pasó al siguiente. */
 export type WaitlistStatus = 'waiting' | 'notified' | 'converted' | 'cancelled' | 'expired';
 
@@ -34,6 +36,8 @@ export const PublicJoinWaitlistSchema = z.object({
   contactPhone: z.string().trim().max(40).optional(),
   /** Honeypot: debe llegar vacío; si trae valor, es un bot → se descarta. */
   website: z.string().optional(),
+  /** De dónde vino la visita y su primera página (lo guarda el navegador). */
+  ...utmFields,
 });
 export type PublicJoinWaitlistInput = z.infer<typeof PublicJoinWaitlistSchema>;
 

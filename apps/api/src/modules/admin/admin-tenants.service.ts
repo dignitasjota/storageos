@@ -2933,6 +2933,10 @@ export class AdminTenantsService {
       await tx.searchConsoleDevice.deleteMany({ where: { tenantId } });
       await tx.seoTrackedKeyword.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
+      // SEO Avanzado: alertas, informes (sus destinatarios) y conversiones por página de entrada.
+      await tx.seoAlert.deleteMany({ where: { tenantId } });
+      await tx.seoReport.deleteMany({ where: { tenantId } });
+      await tx.seoConversionDaily.deleteMany({ where: { tenantId } });
       // SEO Avanzado: el plan (actuaciones y tareas: texto libre, URL, palabras y responsables).
       await tx.seoTask.deleteMany({ where: { tenantId } });
       await tx.seoSiteChange.deleteMany({ where: { tenantId } });
@@ -3070,6 +3074,14 @@ export class AdminTenantsService {
       .deleteByPrefix('reports', `${tenantId}/exports/`)
       .catch((err: unknown) =>
         this.logger.warn(`anonymize: no se pudo borrar exports/ de ${tenantId}: ${String(err)}`),
+      );
+    // Los PDF de los informes de SEO Avanzado (sus filas ya se borraron).
+    await this.files
+      .deleteByPrefix('reports', `${tenantId}/seo-reports/`)
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `anonymize: no se pudo borrar seo-reports/ de ${tenantId}: ${String(err)}`,
+        ),
       );
     // Documentos de los inquilinos y adjuntos que quedaran sueltos (las facturas
     // y los contratos firmados se conservan, como en el RGPD de un inquilino).

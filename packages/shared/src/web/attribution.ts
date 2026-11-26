@@ -11,6 +11,8 @@ export interface TrafficSource {
   source: string;
   medium?: string;
   campaign?: string;
+  /** Primera página que vio el visitante al llegar con este origen (la ruta). */
+  landing?: string;
 }
 
 /** Días que dura el origen guardado en el navegador. */
@@ -161,16 +163,21 @@ export function detectTrafficSource(args: {
   return utmCampaign ? { source: 'web', campaign: utmCampaign } : null;
 }
 
+/** Largo máximo de la página de entrada que se guarda. */
+export const LANDING_PATH_MAX = 300;
+
 /** Lo que viaja a la reserva, el contacto y la lista de espera. */
 export function trafficSourceToUtm(s: TrafficSource | null): {
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
+  landingPath?: string;
 } {
   if (!s) return {};
   return {
     utmSource: s.source,
     ...(s.medium ? { utmMedium: s.medium } : {}),
     ...(s.campaign ? { utmCampaign: s.campaign } : {}),
+    ...(s.landing ? { landingPath: s.landing.slice(0, LANDING_PATH_MAX) } : {}),
   };
 }

@@ -147,14 +147,17 @@ export function currentTrafficSource(slug: string): TrafficSource | null {
       source: stored.source,
       ...(stored.medium ? { medium: stored.medium } : {}),
       ...(stored.campaign ? { campaign: stored.campaign } : {}),
+      // La primera página que vio al llegar con ese origen (la página de entrada).
+      ...(stored.landing ? { landing: stored.landing } : {}),
     };
   }
   // Sin almacenamiento disponible: al menos lo que trae la URL.
-  return detectTrafficSource({
+  const fromUrl = detectTrafficSource({
     search: window.location.search,
     referrer: '',
     ownHosts: [window.location.host],
   });
+  return fromUrl ? { ...fromUrl, landing: window.location.pathname } : null;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';

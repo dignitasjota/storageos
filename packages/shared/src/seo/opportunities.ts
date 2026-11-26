@@ -114,6 +114,13 @@ export const SEO_DEFAULT_WEIGHTS = {
   trend: 0.1,
   /** Dificultad (competencia de SISTRIX): resta. */
   difficulty: 0.1,
+  /**
+   * La página que sale convierte (reservas, contactos o altas desde Google,
+   * PR 8). Opcional: solo entra cuando la página tiene clics suficientes y
+   * conversiones medidas; si no, no cuenta (ni como desconocido), así que las
+   * puntuaciones sin ese dato no cambian.
+   */
+  conversions: 0.05,
 } as const;
 export type SeoWeightKey = keyof typeof SEO_DEFAULT_WEIGHTS;
 export type SeoWeights = Record<SeoWeightKey, number>;
@@ -126,6 +133,7 @@ export const SEO_WEIGHT_LABELS: Record<SeoWeightKey, string> = {
   priority: 'Prioridad en tus palabras',
   trend: 'Tendencia',
   difficulty: 'Dificultad (resta)',
+  conversions: 'La página convierte',
 };
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
@@ -267,7 +275,10 @@ export const UpdateSeoOpportunitySettingsSchema = z
   .refine(
     (v) =>
       !v.weights ||
-      SEO_WEIGHT_KEYS.filter((k) => k !== 'difficulty').some((k) => v.weights?.[k] !== 0),
+      // La dificultad resta y «la página convierte» es opcional: no cuentan.
+      SEO_WEIGHT_KEYS.filter((k) => k !== 'difficulty' && k !== 'conversions').some(
+        (k) => v.weights?.[k] !== 0,
+      ),
     { message: 'Al menos un peso (sin contar la dificultad) tiene que ser mayor que cero.' },
   );
 export type UpdateSeoOpportunitySettingsInput = z.infer<typeof UpdateSeoOpportunitySettingsSchema>;
@@ -385,7 +396,20 @@ export interface SeoOpportunityFactorsInput {
   hasSistrix: boolean;
   /** El periodo anterior tiene datos de casi todos sus días. */
   comparable: boolean;
+  /** Conversiones de Google de la página que sale y sus clics (opcional, PR 8). */
+  pageConversions?: SeoPageConversionStat | null;
 }
+
+/** Conversiones orgánicas de una página y sus clics de Google en el mismo periodo. */
+export interface SeoPageConversionStat {
+  conversions: number;
+  clicks: number;
+}
+
+/** Tasa de conversión que vale 1 en el factor «La página convierte» (5 %). */
+export const SEO_CONVERSION_RATE_CAP = 0.05;
+/** Clics mínimos de la página para que el factor cuente. */
+export const SEO_CONVERSION_MIN_CLICKS = 20;
 
 export interface SeoOpportunityFactorDto {
   key: SeoWeightKey;
@@ -576,6 +600,18 @@ export function scoreSeoOpportunity(
     ['priority', priority],
     ['trend', trend],
   ];
+  // La página convierte: solo con datos (si no, el factor no existe y nada cambia).
+  const pc = input.pageConversions;
+  if (pc && pc.clicks >= SEO_CONVERSION_MIN_CLICKS && pc.conversions > 0) {
+    const rate = pc.conversions / pc.clicks;
+    positives.push([
+      'conversions',
+      {
+        value: clamp01(rate / SEO_CONVERSION_RATE_CAP),
+        detail: `La página que sale convierte: ${seoFmtInt(pc.conversions)} de ${seoFmtInt(pc.clicks)} clics desde Google (${fmtPct(rate)})`,
+      },
+    ]);
+  }
   const valueOf = (f: { value: number | null }) => f.value ?? SEO_UNKNOWN_FACTOR_VALUE;
   const sumW = positives.reduce((s, [k]) => s + weights[k], 0);
   const base =
@@ -729,6 +765,11 @@ export interface SeoOpportunityDetectInput {
   sistrixMetricsAvailable: boolean;
   sistrixOpportunities: SeoOpportunitySistrixRow[];
   keywordGaps: SeoOpportunityGapRow[];
+  /**
+   * Conversiones de Google de la página que sale por cada búsqueda (clave:
+   * la búsqueda normalizada). Opcional (PR 8): el factor «La página convierte».
+   */
+  pageConversionsByQuery?: Record<string, SeoPageConversionStat>;
 }
 
 const pctChange = (now: number, before: number): number | null =>
@@ -834,6 +875,7 @@ export function detectSeoOpportunities(
         hasGsc: parts.gsc !== null && parts.gsc.impressions > 0,
         hasSistrix: sistrix !== null || !!parts.competitors,
         comparable: parts.gsc?.previous !== null && parts.gsc?.previous !== undefined,
+        pageConversions: input.pageConversionsByQuery?.[norm] ?? null,
       },
       input.weights,
     );

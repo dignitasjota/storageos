@@ -331,6 +331,11 @@ model Tenant {
   salesDemoSettings PlatformSalesSettings[] @relation("SalesDemoTenant")
   /// Comisión propia por cobros con tarjeta (Stripe Connect); null = la general.
   applicationFeePct Decimal? @map("application_fee_pct") @db.Decimal(5, 2)
+  /// Alta desde la web: de dónde vino y por qué página entró (SEO Avanzado, PR 8).
+  signupUtmSource   String?  @map("signup_utm_source")
+  signupUtmMedium   String?  @map("signup_utm_medium")
+  signupUtmCampaign String?  @map("signup_utm_campaign")
+  signupLandingPath String?  @map("signup_landing_path")
   businessReminders           BusinessReminder[]
   businessReminderCompletions BusinessReminderCompletion[]
   businessReminderNotices     BusinessReminderNotice[]
@@ -3920,6 +3925,11 @@ model WaitlistEntry {
   interestConfirmedAt DateTime? @map("interest_confirmed_at") @db.Timestamptz(6)
   interestTokenHash String? @unique @map("interest_token_hash")
   assignedToUserId String? @map("assigned_to_user_id") @db.Uuid
+  /// De dónde vino quien se apuntó desde la web y su primera página.
+  utmSource    String?   @map("utm_source")
+  utmMedium    String?   @map("utm_medium")
+  utmCampaign  String?   @map("utm_campaign")
+  landingPath  String?   @map("landing_path")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4215,6 +4225,8 @@ model Lead {
   utmSource               String?    @map("utm_source")
   utmMedium               String?    @map("utm_medium")
   utmCampaign             String?    @map("utm_campaign")
+  /// Primera página que vio el visitante (la ruta; SEO Avanzado la usa para las conversiones).
+  landingPath             String?    @map("landing_path")
   metadata                Json       @default("{}")
   /// Consentimiento expreso para recibir comunicaciones comerciales.
   marketingConsentAt      DateTime?  @map("marketing_consent_at") @db.Timestamptz(6)
@@ -8590,6 +8602,13 @@ model PlatformContactMessage {
   repliedAt    DateTime? @map("replied_at") @db.Timestamptz(6)
   replySubject String?   @map("reply_subject")
   replyBody    String?   @map("reply_body")
+  /// contact · demo · calculator
+  kind         String    @default("contact")
+  /// De dónde vino la visita y su primera página.
+  utmSource    String?   @map("utm_source")
+  utmMedium    String?   @map("utm_medium")
+  utmCampaign  String?   @map("utm_campaign")
+  landingPath  String?   @map("landing_path")
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   assignedTo SuperAdmin? @relation("ContactMessageAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
@@ -9864,6 +9883,14 @@ model SeoProject {
   /// Umbrales de canibalización y reglas de indexación (vacío = los de por defecto).
   diagnosticSettings        Json      @default("{}") @map("diagnostic_settings")
   diagnosticsCalculatedAt   DateTime? @map("diagnostics_calculated_at") @db.Timestamptz(6)
+  /// Umbrales, reglas apagadas y correo de las alertas (PR 8).
+  alertSettings             Json      @default("{}") @map("alert_settings")
+  /// Informes semanal y mensual: activos, destinatarios y correos de fuera (PR 8).
+  reportSettings            Json      @default("{}") @map("report_settings")
+  /// Proyecto de la plataforma que cuenta las conversiones de trasteros.pro (null = por el dominio).
+  platformConversions       Boolean?  @map("platform_conversions")
+  conversionsCalculatedAt   DateTime? @map("conversions_calculated_at") @db.Timestamptz(6)
+  alertsCheckedAt           DateTime? @map("alerts_checked_at") @db.Timestamptz(6)
 
   domains           SeoProjectDomain[]
   runs              SeoSyncRun[]
@@ -9877,6 +9904,9 @@ model SeoProject {
   tasks             SeoTask[]
   masterImports     SeoMasterImport[]
   keywordGroups     SeoKeywordGroup[]
+  conversionsDaily  SeoConversionDaily[]
+  alerts            SeoAlert[]
+  reports           SeoReport[]
 
   @@map("seo_projects")
 }
@@ -10685,4 +10715,86 @@ model SeoApiCache {
 
   @@index([expiresAt], map: "seo_api_cache_expires_idx")
   @@map("seo_api_cache")
+}
+
+/// Conversiones del tráfico orgánico de Google por día, tipo y página de entrada (PR 8).
+model SeoConversionDaily {
+  id          String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid
+  projectId   String   @map("project_id") @db.Uuid
+  domainId    String?  @map("domain_id") @db.Uuid
+  /// Día en hora de España.
+  date        DateTime @db.Date
+  type        String
+  /// Ruta de la página de entrada ('' = no se sabe).
+  landingPath String   @default("") @map("landing_path")
+  count       Int      @default(0)
+  revenue     Decimal? @db.Decimal(12, 2)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, date, type, landingPath], map: "seo_conversions_daily_key")
+  @@index([tenantId], map: "seo_conversions_daily_tenant_idx")
+  @@map("seo_conversions_daily")
+}
+
+/// Alerta de un proyecto SEO (PR 8). Una sola viva por clave (índice parcial en SQL).
+model SeoAlert {
+  id            String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId      String?   @map("tenant_id") @db.Uuid
+  projectId     String    @map("project_id") @db.Uuid
+  type          String
+  dedupKey      String    @map("dedup_key")
+  /// high · medium · low
+  severity      String    @default("medium")
+  title         String
+  message       String    @default("")
+  data          Json      @default("{}")
+  /// open · silenced · resolved
+  status        String    @default("open")
+  silencedUntil DateTime? @map("silenced_until") @db.Timestamptz(6)
+  firstSeenAt   DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt    DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  resolvedAt    DateTime? @map("resolved_at") @db.Timestamptz(6)
+  /// auto · manual
+  resolvedBy    String?   @map("resolved_by")
+  notifiedAt    DateTime? @map("notified_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status, lastSeenAt(sort: Desc)], map: "seo_alerts_list_idx")
+  @@index([tenantId], map: "seo_alerts_tenant_idx")
+  @@map("seo_alerts")
+}
+
+/// Informe semanal o mensual enviado (PR 8), con su PDF en el bucket privado `reports`.
+model SeoReport {
+  id                      String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId                String?   @map("tenant_id") @db.Uuid
+  projectId               String    @map("project_id") @db.Uuid
+  /// weekly · monthly
+  kind                    String
+  periodFrom              DateTime  @map("period_from") @db.Date
+  periodTo                DateTime  @map("period_to") @db.Date
+  periodKey               String    @map("period_key")
+  /// cron · manual
+  trigger                 String    @default("cron")
+  /// sent · empty · failed
+  status                  String    @default("sent")
+  recipients              String[]  @default([])
+  pdfKey                  String?   @map("pdf_key")
+  error                   String?
+  requestedByUserId       String?   @map("requested_by_user_id") @db.Uuid
+  requestedBySuperAdminId String?   @map("requested_by_super_admin_id") @db.Uuid
+  sentAt                  DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt(sort: Desc)], map: "seo_reports_list_idx")
+  @@index([tenantId], map: "seo_reports_tenant_idx")
+  @@map("seo_reports")
 }

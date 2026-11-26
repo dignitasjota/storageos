@@ -11,6 +11,9 @@ import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-car
 import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoPlanCard } from '@/components/seo/plan/plan-card';
+import { SeoAlertsCard } from '@/components/seo/reports/alerts-card';
+import { SeoConversionsCard } from '@/components/seo/reports/conversions-card';
+import { SeoReportsCard } from '@/components/seo/reports/reports-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SeoImportsCard } from '@/components/seo/seo-imports-card';
@@ -165,6 +168,10 @@ export default function SeoAdvancedPage() {
 
       <SeoPanel client={client} domains={project.domains} planScope={{ kind: 'tenant' }} />
 
+      <SeoConversionsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+
+      <SeoAlertsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+
       <SeoOpportunitiesCard
         scope={{ kind: 'tenant' }}
         canEdit={canEdit}
@@ -174,6 +181,8 @@ export default function SeoAdvancedPage() {
       <SeoDiagnosticsCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
 
       <SeoPlanCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
+
+      <SeoReportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
 
       <SeoDomainsCard
         project={project}

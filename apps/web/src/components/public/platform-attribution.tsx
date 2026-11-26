@@ -1,6 +1,6 @@
 'use client';
 
-import { PLATFORM_ATTRIBUTION_KEY } from '@storageos/shared';
+import { LANDING_PATH_MAX, PLATFORM_ATTRIBUTION_KEY } from '@storageos/shared';
 import { useEffect } from 'react';
 
 import { currentTrafficSource, recordVisit } from '@/lib/attribution';
@@ -26,6 +26,7 @@ export function platformTrafficFields(): {
   utmSource?: string;
   utmMedium?: string;
   utmCampaign?: string;
+  landingPath?: string;
 } {
   const origin = currentTrafficSource(PLATFORM_ATTRIBUTION_KEY);
   if (!origin) return {};
@@ -33,5 +34,7 @@ export function platformTrafficFields(): {
     ...(origin.source ? { utmSource: origin.source.slice(0, 120) } : {}),
     ...(origin.medium ? { utmMedium: origin.medium.slice(0, 120) } : {}),
     ...(origin.campaign ? { utmCampaign: origin.campaign.slice(0, 120) } : {}),
+    // Primera página que vio (SEO Avanzado reparte las altas y demos por ella).
+    ...(origin.landing ? { landingPath: origin.landing.slice(0, LANDING_PATH_MAX) } : {}),
   };
 }
