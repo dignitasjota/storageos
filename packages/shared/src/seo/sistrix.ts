@@ -342,6 +342,8 @@ export const SeoKeywordSourceEnum = z.enum([
   'sistrix_ideas',
   'sistrix_opportunities',
   'import',
+  'search_console',
+  'opportunity',
 ]);
 export type SeoKeywordSource = z.infer<typeof SeoKeywordSourceEnum>;
 
@@ -349,10 +351,12 @@ export const AddSeoProjectKeywordsSchema = z.object({
   keywords: z
     .array(z.string().trim().min(2).max(120))
     .min(1)
-    .max(100)
+    .max(500)
     .transform((list) => [...new Set(list.map(normalizeSeoKeyword))].filter((k) => k.length >= 2)),
   groupName: z.string().trim().max(80).nullable().optional(),
   priority: z.number().int().min(1).max(3).optional(),
+  /** Intención para todas las que se añaden (vacía = se deduce). */
+  intent: SeoKeywordIntentEnum.nullable().optional(),
   source: SeoKeywordSourceEnum.exclude(['import']).default('manual'),
 });
 export type AddSeoProjectKeywordsInput = z.infer<typeof AddSeoProjectKeywordsSchema>;

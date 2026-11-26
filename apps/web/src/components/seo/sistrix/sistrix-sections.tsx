@@ -4,7 +4,6 @@ import { Loader2 } from 'lucide-react';
 
 import { CompetitorsPanel } from './competitors-panel';
 import { KeywordIdeasPanel } from './keyword-ideas-panel';
-import { KeywordsPanel } from './keywords-panel';
 import { BacklinksPanel, AiVisibilityPanel } from './links-ai-panels';
 import { SistrixStatus } from './sistrix-status';
 import { TenantSistrixCard } from './tenant-sistrix-card';
@@ -20,9 +19,9 @@ import {
 } from '@/lib/seo-advanced/sistrix-hooks';
 
 /**
- * SISTRIX en un proyecto: competidores, palabras clave, ideas de palabras,
- * enlaces y visibilidad en IA (sus oportunidades van en la lista de
- * Oportunidades). Lo usan la ficha del proyecto del panel admin y la
+ * SISTRIX en un proyecto: competidores, ideas de palabras, enlaces y
+ * visibilidad en IA (sus oportunidades van en la lista de Oportunidades y las
+ * palabras seguidas, con sus métricas de SISTRIX, en el diagnóstico). Lo usan la ficha del proyecto del panel admin y la
  * página de SEO Avanzado del tenant. Cada dato lleva su origen y su fecha.
  */
 export function SeoSistrixSections({
@@ -75,7 +74,6 @@ export function SeoSistrixSections({
               <div className="-mx-1 overflow-x-auto px-1">
                 <TabsList className="w-max">
                   <TabsTrigger value="competitors">Competidores</TabsTrigger>
-                  <TabsTrigger value="keywords">Palabras clave</TabsTrigger>
                   <TabsTrigger value="ideas">Ideas de palabras</TabsTrigger>
                   <TabsTrigger value="links">Enlaces</TabsTrigger>
                   <TabsTrigger value="ai">Visibilidad en IA</TabsTrigger>
@@ -87,9 +85,6 @@ export function SeoSistrixSections({
                   canEdit={canEdit}
                   limit={workspace.limits.competitors}
                 />
-              </TabsContent>
-              <TabsContent value="keywords">
-                <KeywordsPanel scope={scope} canEdit={canEdit} limit={workspace.limits.keywords} />
               </TabsContent>
               <TabsContent value="ideas">
                 <KeywordIdeasPanel scope={scope} canEdit={canEdit} />

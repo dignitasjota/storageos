@@ -1,3 +1,5 @@
+import { ROBOTS_PRIVATE_PATHS } from '@storageos/shared';
+
 import type { MetadataRoute } from 'next';
 
 import { fetchPlatformWebsite } from '@/lib/platform-website';
@@ -10,7 +12,7 @@ function siteUrl(): string {
   ).replace(/\/$/, '');
 }
 
-const PRIVATE = ['/dashboard', '/settings', '/admin', '/portal', '/api/', '/widget/', '/book/'];
+const PRIVATE = [...ROBOTS_PRIVATE_PATHS];
 
 /**
  * robots.txt: indexa la home y las landings públicas (`/s/`); bloquea el panel

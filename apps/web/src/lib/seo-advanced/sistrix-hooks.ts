@@ -82,7 +82,16 @@ export function useSistrixWorkspace(scope: SistrixScope, enabled = true) {
 function useInvalidate(scope: SistrixScope) {
   const qc = useQueryClient();
   const { key } = scopeApi(scope);
-  return () => qc.invalidateQueries({ queryKey: key });
+  // Las palabras del proyecto también salen en el diagnóstico (palabras seguidas).
+  const diagnostics =
+    scope.kind === 'admin'
+      ? ['admin', 'seo', 'diagnostics', scope.projectId]
+      : ['seo-advanced', 'diagnostics'];
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: key }),
+      qc.invalidateQueries({ queryKey: diagnostics }),
+    ]);
 }
 
 export function useSistrixSync(scope: SistrixScope) {

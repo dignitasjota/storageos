@@ -425,6 +425,7 @@ export class SeoSistrixDataService {
         projectId,
         keywordId: c.id,
         groupName: input.groupName ?? null,
+        intent: input.intent ?? null,
         priority: input.priority ?? 2,
         source: input.source,
       })),

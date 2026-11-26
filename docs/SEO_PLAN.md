@@ -740,3 +740,27 @@ Un factor que no se sabe cuenta con un valor neutro-bajo (0,3, `SEO_UNKNOWN_FACT
 **Decisiones**: los pesos de §9 se guardan con los nombres que ya tenía `seo_projects.weights` (`impressions`, `position`, `ctrGap`, `business`, `trend`) más `priority` y `difficulty`; una búsqueda puede dar varias oportunidades (son acciones distintas); la página que sale no forma parte de la clave (cambia con el tiempo); las rutas nuevas van en `…/opportunity-engine` para no romper `…/opportunities` de la PR 3.
 
 **Pendiente** (PR 5): canibalización, páginas que no deberían estar indexadas, URL objetivo frente a la que enseña Google, cubo diario de palabras seguidas y alta de palabras desde Search Console o CSV.
+
+## 31. PR 5 hecha — fase 2 completa (2026-11-26)
+
+Diagnóstico (§18.2–§18.5, §18.7, §19.2 y §19.5). Lo puro en `packages/shared/src/seo/diagnostics.ts` (vitest); el API suma con SQL (`SeoDiagnosticsEngineService`) y guarda en `seo_cannibalizations` y `seo_index_findings`.
+
+**Palabras seguidas (§18.2–§18.4)**
+
+- Alta desde Search Console (búsquedas reales del periodo con impresiones mínimas, posición máxima, sin marca y sin las ya seguidas; selección múltiple con grupo, prioridad e intención), desde CSV o Excel (el lector del importador general; columnas palabra, grupo, intención, URL objetivo, prioridad y notas; vista previa; **nunca pisa**: las fijadas no se tocan y en las demás solo se rellena lo vacío, campo a campo con la condición de que siga vacío; la prioridad solo en las nuevas, porque siempre tiene valor y no se sabe si fue una decisión) y desde las oportunidades («Seguir esta palabra» en su ficha) y las ideas de SISTRIX (ya estaba). Límites de 300 (tenant) y 2.000 (plataforma).
+- Evolución de cada palabra desde `seo_gsc_metrics` sin tabla nueva: posición, clics, impresiones y CTR por día (cruce `query`), la página ganadora de cada día y sus cambios (`query_page`), por dispositivo y por país, y la posición de SISTRIX como serie aparte marcada como estimación.
+- Intención con la función de la PR 4 (manual > SISTRIX > reglas) y vista agrupada por intención y por grupo con clics, impresiones, CTR y posición ponderada.
+- URL objetivo frente a la que enseña Google: `ok` (se lleva ≥ 60 % de las impresiones), `other_page` (otra y la tuya < 20 %), `split`, `none` y `no_target` con la URL propuesta (la de más clics), que se acepta con un clic. URL normalizadas (protocolo, `www`, barra final, mayúsculas y parámetros de seguimiento).
+- Una sola vista: la pestaña «Palabras clave» de SISTRIX pasa a esta (sus métricas salen en ella con su origen).
+
+**Canibalización (§18.5 y §19.2)**: cruce consulta + página de 28 días (o los que se configuren): dos o más páginas propias (variantes juntas) con al menos el 10 % y 10 impresiones, o la página ganadora que cambia 3 veces o más. Sin marca. Tipos de §19.2: conflicto (alternancia), cambio de página (estable 7 días), convivencia (las dos en la primera página) y reparto. Gravedad: alta si se alternan y la segunda se lleva ≥ 25 %; baja en el caso esperado (URL objetivo + portada por debajo del 25 %) y en la convivencia. Motivo y acción (consolidar, diferenciar, enlazar, canónica o redirigir, marcar URL objetivo) en palabras.
+
+**Indexación (§18.7 y §19.5)**: reglas por proyecto, por defecto las de la propia web (`WEB_NOINDEX_PREFIXES` y `ROBOTS_PRIVATE_PATHS`, movidas a shared y usadas por el middleware, `robots.txt` y aquí) más lo técnico, borradores y parámetros; hallazgos de las páginas con impresiones (cruce `page`, todo lo guardado) que casan con una regla, variantes duplicadas y lo que sale por un dominio que debería redirigir. Siempre «Aparece en el rendimiento de Search Console», nunca «indexación confirmada» (la inspección de URL va en la fase 4, y la pantalla lo dice).
+
+**Decisiones**
+
+- Canibalización e indexación en tablas propias y no como tipos de `seo_opportunities`: su forma es otra (varias páginas con su reparto y la ganadora de cada día; gravedad en vez de puntuación; categoría y regla), tienen sus propios umbrales y no deben mezclarse con la lista por puntuación. El ciclo de vida sí es el de las oportunidades; una arreglada vuelve como nueva si Google la sigue enseñando después de darla por arreglada.
+- Mapas del sitio: solo lo que da la API de Search Console (`listSitemaps`: URL enviadas, avisos y errores). El contenido de cada mapa no se descarga: sería pedir desde nuestro servidor una dirección que pone el cliente; la lista de lo indexado llega con la inspección de URL y el rastreador.
+- Las palabras seguidas se ven por dominio (el principal por defecto): cada pantalla lee de un cruce y nunca suma dominios.
+
+**Criterios del MVP (§14) que quedan cumplidos con la fase 2**: proyectos con Search Console e histórico; panel con comparativas; SISTRIX con control de créditos; palabras clave con intención, grupo y URL objetivo; competencia; oportunidades con motivo y puntuación; canibalización e indexación como «a revisar» con su estado. De los añadidos: 15 (los totales salen siempre del cruce `site`), 16 y 17 (presupuesto de SISTRIX y panel que sigue con lo guardado, PR 3) y 18 (una posición que no hay sale «—», nunca 0, también en las palabras seguidas). Quedan para las fases 3 y 4: actuaciones con antes y después, conversiones, informes y alertas, importación de los Excel maestros, inspección de URL, rastreador y PageSpeed.

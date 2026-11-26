@@ -1,4 +1,8 @@
-import { resolveCustomDomainRoute } from '@storageos/shared';
+import {
+  WEB_NOINDEX_PREFIXES,
+  matchesPathPrefix,
+  resolveCustomDomainRoute,
+} from '@storageos/shared';
 import { type NextRequest, NextResponse } from 'next/server';
 
 import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
@@ -19,35 +23,11 @@ const PROTECTED = ['/dashboard', '/settings'];
 /**
  * Páginas de la plataforma sin valor para los buscadores (acceso, enlaces de un
  * solo uso, pagos, portal…): se piden «no indexar» con `X-Robots-Tag` (muchas
- * son componentes de cliente que no pueden declarar metadatos).
+ * son componentes de cliente que no pueden declarar metadatos). La lista vive
+ * en `@storageos/shared`: la usan también `robots.txt` y SEO Avanzado.
  */
-const NOINDEX_PREFIXES = [
-  '/login',
-  '/register',
-  '/forgot-password',
-  '/reset-password',
-  '/verify-email',
-  '/invite',
-  '/security',
-  '/pay',
-  '/review',
-  '/unsubscribe',
-  '/waitlist-confirm',
-  '/nps',
-  '/sign',
-  '/sepa-mandate',
-  '/g/',
-  '/portal',
-  '/book',
-  '/admin',
-];
-
 function withNoindex(pathname: string, res: NextResponse): NextResponse {
-  if (
-    NOINDEX_PREFIXES.some(
-      (p) => pathname === p || pathname.startsWith(p.endsWith('/') ? p : `${p}/`),
-    )
-  ) {
+  if (WEB_NOINDEX_PREFIXES.some((p) => matchesPathPrefix(pathname, p))) {
     res.headers.set('X-Robots-Tag', 'noindex, nofollow');
   }
   return res;

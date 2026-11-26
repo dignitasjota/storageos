@@ -52,6 +52,7 @@ import {
   useOpportunityDetail,
   useUpdateOpportunity,
 } from '@/lib/seo-advanced/opportunity-hooks';
+import { useAddKeywords } from '@/lib/seo-advanced/sistrix-hooks';
 import { cn } from '@/lib/utils';
 
 const UNASSIGNED = '__none__';
@@ -94,6 +95,8 @@ export function OpportunityDetailSheet({
   const detail = useOpportunityDetail(scope, id);
   const update = useUpdateOpportunity(scope);
   const assignees = useOpportunityAssignees(scope, canEdit && !!id);
+  const addKeyword = useAddKeywords(scope);
+  const [tracked, setTracked] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const o = detail.data;
 
@@ -192,6 +195,32 @@ export function OpportunityDetailSheet({
                   </Select>
                 </div>
               </div>
+              {!o.metrics.inCatalog && tracked !== o.id && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
+                  <span className="text-muted-foreground">
+                    Aún no sigues esta búsqueda en tus palabras.
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={addKeyword.isPending}
+                    onClick={async () => {
+                      try {
+                        await addKeyword.mutateAsync({
+                          keywords: [o.query],
+                          source: 'opportunity',
+                        });
+                        setTracked(o.id);
+                        toast.success(`«${o.query}» añadida a tus palabras`);
+                      } catch (err) {
+                        toast.error(seoErrorMessage(err));
+                      }
+                    }}
+                  >
+                    Seguir esta palabra
+                  </Button>
+                </div>
+              )}
               {o.status === 'dismissed' && o.dismissReason && (
                 <p className="text-sm text-muted-foreground">Descartada: {o.dismissReason}</p>
               )}

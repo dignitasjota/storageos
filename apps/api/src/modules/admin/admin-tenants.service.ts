@@ -2933,6 +2933,9 @@ export class AdminTenantsService {
       await tx.searchConsoleDevice.deleteMany({ where: { tenantId } });
       await tx.seoTrackedKeyword.deleteMany({ where: { tenantId } });
       await tx.tenantSearchConsole.deleteMany({ where: { tenantId } });
+      // SEO Avanzado: el diagnóstico (canibalización y páginas que no deberían estar en Google).
+      await tx.seoCannibalization.deleteMany({ where: { tenantId } });
+      await tx.seoIndexFinding.deleteMany({ where: { tenantId } });
       // SEO Avanzado: las oportunidades y SISTRIX (su clave cifrada, sus ajustes, lo descargado con
       // ella, el registro de peticiones, competidores y palabras del proyecto).
       await tx.seoOpportunity.deleteMany({ where: { tenantId } });

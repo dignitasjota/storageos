@@ -5,6 +5,11 @@ import { AdminGuard } from '../admin/admin.guard';
 
 import { AdminSeoController } from './admin-seo.controller';
 import {
+  AdminSeoDiagnosticsController,
+  SeoAdvancedDiagnosticsController,
+} from './diagnostics/seo-diagnostics.controller';
+import { SeoDiagnosticsService } from './diagnostics/seo-diagnostics.service';
+import {
   AdminSeoOpportunitiesController,
   SeoAdvancedOpportunitiesController,
 } from './opportunities/seo-opportunities.controller';
@@ -26,7 +31,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
  * SEO Avanzado en el API: las rutas del tenant (`/seo-advanced`) y del panel
  * admin (`/admin/seo`), el panel con sus agregaciones, la importación de los
  * Excel históricos de Search Console, SISTRIX (integraciones, OAuth y sus
- * datos por proyecto) y las oportunidades.
+ * datos por proyecto), las oportunidades y el diagnóstico (palabras seguidas,
+ * canibalización e indexación).
  */
 @Module({
   imports: [JwtModule.register({}), SeoAdvancedModule],
@@ -38,6 +44,8 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
     SistrixCallbackController,
     SeoAdvancedOpportunitiesController,
     AdminSeoOpportunitiesController,
+    SeoAdvancedDiagnosticsController,
+    AdminSeoDiagnosticsController,
   ],
   providers: [
     AdminGuard,
@@ -47,6 +55,7 @@ import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
     SeoSistrixService,
     SeoSistrixDataService,
     SeoOpportunitiesService,
+    SeoDiagnosticsService,
   ],
 })
 export class SeoAdvancedHttpModule {}

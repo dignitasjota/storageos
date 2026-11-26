@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { SectionError } from '@/components/dashboard/section-state';
+import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoDomainsCard } from '@/components/seo/seo-domains-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
@@ -167,6 +168,8 @@ export default function SeoAdvancedPage() {
         canEdit={canEdit}
         domains={project.domains}
       />
+
+      <SeoDiagnosticsCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
 
       <SeoDomainsCard
         project={project}

@@ -9861,13 +9861,18 @@ model SeoProject {
   /// Umbrales del motor de oportunidades (los pesos, en `weights`).
   opportunitySettings       Json      @default("{}") @map("opportunity_settings")
   opportunitiesCalculatedAt DateTime? @map("opportunities_calculated_at") @db.Timestamptz(6)
+  /// Umbrales de canibalización y reglas de indexación (vacío = los de por defecto).
+  diagnosticSettings        Json      @default("{}") @map("diagnostic_settings")
+  diagnosticsCalculatedAt   DateTime? @map("diagnostics_calculated_at") @db.Timestamptz(6)
 
-  domains       SeoProjectDomain[]
-  runs          SeoSyncRun[]
-  imports       SeoGscImport[]
-  competitors   SeoCompetitor[]
-  keywords      SeoProjectKeyword[]
-  opportunities SeoOpportunity[]
+  domains           SeoProjectDomain[]
+  runs              SeoSyncRun[]
+  imports           SeoGscImport[]
+  competitors       SeoCompetitor[]
+  keywords          SeoProjectKeyword[]
+  opportunities     SeoOpportunity[]
+  cannibalizations  SeoCannibalization[]
+  indexFindings     SeoIndexFinding[]
 
   @@map("seo_projects")
 }
@@ -9930,6 +9935,7 @@ model SeoGscMetric {
   gscImport SeoGscImport?    @relation(fields: [importId], references: [id], onDelete: Cascade)
 
   @@index([domainId, grain, date], map: "seo_gsc_metrics_domain_grain_date_idx")
+  @@index([domainId, grain, query, date], map: "seo_gsc_metrics_domain_grain_query_date_idx")
   @@index([grain, date], map: "seo_gsc_metrics_grain_date_idx")
   @@index([tenantId], map: "seo_gsc_metrics_tenant_idx")
   @@map("seo_gsc_metrics")
@@ -10361,6 +10367,90 @@ model SeoOpportunity {
   @@index([projectId, status, score(sort: Desc)], map: "seo_opportunities_list_idx")
   @@index([tenantId], map: "seo_opportunities_tenant_idx")
   @@map("seo_opportunities")
+}
+
+/// Canibalización de una búsqueda (PR 5). Recalcular no pisa estado ni notas.
+model SeoCannibalization {
+  id             String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId       String?   @map("tenant_id") @db.Uuid
+  projectId      String    @map("project_id") @db.Uuid
+  domainId       String?   @map("domain_id") @db.Uuid
+  domain         String
+  /// sha1 de dominio + búsqueda.
+  key            String
+  query          String
+  /// high · medium · low
+  severity       String
+  /// conflict · switch · split · coexistence
+  kind           String
+  expected       Boolean   @default(false)
+  pages          Json      @default("[]")
+  timeline       Json      @default("[]")
+  switches       Int       @default(0)
+  targetUrl      String?   @map("target_url")
+  suggestedUrl   String?   @map("suggested_url")
+  totals         Json      @default("{}")
+  periodFrom     DateTime  @map("period_from") @db.Date
+  periodTo       DateTime  @map("period_to") @db.Date
+  lastDataDate   DateTime? @map("last_data_date") @db.Date
+  reason         String    @default("")
+  action         String    @default("")
+  /// new · reviewed · fixed · ok
+  status         String    @default("new")
+  notes          String?
+  active         Boolean   @default(true)
+  returnedAt     DateTime? @map("returned_at") @db.Timestamptz(6)
+  detectedAt     DateTime  @default(now()) @map("detected_at") @db.Timestamptz(6)
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, key], map: "seo_cannibalizations_project_key_key")
+  @@index([projectId, status, severity], map: "seo_cannibalizations_list_idx")
+  @@index([tenantId], map: "seo_cannibalizations_tenant_idx")
+  @@map("seo_cannibalizations")
+}
+
+/// Página que aparece en Google y no debería (PR 5). Recalcular no pisa estado ni notas.
+model SeoIndexFinding {
+  id          String    @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId    String?   @map("tenant_id") @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  domainId    String?   @map("domain_id") @db.Uuid
+  domain      String
+  /// sha1 de dominio + URL + categoría.
+  key         String
+  url         String
+  category    String
+  rule        String
+  /// performance (la indexación confirmada llega con la inspección de URL)
+  evidence    String    @default("performance")
+  clicks      Int       @default(0)
+  impressions Int       @default(0)
+  firstDate   DateTime  @map("first_date") @db.Date
+  lastDate    DateTime  @map("last_date") @db.Date
+  reason      String    @default("")
+  action      String    @default("")
+  /// new · reviewed · fixed · ok
+  status      String    @default("new")
+  notes       String?
+  active      Boolean   @default(true)
+  returnedAt  DateTime? @map("returned_at") @db.Timestamptz(6)
+  detectedAt  DateTime  @default(now()) @map("detected_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  resolvedAt  DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, key], map: "seo_index_findings_project_key_key")
+  @@index([projectId, status, category], map: "seo_index_findings_list_idx")
+  @@index([tenantId], map: "seo_index_findings_tenant_idx")
+  @@map("seo_index_findings")
 }
 
 /// Petición a un proveedor de pago (sin secretos).
