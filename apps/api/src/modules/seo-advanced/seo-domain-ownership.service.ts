@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { searchConsoleSiteAllowed, seoDomainOfProperty } from '@storageos/shared';
+import {
+  PLATFORM_OWN_DOMAINS,
+  searchConsoleSiteAllowed,
+  seoDomainOfProperty,
+} from '@storageos/shared';
 
 import { PrismaAdminService } from '../database/prisma-admin.service';
 
@@ -92,7 +96,8 @@ export class SeoDomainOwnershipService {
 
   /** Dominios de la plataforma: su web, su API, sus ficheros y su correo (y subdominios). */
   isPlatformDomain(domain: string): boolean {
-    const hosts: string[] = [];
+    // Los dominios fijos van siempre: no dependen de la configuración del despliegue.
+    const hosts: string[] = [...PLATFORM_OWN_DOMAINS];
     for (const key of ['WEB_BASE_URL', 'API_BASE_URL', 'MINIO_PUBLIC_URL'] as const) {
       try {
         hosts.push(new URL(this.config.get(key, { infer: true })).hostname);

@@ -8,6 +8,14 @@ import { CITY_PAGE_PREFIX } from './city-pages';
  * propiedad; cada día se guardan sus búsquedas (fecha, consulta, página).
  */
 
+/**
+ * Dominios que son de la plataforma en todo entorno (producción, pruebas y
+ * despliegues mal configurados). Se unen a los hosts de la configuración: así
+ * un negocio nunca puede dar de alta la web de TrasterOS como suya, aunque
+ * `WEB_BASE_URL` apunte a localhost.
+ */
+export const PLATFORM_OWN_DOMAINS: readonly string[] = ['trasteros.pro', 'www.trasteros.pro'];
+
 /** `sc-domain:ejemplo.es` (propiedad de dominio) o `https://ejemplo.es/` (prefijo de URL). */
 export const SEARCH_CONSOLE_SITE_RE =
   /^(sc-domain:[a-z0-9-]+(\.[a-z0-9-]+)+|https?:\/\/[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?\/([^\s]*\/)?)$/i;
