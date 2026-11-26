@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { ChangeDialog, type ChangeDraft, type TaskDraft } from '../plan/plan-dialogs';
 import { SeoPlanLinks } from '../plan/plan-links';
 import { seoErrorMessage } from '../seo-errors';
+import { InspectUrlButton } from '../technical/inspection-bits';
 
 import {
   DiagnosticManage,
@@ -148,6 +149,13 @@ function Detail({
                         Portada
                       </Badge>
                     )}
+                    <InspectUrlButton
+                      scope={scope}
+                      url={p.page}
+                      canEdit={canEdit}
+                      size="icon"
+                      variant="ghost"
+                    />
                     {p.variants.length > 1 && (
                       <span className="block text-xs text-muted-foreground">
                         {p.variants.length} variantes de la misma URL, juntas

@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { SeoChange } from './seo-change';
 import { seoErrorMessage } from './seo-errors';
+import { InspectUrlButton } from './technical/inspection-bits';
 
 import { SectionError } from '@/components/dashboard/section-state';
 import { Badge } from '@/components/ui/badge';
@@ -44,6 +45,7 @@ import {
   type SeoPanelClient,
   type SeoPanelParams,
 } from '@/lib/seo-advanced/panel';
+import { type TechnicalScope } from '@/lib/seo-advanced/technical-hooks';
 
 const SORT_LABELS: Record<SeoTableSort, string> = {
   clicks: 'Más clics',
@@ -80,9 +82,12 @@ function Cells({ r }: { r: SeoTableRowDto }) {
 export function SeoTablesCard({
   client,
   params,
+  inspectScope,
 }: {
   client: SeoPanelClient;
   params: SeoPanelParams;
+  /** Para «Inspeccionar en Google» una página (PR 9). */
+  inspectScope?: TechnicalScope | undefined;
 }) {
   const [dimension, setDimension] = useState<Dimension>('query');
   const [input, setInput] = useState('');
@@ -274,6 +279,7 @@ export function SeoTablesCard({
       <CrossSheet
         client={client}
         params={params}
+        inspectScope={inspectScope}
         dimension={dimension}
         value={open}
         onClose={() => setOpen(null)}
@@ -285,12 +291,14 @@ export function SeoTablesCard({
 function CrossSheet({
   client,
   params,
+  inspectScope,
   dimension,
   value,
   onClose,
 }: {
   client: SeoPanelClient;
   params: SeoPanelParams;
+  inspectScope?: TechnicalScope | undefined;
   dimension: Dimension;
   value: string | null;
   onClose: () => void;
@@ -310,6 +318,11 @@ function CrossSheet({
               : 'Las búsquedas por las que aparece esta página en el periodo.'}
           </SheetDescription>
         </SheetHeader>
+        {inspectScope && dimension === 'page' && value && (
+          <div className="mt-3">
+            <InspectUrlButton scope={inspectScope} url={value} canEdit={client.canImport} />
+          </div>
+        )}
         <div className="mt-4">
           {cross.isError ? (
             <SectionError onRetry={() => void cross.refetch()} />
@@ -323,7 +336,18 @@ function CrossSheet({
             <ul className="divide-y text-sm">
               {cross.data.rows.map((r) => (
                 <li key={r.key} className="space-y-0.5 py-2">
-                  <p className="break-words">{show(other, r.key)}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="min-w-0 break-words">{show(other, r.key)}</p>
+                    {inspectScope && other === 'page' && (
+                      <InspectUrlButton
+                        scope={inspectScope}
+                        url={r.key}
+                        canEdit={client.canImport}
+                        size="icon"
+                        variant="ghost"
+                      />
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {formatCount(r.clicks)} clics · {formatCount(r.impressions)} impresiones · CTR{' '}
                     {r.ctr == null ? '—' : formatPct(r.ctr * 100)} · posición{' '}

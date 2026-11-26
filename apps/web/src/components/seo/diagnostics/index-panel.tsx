@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { ChangeDialog, type ChangeDraft, type TaskDraft } from '../plan/plan-dialogs';
 import { SeoPlanLinks } from '../plan/plan-links';
 import { seoErrorMessage } from '../seo-errors';
+import { InspectUrlButton, SeoIndexStatusBadge } from '../technical/inspection-bits';
 
 import { DIAGNOSTIC_STATUS_OPTIONS } from './cannibalization-panel';
 import { DiagnosticManage, DiagnosticStatusBadge, shortUrl } from './diagnostic-bits';
@@ -50,36 +51,38 @@ import {
 
 const ALL = 'all';
 
-function EvidenceBadges() {
+/**
+ * De dónde sale el hallazgo y lo que dice Google de la URL: «aparece en el
+ * rendimiento» (reglas) o la inspección de URL, y su última inspección.
+ */
+function EvidenceBadges({ f }: { f: SeoIndexFindingDto }) {
   return (
     <span className="flex flex-wrap gap-1.5">
       <Badge variant="outline" className="font-normal">
-        {SEO_INDEX_EVIDENCE_LABELS.performance}
+        {SEO_INDEX_EVIDENCE_LABELS[f.evidence]}
       </Badge>
-      <Badge variant="outline" className="font-normal text-muted-foreground">
-        {SEO_INDEX_EVIDENCE_LABELS.confirmed}: sin comprobar
-      </Badge>
+      <SeoIndexStatusBadge status={f.inspection} />
     </span>
   );
 }
 
-/** Lo que se lleva al plan desde una página que no debería estar en Google. */
+/** Lo que se lleva al plan desde un hallazgo de indexación. */
 function findingDrafts(f: SeoIndexFindingDto): { task: TaskDraft; change: ChangeDraft } {
+  const title =
+    f.category === 'not_indexed'
+      ? `Que Google indexe ${shortUrl(f.url)}`
+      : f.category === 'canonical_mismatch'
+        ? `Revisar la canónica de ${shortUrl(f.url)}`
+        : `Sacar de Google ${shortUrl(f.url)}`;
+  const type =
+    f.category === 'redirect_domain'
+      ? 'redirect'
+      : f.evidence === 'inspection'
+        ? 'technical'
+        : 'noindex';
   return {
-    task: {
-      title: `Sacar de Google ${shortUrl(f.url)}`,
-      type: 'technical',
-      url: f.url,
-      keywords: [],
-      indexFindingId: f.id,
-    },
-    change: {
-      title: `Sacar de Google ${shortUrl(f.url)}`,
-      type: f.category === 'redirect_domain' ? 'redirect' : 'noindex',
-      urls: [f.url],
-      keywords: [],
-      indexFindingId: f.id,
-    },
+    task: { title, type: 'technical', url: f.url, keywords: [], indexFindingId: f.id },
+    change: { title, type, urls: [f.url], keywords: [], indexFindingId: f.id },
   };
 }
 
@@ -106,7 +109,8 @@ function Detail({
         {!f.active && <Badge variant="secondary">Ya no sale</Badge>}
       </div>
       <p>{f.reason}</p>
-      <EvidenceBadges />
+      <EvidenceBadges f={f} />
+      <InspectUrlButton scope={scope} url={f.url} canEdit={canEdit} />
       <p className="text-xs text-muted-foreground">{SEO_INDEX_EVIDENCE_NOTE}</p>
       <section className="space-y-1">
         <h3 className="font-medium">Qué hacer</h3>
@@ -248,8 +252,9 @@ export function IndexPanel({ scope, canEdit }: { scope: DiagnosticScope; canEdit
         <p>
           Páginas que <strong>aparecen en el rendimiento de Search Console</strong> (han tenido
           impresiones) y casan con tus reglas de lo que no debería estar en Google, más variantes
-          duplicadas de una misma página y lo que sale por un dominio que debería redirigir.{' '}
-          {SEO_INDEX_EVIDENCE_NOTE}
+          duplicadas de una misma página y lo que sale por un dominio que debería redirigir. Y lo
+          que dice la <strong>inspección de URL de Google</strong>: URL objetivo que no tiene
+          indexadas y páginas para las que eligió otra canónica. {SEO_INDEX_EVIDENCE_NOTE}
         </p>
       </div>
 
@@ -325,6 +330,7 @@ export function IndexPanel({ scope, canEdit }: { scope: DiagnosticScope; canEdit
                   {SEO_INDEX_CATEGORY_LABELS[f.category]}
                 </Badge>
                 <DiagnosticStatusBadge status={f.status} returned={!!f.returnedAt} />
+                <SeoIndexStatusBadge status={f.inspection} />
               </div>
               <button
                 type="button"
@@ -334,8 +340,9 @@ export function IndexPanel({ scope, canEdit }: { scope: DiagnosticScope; canEdit
                 {f.url}
               </button>
               <p className="text-xs tabular-nums text-muted-foreground">
-                {formatCount(f.impressions)} impresiones · {formatCount(f.clicks)} clics · del{' '}
-                {formatDate(f.firstDate)} al {formatDate(f.lastDate)} · regla «{f.rule}»
+                {f.evidence === 'inspection'
+                  ? `Inspección de URL de Google del ${formatDate(f.lastDate)}`
+                  : `${formatCount(f.impressions)} impresiones · ${formatCount(f.clicks)} clics · del ${formatDate(f.firstDate)} al ${formatDate(f.lastDate)} · regla «${f.rule}»`}
               </p>
             </li>
           ))}

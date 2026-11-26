@@ -35,6 +35,7 @@ import { toast } from 'sonner';
 import { seoErrorMessage } from '../seo-errors';
 import { EditKeywordDialog, SerpDialog } from '../sistrix/keywords-panel';
 import { SeoOrigin } from '../sistrix/seo-origin';
+import { SeoIndexStatusBadge } from '../technical/inspection-bits';
 
 import { TargetStatusBadge, shortUrl } from './diagnostic-bits';
 import { KeywordCandidatesDialog } from './keyword-candidates-dialog';
@@ -581,6 +582,9 @@ export function TrackedKeywordsPanel({
                     <span className="min-w-0 break-all">
                       <span className="text-muted-foreground">URL objetivo: </span>
                       {shortUrl(k.targetUrl)}
+                      {k.targetUrl && (
+                        <SeoIndexStatusBadge status={k.targetIndex} className="ml-1 align-middle" />
+                      )}
                     </span>
                     <span className="min-w-0 break-all">
                       <span className="text-muted-foreground">Google enseña: </span>
@@ -612,6 +616,7 @@ export function TrackedKeywordsPanel({
 
       <KeywordDetailSheet
         scope={scope}
+        canEdit={canEdit}
         id={open}
         days={90}
         domainId={domainId}

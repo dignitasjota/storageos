@@ -19,6 +19,7 @@ import { SeoPlanLinks } from '../plan/plan-links';
 import { SeoTrendChart } from '../seo-charts';
 import { seoErrorMessage } from '../seo-errors';
 import { SeoOrigin } from '../sistrix/seo-origin';
+import { InspectUrlButton, SeoIndexStatusBadge } from '../technical/inspection-bits';
 
 import {
   OpportunityOrigins,
@@ -138,7 +139,7 @@ export function OpportunityDetailSheet({
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <Body o={o} />
+            <Body o={o} scope={scope} canEdit={canEdit} />
           )}
 
           {o && canEdit && (
@@ -279,7 +280,15 @@ export function OpportunityDetailSheet({
   );
 }
 
-function Body({ o }: { o: SeoOpportunityDetailDto }) {
+function Body({
+  o,
+  scope,
+  canEdit,
+}: {
+  o: SeoOpportunityDetailDto;
+  scope: OpportunityScope;
+  canEdit: boolean;
+}) {
   const g = o.metrics.gsc;
   const s = o.metrics.sistrix;
   const days: SeoDashboardDayDto[] = o.daily.map((d) => ({
@@ -317,6 +326,17 @@ function Body({ o }: { o: SeoOpportunityDetailDto }) {
           <div className="space-y-1">
             {o.page && <Row label="Página que sale">{o.page}</Row>}
             {o.targetUrl && <Row label="URL objetivo">{o.targetUrl}</Row>}
+            <Row label="Lo que dice Google">
+              <span className="flex flex-wrap items-center gap-2">
+                <SeoIndexStatusBadge status={o.urlIndex} />
+                <InspectUrlButton
+                  scope={scope}
+                  url={(o.page ?? o.targetUrl)!}
+                  canEdit={canEdit}
+                  variant="ghost"
+                />
+              </span>
+            </Row>
           </div>
         )}
       </Section>
@@ -392,12 +412,16 @@ function Body({ o }: { o: SeoOpportunityDetailDto }) {
         <Section title="Sus páginas en el periodo">
           <ul className="divide-y text-sm">
             {o.pages.map((p) => (
-              <li key={p.page} className="space-y-0.5 py-2">
+              <li key={p.page} className="space-y-1 py-2">
                 <p className="break-all">{p.page}</p>
                 <p className="text-xs text-muted-foreground">
                   {formatCount(p.clicks)} clics · {formatCount(p.impressions)} impresiones ·
                   posición {p.position === null ? '—' : formatNumber(p.position, 1)}
                 </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <SeoIndexStatusBadge status={p.index} />
+                  <InspectUrlButton scope={scope} url={p.page} canEdit={canEdit} variant="ghost" />
+                </div>
               </li>
             ))}
           </ul>

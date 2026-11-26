@@ -13,6 +13,7 @@ import { Loader2 } from 'lucide-react';
 
 import { DEVICE_LABELS, SeoTrendChart, countryLabel } from '../seo-charts';
 import { SeoOrigin } from '../sistrix/seo-origin';
+import { InspectUrlButton, SeoIndexStatusBadge } from '../technical/inspection-bits';
 
 import { TargetStatusBadge, shortUrl } from './diagnostic-bits';
 
@@ -84,7 +85,17 @@ function MetricRows({
   );
 }
 
-function Body({ d, markers }: { d: SeoTrackedKeywordDetailDto; markers: SeoChartMarkerDto[] }) {
+function Body({
+  d,
+  markers,
+  scope,
+  canEdit,
+}: {
+  d: SeoTrackedKeywordDetailDto;
+  markers: SeoChartMarkerDto[];
+  scope: DiagnosticScope;
+  canEdit: boolean;
+}) {
   const k = d.keyword;
   const days: SeoDashboardDayDto[] = d.daily.map((x) => ({
     date: x.date,
@@ -130,6 +141,13 @@ function Body({ d, markers }: { d: SeoTrackedKeywordDetailDto; markers: SeoChart
             <span className="text-muted-foreground">URL objetivo: </span>
             {k.targetUrl ?? 'sin decidir'}
           </p>
+          {k.targetUrl && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-muted-foreground">Lo que dice Google de ella: </span>
+              <SeoIndexStatusBadge status={k.targetIndex} />
+              <InspectUrlButton scope={scope} url={k.targetUrl} canEdit={canEdit} />
+            </div>
+          )}
           <p className="break-all">
             <span className="text-muted-foreground">Google enseña sobre todo: </span>
             {k.googlePage ?? 'ninguna en el periodo'}
@@ -252,12 +270,14 @@ function Body({ d, markers }: { d: SeoTrackedKeywordDetailDto; markers: SeoChart
 /** Ficha de una palabra seguida: evolución, páginas, dispositivos, países y SISTRIX aparte. */
 export function KeywordDetailSheet({
   scope,
+  canEdit = false,
   id,
   days,
   domainId,
   onClose,
 }: {
   scope: DiagnosticScope;
+  canEdit?: boolean;
   id: string | null;
   days: number;
   domainId: string | null;
@@ -294,7 +314,7 @@ export function KeywordDetailSheet({
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <Body d={detail.data} markers={markers.data ?? []} />
+            <Body d={detail.data} markers={markers.data ?? []} scope={scope} canEdit={canEdit} />
           )}
         </div>
       </SheetContent>
