@@ -1409,3 +1409,126 @@ Todas las tablas nuevas son de la plataforma (sin tenant ni RLS, con `REVOKE` a 
 - `admin_today_snoozes.fingerprint` (jsonb): cómo estaba el aviso al apartarlo; si empeora, vuelve a salir.
 - **`admin_reviewed_jobs`** (global, `REVOKE`, PK `queue` + `job_id`): trabajos de cola fallidos marcados como revisados (dejan de contar; si vuelven a fallar, salen otra vez). Se borran a los 30 días.
 - **`admin_today_visits`** (global, `REVOKE`, PK `super_admin_id`): última vez que cada super admin vio «Hoy» y la foto de lo que había, para el resumen «Desde tu última visita».
+
+## 18. Panel super admin y SEO Avanzado (migraciones `20270223100000` → `20270322100000`, 2026-11-22/26)
+
+Dos bloques: las revisiones y mejoras del panel del super admin (#1005–#1020) y el plan de SEO Avanzado (#1021–#1032). Salvo que se diga otra cosa, las tablas del panel admin son **globales** (sin `tenant_id` o accesibles solo con la conexión de administración) y llevan `REVOKE ALL … FROM storageos_app`.
+
+### Métricas y Finanzas (`20270223100000_mrr_snapshots_without_vat`, `20270224100000_admin_metrics_finance_improvements`)
+
+- `mrr_snapshots`: solo datos; las fotos mensuales de MRR ya guardadas pasan a sin IVA para que el primer mes no salga como una caída.
+- **`mrr_forecasts`** (global, `REVOKE`): previsión de MRR de cada mes (`made_month`, `target_month`, `months_ahead`, `base_mrr`, `prudent`, `expected`, `optimistic`). Única por `made_month` + `target_month`; sirve para medir la precisión de las previsiones pasadas.
+- **`platform_finance_settings`** (global, `REVOKE`, un registro): comisiones estimadas por forma de cobro (`stripe_*`, `redsys_*`, `sepa_*`, `manual_*`, porcentaje y fijo), `usd_eur_rate` y `email_cost`, para el margen por mes y por tenant.
+- **`platform_marketing_spend`** (global, `REVOKE`): gasto de marketing por mes (`month` `AAAA-MM` único, `amount`, `note`), para el coste de adquisición.
+- **`platform_metric_annotations`** (global, `REVOKE`): anotaciones con fecha que salen como líneas en los gráficos de Métricas (`date`, `text`, `author_id` → `super_admins`, `SET NULL`).
+- `platform_alert_settings.alert_concentration_pct` (25) y `platform_business_goals.collected_target_monthly` (objetivo de cobro del mes).
+
+### Salud, Adopción y Uso (`20270226100000_admin_health_adoption_usage_improvements`)
+
+- `users.last_active_day`: último día en que el usuario del tenant estuvo activo (una escritura por usuario y día).
+- **`tenant_activity_days`** (global, `REVOKE`, PK `user_id` + `day`): un registro por usuario y día activo; de aquí salen los días y usuarios activos en 30 días.
+- **`tenant_health_daily`** (global, `REVOKE`, PK `tenant_id` + `day`): foto diaria de la salud (`score`, `level`, `segment`), 400 días; alimenta la mini gráfica y el aviso de caída.
+- **`platform_health_settings`** (global, `REVOKE`, un registro): pesos de la salud de clientes y de pruebas (`client_weights`, `trial_weights`, suman 100), `drop_alert_points` (15) y los umbrales del consumo anómalo.
+- **`tenant_storage_usage_history`** (global, `REVOKE`, PK `tenant_id` + `month`): almacenamiento medido cada mes (`bytes`, `objects`, `by_bucket`); la migración copia la medición actual como la del mes en que se hizo.
+
+### Leads del super admin (`20270227100000_platform_leads_review`, `20270228100000_platform_leads_improvements`)
+
+- `platform_leads.awaiting_reply_since`: un perdido que vuelve a escribir espera desde ese mensaje.
+- `platform_leads`: motivo de descarte (`discard_reason_code`, `discard_reason`), fusión (`merged_into_id`, `SET NULL`), `reply_token` (único; dirección de respuesta `p-…@`), reparto (`auto_assigned_at`, `response_due_at`, `reassigned_at`), parados (`stale_notified_status`, `stale_notified_at`) y `sequence_opt_out`.
+- `platform_lead_activities.attachments` (jsonb) y `platform_quote_offers.open_count` / `last_opened_at` / `open_notified_at` (las ya abiertas cuentan una vez y no vuelven a avisar).
+- **`platform_lead_settings`** (global, `REVOKE`, un registro): reparto (`assign_mode` `off|round_robin|zone`, `round_robin_ids`, `zone_rules`), plazo de respuesta (`response_hours`, horas laborables), días de parado por fase (`stale_days`), `high_value_monthly` y `sequence_auto_start`.
+- **`platform_lead_sequences`** (global, `REVOKE`; única `is_default` por índice parcial): pasos de correo automáticos; la migración crea «Si no contesta» (días 2, 5 y 10).
+- **`platform_lead_sequence_enrollments`** (global, `REVOKE`): una matrícula activa por lead (índice único parcial), paso siguiente y `next_run_at` y motivo de parada.
+
+### Tenants del super admin (`20270301100000_admin_tenants_review`, `20270302100000_admin_tenants_improvements`)
+
+- `users.tokens_valid_after`: un acceso anterior a esa fecha se rechaza (401 `session_revoked`), salvo impersonación.
+- `tenants.cancel_scheduled_at/reason/note/by` y `anonymize_scheduled_at/reason/by` (índices parciales): bajas y anonimizaciones programadas.
+- `tenant_subscription_payments.extended_period`, `voided_at`, `void_reason` (pago a mano anulado), `impersonation_logs.user_id` (impersonar como un usuario), `admin_approval_requests.snapshot`, `super_admin_saved_views.columns` / `sort` y `tenant_interactions.pinned_at` (nota fijada).
+- **`tenant_data_exports`** (con `tenant_id`, RLS): cada exportación de datos pedida por el super admin (`status`, `file_key`, `file_bytes`, `counts`, `error`).
+
+### Comerciales: reparto, cartera y recuperación (`20270303100000_sales_bulk_assign`, `20270305100000_sales_recovery`, `20270305110000_sales_recovery_backfill`, `20270306100000_sales_portfolios_view`)
+
+- `platform_leads.sales_batch` (lote del reparto), `sales_seen_at` («Nuevo para ti» mientras sea nulo; lo ya asignado queda visto) y `sales_release_warned_at`; índices parciales por lote y por nuevos.
+- Archivado: `platform_leads.sales_archived_at`, `sales_recover_on` (fecha para volver a intentarlo), `sales_recover_notified_at` y `do_not_contact`. Un archivado es un perdido con `sales_archived_at`; los perdidos que ya llevaban los comerciales pasan a archivados y la migración `20270305110000` les pone la fecha de su motivo contando desde que se perdieron.
+- `platform_sales_settings.recover_months` (jsonb, meses por motivo) y `first_contact_alert_days` (5); `platform_leads.sales_first_contact_warned_at`.
+- **`sales_recoveries`** (global, `REVOKE`): cada archivado con comercial (`lead_id`, `rep_id`, `tenant_id` `SET NULL`, `kind` `prospect|client`, `reason_code`, `archived_at`, `recover_on`, `recovered_at`, `won_at`).
+- `sales_commission_items.recovery_id` (`SET NULL`) con índice único parcial: una partida `recovery` por recuperación.
+
+### Seguimientos, Trials, En riesgo y Oportunidades (`20270307100000_risk_snooze_kind`, `20270308100000_followup_outcome`, `20270308110000_opportunity_dismissals_offers`)
+
+- `tenants.risk_snoozed_kind`: la sección de «En riesgo» en la que se ignoró al tenant.
+- `tenant_followups` y `platform_lead_followups`: `outcome` («qué pasó») y `completed_by_id` (→ `super_admins`, `SET NULL`), sin relación en Prisma.
+- **`platform_opportunity_dismissals`** (global, `REVOKE`): oportunidades descartadas por tenant y extra (`until` nulo = siempre, `reason`); única por tenant y extra.
+- **`platform_addon_offers`** (global, `REVOKE`): cada propuesta de extra enviada (`tenant_id`, `addon_id`, `trial_days`, `trial_until`, `recipients`, `source` `single|bulk`, `sent_at`); la migración la rellena desde `admin.saas_addon.proposed`.
+
+### Problemas de facturación y Dominios propios (`20270309100000_admin_custom_domain_health`, `20270310100000_admin_domains_ops`)
+
+- `tenants.custom_domain_paused_verified_at` («En pausa»: el plan ya no incluye la función; `custom_domain_verified_at` queda nulo y la fecha se guarda aquí), `custom_domain_checked_at`, `custom_domain_check_ok` y `custom_domain_check_issue`.
+- **`platform_domain_checks`** (global, `REVOKE`): cada comprobación completa de un dominio (DNS, `www`, https con tiempo y estado, validez y caducidad del certificado, `detail`).
+- **`platform_domain_checklists`** (global, `REVOKE`, PK `tenant_id`): casillas de la guía de activación por tenant.
+- **`platform_domain_cleanups`** (global, `REVOKE`): Proxy Hosts de NPM por borrar cuando un tenant cambia o quita su dominio (`reason`, `done_at`, `done_by_id`).
+- **`platform_domain_settings`** (global, `REVOKE`, un registro): `notify_tenant_enabled` (aviso por correo al tenant, apagado por defecto).
+
+### SEO Avanzado: modelo general
+
+Un solo motor para dos ámbitos. **`tenant_id` nulo = proyecto de la plataforma** (trasteros.pro, solo lo ve el super admin con la conexión de administración); con valor, es de ese tenant. Todas las tablas de SEO llevan `tenant_id` (copia del dueño del proyecto) y política RLS `tenant_isolation` sobre `app.current_tenant`: un `tenant_id` nulo nunca cumple la política, así que el rol de la app no ve nada de la plataforma. Los datos de SISTRIX son por «fondo» (el dueño de la conexión con que se pidió el dato; nulo = la plataforma). Todas se borran al anonimizar un tenant (`AdminTenantsService.anonymize`); el e2e `admin-tenants-review-2` obliga a que toda tabla con `tenant_id` esté tratada o conservada a propósito.
+
+### SEO: proyectos y descarga de Search Console (`20270311100000_seo_advanced_base`, `20270311110000_seo_migrate_search_console`, `20270312100000_seo_advanced_panel`)
+
+- **`seo_projects`**: nombre, país, idioma, tipo de negocio, estrategia (`local|national|international`), términos de marca, `weights`, `frequencies`, estado. Único por tenant (`tenant_id` no nulo); la plataforma puede tener los que quiera. Columnas que añaden las PR siguientes: `use_platform_sistrix`, `opportunity_settings`, `diagnostic_settings`, `technical_settings`, `crawl_settings`, `alert_settings`, `report_settings`, `platform_conversions`, `ga4_*`, `ai_visibility_settings` y las fechas `*_calculated_at`.
+- **`seo_project_domains`**: dominio y propiedad de Search Console (`gsc_property`), papel principal o secundario y `verification` (`own|gsc_access`, `own` en todos los existentes). Único por proyecto y dominio.
+- **`seo_gsc_metrics`**: los diez cruces de Search Console en una tabla (`grain`: `site`, `device`, `country`, `search_type`, `query`, `page`, `query_page`, `query_device`, `query_country`, `page_device`), dimensiones ausentes como cadena vacía y clave única con `md5` de las dimensiones; `source` (`api|import`) e `import_id` (en cascada). Índices por dominio, cruce y fecha, y (PR 5) `(domain_id, grain, query, date)`.
+- **`seo_sync_runs`**: ejecuciones de la descarga y de las tandas de SISTRIX. Una viva por dominio y tipo (`seo_sync_runs_active_key`, parcial sobre `queued|running`) y una viva por proyecto y tipo de dato de SISTRIX (`seo_sync_runs_sistrix_active_key`, parcial sobre `queued|running|waiting`); columnas `data_type`, `progress`, `items_total/done/failed`, `paused_reason`, `paused_until`, `credits_used`.
+- **`seo_gsc_imports`** y **`seo_gsc_import_rows`**: Excel históricos de Search Console importados (sha256 único por proyecto) y sus filas por pestaña.
+- Función `seo_migrate_search_console()` (repetible, sin acceso público): copia lo de «SEO local» a proyectos, dominios y métricas sin tocar sus tablas, que siguen alimentando «Posiciones en Google».
+
+### SEO: SISTRIX y proveedores (`20270313100000_seo_sistrix`)
+
+- **`seo_provider_connections`** (RLS): conexión con SISTRIX por MCP (OAuth, tokens y cliente cifrados) o por API (clave cifrada y 4 últimas letras); `tenant_id` nulo = la de la plataforma; única por dueño y proveedor.
+- **`seo_oauth_states`** (global, `REVOKE`): `state` hash de un solo uso del OAuth.
+- **`seo_sync_settings`** (RLS): frecuencias, tope de peticiones por día y por tanda (`max_requests_per_day` 300, `max_requests_per_batch` 60) y pausa entre llamadas (`pause_ms`), por dueño; **`seo_keywords`** (global, `REVOKE`): palabras únicas por texto, país e idioma.
+- **`seo_competitors`**, **`seo_project_keywords`** (palabras seguidas del proyecto), **`seo_keyword_metrics`**, **`seo_domain_metrics`**, **`seo_domain_keywords`**, **`seo_serp_results`**, **`seo_domain_opportunities`**, **`seo_backlink_targets`** y **`seo_ai_visibility`** (RLS): datos de SISTRIX por «fondo».
+- **`seo_api_requests`** (RLS): registro de cada petición (sin secretos; se borra a los `RETENTION_SEO_API_REQUESTS_DAYS`, 90). **`seo_api_cache`** (RLS): caché por consulta con `expires_at`.
+
+### SEO: oportunidades y diagnóstico (`20270314100000_seo_opportunities`, `20270315100000_seo_diagnostics`)
+
+- **`seo_opportunities`**: clave estable (`sha1` de tipo + dominio + búsqueda, única por proyecto), puntuación y factores, métricas, estado, motivo al descartar, asignación (usuario o super admin) y notas.
+- **`seo_cannibalizations`** y **`seo_index_findings`**: clave estable única por proyecto, estado `new|reviewed|fixed|ok`, notas, `active` y `returned_at` (lo arreglado que Google vuelve a enseñar sale como nuevo). Tablas propias y no tipos de `seo_opportunities` por tener otra forma y otros umbrales. Los hallazgos con `evidence = 'inspection'` los ponen la inspección de URL y el rastreador.
+
+### SEO: plan de actuaciones y tareas (`20270316100000_seo_plan`)
+
+- **`seo_changes`** (actuaciones): día y hora del cambio, tipo, URLs como se apuntaron y normalizadas, palabras, enlaces a oportunidad, canibalización, hallazgo y tarea. El antes y después no se guarda: se calcula al leer desde `seo_gsc_metrics`.
+- **`seo_tasks`**: tipo, estado, prioridad, responsable (`assigned_to_user_id` o `assigned_to_super_admin_id`), fechas límite y de publicación, URL, palabras, orden en su columna, enlaces y avisos ya dados. Tabla propia y no `tasks` (proyectos sin tenant, responsables super admin).
+
+### SEO: importación de los Excel maestros (`20270317100000_seo_master_import`)
+
+- **`seo_master_imports`** (sha256 único por proyecto; Resumen, reglas, resultado por hoja y avisos), **`seo_master_import_items`** (lo que creó o rellenó, con los valores puestos, para deshacerlo al borrar) y **`seo_keyword_groups`** (grupos con prioridad, URL objetivo y nota; únicos por proyecto y nombre).
+- `master_import_id` en `seo_project_keywords`, `seo_competitors` y `seo_tasks` (`SET NULL`) y en `seo_keyword_metrics`, `seo_domain_keywords` y `seo_gsc_imports` (se borran con la importación); `seo_tasks.external_ref` (P01… del plan).
+
+### SEO: conversiones, alertas e informes (`20270318100000_seo_advanced_reports`)
+
+- **`seo_conversions_daily`**: conversiones de Google (`utm_source=google`, medio `organic` o vacío) por día, tipo y página de entrada.
+- **`seo_alerts`**: una viva por clave (`seo_alerts_live_key`, parcial `status <> 'resolved'`) y **`seo_reports`**: informes enviados (único `project_id` + `kind` + `period_key`, así el cron no repite).
+- `seo_projects.alert_settings`, `report_settings`, `platform_conversions`, `conversions_calculated_at`, `alerts_checked_at`.
+- Página de entrada y origen donde faltaban: `leads.landing_path`, `waitlist_entries.utm_source/medium/campaign` + `landing_path`, `platform_contact_messages.kind` + `utm_*` + `landing_path` y `tenants.signup_utm_*` + `signup_landing_path`.
+
+### SEO: inspección de URL y velocidad (`20270319100000_seo_url_inspection`)
+
+- **`seo_url_inspections`** (histórico de inspecciones; una pendiente por proyecto y URL, índice parcial `queued|running`) y **`seo_pagespeed_runs`** (cada medición por URL y estrategia, una pendiente por proyecto, URL y estrategia).
+- `seo_projects.technical_settings`, `technical_updated_at`, `pagespeed_scheduled_at`; índice `seo_index_findings (project_id, evidence)`.
+
+### SEO: rastreo (`20270320100000_seo_crawler`)
+
+- **`seo_crawls`** (un rastreo vivo por proyecto: `seo_crawls_live_key`), **`seo_crawl_pages`** (cada URL de cada rastreo, única por rastreo y `url_key`; se conservan los 10 últimos de cada proyecto) y **`seo_crawl_issues`** (incidencias con ciclo de vida, clave única por proyecto). `seo_projects.crawl_settings`.
+
+### SEO: asistente y borradores (`20270321100000_seo_ai`)
+
+- **`seo_ai_conversations`**, **`seo_ai_messages`**, **`seo_ai_actions`** (acciones propuestas que se ejecutan al confirmar, una vez, y caducan a 7 días) y **`seo_content_briefs`** (borradores de contenido), con RLS.
+- **`platform_ai_usage_events`** (global, `REVOKE`): consumo de IA de la plataforma sin tenant (con `tenantId` nulo el asistente usa la clave de la plataforma).
+
+### SEO: Google Analytics y visibilidad en IA (`20270322100000_seo_ga4_ai_visibility`)
+
+- `seo_projects.ga4_property_id`, `ga4_source`, `ga4_status`, `ga4_last_error`, `ga4_connected_at`, `ga4_synced_at`, `ga4_initial_done_at` y `ai_visibility_settings`.
+- **`seo_ga4_landing_daily`**: tráfico orgánico de Google por proyecto, día, host y página de entrada (sesiones, usuarios, interacción, duración, páginas vistas, eventos clave). Tabla propia y no `ga4_page_rows` (esa es todo el tráfico por página vista, sin canal ni página de entrada).
+- **`seo_ai_prompts`** (prompts y respuestas de los seguidos) y **`seo_ai_sources`** (fuentes y marcas que compiten), con RLS; `seo_ai_visibility.subject_type` (`domain|brand`) y su índice único rehecho.
