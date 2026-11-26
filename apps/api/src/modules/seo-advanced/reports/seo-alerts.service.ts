@@ -35,6 +35,7 @@ import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { EmailService } from '../../email/email.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { SeoProjectsService, type SeoOwner } from '../seo-projects.service';
+import { SeoAiVisibilityService } from '../sistrix/seo-ai-visibility.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
 import { SeoTechnicalReadService, indexStatusOf } from '../technical/seo-technical-read.service';
 
@@ -91,6 +92,7 @@ export class SeoAlertsService {
     private readonly events: EventEmitter2,
     private readonly config: ConfigService<Env, true>,
     private readonly technical: SeoTechnicalReadService,
+    private readonly aiVisibility: SeoAiVisibilityService,
   ) {}
 
   private notFound() {
@@ -654,6 +656,10 @@ export class SeoAlertsService {
         });
       }
     }
+
+    // Visibilidad en IA (PR 12): prompts en los que salías y ya no.
+    const lost = await this.aiVisibility.lostAlert(project.id, t.aiLostPrompts);
+    if (lost) out.push(lost);
     return out;
   }
 

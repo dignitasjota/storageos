@@ -24,6 +24,7 @@ import {
 } from '@storageos/shared';
 
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { SeoGa4Service } from '../ga4/seo-ga4.service';
 import { SeoConversionsService } from '../reports/seo-conversions.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
 import { SeoTechnicalReadService } from '../technical/seo-technical-read.service';
@@ -80,6 +81,7 @@ export class SeoOpportunityEngineService {
   constructor(
     private readonly admin: PrismaAdminService,
     private readonly conversions: SeoConversionsService,
+    private readonly ga4: SeoGa4Service,
     private readonly technical: SeoTechnicalReadService,
   ) {}
 
@@ -193,6 +195,19 @@ export class SeoOpportunityEngineService {
       const pageConversionsByQuery = queryPages
         ? await this.conversions.pageStatsByQuery(project.id, p.domain.id, p.period, queryPages)
         : {};
+      // Mucho tráfico y poca interacción (GA4, PR 12): solo con GA4 en el periodo.
+      const hasGa4 = await this.ga4.hasData(project.id, p.period);
+      const ga4Pages = hasGa4
+        ? (queryPages ??
+          (await this.topPages(
+            p.domain.id,
+            p.period,
+            p.queries.map((q) => q.query),
+          )))
+        : null;
+      const pageEngagementByQuery = ga4Pages
+        ? await this.ga4.pageStatsByQuery(project.id, p.period, ga4Pages)
+        : {};
       const found = detectSeoOpportunities({
         domain: p.domain.domain,
         brandTerms: project.brandTerms,
@@ -205,6 +220,7 @@ export class SeoOpportunityEngineService {
         sistrixOpportunities: p.sistrix,
         keywordGaps: p.gaps,
         pageConversionsByQuery,
+        pageEngagementByQuery,
         ...(primary && p.domain.id === primary.id && linkRows.length > 0
           ? { internalLinks: linkRows }
           : {}),

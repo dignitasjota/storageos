@@ -282,6 +282,21 @@ export class SeoBriefsService {
         note: group?.notes ?? null,
       };
     }
+    if (input.source === 'prompt') {
+      // PR 12: un prompt de los buscadores de IA en el que sale la competencia
+      // y tú no. Es texto de SISTRIX (de fuera): al modelo le llega delimitado.
+      const prompt = input.prompt.trim();
+      return {
+        source: 'prompt',
+        sourceId: null,
+        label: prompt,
+        words: [prompt],
+        targetUrl: null,
+        domainId: primary?.id ?? null,
+        intentHint: null,
+        note: 'Prompt de los buscadores de IA (ChatGPT o Google) en el que sale la competencia y tu web no: el contenido debe responderlo de forma clara y citable.',
+      };
+    }
     const url = input.url.trim();
     const host = seoUrlHost(url);
     if (host && !project.domains.some((d) => host === d.domain || host.endsWith(`.${d.domain}`))) {

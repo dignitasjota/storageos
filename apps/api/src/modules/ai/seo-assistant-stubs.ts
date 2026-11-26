@@ -66,6 +66,8 @@ const PROPOSALS: Record<string, string> = {
 
 /** Herramienta de lectura según la pregunta (como el simulador del asistente del panel). */
 function pickReadTool(t: string): string | null {
+  if (/buscadores de ia|chatgpt|visibilidad en ia|prompts?\b/.test(t)) return 'seo_ai_visibility';
+  if (/analytics|ga4|sesiones|interacci/.test(t)) return 'seo_ga4_pages';
   if (/competid|competencia/.test(t)) return 'seo_competitors';
   if (/resultados de google|serp/.test(t)) return 'seo_serp';
   if (/canibaliz|indexa/.test(t)) return 'seo_diagnostics';

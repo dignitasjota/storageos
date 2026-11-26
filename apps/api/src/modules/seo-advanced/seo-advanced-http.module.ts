@@ -28,6 +28,7 @@ import {
   SeoAdvancedDiagnosticsController,
 } from './diagnostics/seo-diagnostics.controller';
 import { SeoDiagnosticsService } from './diagnostics/seo-diagnostics.service';
+import { AdminSeoGa4Controller, SeoAdvancedGa4Controller } from './ga4/seo-ga4.controller';
 import {
   AdminSeoMasterImportController,
   SeoAdvancedMasterImportController,
@@ -54,6 +55,10 @@ import {
   SistrixCallbackController,
 } from './sistrix/admin-seo-sistrix.controller';
 import { SeoAdvancedSistrixController } from './sistrix/seo-advanced-sistrix.controller';
+import {
+  AdminSeoAiVisibilityController,
+  SeoAdvancedAiVisibilityController,
+} from './sistrix/seo-ai-visibility.controller';
 import { SeoSistrixDataService } from './sistrix/seo-sistrix-data.service';
 import { SeoSistrixService } from './sistrix/seo-sistrix.service';
 import { SistrixOAuthService } from './sistrix/sistrix-oauth.service';
@@ -108,6 +113,10 @@ import {
     AdminSeoAssistantController,
     SeoAdvancedBriefsController,
     AdminSeoBriefsController,
+    SeoAdvancedGa4Controller,
+    AdminSeoGa4Controller,
+    SeoAdvancedAiVisibilityController,
+    AdminSeoAiVisibilityController,
   ],
   providers: [
     AdminGuard,

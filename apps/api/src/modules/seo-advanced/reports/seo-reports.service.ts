@@ -38,8 +38,10 @@ import { escapeHtml, safeBrandColor, tenantEmailShell } from '../../../common/te
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { EmailService } from '../../email/email.service';
 import { FilesService } from '../../files/files.service';
+import { SeoGa4Service } from '../ga4/seo-ga4.service';
 import { SeoSiteChangesService } from '../plan/seo-site-changes.service';
 import { SeoProjectsService, type ProjectRow, type SeoOwner } from '../seo-projects.service';
+import { SeoAiVisibilityService } from '../sistrix/seo-ai-visibility.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
 
 import { SeoConversionsService } from './seo-conversions.service';
@@ -88,6 +90,8 @@ export class SeoReportsService {
     private readonly files: FilesService,
     private readonly email: EmailService,
     private readonly config: ConfigService<Env, true>,
+    private readonly ga4: SeoGa4Service,
+    private readonly aiVisibility: SeoAiVisibilityService,
   ) {}
 
   private notFound() {
@@ -375,6 +379,9 @@ export class SeoReportsService {
     const changesWithResult = await this.changesWithResult(project, period);
     const technical = await this.technicalSummary(project.id, period);
     const crawl = await this.crawlSummary(project.id);
+    // PR 12: GA4 del tráfico orgánico y visibilidad en IA (null sin datos).
+    const ga4 = await this.ga4.reportSummary(project.id, period);
+    const aiVisibility = await this.aiVisibility.reportSummary(project.id, period.to);
 
     const content: Omit<SeoReportContentDto, 'highlights'> = {
       period,
@@ -415,6 +422,8 @@ export class SeoReportsService {
       })),
       technical,
       crawl,
+      ga4,
+      aiVisibility,
     };
     return { ...content, highlights: seoReportHighlights(content) };
   }

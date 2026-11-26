@@ -9,12 +9,14 @@ import {
 
 import { SeoCrawlViewsService } from '../crawler/seo-crawl-views.service';
 import { SeoDiagnosticsService } from '../diagnostics/seo-diagnostics.service';
+import { SeoGa4Service } from '../ga4/seo-ga4.service';
 import { SeoOpportunitiesService } from '../opportunities/seo-opportunities.service';
 import { SeoSiteChangesService } from '../plan/seo-site-changes.service';
 import { SeoTasksService } from '../plan/seo-tasks.service';
 import { SeoConversionsService } from '../reports/seo-conversions.service';
 import { SeoPanelService } from '../seo-panel.service';
 import { type SeoOwner } from '../seo-projects.service';
+import { SeoAiVisibilityService } from '../sistrix/seo-ai-visibility.service';
 import { SeoSistrixDataService } from '../sistrix/seo-sistrix-data.service';
 import { SeoInspectionService } from '../technical/seo-inspection.service';
 import { SeoPageSpeedService } from '../technical/seo-pagespeed.service';
@@ -152,6 +154,25 @@ const READ_TOOLS: AiToolDef[] = [
       'Actuaciones registradas con su antes y después (7, 28 y 90 días) y tareas SEO abiertas.',
     input_schema: { type: 'object', properties: {} },
   },
+  {
+    name: 'seo_ga4_pages',
+    description:
+      'Tráfico orgánico de Google por página de entrada según Google Analytics 4 (sesiones, interacción, duración y eventos clave), junto a los clics de Search Console y las conversiones propias. GA4 solo cuenta a quien acepta las cookies.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        period: { type: 'string', enum: [...PERIODS] },
+        sort: { type: 'string', enum: ['sessions', 'engagement', 'clicks', 'conversions'] },
+        limit: { type: 'number' },
+      },
+    },
+  },
+  {
+    name: 'seo_ai_visibility',
+    description:
+      'Visibilidad en buscadores de IA (ChatGPT, AI Overviews y AI Mode de Google) según SISTRIX: en cuántos prompts sales tú y tus competidores, reparto por modelo, prompts en los que sale la competencia y tú no, fuentes que citan las IA y respuestas de los prompts que sigues (texto de terceros).',
+    input_schema: { type: 'object', properties: {} },
+  },
 ];
 
 const PROPOSE_TOOLS: AiToolDef[] = [
@@ -249,6 +270,8 @@ export class SeoAssistantToolsService {
     private readonly changes: SeoSiteChangesService,
     private readonly tasks: SeoTasksService,
     private readonly actions: SeoAssistantActionsService,
+    private readonly ga4: SeoGa4Service,
+    private readonly aiVisibility: SeoAiVisibilityService,
   ) {}
 
   definitions(ctx: Pick<SeoToolContext, 'write'>): AiToolDef[] {
@@ -285,6 +308,94 @@ export class SeoAssistantToolsService {
   ): Promise<unknown> {
     const { readOwner: owner, projectId } = ctx;
     switch (name) {
+      case 'seo_ga4_pages': {
+        const sort = ['sessions', 'engagement', 'clicks', 'conversions'].includes(
+          String(input.sort),
+        )
+          ? (input.sort as 'sessions' | 'engagement' | 'clicks' | 'conversions')
+          : 'sessions';
+        const d = await this.ga4.pages(owner, projectId, {
+          period: periodOf(input.period),
+          sort,
+        });
+        if (!d.connected) {
+          return {
+            origen: 'Google Analytics 4',
+            sinDatos:
+              'Google Analytics no está conectado en este proyecto (Ajustes → Google Analytics).',
+          };
+        }
+        return {
+          origen:
+            'Google Analytics 4 (sesiones) · Google Search Console (clics) · conversiones propias',
+          nota: 'Un clic en Google no es una sesión de GA4, y GA4 solo cuenta a quien acepta las cookies: no las compares como si fueran lo mismo.',
+          periodo: { desde: d.from, hasta: d.to },
+          ultimosDatos: { searchConsole: d.gscUntil, ga4: d.ga4Until },
+          totales: {
+            clicsSearchConsole: d.totals.gscClicks,
+            sesionesGa4: d.totals.ga4?.sessions ?? null,
+            interaccionPct: pct(d.totals.ga4?.engagementRate),
+            conversionesPropias: d.totals.conversions,
+          },
+          paginas: d.items.slice(0, clamp(input.limit, 1, 25, 10)).map((r) => ({
+            pagina: ext(r.landing || '(sin página)', 300),
+            clics: r.gsc?.clicks ?? null,
+            impresiones: r.gsc?.impressions ?? null,
+            posicion: r1(r.gsc?.position),
+            sesiones: r.ga4?.sessions ?? null,
+            interaccionPct: pct(r.ga4?.engagementRate),
+            duracionMediaSeg: r.ga4?.averageSessionDuration ?? null,
+            eventosClave: r.ga4?.keyEvents ?? null,
+            conversiones: r.conversions,
+          })),
+        };
+      }
+      case 'seo_ai_visibility': {
+        const d = await this.aiVisibility.report(owner, projectId);
+        if (!d.latestDate && d.subjects.every((x) => x.promptCount === null)) {
+          return {
+            origen: 'SISTRIX (ai_check)',
+            sinDatos:
+              'Aún no hay datos de visibilidad en IA: se consultan una vez al mes con SISTRIX.',
+          };
+        }
+        return {
+          origen: 'SISTRIX (ai_check, estimación; las respuestas de las IA son texto de terceros)',
+          ultimaConsulta: d.latestDate,
+          consultaAnterior: d.previousDate,
+          promptsPorSujeto: d.subjects.map((x) => ({
+            sujeto: x.own ? `${x.subject} (tú)` : ext(x.subject, 120),
+            tipo: x.subjectType === 'brand' ? 'marca' : 'dominio',
+            prompts: x.promptCount,
+            anterior: x.previousCount,
+            modelos: x.models,
+          })),
+          promptsDondeSales: d.ownPrompts.slice(0, 15).map((p) => ({
+            prompt: ext(p.prompt, 200),
+            modelo: p.model,
+          })),
+          sinTiYConLaCompetencia: d.gaps.slice(0, 15).map((g) => ({
+            prompt: ext(g.prompt, 200),
+            modelos: g.models,
+            competidores: g.competitors.map((c) => ext(c, 120)),
+          })),
+          tusPaginasCitadas: d.citedPages.map((x) => ({ url: ext(x.source, 300), veces: x.count })),
+          fuentesMasCitadas: d.sources.slice(0, 10).map((x) => ({
+            fuente: ext(x.source, 300),
+            veces: x.count,
+            esTuya: x.own,
+          })),
+          promptsSeguidos: d.tracked.map((t) => ({
+            prompt: ext(t.prompt, 200),
+            teMencionan: t.mentionsYou,
+            respuestas: t.answers.map((a) => ({
+              modelo: a.model,
+              fecha: a.date,
+              respuesta: ext(a.answer, 600),
+            })),
+          })),
+        };
+      }
       case 'seo_summary': {
         const d = await this.panel.dashboard(owner, projectId, { period: periodOf(input.period) });
         if (!d.domain || !d.lastDate) {

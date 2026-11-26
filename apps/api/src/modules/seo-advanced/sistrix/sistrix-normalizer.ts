@@ -26,7 +26,12 @@ export type SistrixOp =
   | 'metrics'
   | 'searchintent'
   | 'linktargets'
-  | 'ai_overview';
+  | 'ai_overview'
+  // PR 12: el resto de `ai_check` y las respuestas de un prompt.
+  | 'ai_prompts'
+  | 'ai_sources'
+  | 'ai_competitors'
+  | 'ai_answers';
 
 export interface SistrixQuery {
   op: SistrixOp;
@@ -35,6 +40,12 @@ export interface SistrixQuery {
   keyword?: string;
   limit?: number;
   history?: boolean;
+  /** `ai_check`: marcas (además de, o en vez de, un dominio). */
+  brands?: string[];
+  /** `ai_check` con la vista `sources`: por dominio o por URL. */
+  sourceType?: 'domain' | 'url';
+  /** `ai_prompt_answers`: el prompt. */
+  prompt?: string;
 }
 
 /** Huella de una consulta: la misma para el MCP y la API (la caché se comparte). */
@@ -46,6 +57,10 @@ export function sistrixQueryHash(q: SistrixQuery): string {
     keyword: q.keyword ?? null,
     limit: q.limit ?? null,
     history: q.history ?? false,
+    // Solo si están: las huellas de las consultas anteriores no cambian.
+    ...(q.brands?.length ? { brands: [...q.brands].map((b) => b.toLowerCase()).sort() } : {}),
+    ...(q.sourceType ? { sourceType: q.sourceType } : {}),
+    ...(q.prompt ? { prompt: q.prompt.trim().toLowerCase() } : {}),
   });
   return createHash('sha256').update(canonical).digest('hex');
 }
@@ -58,7 +73,8 @@ export const SISTRIX_MCP_USED: Record<string, string[] | null> = {
   keyword: ['seo', 'metrics', 'searchintent'],
   keyword_domain_seo: null,
   links: ['linktargets'],
-  ai_check: ['overview'],
+  ai_check: ['overview', 'competitors', 'prompts', 'sources'],
+  ai_prompt_answers: null,
 };
 
 /**
@@ -75,6 +91,14 @@ export interface McpCall {
   tool: string;
   args: Record<string, unknown>;
 }
+
+/** Vistas de `ai_check` de cada operación. */
+const AI_CHECK_VIEWS = {
+  ai_overview: 'overview',
+  ai_prompts: 'prompts',
+  ai_sources: 'sources',
+  ai_competitors: 'competitors',
+} as const;
 
 /** Herramienta y argumentos del MCP. El país siempre explícito (el suyo por defecto es `de`). */
 export function toMcpCall(q: SistrixQuery): McpCall {
@@ -109,7 +133,27 @@ export function toMcpCall(q: SistrixQuery): McpCall {
     case 'linktargets':
       return { tool: 'links', args: withLimit({ domain: q.domain, view: 'linktargets' }) };
     case 'ai_overview':
-      return { tool: 'ai_check', args: { view: 'overview', domains: q.domain, country } };
+    case 'ai_prompts':
+    case 'ai_sources':
+    case 'ai_competitors': {
+      const view = AI_CHECK_VIEWS[q.op];
+      return {
+        tool: 'ai_check',
+        args: {
+          view,
+          ...(q.domain ? { domains: q.domain } : {}),
+          ...(q.brands?.length ? { brands: q.brands } : {}),
+          country,
+          ...(q.op === 'ai_sources' ? { source_type: q.sourceType ?? 'url' } : {}),
+          ...(q.op !== 'ai_overview' && limit !== undefined ? { limit } : {}),
+        },
+      };
+    }
+    case 'ai_answers':
+      return {
+        tool: 'ai_prompt_answers',
+        args: { prompt: q.prompt ?? '', country, ...(limit !== undefined ? { limit } : {}) },
+      };
   }
 }
 
@@ -152,6 +196,11 @@ export function toApiCall(q: SistrixQuery): ApiCall | null {
     case 'linktargets':
       return { method: 'links.linktargets', params: { domain, ...num } };
     case 'ai_overview':
+    case 'ai_prompts':
+    case 'ai_sources':
+    case 'ai_competitors':
+    case 'ai_answers':
+      // Visibilidad en IA: solo por el MCP.
       return null;
   }
 }
@@ -424,6 +473,92 @@ export function normalizeAiOverview(value: unknown): AiOverview | null {
   return { promptCount, models };
 }
 
+/**
+ * Aplana las vistas de `ai_check`: unas filas vienen sueltas y otras
+ * envueltas en un grupo (`{ prompts: [{ prompt: [ … ] }] }`, como `models` del
+ * resumen). Devuelve los objetos hoja.
+ */
+function aiRows(value: unknown, keys: string[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const visit = (rows: unknown[], depth: number) => {
+    for (const r of rows) {
+      if (!isObj(r)) continue;
+      const nested = keys
+        .map((k) => r[k])
+        .find((v): v is unknown[] => Array.isArray(v) && v.some((x) => isObj(x)));
+      if (nested && depth < 3) visit(nested, depth + 1);
+      else out.push(r);
+    }
+  };
+  visit(firstArray(value, keys), 0);
+  return out;
+}
+
+export interface AiPromptRow {
+  prompt: string;
+  model: string;
+  /** Respuesta de la IA: texto de terceros (se guarda, nunca se interpreta). */
+  answer: string | null;
+  rank: number | null;
+}
+
+/** Vista `prompts` de `ai_check` y respuestas de `ai_prompt_answers`. */
+export function normalizeAiPrompts(value: unknown): AiPromptRow[] {
+  const rows = aiRows(value, ['prompts', 'prompt', 'answers', 'answer', 'result', 'data']);
+  const out: AiPromptRow[] = [];
+  for (const r of rows) {
+    const prompt = str(r.prompt) ?? str(r.query) ?? str(r.keyword) ?? str(r.question);
+    if (!prompt) continue;
+    const model = (str(r.model) ?? str(r.llm) ?? str(r.engine) ?? '').toLowerCase();
+    const answer = str(r.answer) ?? str(r.response) ?? str(r.text) ?? str(r.content);
+    out.push({
+      prompt: prompt.slice(0, 500),
+      model: model === 'aimode' ? 'ai_mode' : model,
+      answer: answer ? answer.slice(0, 4000) : null,
+      rank: int(r.rank ?? r.position),
+    });
+  }
+  return out;
+}
+
+export interface AiSourceRow {
+  source: string;
+  count: number;
+}
+
+/** Vista `sources` (dominio o URL citados) o `competitors` (marcas que compiten). */
+export function normalizeAiSources(value: unknown, field: 'source' | 'brand'): AiSourceRow[] {
+  const keys =
+    field === 'brand'
+      ? ['competitors', 'competitor', 'brands', 'brand', 'result', 'data']
+      : [
+          'sources',
+          'source',
+          'urls',
+          'url',
+          'domains',
+          'domain',
+          'hosts',
+          'host',
+          'result',
+          'data',
+        ];
+  const rows = aiRows(value, keys);
+  const out: AiSourceRow[] = [];
+  for (const r of rows) {
+    const name =
+      field === 'brand'
+        ? (str(r.brand) ?? str(r.competitor) ?? str(r.name) ?? str(r.domain))
+        : (str(r.url) ?? str(r.source) ?? str(r.domain) ?? str(r.host));
+    if (!name) continue;
+    out.push({
+      source: name.slice(0, 1000),
+      count: int(r.prompt_count ?? r.count ?? r.citations ?? r.mentions ?? r.value) ?? 0,
+    });
+  }
+  return out;
+}
+
 /** Lo que se guarda de cada consulta (y en la caché). */
 export type SistrixData =
   | { op: 'visindex' | 'kwcount'; points: DatedPoint[] }
@@ -433,7 +568,9 @@ export type SistrixData =
   | { op: 'metrics'; metrics: KeywordMetrics | null }
   | { op: 'searchintent'; intent: KeywordIntent | null }
   | { op: 'linktargets'; rows: LinkTarget[] }
-  | { op: 'ai_overview'; overview: AiOverview | null };
+  | { op: 'ai_overview'; overview: AiOverview | null }
+  | { op: 'ai_prompts' | 'ai_answers'; prompts: AiPromptRow[] }
+  | { op: 'ai_sources' | 'ai_competitors'; sources: AiSourceRow[] };
 
 export type SistrixOutcome =
   | { kind: 'ok'; data: SistrixData; dataDate: string | null }
@@ -488,6 +625,20 @@ export function normalizeSistrix(op: SistrixOp, payload: SistrixPayload): Sistri
     case 'ai_overview': {
       const overview = normalizeAiOverview(value);
       return overview ? { kind: 'ok', data: { op, overview }, dataDate: null } : { kind: 'empty' };
+    }
+    case 'ai_prompts':
+    case 'ai_answers': {
+      const prompts = normalizeAiPrompts(value);
+      return prompts.length
+        ? { kind: 'ok', data: { op, prompts }, dataDate: null }
+        : { kind: 'empty' };
+    }
+    case 'ai_sources':
+    case 'ai_competitors': {
+      const sources = normalizeAiSources(value, op === 'ai_competitors' ? 'brand' : 'source');
+      return sources.length
+        ? { kind: 'ok', data: { op, sources }, dataDate: null }
+        : { kind: 'empty' };
     }
   }
 }

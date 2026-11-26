@@ -2,6 +2,9 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  SEO_AI_COUNTRY,
+  SEO_AI_PROMPTS_LIMIT,
+  SEO_AI_SOURCES_LIMIT,
   SEO_PLATFORM_KEYWORD_LIMIT,
   SEO_SISTRIX_CACHE_DAYS,
   SEO_SISTRIX_DATA_TYPES,
@@ -10,6 +13,9 @@ import {
   SEO_SYNC_FREQUENCY_DAYS,
   SEO_TENANT_LIMITS,
   madridToday,
+  seoAiBrandSubject,
+  seoAiPromptKey,
+  seoAiVisibilitySettingsOf,
   type SeoProviderKey,
   type SeoSistrixDataType,
   type SeoSistrixWaitReason,
@@ -50,6 +56,15 @@ export interface SistrixActor {
 }
 
 export const sistrixJobId = (runId: string) => `seo-sistrix-${runId}`;
+
+/**
+ * A quién se refiere una consulta de `ai_check`: un dominio o, sin él, las
+ * marcas del proyecto (juntas, con la misma clave que se lee después).
+ */
+export function aiSubject(q: SistrixQuery): { subjectType: 'domain' | 'brand'; subject: string } {
+  if (q.domain) return { subjectType: 'domain', subject: q.domain.toLowerCase() };
+  return { subjectType: 'brand', subject: seoAiBrandSubject(q.brands ?? []) ?? '' };
+}
 
 const ACTIVE = ['queued', 'running', 'waiting'];
 const day = (d: string) => new Date(`${d}T00:00:00Z`);
@@ -357,11 +372,43 @@ export class SistrixSyncService {
       case 'backlinks':
         if (primary) items.push({ q: { op: 'linktargets', domain: primary, country, limit: 50 } });
         break;
-      case 'ai_visibility':
-        for (const domain of [...(primary ? [primary] : []), ...competitors]) {
-          items.push({ q: { op: 'ai_overview', domain, country } });
+      case 'ai_visibility': {
+        // `ai_check` (PR 12), siempre en España: resumen y prompts de tu dominio,
+        // de tu marca y de cada competidor; fuentes citadas y marcas que
+        // compiten de lo tuyo, y las respuestas de los prompts que sigues.
+        const c = SEO_AI_COUNTRY;
+        const brands = project.brandTerms.length ? [...project.brandTerms] : null;
+        const subjects: { domain?: string; brands?: string[] }[] = [
+          ...(primary ? [{ domain: primary }] : []),
+          ...(brands ? [{ brands }] : []),
+          ...competitors.map((domain) => ({ domain })),
+        ];
+        for (const sub of subjects) items.push({ q: { op: 'ai_overview', country: c, ...sub } });
+        for (const sub of subjects) {
+          items.push({ q: { op: 'ai_prompts', country: c, limit: SEO_AI_PROMPTS_LIMIT, ...sub } });
+        }
+        const own = {
+          ...(primary ? { domain: primary } : {}),
+          ...(brands ? { brands } : {}),
+        };
+        if (primary || brands) {
+          items.push({
+            q: {
+              op: 'ai_sources',
+              country: c,
+              sourceType: 'url',
+              limit: SEO_AI_SOURCES_LIMIT,
+              ...own,
+            },
+          });
+          items.push({ q: { op: 'ai_competitors', country: c, limit: 20, ...own } });
+        }
+        for (const prompt of seoAiVisibilitySettingsOf(project.aiVisibilitySettings)
+          .trackedPrompts) {
+          items.push({ q: { op: 'ai_answers', country: c, prompt, limit: 10 } });
         }
         break;
+      }
       case 'serp':
         for (const k of await keywords()) {
           items.push({
@@ -747,7 +794,8 @@ export class SistrixSyncService {
           data: [
             {
               tenantId: pool,
-              domain: q.domain ?? '',
+              subjectType: aiSubject(q).subjectType,
+              domain: aiSubject(q).subject,
               country,
               provider,
               sampleDate,
@@ -759,6 +807,50 @@ export class SistrixSyncService {
           skipDuplicates: true,
         });
         return;
+      case 'ai_prompts':
+      case 'ai_answers': {
+        const tracked = data.op === 'ai_answers';
+        const subject = tracked ? { subjectType: 'tracked', subject: '' } : aiSubject(q);
+        await this.admin.seoAiPrompt.createMany({
+          data: data.prompts.map((r) => {
+            const prompt = tracked ? (q.prompt ?? r.prompt) : r.prompt;
+            return {
+              tenantId: pool,
+              ...subject,
+              country,
+              provider,
+              sampleDate,
+              fetchedAt,
+              prompt,
+              promptKey: seoAiPromptKey(prompt),
+              model: r.model,
+              answer: r.answer,
+              rank: r.rank,
+            };
+          }),
+          skipDuplicates: true,
+        });
+        return;
+      }
+      case 'ai_sources':
+      case 'ai_competitors': {
+        const subject = aiSubject(q);
+        await this.admin.seoAiSource.createMany({
+          data: data.sources.map((r) => ({
+            tenantId: pool,
+            ...subject,
+            country,
+            provider,
+            sampleDate,
+            fetchedAt,
+            sourceType: data.op === 'ai_competitors' ? 'brand' : (q.sourceType ?? 'url'),
+            source: r.source,
+            count: r.count,
+          })),
+          skipDuplicates: true,
+        });
+        return;
+      }
     }
   }
 

@@ -172,6 +172,36 @@ export function renderSeoReportHtml(
       : ''
   }
   ${
+    c.ga4
+      ? section(
+          'Google Analytics: visitas desde Google',
+          `<ul><li>Sesiones desde Google: ${seoFmtInt(c.ga4.sessions)}${
+            c.ga4.previousSessions !== null
+              ? ` (${seoFmtInt(c.ga4.previousSessions)} en el periodo anterior)`
+              : ''
+          }${
+            c.ga4.engagementRate !== null
+              ? `; con interacción: ${esc(String(Math.round(c.ga4.engagementRate * 1000) / 10).replace('.', ','))} %`
+              : ''
+          }; eventos clave: ${seoFmtInt(c.ga4.keyEvents)}.</li></ul><p class="muted">GA4 solo cuenta a quien acepta las cookies de analítica, y una sesión no es lo mismo que un clic en Google.</p>`,
+        )
+      : ''
+  }
+  ${
+    c.aiVisibility
+      ? section(
+          'Buscadores de IA (estimación de SISTRIX)',
+          `<ul><li>Consulta del ${esc(fmtDate(c.aiVisibility.date))}: sales en ${seoFmtInt(c.aiVisibility.own)} prompts${
+            c.aiVisibility.previous !== null
+              ? ` (${seoFmtInt(c.aiVisibility.previous)} en la anterior)`
+              : ''
+          }${c.aiVisibility.lost > 0 ? `; has dejado de salir en ${seoFmtInt(c.aiVisibility.lost)}` : ''}.</li>${c.aiVisibility.competitors
+            .map((x) => `<li>${esc(x.subject)}: ${seoFmtInt(x.promptCount)} prompts.</li>`)
+            .join('')}</ul>`,
+        )
+      : ''
+  }
+  ${
     c.changesWithResult.length
       ? section(
           'Actuaciones con resultado',
