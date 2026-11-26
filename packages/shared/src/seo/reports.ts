@@ -208,7 +208,24 @@ export interface SeoReportContentDto {
   tasksDone: number;
   tasksOverdue: number;
   alerts: { type: SeoAlertType; severity: SeoAlertSeverity; title: string; status: string }[];
+  /** Inspección de URL y velocidad (PR 9) del periodo; null si no se hizo nada. */
+  technical?: SeoReportTechnicalDto | null;
   highlights: string[];
+}
+
+/** Lo inspeccionado y medido en el periodo (PR 9). */
+export interface SeoReportTechnicalDto {
+  /** URL inspeccionadas en el periodo (su última inspección). */
+  inspected: number;
+  indexed: number;
+  notIndexed: number;
+  canonicalMismatch: number;
+  /** URL medidas con PageSpeed en el periodo (móvil). */
+  pagespeedUrls: number;
+  /** De ellas, lentas para los usuarios reales o con puntuación por debajo de 50. */
+  slowUrls: number;
+  /** Media de la puntuación de rendimiento en el móvil. */
+  avgMobileScore: number | null;
 }
 
 export interface SeoReportDto {
@@ -281,6 +298,21 @@ export function seoReportHighlights(c: Omit<SeoReportContentDto, 'highlights'>):
       c.tasksOverdue === 1
         ? 'Hay 1 tarea SEO atrasada.'
         : `Hay ${seoFmtInt(c.tasksOverdue)} tareas SEO atrasadas.`,
+    );
+  }
+  const tech = c.technical;
+  if (tech && tech.inspected > 0) {
+    out.push(
+      tech.notIndexed > 0
+        ? `Google ha confirmado ${seoFmtInt(tech.indexed)} de ${seoFmtInt(tech.inspected)} URL inspeccionadas; ${seoFmtInt(tech.notIndexed)} no están indexadas.`
+        : `Google ha confirmado que tiene indexadas las ${seoFmtInt(tech.inspected)} URL inspeccionadas.`,
+    );
+  }
+  if (tech && tech.slowUrls > 0) {
+    out.push(
+      tech.slowUrls === 1
+        ? 'Hay 1 página lenta en el móvil: mira las mejoras sugeridas en «Velocidad».'
+        : `Hay ${seoFmtInt(tech.slowUrls)} páginas lentas en el móvil: mira las mejoras sugeridas en «Velocidad».`,
     );
   }
   const open = c.alerts.filter((a) => a.status === 'open');

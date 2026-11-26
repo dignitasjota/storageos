@@ -14,6 +14,8 @@ import {
   type SeoProviderKey,
 } from './sistrix';
 
+import type { SeoUrlIndexStatusDto } from './inspection';
+
 /**
  * SEO Avanzado, PR 5: diagnóstico (§18.2–§18.5, §18.7, §19.2 y §19.5).
  * Palabras seguidas (alta desde Search Console y CSV, evolución, URL objetivo
@@ -639,6 +641,9 @@ export const SEO_INDEX_CATEGORIES = [
   'duplicate',
   'redirect_domain',
   'custom',
+  // PR 9: lo que dice la inspección de URL de Google.
+  'canonical_mismatch',
+  'not_indexed',
 ] as const;
 export type SeoIndexCategory = (typeof SEO_INDEX_CATEGORIES)[number];
 export const SEO_INDEX_CATEGORY_LABELS: Record<SeoIndexCategory, string> = {
@@ -650,6 +655,8 @@ export const SEO_INDEX_CATEGORY_LABELS: Record<SeoIndexCategory, string> = {
   duplicate: 'Variantes duplicadas',
   redirect_domain: 'Dominio que debería redirigir',
   custom: 'Tus reglas',
+  canonical_mismatch: 'Canónica distinta a la declarada',
+  not_indexed: 'URL objetivo no indexada',
 };
 
 /** Qué hacer con cada categoría. */
@@ -668,6 +675,10 @@ export const SEO_INDEX_CATEGORY_ACTIONS: Record<SeoIndexCategory, string> = {
     'Este dominio debería redirigir: pon una redirección 301 de todas sus páginas a las del dominio principal.',
   custom:
     'Casa con una regla tuya: decide si quitarla de Google («noindex», robots, sitemap) o redirigirla.',
+  canonical_mismatch:
+    'Revisa la etiqueta canónica de la página, las redirecciones y los enlaces internos para que apunten a la versión que quieres; si Google eligió otra porque son casi iguales, diferencia el contenido o redirige.',
+  not_indexed:
+    'Corrige el motivo que da Google (noindex, robots.txt, error al leerla, canónica), enlázala desde páginas importantes y pide la indexación en Search Console.',
 };
 
 /** Las páginas de acceso y registro (el resto de la lista de la web, privadas). */
@@ -958,18 +969,24 @@ export interface SeoIndexFindingDto extends SeoDiagnosticBaseDto {
   /** Primer y último día con impresiones (fechas de Google). */
   firstDate: string;
   lastDate: string;
-  /** Siempre «aparece en el rendimiento»: la indexación confirmada llega con la inspección de URL. */
-  evidence: 'performance';
+  /**
+   * De dónde sale: «aparece en el rendimiento» (reglas sobre lo que tiene
+   * impresiones) o la inspección de URL de Google (PR 9).
+   */
+  evidence: 'performance' | 'inspection';
   reason: string;
   action: string;
+  /** Lo que dice Google de esta URL en su última inspección (si la hay). */
+  inspection: SeoUrlIndexStatusDto | null;
 }
 
 export const SEO_INDEX_EVIDENCE_LABELS = {
   performance: 'Aparece en el rendimiento de Search Console',
+  inspection: 'Lo dice la inspección de URL de Google',
   confirmed: 'Indexación confirmada',
 } as const;
 export const SEO_INDEX_EVIDENCE_NOTE =
-  'Que una página aparezca en el rendimiento de Search Console (ha tenido impresiones) es una señal fuerte de que Google la tiene, pero no una confirmación. La indexación confirmada necesita la inspección de URL de Google, que llega en una fase posterior.';
+  'Que una página aparezca en el rendimiento de Search Console (ha tenido impresiones) es una señal fuerte de que Google la tiene, pero no una confirmación. La indexación confirmada sale de la inspección de URL de Google, que tiene cuota diaria: se lanza a mano o sobre las URL importantes.';
 
 export interface SeoDiagnosticListDto<T> {
   calculatedAt: string | null;
@@ -1063,6 +1080,8 @@ export interface SeoTrackedKeywordDto {
   /** Volumen estimado de SISTRIX (búsquedas al mes; nacional). */
   volume: number | null;
   volumeOrigin: SeoDataOriginDto | null;
+  /** Lo que dice Google de la URL objetivo en su última inspección (si la hay). */
+  targetIndex: SeoUrlIndexStatusDto | null;
 }
 
 export interface SeoTrackedGroupDto {

@@ -19,6 +19,11 @@ export const SEO_ALERT_TYPES = [
   'cannibalization',
   'sistrix_reconnect',
   'sistrix_quota',
+  // PR 9: inspección de URL y PageSpeed.
+  'target_not_indexed',
+  'canonical_mismatch',
+  'pagespeed_slow',
+  'pagespeed_drop',
 ] as const;
 export type SeoAlertType = (typeof SEO_ALERT_TYPES)[number];
 export const SeoAlertTypeEnum = z.enum(SEO_ALERT_TYPES);
@@ -32,6 +37,10 @@ export const SEO_ALERT_TYPE_LABELS: Record<SeoAlertType, string> = {
   cannibalization: 'Canibalización importante',
   sistrix_reconnect: 'Hay que volver a conectar SISTRIX',
   sistrix_quota: 'Cuota diaria de SISTRIX agotada',
+  target_not_indexed: 'URL objetivo desindexada',
+  canonical_mismatch: 'Canónica distinta',
+  pagespeed_slow: 'Página lenta para los usuarios',
+  pagespeed_drop: 'Baja la puntuación de velocidad',
 };
 
 export const SEO_ALERT_SEVERITIES = ['high', 'medium', 'low'] as const;
@@ -74,6 +83,8 @@ export const SEO_DEFAULT_ALERT_SETTINGS = {
   gscStaleDays: 5,
   /** Días que se silencia una alerta por defecto. */
   silenceDays: 7,
+  /** Puntos que tiene que caer la puntuación de velocidad (PageSpeed) para avisar. */
+  pagespeedDropPoints: 15,
 } as const;
 export type SeoAlertThresholdKey = keyof typeof SEO_DEFAULT_ALERT_SETTINGS;
 
@@ -87,6 +98,7 @@ export const SEO_ALERT_THRESHOLD_RANGES: Record<
   positionDropMinImpressions: { min: 1, max: 100_000, label: 'Impresiones mínimas por semana' },
   gscStaleDays: { min: 3, max: 60, label: 'Días sin datos de Google' },
   silenceDays: { min: 1, max: 90, label: 'Días que se silencia una alerta' },
+  pagespeedDropPoints: { min: 5, max: 80, label: 'Puntos que baja la velocidad para avisar' },
 };
 
 export interface SeoAlertSettings {
