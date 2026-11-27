@@ -3331,9 +3331,82 @@ Migración (se aplica sola): `20270322100000_seo_ga4_ai_visibility` — `seo_pro
 
 - **Google Analytics (Data API)**: usa la misma cuenta de servicio que Search Console y Marketing (`GSC_SERVICE_ACCOUNT_JSON`). En el proyecto de Google Cloud de esa cuenta tiene que estar activada «Google Analytics Data API» (ya lo estaba para Marketing, §35). Para cada propiedad: Google Analytics → Administrar → Gestión del acceso a la propiedad → «+» → añadir el correo de la cuenta de servicio (sale en la pantalla, con un botón para copiarlo) con el rol **Lector**. El **ID numérico de la propiedad** está en Administrar → Detalles de la propiedad → «ID de la propiedad» (solo números; no es el «G-…» del ID de medición de la web, que es lo que va en `platform_website.seo` y en Marca y SEO del tenant).
 - **Dónde se conecta**: en la ficha del proyecto → pestaña «Ajustes» → «Google Analytics» (en el panel admin, el rol superadmin y solo en los de la plataforma; en el tenant, quien puede configurar). En un negocio que ya tiene GA4 conectado en Marketing sale «Usar esa conexión»: no hay que poner nada más. La carga inicial (16 meses) va por la cola `seo` y tarda unos minutos.
-- **Cron nuevo** (en el worker): `seo.ga4-daily` (07:20, hora de España): descarga los últimos días de los proyectos con GA4 conectado (los de los tenants, solo con SEO Avanzado). Job nuevo `ga4-sync` en la cola `seo`.
+- **Cron nuevo** (en el worker): `seo.ga4-daily` (07:20, hora del proceso: el cron no fija zona horaria): descarga los últimos días de los proyectos con GA4 conectado (los de los tenants, solo con SEO Avanzado). Job nuevo `ga4-sync` en la cola `seo`.
 - **Visibilidad en IA**: va en la tanda «Visibilidad en IA» de SISTRIX (mensual por defecto, Integraciones → frecuencias) y solo por el MCP; sin cambios de configuración. Revisar en Panel admin → SEO → Integraciones que el MCP sigue conectado. Por proyecto, unas 25–45 consultas al mes (sin créditos por el MCP; cuenta en el tope diario de peticiones del fondo).
 - **Qué comprobar tras desplegar**: en trasteros.pro, «Ajustes» → «Google Analytics» → conectar la propiedad de la plataforma; a los pocos minutos, en «Rendimiento», la tabla «Páginas: Google, Analytics y conversiones» debe tener sesiones (si da «no puede leer la propiedad», falta el permiso de Lector). En GUÁRDALO, «Usar esa conexión» si tiene GA4 en Marketing. En «Competencia» → «Visibilidad en IA», sincronizar y comprobar que salen tu dominio, tu marca (pon los términos de marca en el proyecto si faltan) y los competidores, y los prompts en los que sale la competencia y tú no; probar «Preparar contenido» en uno. Revisar con Jota el umbral de la alerta «Dejas de salir en los buscadores de IA» (Alertas → Ajustes).
+
+## 209. Orden de despliegue y comprobaciones tras desplegar #1005–#1032 (2026-11-26)
+
+Resumen único de los apartados §181–§208 (panel super admin y SEO Avanzado). Cada apartado conserva su detalle; este es el orden y la lista de comprobaciones. Migraciones nuevas: de `20270223100000_mrr_snapshots_without_vat` a `20270322100000_seo_ga4_ai_visibility` (29 migraciones; todas se aplican solas con el servicio `migrate`).
+
+### Orden de arranque
+
+1. **Redesplegar el stack entero** (api, worker y web). El servicio `migrate` aplica las migraciones antes que el api y el worker (`depends_on`); `bootstrap` siembra el extra «SEO Avanzado» (`addon-seo-advanced`, 199 €/mes, función `seo_advanced`, incluye «SEO local»).
+2. **API y worker, siempre juntos y con la misma versión**: las colas nuevas (`seo`, `seo-sistrix`, `seo-crawl`) y casi todos los crons de SEO viven en el worker; si solo se actualiza el api, los trabajos se encolan y nadie los procesa. Hay dependencia nueva (`@modelcontextprotocol/sdk` 1.32.2, en api y worker): viene en la imagen, no hay que instalar nada.
+3. La migración `20270311110000_seo_migrate_search_console` copia al arrancar lo descargado en «SEO local» (proyecto, dominio y métricas de cada tenant con Search Console); es repetible y no toca las tablas antiguas. `20270305110000_sales_recovery_backfill` pasa los perdidos de los comerciales a archivados. El índice `seo_gsc_metrics (domain_id, grain, query, date)` (`20270315100000`) puede tardar unos segundos en una tabla grande.
+
+### Variables nuevas (todas opcionales)
+
+Están en `apps/api/.env.example`. Definidas en el esquema (`env.schema.ts`):
+
+| Variable                          | Por defecto | Qué hace                                                                                                                                                      |
+| --------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PAGESPEED_API_KEY`               | vacía       | Clave gratuita de PageSpeed Insights. Sin ella funciona con cuota baja y compartida (429 a menudo). Ya está en `x-app-env` de `docker-compose.portainer.yml`. |
+| `SEO_GSC_INITIAL_DAYS`            | 486         | Días de la carga inicial de Search Console (mín. 7, máx. 486 = 16 meses).                                                                                     |
+| `RETENTION_SEO_GSC_DETAIL_DAYS`   | 760         | Los cruces búsqueda × página y búsqueda × país se borran a los 25 meses; el resto no caduca.                                                                  |
+| `RETENTION_SEO_API_REQUESTS_DAYS` | 90          | Registro de peticiones a SISTRIX (`seo_api_requests`).                                                                                                        |
+| `SISTRIX_MODE` / `PAGESPEED_MODE` | sin valor   | `stub` simula SISTRIX o PageSpeed. **Solo desarrollo**: en producción no ponerlas.                                                                            |
+
+`SEO_GSC_INITIAL_DAYS` y las dos `RETENTION_SEO_*` **no están nombradas en `docker-compose.portainer.yml`**: con sus valores por defecto no hace falta nada, pero para cambiarlas desde Portainer hay que añadirlas a `x-app-env` (las variables del stack solo llegan al contenedor si el compose las nombra). Siguen necesarias `GSC_SERVICE_ACCOUNT_JSON` (la cuenta de servicio de Search Console, GA4 y la inspección de URL), `API_BASE_URL` y `WEB_BASE_URL` de producción (la dirección de vuelta del OAuth de SISTRIX es `${API_BASE_URL}/v1/admin/seo/sistrix/callback`) y `AI_PROVIDER=anthropic` con su clave (el asistente de SEO usa la IA configurada). La conexión de SISTRIX y su clave de API no van en variables: se configuran en el panel y se guardan cifradas con `MASTER_ENCRYPTION_KEY`.
+
+### Pasos manuales (una vez)
+
+1. **Search Console**: añadir el `client_email` de la cuenta de servicio como usuario de cada propiedad (restringido basta, también para la inspección de URL, que usa el ámbito de solo lectura). Para GUÁRDALO y su dominio secundario (`trasterosmislata.es`), añadirlo en cada propiedad. Comprobar que «Google Search Console API» sigue activada.
+2. **Google Analytics (GA4)**: en cada propiedad (Administrar → Gestión del acceso a la propiedad) añadir el mismo correo con el rol **Lector**. Se conecta con el **ID numérico de la propiedad** (no el `G-…`), en la ficha del proyecto → Ajustes → Google Analytics. Comprobar que «Google Analytics Data API» está activada en el proyecto de Google Cloud.
+3. **PageSpeed**: Google Cloud → APIs y servicios → activar «PageSpeed Insights API» → Credenciales → clave de API restringida a esa API → `PAGESPEED_API_KEY` en Portainer (api y worker).
+4. **SISTRIX**: panel admin → SEO → Integraciones → «Conectar SISTRIX» con la cuenta de Jota (OAuth: se abre SISTRIX, se autoriza y se vuelve al panel). Comprobar que salen las herramientas y «Probar la conexión». La API clásica queda desactivada; solo se pone la clave, un presupuesto semanal pequeño y se activa si se quiere poder «Continuar por API» cuando el MCP agote su cuota.
+5. **Crear los proyectos**: panel admin → SEO → Proyectos → trasteros.pro con `sc-domain:trasteros.pro`, comprobar el acceso y esperar la carga inicial (16 meses; barra de progreso). Los tenants con Search Console en «SEO local» ya tienen su proyecto migrado, pero **no descargan sin el extra «SEO Avanzado»**: activarlo como cortesía desde la ficha del tenant (GUÁRDALO).
+6. **Activar la conexión de SISTRIX de la plataforma en GUÁRDALO**: en su proyecto (SEO → Proyectos de los tenants) marcar «Usar la conexión de SISTRIX de la plataforma» (solo superadmin). Sin esto, un tenant solo tiene SISTRIX con su propia clave de API.
+7. **Importar los dos maestros**: `SEO_maestro_TRASTEROS_PRO.xlsx` en el proyecto de trasteros.pro y `SEO_maestro_GUARDALO.xlsx` en el de GUÁRDALO (con `guardalobox.es` dado de alta como dominio). Revisar luego las fechas límite de las tareas (cuentan desde el día de la importación).
+8. **Escribir a SISTRIX** para confirmar que se puede usar el MCP desde un sistema propio con tandas programadas y no solo desde un asistente de IA (su documentación dice que para volúmenes grandes y regulares la vía prevista es la API clásica; `docs/SEO_PLAN.md` §23.1 y §28), y, si algún día se quiere dar sus datos a tenants sin clave propia, pedir la autorización por escrito.
+9. Revisar con Jota el precio de `addon-seo-advanced` en `/admin/addons`, los umbrales de las alertas, el lote de inspección de URL (apagado por defecto) y el rastreo semanal de GUÁRDALO (en tenants viene apagado; en la plataforma, encendido el lunes a las 03:00).
+
+### Colas y crons nuevos
+
+Colas BullMQ nuevas (salen en Panel admin → Sistema y colas): `seo` (concurrencia 2), `seo-sistrix` (concurrencia 1) y `seo-crawl` (concurrencia 2). En «Sistema y colas» también salen los crons (`GET /admin/crons`).
+
+| Tarea                          | Cuándo                        | Dónde  | Para qué                                                                               |
+| ------------------------------ | ----------------------------- | ------ | -------------------------------------------------------------------------------------- |
+| `tenant-health.daily-snapshot` | 03:20 (España)                | worker | Foto diaria de la salud y aviso de caída (§184).                                       |
+| `platform-leads.sequences`     | cada 15 min (España)          | worker | Pasos de las secuencias de correo de los leads (§186).                                 |
+| `admin-tenants.scheduled`      | 00:30 (España)                | API    | Bajas y anonimizaciones programadas (§188).                                            |
+| `sales.recovery`               | 08:10 (España)                | API    | Aviso de recuperar prospectos archivados (§191).                                       |
+| `custom-domains.plan-sync`     | cada 10 min                   | API    | Pone en pausa o reactiva dominios según el plan (§195).                                |
+| `custom-domains.full-check`    | 06:40                         | API    | Comprobación completa diaria de dominios propios (§196); sustituye a `active-check`.   |
+| `seo.gsc-daily`                | 07:00 (España)                | worker | Descarga de Search Console de los últimos 5 días de cada dominio.                      |
+| `seo.sistrix-schedule`         | cada hora, minuto 15 (España) | worker | Tandas de SISTRIX según las frecuencias de cada fondo.                                 |
+| `seo.sistrix-resume`           | 00:05 (España)                | worker | Reanuda lo pausado por la cuota diaria de SISTRIX (error 7010).                        |
+| `seo.sistrix-daily`            | 06:30 (España)                | worker | Tandas diarias de SISTRIX.                                                             |
+| `seo.conversions-daily`        | 05:15 (España)                | worker | Recalcula las conversiones de Google de los últimos 7 días.                            |
+| `seo.report-weekly`            | lunes 09:00 (España)          | worker | Informe semanal de SEO (apagado por defecto en cada proyecto).                         |
+| `seo.report-monthly`           | día 3, 09:00 (España)         | worker | Informe mensual de SEO (activado por defecto).                                         |
+| `seo.tasks-due`                | 08:00 (España)                | worker | Aviso de tareas SEO que vencen o van atrasadas.                                        |
+| `seo.inspection-batch`         | 06:30 (España)                | worker | Lote diario de inspección de URL (solo proyectos que lo activan; apagado por defecto). |
+| `seo.inspection-queue`         | cada hora, minuto 20 (España) | worker | Inspecciones que esperaban a que se reiniciara la cuota.                               |
+| `seo.pagespeed-weekly`         | lunes 04:30 (España)          | worker | Mediciones de PageSpeed (móvil y ordenador).                                           |
+| `seo.crawl-weekly`             | cada hora, minuto 5 (España)  | worker | Rastreo semanal de los proyectos que lo tienen activado en ese día y hora.             |
+| `seo.ga4-daily`                | 07:20                         | worker | Descarga de GA4 de los proyectos conectados (solo con SEO Avanzado en los tenants).    |
+| `seo.alerts`                   | cada hora, minuto 20          | API    | Alertas de SEO (en el API porque los avisos de la plataforma salen del panel admin).   |
+
+«worker» = el cron se registra solo con `WORKERS_ENABLED_IN_API` activo, así que en producción (api con `false`) lo ejecuta el worker; «API» = lo ejecuta el api. Las horas «(España)» llevan `timeZone: 'Europe/Madrid'` en el código; `seo.ga4-daily`, `seo.alerts`, `custom-domains.plan-sync` y `custom-domains.full-check` **no fijan zona horaria**, así que corren a la del proceso (los compose no definen `TZ` para api y worker; en un contenedor sin `TZ` es UTC). El §208 dice «07:20, hora de España» para `seo.ga4-daily`: es la hora del proceso, no necesariamente la de Madrid (no he podido comprobar la zona horaria real de los contenedores).
+
+### Comprobar tras desplegar
+
+- **Sistema y colas**: las colas `seo`, `seo-sistrix` y `seo-crawl` sin fallos, y las tareas de la tabla anterior con su próxima ejecución (si alguna sale atrasada, el worker no está en la versión nueva).
+- **Métricas y Finanzas**: el MRR ya es sin IVA y el primer mes no sale como una caída (§181). **Salud**: por defecto solo clientes que pagan (§183). **Tenants**: probar la vista previa antes de cualquier baja o anonimización (§187–§188).
+- **Equipo comercial**: el reparto con vista previa, «Por hacer» y las carteras de dirección (§189–§192). **Leads**: las secuencias automáticas están activadas por defecto; la primera vez saldrán en «Hoy» todos los leads parados de antes (§186).
+- **Dominios propios**: los que ya estaban activos y cuyo plan no incluye la función pasan a «En pausa» en los 10 primeros minutos; «Comprobar todos» y revisar la lista (§195–§196). **Problemas de facturación**: revisar las pestañas Envíos atascados y Certificados (§195–§196).
+- **SEO** (trasteros.pro): los clics e impresiones de 28 días coinciden con Search Console; «Técnico» → «Inspeccionar URL» con la portada da «Indexación confirmada» y «Hoy: 1 de 1.000»; «Rastrear ahora» saca el resumen y las incidencias; «Asistente» responde con cifras y su origen; en «Ajustes» → Google Analytics la tabla «Páginas: Google, Analytics y conversiones» tiene sesiones; en «Competencia» → «Visibilidad en IA» salen tu dominio, tu marca y los competidores. Detalle de cada una en §197–§208.
 
 ## 210. SEO Avanzado: arreglos de la revisión (2026-11-26)
 

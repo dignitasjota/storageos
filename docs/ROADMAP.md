@@ -1249,3 +1249,64 @@ La factura del primer pago y su fianza se pagan juntas en el enlace de la firma,
 ### «Hoy» del super admin: revisión y mejoras ✅ (2026-11-21/22, #1002–#1003)
 
 - Lo apartado vuelve si empeora, secciones que fallan por separado, números que cuadran, € en riesgo, resumen desde la última visita, cobros de la suscripción rechazados, clientes que dejaron de entrar, plazos de respuesta de tickets (uno de prioridad urgente cuenta siempre), fallos de colas con reintentar, acciones en lote y atajos de teclado.
+
+### Panel super admin: Métricas y Finanzas ✅ (2026-11-22, #1005–#1006)
+
+- **Arreglos** (#1005): una sola definición del MRR sin IVA (`saas-metrics.ts`) para Métricas, «Hoy», la lista de tenants y las fotos mensuales; la prueba que acaba sin pagar no es cliente ni baja y el pago atrasado sigue en el MRR hasta suspender; retención, churn y LTV solo con quien pagó; previsión sin el mes en curso; conciliación cobro a cobro; formatos y refresco de 60 s en todo el panel.
+- **Mejoras** (#1006): MRR con desglose, estados de cliente, retención en dinero, previsión con escenarios y precisión de las pasadas, concentración con aviso, anotaciones en los gráficos, comparación con el año pasado; en Finanzas, con o sin IVA, caja prevista frente al objetivo de cobro, IVA por trimestre, margen por mes y por tenant, coste de adquisición y exportar a CSV y PDF.
+
+### Panel super admin: Salud, Adopción y Uso ✅ (2026-11-22, #1007–#1008)
+
+- **Arreglos** (#1007): Salud por defecto solo de clientes que pagan, pruebas aparte con su activación, foto diaria sin escribir al consultar, reglas de adopción y uso en 90 días, coste de IA por modelo.
+- **Mejoras** (#1008): pesos editables, riesgo de baja o probabilidad de pagar, lo que más resta con su acción, historial y mini gráfica, aviso de caída de 15 puntos, candidatos a subir de plan, matriz función × plan, previsión del almacenamiento, margen y consumo anómalo, y seguimientos en lote.
+
+### Panel super admin: Leads ✅ (2026-11-22, #1009–#1010)
+
+- **Arreglos** (#1009): duplicados, fechas reales, perdidos que vuelven a escribir, reasignar mueve la cartera del comercial, CSV sin fórmulas y Resultados con fases reales.
+- **Mejoras** (#1010, 12): puntuación y valor estimado, reparto automático con plazo de respuesta, parados, descarte con motivo, fusión de duplicados, secuencias de correo, lista y vistas, importación, captura rápida, respuesta por correo dentro del lead y propuestas con apertura.
+
+### Panel super admin: Tenants ✅ (2026-11-23, #1011–#1012)
+
+- **Arreglos** (#1011): cobros que solo reactivan a quien estaba suspendido por impago, vaciado y anonimización más completos, cifras con la misma definición que el resto, impersonación de solo lectura con límites y sesiones revocables (`tokens_valid_after`).
+- **Mejoras** (#1012): dar de baja separado de suspender y anonimización con plazo de gracia (programadas), vista previa en todos los cambios de suscripción, incoherencias con «Corregir», anular un pago a mano, impersonar como un usuario, exportación de datos en segundo plano y lista con pestaña «Bajas».
+
+### Panel super admin: Equipo comercial ✅ (2026-11-24, #1013–#1016, 4 PR)
+
+- **Reparto masivo** (#1013): importar un Excel y repartir prospectos entre comerciales (uno, por columna o a partes iguales), duplicados, lotes y aviso previo a la liberación.
+- **Cartera manejable** (#1014): «Por hacer», lista y tablero, modo llamadas, acciones en lote, vistas guardadas y clientes con filtros y oportunidades.
+- **No interesados y recuperación** (#1015): archivados con fecha de recuperación o «no volver a contactar», aviso de recuperar y comisión de recuperación (la mitad).
+- **Carteras para la dirección** (#1016): todas las carteras en una tabla, ficha lateral, notas, reasignar, mover de fase, archivar y recuperar, con la actividad marcada «Dirección» y aviso a los comerciales sin contactar a tiempo.
+
+### Panel super admin: Seguimientos, Trials, En riesgo y Oportunidades ✅ (2026-11-25, #1017–#1018)
+
+- **Arreglos** (#1017): seguimientos sin los de comerciales, responsable por defecto, fechas en hora de Madrid, pruebas vencidas y «ignorar» por sección en «En riesgo», enfriamiento de 14 días entre propuestas de extras y pruebas de extras de una sola vez.
+- **Mejoras** (#1018): bandeja unificada de seguimientos con «qué pasó», trials con progreso, probabilidad y mensajes, «En riesgo» con cuota en juego y responsable, y Oportunidades con descartes, propuesta a varios y paso al comercial.
+
+### Panel super admin: Problemas de facturación y Dominios propios ✅ (2026-11-26, #1019–#1020)
+
+- **Arreglos** (#1019): dominio «En pausa» cuando el plan ya no incluye la función, activar con comprobación de plan, DNS y https, registros de Veri\*Factu que nunca llegaban a enviarse y reenvío con motivo.
+- **Mejoras** (#1020, 15): Facturación en pestañas (facturas, envíos atascados, tenants, certificados a 60 días, otros) con avisos al tenant; Dominios con comprobación completa, una sola vigilancia diaria, guía de activación con casillas, historial y «Pendiente de limpiar».
+
+### SEO Avanzado ✅ (2026-11-26, #1021–#1032, 12 PR; plan en `docs/SEO_PLAN.md`)
+
+Extra «SEO Avanzado» (`addon-seo-advanced`, 199 €/mes, fuera de los planes, incluye «SEO local») y panel admin → SEO para los proyectos de la plataforma (trasteros.pro).
+
+- **Fase 1: base**
+  - PR 1 (#1021): proyectos y dominios, Search Console con 16 meses y cruces, cola `seo`, migración de lo de «SEO local».
+  - PR 2 (#1022): dominio secundario, importación de los Excel históricos de Search Console y panel con comparativas.
+  - PR 3 (#1023): SISTRIX por MCP y por API con enrutador de proveedores, caché, presupuesto y datos de competencia.
+- **Fase 2: investigación**
+  - PR 4 (#1024): motor de oportunidades con puntuación y motivo.
+  - PR 5 (#1025): palabras seguidas, URL objetivo, canibalización e indexación.
+- **Fase 3: estrategia**
+  - PR 6 (#1026): actuaciones con su antes y después y tareas SEO con tablero y calendario.
+  - PR 7 (#1027): importación de los Excel maestros (GUÁRDALO y trasteros.pro).
+  - PR 8 (#1028): conversiones de Google, alertas e informes semanal y mensual.
+- **Fase 4: auditoría**
+  - PR 9 (#1029): inspección de URL y PageSpeed, página del proyecto en pestañas.
+  - PR 10 (#1030): rastreador propio de las webs.
+- **Fase 5: IA y avanzado**
+  - PR 11 (#1031): asistente de SEO y borradores de contenido.
+  - PR 12 (#1032): Google Analytics del tráfico orgánico y visibilidad en buscadores de IA.
+- **Fuera del plan** (por si se retoma): anotaciones automáticas desde el registro de acciones (§18.8), editar los grupos de palabras desde la pantalla de palabras, la etiqueta de Google en la lista de canibalización, la velocidad de la competencia, un navegador sin cabeza para webs que se pintan en el navegador, posiciones geolocalizadas (§16.7), backlinks más allá de `linktargets`, AI Tracker de SISTRIX (necesita proyectos suyos) y comprobar con la primera llamada real el formato de `ai_prompt_answers` y de la API clásica.
+- **Pasos manuales tras desplegar** (detalle en `docs/DEPLOYMENT.md` §209): cuenta de servicio como usuario en Search Console y de Lector en GA4, clave de PageSpeed, «Conectar SISTRIX», crear el proyecto de trasteros.pro, activar la conexión de SISTRIX de la plataforma en GUÁRDALO e importar los dos maestros.
