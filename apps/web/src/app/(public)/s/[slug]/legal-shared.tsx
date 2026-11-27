@@ -10,6 +10,7 @@ import type { PublicLegalDocDto, TenantLegalDoc } from '@storageos/shared';
 import type { Metadata } from 'next';
 
 import { MarkdownView } from '@/components/public/markdown-view';
+import { tenantPageMetadata } from '@/lib/seo/tenant-metadata';
 import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
 /**
@@ -42,7 +43,11 @@ export async function buildLegalMetadata(slug: string, doc: TenantLegalDoc): Pro
   if (!data) return { title: 'No encontrado', robots: { index: false } };
   const title = `${data.title} · ${data.tenantName}`;
   return {
-    title: { absolute: title },
+    ...tenantPageMetadata({
+      tenantName: data.tenantName,
+      title,
+      description: `${data.title} de ${data.tenantName}.`,
+    }),
     alternates: { canonical: legalHref(slug, doc, data.customDomain) },
     // Páginas de obligado cumplimiento: se pueden seguir, no hace falta indexarlas.
     robots: { index: false, follow: true },
