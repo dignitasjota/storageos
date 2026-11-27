@@ -174,6 +174,22 @@ function WindowDetail({ w }: { w: SeoSiteChangeWindowDto }) {
           </p>
           {w.contextNote && <p className="text-muted-foreground">{w.contextNote}</p>}
           <CompareTable c={w.scope} site={w.site} />
+          {w.yearAgo && (
+            <div className="space-y-1 rounded-md border p-2 text-xs">
+              <p className="font-medium">Lo mismo, un año antes</p>
+              {w.yearAgo.available && w.yearAgo.before && w.yearAgo.after ? (
+                <p className="text-muted-foreground">
+                  Las mismas fechas del año pasado: {formatCount(w.yearAgo.before.clicks)} →{' '}
+                  {formatCount(w.yearAgo.after.clicks)} clics ·{' '}
+                  {formatCount(w.yearAgo.before.impressions)} →{' '}
+                  {formatCount(w.yearAgo.after.impressions)} impresiones. Si entonces también subió
+                  o bajó, parte del cambio de ahora es de la temporada y no de la actuación.
+                </p>
+              ) : (
+                <p className="text-muted-foreground">{w.yearAgo.message}</p>
+              )}
+            </div>
+          )}
           {w.items.length > 1 && (
             <ul className="space-y-2">
               {w.items.map((i) => (

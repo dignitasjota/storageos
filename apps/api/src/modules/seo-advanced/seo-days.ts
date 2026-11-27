@@ -3,6 +3,7 @@ import {
   SEO_PERIODS,
   SEO_TABLE_PAGE_SIZE,
   SEO_TABLE_SORTS,
+  isSeoBrandFilter,
   isSeoPanelPeriod,
   type SeoTableSort,
 } from '@storageos/shared';
@@ -22,11 +23,14 @@ export function parsePanelQuery(q: Record<string, string | undefined>): SeoPanel
   if (q.domainId && !UUID_RE.test(q.domainId)) {
     throw new BadRequestException({ code: 'invalid_id', message: 'Dominio no válido.' });
   }
+  const area = q.area?.trim().slice(0, 80);
   return {
     period: isSeoPanelPeriod(q.period) ? q.period : '28d',
     from: q.from,
     to: q.to,
     domainId: q.domainId || undefined,
+    brand: isSeoBrandFilter(q.brand) ? q.brand : undefined,
+    area: area || undefined,
   };
 }
 

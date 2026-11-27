@@ -415,3 +415,36 @@ describe('palabras seguidas por intención o grupo', () => {
     expect(groups[1]!.label).toBe('Sin intención');
   });
 });
+
+describe('canibalización: portada y versiones de idioma', () => {
+  it('sin URL objetivo, la portada con poca parte (enlace de sitio) no cuenta', () => {
+    const c = analyzeSeoCannibalization({
+      query: 'trasteros mislata',
+      brandTerms: [],
+      pages: [
+        { page: `${BASE}/mislata`, clicks: 20, impressions: 300, position: 3 },
+        { page: `${BASE}/`, clicks: 1, impressions: 40, position: 12 },
+      ],
+      daily: [],
+      targetUrl: null,
+      thresholds: T,
+    });
+    expect(c).toBeNull();
+  });
+  it('dos versiones de idioma se explican como tales', () => {
+    const c = analyzeSeoCannibalization({
+      query: 'storage valencia',
+      brandTerms: [],
+      pages: [
+        { page: `${BASE}/precios`, clicks: 10, impressions: 120, position: 14 },
+        { page: `${BASE}/l/en/precios`, clicks: 6, impressions: 100, position: 18 },
+      ],
+      daily: [],
+      targetUrl: null,
+      thresholds: T,
+    });
+    expect(c).not.toBeNull();
+    expect(c!.reason).toContain('versiones de idioma');
+    expect(c!.action).toContain('hreflang');
+  });
+});

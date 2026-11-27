@@ -907,6 +907,7 @@ export class SistrixSyncService {
             position: r.position,
             domain: r.domain,
             url: r.url,
+            title: r.title ?? null,
           })),
           skipDuplicates: true,
         });

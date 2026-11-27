@@ -25,6 +25,7 @@ import {
 
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { SeoGa4Service } from '../ga4/seo-ga4.service';
+import { SeoZonesService } from '../improvements/seo-zones.service';
 import { SeoConversionsService } from '../reports/seo-conversions.service';
 import { syncedUntilOf } from '../seo-coverage';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
@@ -87,6 +88,7 @@ export class SeoOpportunityEngineService {
     private readonly conversions: SeoConversionsService,
     private readonly ga4: SeoGa4Service,
     private readonly technical: SeoTechnicalReadService,
+    private readonly zones: SeoZonesService,
   ) {}
 
   /** Recalcula las oportunidades de un proyecto (null si ya no existe). */
@@ -218,6 +220,11 @@ export class SeoOpportunityEngineService {
       const pageEngagementByQuery = ga4Pages
         ? await this.ga4.pageStatsByQuery(project.id, p.period, ga4Pages, project.tenantId === null)
         : {};
+      // Zonas del proyecto sin página propia (mejoras): solo en el dominio principal.
+      const areaGaps =
+        primary && p.domain.id === primary.id
+          ? await this.zones.areaGaps(project, p.domain.id, p.period, p.queries)
+          : [];
       const found = detectSeoOpportunities({
         domain: p.domain.domain,
         brandTerms: project.brandTerms,
@@ -231,6 +238,7 @@ export class SeoOpportunityEngineService {
         keywordGaps: p.gaps,
         pageConversionsByQuery,
         pageEngagementByQuery,
+        ...(areaGaps.length > 0 ? { areaGaps } : {}),
         ...(primary && p.domain.id === primary.id && linkRows.length > 0
           ? { internalLinks: linkRows }
           : {}),

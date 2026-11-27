@@ -420,6 +420,18 @@ export interface SeoSiteChangeOverlapDto {
   date: string;
 }
 
+/** El mismo antes y después del año anterior (mejora 12): evita falsas alarmas por la estacionalidad. */
+export interface SeoSiteChangeYearAgoDto {
+  /** Hay datos completos de las dos ventanas del año anterior. */
+  available: boolean;
+  /** Por qué no (si no está disponible). */
+  message: string | null;
+  before: SeoTotalsDto | null;
+  after: SeoTotalsDto | null;
+  /** Variación del año anterior en las mismas fechas (para compararla con la de este año). */
+  variation: SeoChangeDto | null;
+}
+
 export interface SeoSiteChangeWindowDto extends SeoSiteChangeRange {
   days: number;
   status: SeoSiteChangeWindowStatus;
@@ -430,6 +442,8 @@ export interface SeoSiteChangeWindowDto extends SeoSiteChangeRange {
   /** El dominio entero en las mismas fechas. */
   site: { before: SeoTotalsDto; after: SeoTotalsDto; variation: SeoChangeDto | null } | null;
   contextNote: string | null;
+  /** Lo mismo un año antes (solo en la ficha). */
+  yearAgo?: SeoSiteChangeYearAgoDto | null;
   /** Por URL y por palabra (solo en la ficha). */
   items: SeoSiteChangeItemDto[];
   overlaps: SeoSiteChangeOverlapDto[];

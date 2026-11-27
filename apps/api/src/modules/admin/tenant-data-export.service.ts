@@ -776,32 +776,72 @@ export class TenantDataExportService {
    */
   private async seoSheets(wb: ExcelJS.Workbook, tenantId: string): Promise<void> {
     const where = { tenantId };
-    const [domains, keywords, opportunities, tasks, changes] = await Promise.all([
-      this.admin.seoProjectDomain.findMany({
-        where,
-        orderBy: { createdAt: 'asc' },
-        include: { project: { select: { name: true, strategy: true, country: true } } },
-      }),
-      this.admin.seoProjectKeyword.findMany({
-        where,
-        orderBy: { createdAt: 'asc' },
-        include: { keyword: { select: { keyword: true } }, project: { select: { name: true } } },
-      }),
-      this.admin.seoOpportunity.findMany({
-        where,
-        orderBy: [{ score: 'desc' }, { createdAt: 'asc' }],
-        include: { project: { select: { name: true } } },
-      }),
-      this.admin.seoTask.findMany({
-        where,
-        orderBy: { createdAt: 'asc' },
-        include: { project: { select: { name: true } } },
-      }),
-      this.admin.seoSiteChange.findMany({
-        where,
-        orderBy: { changeDate: 'asc' },
-        include: { project: { select: { name: true } } },
-      }),
+    const [projects, competitors, imports, domains, keywords, opportunities, tasks, changes] =
+      await Promise.all([
+        this.admin.seoProject.findMany({ where, orderBy: { createdAt: 'asc' } }),
+        this.admin.seoCompetitor.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoSistrixImport.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoProjectDomain.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true, strategy: true, country: true } } },
+        }),
+        this.admin.seoProjectKeyword.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { keyword: { select: { keyword: true } }, project: { select: { name: true } } },
+        }),
+        this.admin.seoOpportunity.findMany({
+          where,
+          orderBy: [{ score: 'desc' }, { createdAt: 'asc' }],
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoTask.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoSiteChange.findMany({
+          where,
+          orderBy: { changeDate: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+      ]);
+    this.sheet(wb, 'SEO - proyecto', projects, [
+      { header: 'Nombre', width: 24, value: (p) => p.name },
+      { header: 'Estrategia', value: (p) => p.strategy },
+      { header: 'País', value: (p) => p.country },
+      { header: 'Ubicación objetivo', width: 28, value: (p) => p.targetLocation },
+      { header: 'Términos de marca', width: 32, value: (p) => p.brandTerms.join(', ') },
+      { header: 'Zonas (municipios y barrios)', width: 36, value: (p) => p.localAreas.join(', ') },
+      { header: 'Estado', value: (p) => p.status },
+      { header: 'Alta', value: (p) => p.createdAt },
+    ]);
+    this.sheet(wb, 'SEO - competidores', competitors, [
+      { header: 'Proyecto', width: 24, value: (c) => c.project.name },
+      { header: 'Dominio', width: 28, value: (c) => c.domain },
+      { header: 'Directorio analizado', value: (c) => c.pathPrefix },
+      { header: 'Nombre', value: (c) => c.name },
+      { header: 'Notas', width: 32, value: (c) => c.notes },
+      { header: 'Se sigue', value: (c) => c.isActive },
+      { header: 'Origen', value: (c) => c.source },
+    ]);
+    this.sheet(wb, 'SEO - CSV de SISTRIX importados', imports, [
+      { header: 'Proyecto', width: 24, value: (i) => i.project.name },
+      { header: 'Tipo', value: (i) => i.kind },
+      { header: 'Fichero', width: 28, value: (i) => i.filename },
+      { header: 'Dominio', value: (i) => i.domain },
+      { header: 'Búsqueda', value: (i) => i.keyword },
+      { header: 'Filas', value: (i) => i.rows },
+      { header: 'Fecha', value: (i) => i.createdAt },
     ]);
     this.sheet(wb, 'SEO - proyectos y dominios', domains, [
       { header: 'Proyecto', width: 24, value: (d) => d.project.name },

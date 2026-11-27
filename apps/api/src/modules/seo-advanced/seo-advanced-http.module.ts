@@ -29,6 +29,15 @@ import {
 } from './diagnostics/seo-diagnostics.controller';
 import { SeoDiagnosticsService } from './diagnostics/seo-diagnostics.service';
 import { AdminSeoGa4Controller, SeoAdvancedGa4Controller } from './ga4/seo-ga4.controller';
+import { SeoAnnotationsService } from './improvements/seo-annotations.service';
+import { SeoCompetitionService } from './improvements/seo-competition.service';
+import {
+  AdminSeoImprovementsController,
+  SeoAdvancedImprovementsController,
+} from './improvements/seo-improvements.controller';
+import { SeoKeywordBatchService } from './improvements/seo-keyword-batch.service';
+import { SeoSistrixCsvService } from './improvements/seo-sistrix-csv.service';
+import { SeoYearAgoService } from './improvements/seo-year-ago.service';
 import {
   AdminSeoMasterImportController,
   SeoAdvancedMasterImportController,
@@ -117,6 +126,8 @@ import {
     AdminSeoGa4Controller,
     SeoAdvancedAiVisibilityController,
     AdminSeoAiVisibilityController,
+    SeoAdvancedImprovementsController,
+    AdminSeoImprovementsController,
   ],
   providers: [
     AdminGuard,
@@ -134,6 +145,11 @@ import {
     SeoAssistantToolsService,
     SeoAssistantService,
     SeoBriefsService,
+    SeoAnnotationsService,
+    SeoCompetitionService,
+    SeoKeywordBatchService,
+    SeoSistrixCsvService,
+    SeoYearAgoService,
     // Alertas cada hora: en el API (los avisos por chat de la plataforma salen del panel admin).
     SeoAlertsCron,
   ],

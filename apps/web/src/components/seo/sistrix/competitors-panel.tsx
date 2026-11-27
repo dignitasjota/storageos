@@ -263,7 +263,14 @@ export function CompetitorsPanel({
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await add.mutateAsync({ domain });
+      // «competidor.es/valencia/» sigue solo ese directorio (mejora 14).
+      const raw = domain.trim().replace(/^[a-z]+:\/\//i, '');
+      const slash = raw.indexOf('/');
+      const path = slash >= 0 ? raw.slice(slash) : '';
+      await add.mutateAsync({
+        domain: slash >= 0 ? raw.slice(0, slash) : raw,
+        ...(path.replace(/\//g, '') ? { pathPrefix: path } : {}),
+      });
       setDomain('');
       toast.success('Competidor añadido');
     } catch (err) {
@@ -320,7 +327,7 @@ export function CompetitorsPanel({
             <Input
               value={domain}
               onChange={(e) => setDomain(e.target.value)}
-              placeholder="competidor.es"
+              placeholder="competidor.es o competidor.es/valencia/"
               aria-label="Dominio del competidor"
               className="sm:max-w-xs"
             />
@@ -349,6 +356,9 @@ export function CompetitorsPanel({
                     onClick={() => setViewing(c.domain)}
                   >
                     {c.name ? `${c.name} · ${c.domain}` : c.domain}
+                    {c.pathPrefix && (
+                      <span className="ml-1 font-normal text-muted-foreground">{c.pathPrefix}</span>
+                    )}
                   </button>
                   <div className="flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
                     <span>

@@ -16,6 +16,7 @@ import {
 } from '@nestjs/common';
 import {
   AddSeoProjectKeywordsSchema,
+  ProbeSistrixApiSchema,
   CreateSeoCompetitorSchema,
   SeoSistrixSyncSchema,
   SetProjectPlatformSistrixSchema,
@@ -24,6 +25,8 @@ import {
   UpdateSeoSyncSettingsSchema,
   UpdateSistrixApiSettingsSchema,
   type SeoAiVisibilityRowDto,
+  type SeoApiProbeResultDto,
+  type SeoApiSampleDto,
   type SeoBacklinksDto,
   type SeoCompetitorDto,
   type SeoDomainKeywordHistoryDto,
@@ -55,6 +58,7 @@ import { SistrixOAuthService } from './sistrix-oauth.service';
 
 import type { Response } from 'express';
 
+class ProbeApiDto extends createZodDto(ProbeSistrixApiSchema) {}
 class UpdateApiDto extends createZodDto(UpdateSistrixApiSettingsSchema) {}
 class UpdateSettingsDto extends createZodDto(UpdateSeoSyncSettingsSchema) {}
 class SyncDto extends createZodDto(SeoSistrixSyncSchema) {}
@@ -162,6 +166,25 @@ export class AdminSeoSistrixController {
   @AdminAudit('admin.seo.sistrix_api_authorization_revoked')
   revoke(): Promise<SeoSistrixIntegrationsDto> {
     return this.sistrix.revokeApiAuthorization();
+  }
+
+  /**
+   * «Probar la API con una consulta»: una llamada real, solo con «Continuar por
+   * API» autorizado. Guarda la respuesta como muestra y anota los créditos.
+   */
+  @Post('sistrix/api/probe')
+  @RequireSuperadmin()
+  @AdminAudit('admin.seo.sistrix_api_probed')
+  probe(
+    @CurrentSuperAdmin('sub') superAdminId: string,
+    @Body() body: ProbeApiDto,
+  ): Promise<SeoApiProbeResultDto> {
+    return this.sistrix.probeApi(superAdminId, body);
+  }
+
+  @Get('sistrix/api/samples')
+  samples(): Promise<SeoApiSampleDto[]> {
+    return this.sistrix.apiSamples();
   }
 
   @Put('sistrix/settings')

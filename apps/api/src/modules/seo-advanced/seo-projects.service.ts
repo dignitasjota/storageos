@@ -7,6 +7,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   SEO_DEFAULT_FREQUENCIES,
   SEO_DEFAULT_WEIGHTS,
@@ -60,6 +61,13 @@ export interface SeoActor {
   superAdminId?: string | null;
 }
 
+/** Evento: el dominio principal de un tenant acaba de conectarse con Search Console. */
+export const SEO_DOMAIN_CONNECTED = 'seo.domain_connected';
+export interface SeoDomainConnectedEvent {
+  tenantId: string;
+  projectId: string;
+}
+
 const today = () => new Date().toISOString().slice(0, 10);
 const dateOnly = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 
@@ -94,6 +102,7 @@ export class SeoProjectsService {
     private readonly sync: SeoGscSyncService,
     private readonly config: ConfigService<Env, true>,
     private readonly ownership: SeoDomainOwnershipService,
+    private readonly events: EventEmitter2,
   ) {}
 
   private db<T>(owner: SeoOwner, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -497,6 +506,13 @@ export class SeoProjectsService {
     await this.setConnection(owner, domain.id, access ? 'connected' : 'error', message);
     if (access && !domain.initialDoneAt) {
       await this.sync.enqueue(domain.id, 'initial', actor);
+      // Mejora 9: el primer rastreo y la primera medición de velocidad salen solos.
+      if (owner && domain.role === 'primary') {
+        this.events.emit(SEO_DOMAIN_CONNECTED, {
+          tenantId: owner,
+          projectId: domain.projectId,
+        } satisfies SeoDomainConnectedEvent);
+      }
     }
   }
 
@@ -964,6 +980,7 @@ export class SeoProjectsService {
       strategy: row.strategy as SeoStrategy,
       targetLocation: row.targetLocation,
       brandTerms: row.brandTerms,
+      localAreas: row.localAreas,
       weights: { ...SEO_DEFAULT_WEIGHTS, ...(row.weights as Partial<SeoWeights>) },
       frequencies: {
         ...SEO_DEFAULT_FREQUENCIES,

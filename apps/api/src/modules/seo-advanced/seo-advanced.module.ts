@@ -15,6 +15,8 @@ import { SeoCrawlerService } from './crawler/seo-crawler.service';
 import { SeoDiagnosticsEngineService } from './diagnostics/seo-diagnostics-engine.service';
 import { SeoGa4Cron } from './ga4/seo-ga4.cron';
 import { SeoGa4Service } from './ga4/seo-ga4.service';
+import { SeoAutoStartService } from './improvements/seo-auto-start.service';
+import { SeoZonesService } from './improvements/seo-zones.service';
 import { SeoOpportunityEngineService } from './opportunities/seo-opportunity-engine.service';
 import { SeoOpportunityScheduler } from './opportunities/seo-opportunity-scheduler';
 import { SeoPlanCron } from './plan/seo-plan.cron';
@@ -100,6 +102,8 @@ import type { Env } from '../../config/env.schema';
     SistrixFetchService,
     SistrixSyncService,
     SeoOpportunityScheduler,
+    SeoZonesService,
+    SeoAutoStartService,
     SeoOpportunityEngineService,
     SeoDiagnosticsEngineService,
     SeoTaskNoticesService,
@@ -134,6 +138,7 @@ import type { Env } from '../../config/env.schema';
       : []),
   ],
   exports: [
+    SeoZonesService,
     SeoDomainOwnershipService,
     SeoProjectsService,
     SeoGscSyncService,

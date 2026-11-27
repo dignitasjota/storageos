@@ -16,6 +16,7 @@ import { CryptoService } from '../../../common/crypto/crypto.service';
 import { isUniqueViolation } from '../../../common/prisma-errors';
 import { PlatformAlertsService } from '../../admin/platform-alerts.service';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { NotificationsService } from '../../notifications/notifications.service';
 
 import type { Prisma, SeoProviderConnection } from '@storageos/database';
 
@@ -38,6 +39,7 @@ export class SistrixConnectionsService {
     private readonly admin: PrismaAdminService,
     private readonly crypto: CryptoService,
     private readonly alerts: PlatformAlertsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // ----------------------------------------------------------- cifrado
@@ -111,6 +113,43 @@ export class SistrixConnectionsService {
              "week_start" = ${week}::date,
              "updated_at" = now()
        WHERE "id" = ${connId}::uuid`;
+    await this.warnBudget(connId, week).catch((err: unknown) =>
+      this.logger.warn(`Aviso del presupuesto de SISTRIX: ${(err as Error).message}`),
+    );
+  }
+
+  /**
+   * Aviso al llegar al 80 % del presupuesto semanal de la API (§16.3): uno por
+   * semana y conexión (se reserva antes de avisar, sin duplicar entre réplicas).
+   * A la plataforma, al super admin; a un tenant, a quien gestiona la configuración.
+   */
+  private async warnBudget(connId: string, week: string): Promise<void> {
+    const conn = await this.admin.seoProviderConnection.findUnique({ where: { id: connId } });
+    if (!conn || conn.provider !== 'sistrix_api' || conn.weeklyBudget <= 0) return;
+    if (conn.weekSpent < Math.ceil(conn.weeklyBudget * 0.8)) return;
+    const claimed = await this.admin.seoProviderConnection.updateMany({
+      where: {
+        id: connId,
+        OR: [
+          { budgetAlertWeek: null },
+          { budgetAlertWeek: { not: new Date(`${week}T00:00:00Z`) } },
+        ],
+      },
+      data: { budgetAlertWeek: new Date(`${week}T00:00:00Z`) },
+    });
+    if (claimed.count === 0) return;
+    const pct = Math.round((conn.weekSpent / conn.weeklyBudget) * 100);
+    const body = `Has gastado ${conn.weekSpent} de ${conn.weeklyBudget} créditos de la API de SISTRIX esta semana (${pct} %). Al llegar al tope, las consultas se paran hasta la semana que viene.`;
+    if (conn.tenantId) {
+      await this.notifications.createForPermission(conn.tenantId, 'settings:manage', {
+        type: 'seo.sistrix_budget',
+        title: 'Queda poco presupuesto de SISTRIX esta semana',
+        body,
+        link: '/seo-advanced#competencia',
+      });
+      return;
+    }
+    await this.notifySuperAdmin('seo.sistrix_budget', 'Queda poco presupuesto de SISTRIX', body);
   }
 
   // ----------------------------------------------------------- avisos

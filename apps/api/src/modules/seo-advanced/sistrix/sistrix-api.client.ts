@@ -36,8 +36,12 @@ const STUB_MAP: Record<string, { tool: string; view?: string; key: 'domain' | 'k
 
 export interface SistrixApiResult {
   payload: SistrixPayload;
-  /** Créditos que dice la respuesta que ha gastado. */
+  /** Créditos que dice la respuesta que ha gastado (o, si no lo dice, los estimados). */
   credits: number;
+  /** La respuesta decía cuánto gastó. */
+  creditsKnown?: boolean;
+  /** Respuesta tal cual la dio SISTRIX (solo en la API real; sin la clave). */
+  raw?: unknown;
 }
 
 /**
@@ -101,14 +105,14 @@ export class SistrixApiClient {
     params: Record<string, string>,
   ): Promise<SistrixApiResult> {
     if (this.simulated) return this.stubCall(apiKey, method, params);
-    const parsed = parseApiResponse(await this.request(apiKey, method, params));
-    // Si la respuesta no dice cuánto gastó, se asume lo estimado (nunca 0): el
-    // presupuesto no se puede quedar corto por no poder leer el coste.
-    const credits =
-      parsed.creditsKnown || parsed.payload.kind !== 'payload'
-        ? parsed.credits
-        : estimateApiCallCredits(method, params);
-    return { payload: parsed.payload, credits };
+    const raw = await this.request(apiKey, method, params);
+    const parsed = parseApiResponse(raw);
+    return {
+      payload: parsed.payload,
+      credits: apiCreditsToCount(parsed, method, params),
+      creditsKnown: parsed.creditsKnown,
+      raw,
+    };
   }
 
   /** Saldo de créditos (el método `credits` no gasta). */
@@ -156,6 +160,25 @@ export class SistrixApiClient {
     const credits = method === 'keyword.seo.metrics' ? 5 : rows;
     return { payload, credits };
   }
+}
+
+/**
+ * Créditos que se cuentan de una respuesta de la API clásica. Si dice cuánto
+ * gastó, eso; si no lo dice, o dice 0 y trae datos (un 0 con datos no es
+ * creíble), lo estimado (un crédito por dato, nunca más de lo pedido). Los
+ * errores y las respuestas vacías cuentan lo que digan.
+ */
+export function apiCreditsToCount(
+  parsed: { payload: SistrixPayload; credits: number; creditsKnown: boolean },
+  method: string,
+  params: Record<string, string>,
+): number {
+  if (parsed.payload.kind !== 'payload') return parsed.credits;
+  if (parsed.creditsKnown && parsed.credits > 0) return parsed.credits;
+  const estimate = estimateApiCallCredits(method, params);
+  if (method === 'keyword.seo.metrics') return estimate;
+  const rows = countRows(parsed.payload.value);
+  return Math.max(1, Math.min(estimate, rows));
 }
 
 function countRows(value: unknown): number {

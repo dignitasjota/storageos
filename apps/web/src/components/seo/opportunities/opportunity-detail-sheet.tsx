@@ -15,6 +15,7 @@ import { Loader2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { OpportunityYearAgo } from '../improvements/year-ago';
 import { SeoPlanLinks } from '../plan/plan-links';
 import { SeoTrendChart } from '../seo-charts';
 import { seoErrorMessage } from '../seo-errors';
@@ -403,6 +404,9 @@ function Body({
             <p className="text-xs text-muted-foreground">
               Sin periodo anterior comparable (faltan datos de esos días).
             </p>
+          )}
+          {(o.type === 'falling' || o.type === 'rising') && (
+            <OpportunityYearAgo scope={scope} opportunityId={o.id} />
           )}
         </Section>
       )}

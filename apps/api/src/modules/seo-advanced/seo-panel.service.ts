@@ -5,7 +5,11 @@ import {
   SEO_TABLE_CSV_MAX,
   daysBetween,
   seoChange,
+  seoAreaLikePatterns,
+  seoBrandLikePatterns,
+  seoBrandTerms,
   seoComparison,
+  seoMobileGap,
   seoPeriodCovered,
   seoPanelRange,
   seoRowVariation,
@@ -15,8 +19,13 @@ import {
   undetailedSearches,
   type SeoCrossDto,
   type SeoDashboardDayDto,
+  type SeoBrandFilter,
+  type SeoBrandSideDto,
+  type SeoBrandSplitDto,
   type SeoDashboardDto,
   type SeoMetricSums,
+  type SeoPageDeviceRowDto,
+  type SeoPageDevicesDto,
   type SeoPanelPeriod,
   type SeoPanelRange,
   type SeoProjectOverviewDto,
@@ -75,6 +84,45 @@ export interface SeoPanelQuery {
   from?: string | undefined;
   to?: string | undefined;
   domainId?: string | undefined;
+  /** Mejora 3: solo búsquedas de marca o sin marca (con los términos del proyecto). */
+  brand?: SeoBrandFilter | undefined;
+  /** Mejora 5: solo búsquedas que nombran esta zona. */
+  area?: string | undefined;
+}
+
+/** Minúsculas y sin tildes en SQL (para comparar con los términos de marca y zonas). */
+export const PLAIN_SQL = (col: Prisma.Sql) =>
+  Prisma.sql`translate(lower(${col}), 'áàäâéèëêíìïîóòöôúùüûñç', 'aaaaeeeeiiiioooouuuunc')`;
+
+/**
+ * Condición sobre la columna `query` para la marca y la zona. Con la marca
+ * pedida pero sin términos, no filtra (el panel invita a ponerlos).
+ */
+export function queryFilterSql(
+  col: Prisma.Sql,
+  brandTerms: readonly string[],
+  brand: SeoBrandFilter | undefined,
+  areaPatterns: readonly string[] | undefined,
+): Prisma.Sql {
+  const parts: Prisma.Sql[] = [];
+  if (brand && brand !== 'all') {
+    const patterns = seoBrandLikePatterns(brandTerms);
+    if (patterns.length) {
+      const any = Prisma.join(
+        patterns.map((p) => Prisma.sql`${PLAIN_SQL(col)} LIKE ${p}`),
+        ' OR ',
+      );
+      parts.push(brand === 'brand' ? Prisma.sql`AND (${any})` : Prisma.sql`AND NOT (${any})`);
+    }
+  }
+  if (areaPatterns && areaPatterns.length) {
+    const any = Prisma.join(
+      areaPatterns.map((p) => Prisma.sql`${PLAIN_SQL(col)} LIKE ${p}`),
+      ' OR ',
+    );
+    parts.push(Prisma.sql`AND (${any})`);
+  }
+  return parts.length ? Prisma.join(parts, ' ') : Prisma.empty;
 }
 
 export interface SeoTableQuery extends SeoPanelQuery {
@@ -384,6 +432,7 @@ export class SeoPanelService {
       WHERE domain_id = ${ctx.domainId}::uuid AND grain = 'query_page'
         AND date BETWEEN ${ctx.range.from}::date AND ${ctx.range.to}::date
         AND ${where} = ${value}
+        ${dimension === 'page' ? queryFilterSql(Prisma.raw('query'), ctx.brandTerms, ctx.brand, ctx.areaPatterns) : Prisma.empty}
       GROUP BY ${other}
       ORDER BY c DESC, i DESC, key ASC
       LIMIT 100`);
@@ -393,6 +442,185 @@ export class SeoPanelService {
       from: ctx.range.from,
       to: ctx.range.to,
       rows: rows.map((r) => ({ key: r.key, ...seoTotalsFromSums(toSums(r)) })),
+    };
+  }
+
+  // ------------------------------------------ páginas: móvil frente a ordenador
+
+  /**
+   * Cada página con su CTR y su posición en móvil y en ordenador (cruce
+   * `page_device`), marcando las que en móvil van claramente peor (mejora 11).
+   */
+  async pageDevices(
+    owner: SeoOwner | undefined,
+    projectId: string,
+    q: SeoPanelQuery & { onlyWorse?: boolean | undefined; limit?: number | undefined },
+  ): Promise<SeoPageDevicesDto> {
+    const ctx = await this.tableContext(owner, projectId, q);
+    if (!ctx) {
+      const range = this.range(q, null);
+      return {
+        projectId,
+        from: range.from,
+        to: range.to,
+        total: 0,
+        items: [],
+        hasData: false,
+      };
+    }
+    const rows = await this.admin.$queryRaw<
+      {
+        page: string;
+        mc: number | null;
+        mi: number | null;
+        mw: number | null;
+        dc: number | null;
+        di: number | null;
+        dw: number | null;
+      }[]
+    >(Prisma.sql`
+      SELECT page,
+        SUM(clicks) FILTER (WHERE upper(device) = 'MOBILE')::float8 AS mc,
+        SUM(impressions) FILTER (WHERE upper(device) = 'MOBILE')::float8 AS mi,
+        SUM(position * impressions) FILTER (WHERE upper(device) = 'MOBILE')::float8 AS mw,
+        SUM(clicks) FILTER (WHERE upper(device) = 'DESKTOP')::float8 AS dc,
+        SUM(impressions) FILTER (WHERE upper(device) = 'DESKTOP')::float8 AS di,
+        SUM(position * impressions) FILTER (WHERE upper(device) = 'DESKTOP')::float8 AS dw
+      FROM seo_gsc_metrics
+      WHERE domain_id = ${ctx.domainId}::uuid AND grain = 'page_device' AND page <> ''
+        AND date BETWEEN ${ctx.range.from}::date AND ${ctx.range.to}::date
+      GROUP BY page
+      ORDER BY COALESCE(SUM(impressions), 0) DESC
+      LIMIT 1000`);
+    const totals = (c: number | null, i: number | null, w: number | null) => ({
+      clicks: Number(c ?? 0),
+      impressions: Number(i ?? 0),
+      position: Number(i ?? 0) > 0 ? Math.round((Number(w ?? 0) / Number(i)) * 10) / 10 : null,
+    });
+    const all: SeoPageDeviceRowDto[] = rows.map((r) => {
+      const mobile = totals(r.mc, r.mi, r.mw);
+      const desktop = totals(r.dc, r.di, r.dw);
+      const gap = seoMobileGap(mobile, desktop);
+      return {
+        page: r.page,
+        mobile: { ...mobile, ctr: gap.ctrMobile },
+        desktop: { ...desktop, ctr: gap.ctrDesktop },
+        worseOnMobile: gap.worse,
+        reason: gap.reason,
+        positionGap: gap.positionGap,
+      };
+    });
+    const filtered = q.onlyWorse ? all.filter((r) => r.worseOnMobile) : all;
+    filtered.sort(
+      (a, b) =>
+        Number(b.worseOnMobile) - Number(a.worseOnMobile) ||
+        b.mobile.impressions - a.mobile.impressions,
+    );
+    return {
+      projectId,
+      from: ctx.range.from,
+      to: ctx.range.to,
+      total: filtered.length,
+      items: filtered.slice(0, Math.min(Math.max(q.limit ?? 50, 1), 200)),
+      hasData: rows.length > 0,
+    };
+  }
+
+  // ------------------------------------------------ marca frente a no marca
+
+  /**
+   * Dos indicadores: lo que viene de búsquedas de marca y lo que no, con el
+   * periodo anterior (mejora 3). Se lee del cruce `query`: las búsquedas que
+   * Google no detalla (anónimas) quedan fuera de los dos.
+   */
+  async brandSplit(
+    owner: SeoOwner | undefined,
+    projectId: string,
+    q: SeoPanelQuery,
+  ): Promise<SeoBrandSplitDto> {
+    const ctx = await this.tableContext(owner, projectId, { ...q, brand: undefined });
+    const empty: SeoBrandSideDto = {
+      clicks: 0,
+      impressions: 0,
+      ctr: null,
+      position: null,
+      previousClicks: null,
+      previousImpressions: null,
+      previousPosition: null,
+      clickShare: null,
+    };
+    if (!ctx) {
+      const range = this.range(q, null);
+      return {
+        projectId,
+        domainId: null,
+        from: range.from,
+        to: range.to,
+        previousFrom: range.previousFrom,
+        previousTo: range.previousTo,
+        previousAvailable: false,
+        needsTerms: true,
+        terms: [],
+        brand: empty,
+        nonBrand: empty,
+      };
+    }
+    const terms = seoBrandTerms(ctx.brandTerms);
+    const side = async (mode: SeoBrandFilter): Promise<SumsRow | undefined> => {
+      const cond = queryFilterSql(Prisma.raw('query'), terms, mode, ctx.areaPatterns);
+      const run = async (from: string, to: string) => {
+        const [r] = await this.admin.$queryRaw<SumsRow[]>(Prisma.sql`
+          SELECT ${SUMS} FROM seo_gsc_metrics
+          WHERE domain_id = ${ctx.domainId}::uuid AND grain = 'query'
+            AND date BETWEEN ${from}::date AND ${to}::date ${cond}`);
+        return r;
+      };
+      return run(ctx.range.from, ctx.range.to);
+    };
+    const previous = async (mode: SeoBrandFilter): Promise<SumsRow | undefined> => {
+      const cond = queryFilterSql(Prisma.raw('query'), terms, mode, ctx.areaPatterns);
+      const [r] = await this.admin.$queryRaw<SumsRow[]>(Prisma.sql`
+        SELECT ${SUMS} FROM seo_gsc_metrics
+        WHERE domain_id = ${ctx.domainId}::uuid AND grain = 'query'
+          AND date BETWEEN ${ctx.range.previousFrom}::date AND ${ctx.range.previousTo}::date ${cond}`);
+      return r;
+    };
+    const needsTerms = terms.length === 0;
+    const [b, n, pb, pn] = needsTerms
+      ? [undefined, undefined, undefined, undefined]
+      : await Promise.all([
+          side('brand'),
+          side('nonbrand'),
+          ctx.previousAvailable ? previous('brand') : Promise.resolve(undefined),
+          ctx.previousAvailable ? previous('nonbrand') : Promise.resolve(undefined),
+        ]);
+    const total = Number(b?.c ?? 0) + Number(n?.c ?? 0);
+    const dto = (cur: SumsRow | undefined, prev: SumsRow | undefined): SeoBrandSideDto => {
+      const c = seoTotalsFromSums(toSums(cur));
+      const p = prev ? seoTotalsFromSums(toSums(prev)) : null;
+      return {
+        clicks: c.clicks,
+        impressions: c.impressions,
+        ctr: c.ctr,
+        position: c.position,
+        previousClicks: p ? p.clicks : null,
+        previousImpressions: p ? p.impressions : null,
+        previousPosition: p ? p.position : null,
+        clickShare: total > 0 ? c.clicks / total : null,
+      };
+    };
+    return {
+      projectId,
+      domainId: ctx.domainId,
+      from: ctx.range.from,
+      to: ctx.range.to,
+      previousFrom: ctx.range.previousFrom,
+      previousTo: ctx.range.previousTo,
+      previousAvailable: ctx.previousAvailable && !needsTerms,
+      needsTerms,
+      terms,
+      brand: dto(b, pb),
+      nonBrand: dto(n, pn),
     };
   }
 
@@ -620,7 +848,14 @@ export class SeoPanelService {
         daysWithData: detailDays,
       });
     }
-    return { domainId: domain.id, range, previousAvailable };
+    return {
+      domainId: domain.id,
+      range,
+      previousAvailable,
+      brandTerms: project.brandTerms,
+      brand: q.brand,
+      areaPatterns: q.area ? seoAreaLikePatterns(q.area) : undefined,
+    };
   }
 
   private emptyTable(
@@ -646,7 +881,14 @@ export class SeoPanelService {
   }
 
   private async tableRows(
-    ctx: { domainId: string; range: SeoPanelRange; previousAvailable: boolean },
+    ctx: {
+      domainId: string;
+      range: SeoPanelRange;
+      previousAvailable: boolean;
+      brandTerms: string[];
+      brand: SeoBrandFilter | undefined;
+      areaPatterns: string[] | undefined;
+    },
     dimension: 'query' | 'page',
     q: SeoTableQuery,
     offset: number,
@@ -657,6 +899,15 @@ export class SeoPanelService {
     const filter = search
       ? Prisma.sql`AND ${col} ILIKE ${`%${search.replace(/[\\%_]/g, '\\$&')}%`}`
       : Prisma.empty;
+    // Marca y zona se leen de la búsqueda: para las páginas, del cruce búsqueda ↔ página.
+    const queryFilter = queryFilterSql(
+      Prisma.raw('query'),
+      ctx.brandTerms,
+      ctx.brand,
+      ctx.areaPatterns,
+    );
+    const filtered = queryFilter !== Prisma.empty;
+    const grain = dimension === 'page' && filtered ? 'query_page' : dimension;
     const sort = SORTS[q.sort];
     const dir = q.dir ? (q.dir === 'asc' ? 'ASC' : 'DESC') : sort.dir;
     const order = Prisma.raw(`${sort.expr} ${dir} NULLS LAST, c DESC, i DESC, key ASC`);
@@ -667,8 +918,9 @@ export class SeoPanelService {
       ? Prisma.sql`
           SELECT ${col} AS key, ${SUMS}
           FROM seo_gsc_metrics
-          WHERE domain_id = ${ctx.domainId}::uuid AND grain = ${dimension}
+          WHERE domain_id = ${ctx.domainId}::uuid AND grain = ${grain}
             AND date BETWEEN ${ctx.range.previousFrom}::date AND ${ctx.range.previousTo}::date
+            ${queryFilter}
             AND ${col} IN (SELECT key FROM cur)
           GROUP BY ${col}`
       : Prisma.sql`SELECT NULL::text AS key, NULL::float8 AS c, NULL::float8 AS i,
@@ -687,8 +939,9 @@ export class SeoPanelService {
       WITH cur AS (
         SELECT ${col} AS key, ${SUMS}
         FROM seo_gsc_metrics
-        WHERE domain_id = ${ctx.domainId}::uuid AND grain = ${dimension}
+        WHERE domain_id = ${ctx.domainId}::uuid AND grain = ${grain}
           AND date BETWEEN ${ctx.range.from}::date AND ${ctx.range.to}::date
+          ${queryFilter}
           ${filter}
         GROUP BY ${col}
       ), prev AS (${prevCte}), joined AS (
