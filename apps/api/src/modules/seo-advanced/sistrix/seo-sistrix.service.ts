@@ -197,6 +197,8 @@ export class SeoSistrixService {
       itemsTotal: r.itemsTotal,
       itemsDone: r.itemsDone,
       itemsFailed: r.itemsFailed,
+      itemsOverall: runProgressTotal(r.progress),
+      itemsPending: runProgressPending(r.progress),
       pausedReason: (r.pausedReason as SeoSistrixWaitReason | null) ?? null,
       pausedUntil: iso(r.pausedUntil),
       creditsUsed: r.creditsUsed,
@@ -306,6 +308,21 @@ export class SeoSistrixService {
       throw new BadRequestException({
         code: 'sistrix_api_not_ready',
         message: 'Activa antes la API clásica con su clave.',
+      });
+    }
+    // «Continuar por API» es para cuando el MCP no puede (cuota agotada o sin
+    // conexión): con el MCP en marcha no se gastan créditos.
+    if (
+      mcpUsable(
+        mcpConn
+          ? { status: mcpConn.status, quotaExhaustedUntil: mcpConn.quotaExhaustedUntil }
+          : null,
+        new Date(),
+      )
+    ) {
+      throw new BadRequestException({
+        code: 'sistrix_mcp_usable',
+        message: 'El MCP de SISTRIX funciona: no hace falta gastar créditos de la API.',
       });
     }
     if (apiBudgetRemaining(api) <= 0) {
@@ -559,7 +576,13 @@ export class SeoSistrixService {
       where: {
         id: runId,
         dataType: { not: null },
-        ...(owner === undefined ? {} : { tenantId: owner }),
+        // La plataforma ve y cancela también las tandas de los tenants que usan
+        // su conexión (salen en «pendientes», con el tenant del proyecto).
+        ...(owner === undefined
+          ? {}
+          : owner === null
+            ? { project: { OR: [{ tenantId: null }, { usePlatformSistrix: true }] } }
+            : { tenantId: owner }),
       },
     });
     if (!run) throw this.notFound();
@@ -611,4 +634,14 @@ export class SeoSistrixService {
   notFound(): NotFoundException {
     return new NotFoundException({ code: 'seo_not_found', message: 'No existe.' });
   }
+}
+
+function runProgressTotal(progress: unknown): number | null {
+  const total = (progress as { total?: unknown } | null)?.total;
+  return typeof total === 'number' ? total : null;
+}
+
+function runProgressPending(progress: unknown): number {
+  const left = (progress as { remaining?: unknown } | null)?.remaining;
+  return typeof left === 'number' && left > 0 ? left : 0;
 }

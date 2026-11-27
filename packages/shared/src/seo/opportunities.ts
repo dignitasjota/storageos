@@ -652,11 +652,16 @@ export function scoreSeoOpportunity(
     ['priority', priority],
     ['trend', trend],
   ];
+  // Los factores que dependen de datos que no siempre hay (conversiones y GA4) son un
+  // EXTRA: suman puntos si valen algo, pero no entran en la media de los demás. Entrar
+  // en la media con un valor bajo restaba puntos a quien conectaba GA4 o tenía
+  // conversiones, justo al revés de lo que se quiere.
+  const extras: typeof positives = [];
   // La página convierte: solo con datos (si no, el factor no existe y nada cambia).
   const pc = input.pageConversions;
   if (pc && pc.clicks >= SEO_CONVERSION_MIN_CLICKS && pc.conversions > 0) {
     const rate = pc.conversions / pc.clicks;
-    positives.push([
+    extras.push([
       'conversions',
       {
         value: clamp01(rate / SEO_CONVERSION_RATE_CAP),
@@ -666,12 +671,12 @@ export function scoreSeoOpportunity(
   }
   // Mucho tráfico y poca interacción (GA4): solo con sesiones suficientes.
   const eng = seoEngagementFactorValue(input.pageEngagement);
-  if (eng && input.pageEngagement) {
-    positives.push([
+  if (eng && eng.value > 0 && input.pageEngagement) {
+    extras.push([
       'engagement',
       {
         value: eng.value,
-        detail: `La página que sale tiene ${seoFmtInt(input.pageEngagement.sessions)} sesiones de Google en GA4 y solo el ${fmtPct(eng.rate)} con interacción`,
+        detail: `La página que sale tiene ${seoFmtInt(input.pageEngagement.sessions)} sesiones de Google en GA4 y solo el ${fmtPct(eng.rate)} con interacción (por debajo de lo normal)`,
       },
     ]);
   }
@@ -679,8 +684,9 @@ export function scoreSeoOpportunity(
   const sumW = positives.reduce((s, [k]) => s + weights[k], 0);
   const base =
     sumW > 0 ? positives.reduce((s, [k, f]) => s + weights[k] * valueOf(f), 0) / sumW : 0;
+  const bonus = extras.reduce((s, [k, f]) => s + weights[k] * valueOf(f), 0);
   const penalty = difficulty.value !== null ? weights.difficulty * difficulty.value : 0;
-  const raw = Math.max(0, base - penalty);
+  const raw = Math.max(0, Math.min(1, base + bonus) - penalty);
   const score = Math.max(0, Math.min(100, Math.round(100 * raw * modulation)));
 
   const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -693,6 +699,16 @@ export function scoreSeoOpportunity(
       sumW > 0 && weights[k] > 0 ? round1((100 * weights[k] * valueOf(f) * modulation) / sumW) : 0,
     detail: f.detail,
   }));
+  for (const [k, f] of extras) {
+    factors.push({
+      key: k,
+      label: SEO_WEIGHT_LABELS[k],
+      weight: weights[k],
+      value: f.value === null ? null : Math.round(f.value * 1000) / 1000,
+      points: round1(100 * weights[k] * valueOf(f) * modulation),
+      detail: f.detail,
+    });
+  }
   factors.push({
     key: 'difficulty',
     label: SEO_WEIGHT_LABELS.difficulty,

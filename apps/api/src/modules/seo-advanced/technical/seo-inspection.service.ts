@@ -287,9 +287,17 @@ export class SeoInspectionService {
   ): Promise<SeoInspectResultDto> {
     const project = await this.projects.resolveProject(owner, projectId);
     const target = this.resolveTarget(project, rawUrl);
-    const pending = await this.admin.seoUrlInspection.findFirst({
+    let pending = await this.admin.seoUrlInspection.findFirst({
       where: { projectId, urlKey: target.urlKey, status: { in: ['queued', 'running'] } },
     });
+    // Una «en curso» de hace más de 15 minutos (el API se reinició durante la llamada
+    // a Google) se vuelve a hacer: no se queda «ya se está inspeccionando» para siempre.
+    if (pending?.status === 'running' && pending.updatedAt.getTime() < Date.now() - 15 * 60_000) {
+      pending = await this.admin.seoUrlInspection.update({
+        where: { id: pending.id },
+        data: { status: 'queued' },
+      });
+    }
     const row =
       pending ??
       (await this.admin.seoUrlInspection.create({

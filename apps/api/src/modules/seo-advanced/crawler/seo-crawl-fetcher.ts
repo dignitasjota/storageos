@@ -84,6 +84,7 @@ export const CRAWL_ERROR_TEXT: Record<string, string> = {
   'unsafe:credentials_in_url': 'lleva usuario y contraseña en la dirección',
   'unsafe:invalid_url': 'no es una dirección válida',
   'unsafe:dns_empty': 'el dominio no resuelve',
+  'unsafe:port_not_allowed': 'usa un puerto que no es el de las webs (80 o 443)',
   dns: 'el dominio no resuelve',
   network: 'falló la conexión',
 };
@@ -164,6 +165,12 @@ export class SeoCrawlFetcher {
     for (let hop = 0; ; hop++) {
       const check = checkOutboundUrlShape(current);
       if (!check.ok) return result({ error: `unsafe:${check.reason}` });
+      // Solo los puertos de las webs (80 y 443): una redirección a `:81` o `:9000`
+      // llegaría a los paneles que el servidor publique (Nginx Proxy Manager,
+      // Portainer, MinIO…). `URL` ya omite el puerto por defecto.
+      if (check.url.port !== '' && process.env.NODE_ENV !== 'test') {
+        return result({ error: 'unsafe:port_not_allowed' });
+      }
       const host = check.url.hostname.toLowerCase().replace(/\.$/, '');
       if (!opts.allowHost(host)) {
         // La primera petición nunca llega aquí (el servicio solo pide hosts del

@@ -167,7 +167,7 @@ export class ChatAlertsService {
       await this.send(
         [
           `TrasterOS · SEO (${e.projectName}): ${e.title}`,
-          e.message.slice(0, 300),
+          e.message.slice(0, 900),
           `${this.webBase}${e.link}`,
         ].join('\n'),
         'seo_alert',

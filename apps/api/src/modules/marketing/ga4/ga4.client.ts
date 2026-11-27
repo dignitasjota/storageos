@@ -193,22 +193,34 @@ export class Ga4Client {
       dimensions: SEO_GA4_DIMENSIONS.map((name) => ({ name })),
       metrics: SEO_GA4_METRICS.map((name) => ({ name })),
       dimensionFilter: SEO_GA4_ORGANIC_FILTER,
+      // Con orden fijo: si un tramo se pasara del tope de filas, lo que se pierde es la cola
+      // de páginas con menos sesiones (y la paginación no repite ni salta filas).
+      orderBys: [
+        { metric: { metricName: SEO_GA4_METRICS[0] }, desc: true },
+        { dimension: { dimensionName: SEO_GA4_DIMENSIONS[0] } },
+        { dimension: { dimensionName: SEO_GA4_DIMENSIONS[2] } },
+      ],
     });
     const num = (v: string | undefined) => {
       const n = Number(v);
       return Number.isFinite(n) ? n : 0;
     };
-    return rows.map((r) => ({
-      date: isoDate(r.dimensionValues[0]?.value ?? ''),
-      host: (r.dimensionValues[1]?.value ?? '').slice(0, 255),
-      landing: (r.dimensionValues[2]?.value ?? '').slice(0, 2000),
-      sessions: int(r.metricValues[0]?.value),
-      users: int(r.metricValues[1]?.value),
-      engagedSessions: int(r.metricValues[2]?.value),
-      averageSessionDuration: num(r.metricValues[3]?.value),
-      pageViews: int(r.metricValues[4]?.value),
-      keyEvents: num(r.metricValues[5]?.value),
-    }));
+    return (
+      rows
+        // «(other)» es lo que Google agrupa por tener demasiadas filas distintas: no es una página.
+        .filter((r) => (r.dimensionValues[2]?.value ?? '') !== '(other)')
+        .map((r) => ({
+          date: isoDate(r.dimensionValues[0]?.value ?? ''),
+          host: (r.dimensionValues[1]?.value ?? '').slice(0, 255),
+          landing: (r.dimensionValues[2]?.value ?? '').slice(0, 2000),
+          sessions: int(r.metricValues[0]?.value),
+          users: int(r.metricValues[1]?.value),
+          engagedSessions: int(r.metricValues[2]?.value),
+          averageSessionDuration: num(r.metricValues[3]?.value),
+          pageViews: int(r.metricValues[4]?.value),
+          keyEvents: num(r.metricValues[5]?.value),
+        }))
+    );
   }
 
   private async paged(

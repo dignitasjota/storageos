@@ -77,6 +77,9 @@ export function SistrixRunRow({
         </div>
         <p className="text-xs text-muted-foreground">
           {run.itemsDone + run.itemsFailed}/{run.itemsTotal} consultas
+          {run.itemsPending > 0 && run.itemsOverall
+            ? ` · tanda parcial: ${run.itemsOverall - run.itemsPending} de ${run.itemsOverall} en esta vuelta, faltan ${run.itemsPending}`
+            : ''}
           {run.itemsFailed > 0 ? ` · ${run.itemsFailed} con error` : ''}
           {run.creditsUsed > 0 ? ` · ${run.creditsUsed} créditos` : ''} ·{' '}
           {formatDateTime(run.finishedAt ?? run.startedAt ?? run.createdAt)}

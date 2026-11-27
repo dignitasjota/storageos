@@ -158,6 +158,31 @@ describe('canibalización', () => {
     expect(c!.lastDataDate).toBe(d(10));
   });
 
+  it('dos páginas que salen a la vez cada día no son una alternancia: no hay conflicto', () => {
+    // Las dos en la primera página, casi empatadas: gana una u otra por una impresión.
+    const rows: SeoDailyPageRow[] = [];
+    for (let k = 1; k <= 14; k++) {
+      const aWins = k % 2 === 1;
+      rows.push({ date: d(k), page: `${BASE}/a`, clicks: 1, impressions: aWins ? 5 : 4 });
+      rows.push({ date: d(k), page: `${BASE}/b`, clicks: 1, impressions: aWins ? 4 : 5 });
+    }
+    const c = analyzeSeoCannibalization({
+      query: 'trasteros valencia',
+      brandTerms: [],
+      pages: [
+        { page: `${BASE}/a`, clicks: 14, impressions: 63, position: 6.2 },
+        { page: `${BASE}/b`, clicks: 14, impressions: 63, position: 4.1 },
+      ],
+      daily: rows,
+      targetUrl: null,
+      thresholds: T,
+    });
+    expect(c).not.toBeNull();
+    expect(c!.kind).toBe('coexistence');
+    expect(c!.severity).toBe('low');
+    expect(c!.switches).toBe(0);
+  });
+
   it('dos páginas que se reparten sin alternarse: reparto (no conflicto)', () => {
     const c = analyzeSeoCannibalization({
       query: 'guardamuebles valencia',

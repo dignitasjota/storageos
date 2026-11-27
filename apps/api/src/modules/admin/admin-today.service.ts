@@ -37,6 +37,7 @@ import {
   QUEUE_SEO,
   QUEUE_SEO_SISTRIX,
   QUEUE_SEO_CRAWL,
+  QUEUE_SEO_PAGESPEED,
 } from '../queues/queue-names';
 
 import { AdminActivityService } from './admin-activity.service';
@@ -197,6 +198,7 @@ export class AdminTodayService {
     @InjectQueue(QUEUE_SEO) seoQueue: Queue,
     @InjectQueue(QUEUE_SEO_SISTRIX) seoSistrixQueue: Queue,
     @InjectQueue(QUEUE_SEO_CRAWL) seoCrawlQueue: Queue,
+    @InjectQueue(QUEUE_SEO_PAGESPEED) seoPagespeedQueue: Queue,
   ) {
     this.queues = [
       billingQueue,
@@ -211,6 +213,7 @@ export class AdminTodayService {
       seoQueue,
       seoSistrixQueue,
       seoCrawlQueue,
+      seoPagespeedQueue,
     ];
   }
 

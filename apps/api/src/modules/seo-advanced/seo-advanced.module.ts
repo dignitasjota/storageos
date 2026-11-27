@@ -31,6 +31,7 @@ import { SeoAlertsService } from './reports/seo-alerts.service';
 import { SeoConversionsService } from './reports/seo-conversions.service';
 import { SeoReportsCron } from './reports/seo-reports.cron';
 import { SeoReportsService } from './reports/seo-reports.service';
+import { SeoDomainOwnershipService } from './seo-domain-ownership.service';
 import { SeoGscSyncService } from './seo-gsc-sync.service';
 import { SeoGscCron } from './seo-gsc.cron';
 import { SeoGscProcessor } from './seo-gsc.processor';
@@ -50,6 +51,7 @@ import { SistrixCron } from './sistrix/sistrix.cron';
 import { SistrixProcessor } from './sistrix/sistrix.processor';
 import { PageSpeedClient } from './technical/pagespeed.client';
 import { SeoInspectionService } from './technical/seo-inspection.service';
+import { SeoPageSpeedProcessor } from './technical/seo-pagespeed.processor';
 import { SeoPageSpeedService } from './technical/seo-pagespeed.service';
 import { SeoTechnicalReadService } from './technical/seo-technical-read.service';
 import { SeoTechnicalCron } from './technical/seo-technical.cron';
@@ -73,6 +75,7 @@ import type { Env } from '../../config/env.schema';
 @Module({
   imports: [SearchConsoleModule, NotificationsModule],
   providers: [
+    SeoDomainOwnershipService,
     SeoProjectsService,
     SeoGscSyncService,
     PlatformAlertsService,
@@ -123,6 +126,7 @@ import type { Env } from '../../config/env.schema';
           SeoPlanCron,
           SeoReportsCron,
           SeoTechnicalCron,
+          SeoPageSpeedProcessor,
           SeoCrawlProcessor,
           SeoCrawlCron,
           SeoGa4Cron,
@@ -130,6 +134,7 @@ import type { Env } from '../../config/env.schema';
       : []),
   ],
   exports: [
+    SeoDomainOwnershipService,
     SeoProjectsService,
     SeoGscSyncService,
     SeoProviderRegistry,

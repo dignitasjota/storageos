@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import {
   SEO_AI_ANSWER_MAX,
   SEO_AI_COUNTRY,
+  SEO_AI_PROMPTS_LIMIT,
+  madridToday,
   seoAiBrandSubject,
   seoAiPromptGaps,
   seoAiPromptKey,
@@ -332,15 +334,35 @@ export class SeoAiVisibilityService {
   async lostAlert(projectId: string, minLost: number): Promise<SeoAlertCandidate | null> {
     const ctx = await this.context(undefined, projectId);
     if (ctx.own.length === 0) return null;
+    // La muestra se fecha por la tanda, no por las filas: la última tanda tiene
+    // que haber terminado sin ninguna consulta fallida (si una de las dos
+    // consultas propias falló, «lo perdido» sería solo lo que no llegó).
+    const lastRun = await this.admin.seoSyncRun.findFirst({
+      where: { projectId, dataType: 'ai_visibility', status: { in: ['done', 'failed'] } },
+      orderBy: { finishedAt: 'desc' },
+      select: { status: true, itemsFailed: true, finishedAt: true },
+    });
+    if (!lastRun || lastRun.status !== 'done' || lastRun.itemsFailed > 0 || !lastRun.finishedAt) {
+      return null;
+    }
     const byDate = this.ownByDate(ctx.own, await this.promptsBySubject(ctx.pool, ctx.own));
+    const runDate = madridToday(lastRun.finishedAt);
     const dates = [...byDate.keys()].sort().reverse();
-    if (dates.length < 2) return null;
+    // Si SISTRIX no devolvió nada en la última consulta (los dos sujetos sin
+    // prompts), no hay fila de esa fecha: es la pérdida total, no «sin cambios».
+    const latestDate = dates[0] && dates[0] >= runDate ? dates[0] : runDate;
+    const previousDate = latestDate === dates[0] ? dates[1] : dates[0];
+    if (!previousDate) return null;
+    // Una lista cortada por el límite pedido no sirve para comparar: son
+    // subconjuntos de los prompts, no todos.
+    const cut = (date: string) => (byDate.get(date) ?? []).length >= SEO_AI_PROMPTS_LIMIT;
+    if (cut(latestDate) || cut(previousDate)) return null;
     return seoAiVisibilityLostAlert({
       projectId,
-      latestDate: dates[0]!,
-      previousDate: dates[1]!,
-      latest: byDate.get(dates[0]!) ?? [],
-      previous: byDate.get(dates[1]!) ?? [],
+      latestDate,
+      previousDate,
+      latest: byDate.get(latestDate) ?? [],
+      previous: byDate.get(previousDate) ?? [],
       minLost,
     });
   }

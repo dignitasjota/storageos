@@ -207,6 +207,25 @@ export function toApiCall(q: SistrixQuery): ApiCall | null {
   }
 }
 
+/**
+ * Lo que cuesta como mucho una llamada a la API clásica: un crédito por dato
+ * devuelto (las `num` filas que se piden; con `history`, también `num` semanas)
+ * y cinco por palabra en las métricas. Sirve para negar la consulta antes si no
+ * cabe en el presupuesto que queda, y como coste asumido si la respuesta no
+ * dice cuánto gastó.
+ */
+export function estimateApiCallCredits(method: string, params: Record<string, string>): number {
+  if (method === 'keyword.seo.metrics') return 5;
+  const rows = Number(params.num);
+  return Number.isFinite(rows) && rows > 0 ? Math.floor(rows) : 1;
+}
+
+/** Lo mismo, sobre la consulta (null si no existe en la API clásica). */
+export function estimateApiCredits(q: SistrixQuery): number | null {
+  const call = toApiCall(q);
+  return call ? estimateApiCallCredits(call.method, call.params) : null;
+}
+
 // ------------------------------------------------------------ respuestas
 
 /** Resultado de `tools/call` tal como lo da el SDK. */
@@ -604,8 +623,38 @@ export type SistrixOutcome =
   | { kind: 'quota'; message: string }
   | { kind: 'error'; code: string | null; message: string };
 
-/** Normaliza el contenido de una consulta según la operación. */
+/** ¿La respuesta trae algo (una lista con elementos, un número, un texto)? */
+function hasContent(value: unknown, depth = 0): boolean {
+  if (depth > 5) return false;
+  if (Array.isArray(value)) return value.some((v) => hasContent(v, depth + 1));
+  if (isObj(value)) return Object.values(value).some((v) => hasContent(v, depth + 1));
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return false;
+}
+
+/**
+ * Normaliza el contenido de una consulta según la operación. «SISTRIX dijo que
+ * no hay resultado» (1000) es `empty`; una respuesta con contenido que no
+ * entendemos es un error (`unknown_shape`): no se cachea días como si no
+ * hubiera datos y avisa de que SISTRIX cambió algo.
+ */
 export function normalizeSistrix(op: SistrixOp, payload: SistrixPayload): SistrixOutcome {
+  const out = normalizeSistrixPayload(op, payload);
+  if (out.kind === 'error' && /\b7010\b/.test(out.message)) {
+    return { kind: 'quota', message: out.message };
+  }
+  if (out.kind === 'empty' && payload.kind === 'payload' && hasContent(payload.value)) {
+    return {
+      kind: 'error',
+      code: 'unknown_shape',
+      message: `SISTRIX devolvió datos de «${op}» con una forma que no entendemos. Puede que haya cambiado su formato.`,
+    };
+  }
+  return out;
+}
+
+function normalizeSistrixPayload(op: SistrixOp, payload: SistrixPayload): SistrixOutcome {
   if (payload.kind !== 'payload') return payload;
   const value = payload.value;
   switch (op) {
@@ -673,28 +722,40 @@ export function normalizeSistrix(op: SistrixOp, payload: SistrixPayload): Sistri
  * Respuesta de la API clásica: `{ answer: [...], credits: [{ used }] }` o
  * `{ error: [{ code, error_message }] }`. Se normaliza igual que la del MCP.
  */
-export function parseApiResponse(body: unknown): { payload: SistrixPayload; credits: number } {
+export function parseApiResponse(body: unknown): {
+  payload: SistrixPayload;
+  credits: number;
+  /** La respuesta decía cuánto gastó (si no, el coste es una suposición). */
+  creditsKnown: boolean;
+} {
   if (!isObj(body)) {
     return {
       payload: { kind: 'error', code: null, message: 'Respuesta vacía de la API' },
       credits: 0,
+      creditsKnown: false,
     };
   }
   const creditsRow = firstArray(body.credits, [])[0];
-  const credits = isObj(creditsRow) ? (int(creditsRow.used) ?? 0) : 0;
+  const usedCredits = isObj(creditsRow) ? int(creditsRow.used) : null;
+  const credits = usedCredits ?? 0;
+  const creditsKnown = usedCredits !== null;
   const errorRow = firstArray(body.error, [])[0];
   if (isObj(errorRow)) {
     const code =
       str(errorRow.code) ?? (int(errorRow.code) !== null ? String(int(errorRow.code)) : null);
     const message = str(errorRow.error_message) ?? str(errorRow.message) ?? 'Error de la API';
-    return { payload: classifySistrixError(code, message), credits };
+    return { payload: classifySistrixError(code, message), credits, creditsKnown };
   }
   if (body.answer === undefined) {
-    return { payload: { kind: 'error', code: null, message: 'La API no devolvió datos' }, credits };
+    return {
+      payload: { kind: 'error', code: null, message: 'La API no devolvió datos' },
+      credits,
+      creditsKnown,
+    };
   }
   const answer = firstArray(body.answer, []);
   const value = answer.length === 1 ? answer[0] : answer;
-  return { payload: { kind: 'payload', value }, credits };
+  return { payload: { kind: 'payload', value }, credits, creditsKnown };
 }
 
 /** Saldo de créditos de la respuesta del método `credits` de la API. */

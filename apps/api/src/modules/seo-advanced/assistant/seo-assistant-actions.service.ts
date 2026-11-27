@@ -242,7 +242,15 @@ export class SeoAssistantActionsService {
       });
     }
     const claimed = await this.admin.seoAiAction.updateMany({
-      where: { id: action.id, status: { in: ['proposed', 'failed'] } },
+      where: {
+        id: action.id,
+        OR: [
+          { status: { in: ['proposed', 'failed'] } },
+          // Si el proceso cayó a mitad, la pantalla la enseña como fallida con «Reintentar»:
+          // pasado el plazo, ese reintento tiene que poder reclamarla.
+          { status: 'executing', resolvedAt: { lt: new Date(Date.now() - EXECUTING_STALE_MS) } },
+        ],
+      },
       data: { status: 'executing', resolvedAt: new Date() },
     });
     if (claimed.count === 0) return this.toDto(await this.findOwned(scope, action.id));

@@ -31,6 +31,8 @@ export interface RouteInput {
   api: RouteApiState | null;
   /** La operación existe en la API clásica. */
   supportsApi: boolean;
+  /** Créditos que costaría como mucho esta consulta por la API (1 si no se sabe). */
+  estimatedCredits?: number;
 }
 
 export type RouteDecision =
@@ -53,9 +55,15 @@ const wait = (waitReason: SeoSistrixWaitReason, until: Date | null = null): Rout
   until,
 });
 
-function apiDecision(api: RouteApiState, supportsApi: boolean): RouteDecision | null {
+function apiDecision(
+  api: RouteApiState,
+  supportsApi: boolean,
+  estimatedCredits = 1,
+): RouteDecision | null {
   if (!supportsApi) return wait('not_supported');
-  if (apiBudgetRemaining(api) <= 0) return wait('api_budget');
+  // Nunca se gasta más de lo autorizado: la consulta tiene que caber en lo que
+  // queda (no basta con que quede un crédito).
+  if (apiBudgetRemaining(api) < Math.max(1, estimatedCredits)) return wait('api_budget');
   return { provider: 'sistrix_api', waitReason: null, until: null };
 }
 
@@ -65,7 +73,7 @@ export function decideSistrixRoute(input: RouteInput, now: Date = new Date()): R
 
   if (input.pool === 'tenant') {
     if (!apiReady) return wait('not_connected');
-    return apiDecision(api, input.supportsApi)!;
+    return apiDecision(api, input.supportsApi, input.estimatedCredits)!;
   }
 
   if (mcpUsable(input.mcp, now)) {
@@ -83,7 +91,7 @@ export function decideSistrixRoute(input: RouteInput, now: Date = new Date()): R
   const authorized =
     apiReady && !!api.authorizedUntil && api.authorizedUntil.getTime() > now.getTime();
   if (!authorized) return mcpWait;
-  const decision = apiDecision(api, input.supportsApi)!;
+  const decision = apiDecision(api, input.supportsApi, input.estimatedCredits)!;
   // Si la API no puede, se espera al MCP (que vuelve solo con la cuota).
   if (decision.provider === null && quota)
     return wait(decision.waitReason, mcp.quotaExhaustedUntil);

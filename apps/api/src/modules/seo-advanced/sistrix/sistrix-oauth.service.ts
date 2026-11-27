@@ -70,7 +70,8 @@ export class SistrixOAuthService {
     }
     let client = this.mcp.client(conn);
     // Se vuelve a registrar si cambió la dirección de vuelta (otro dominio del API).
-    if (!client || client.redirectUri !== this.redirectUri) {
+    // y cuando la conexión no está viva (un `client_id` muerto no se reutiliza).
+    if (!client || client.redirectUri !== this.redirectUri || conn.status !== 'connected') {
       try {
         client = await this.mcp.gateway.register(server, this.redirectUri);
       } catch (err) {
@@ -161,15 +162,26 @@ export class SistrixOAuthService {
       return fail('exchange');
     }
     const now = new Date();
-    await this.connections.update(conn.id, {
-      ...this.mcp.tokenData(tokens),
-      status: 'connected',
-      connectedAt: now,
-      connectedBySuperAdminId: row.superAdminId,
-      lastError: null,
-      lastErrorAt: null,
-      lastSuccessAt: now,
-      quotaExhaustedUntil: null,
+    // Con el bloqueo de la renovación: no se pisan los tokens de una en curso.
+    await this.mcp.withRefreshLock((tx) =>
+      tx.seoProviderConnection.update({
+        where: { id: conn.id },
+        data: {
+          ...this.mcp.tokenData(tokens),
+          status: 'connected',
+          connectedAt: now,
+          connectedBySuperAdminId: row.superAdminId,
+          lastError: null,
+          lastErrorAt: null,
+          lastSuccessAt: now,
+          quotaExhaustedUntil: null,
+        },
+      }),
+    );
+    // Reconectar el MCP acaba con «Continuar por API» (esa autorización era por la cuota agotada).
+    await this.admin.seoProviderConnection.updateMany({
+      where: { tenantId: null, provider: 'sistrix_api', apiAuthorizedUntil: { not: null } },
+      data: { apiAuthorizedUntil: null, apiAuthorizedBySuperAdminId: null },
     });
     // Catálogo de herramientas al conectar (si falla, se intenta en la tarea diaria).
     await this.mcp.syncTools().catch((err: unknown) => {
@@ -195,15 +207,20 @@ export class SistrixOAuthService {
         this.logger.warn(`Revocación en SISTRIX: ${(err as Error).message}`);
       });
     }
-    await this.connections.update(conn.id, {
-      status: 'disconnected',
-      accessTokenEncrypted: null,
-      refreshTokenEncrypted: null,
-      tokenExpiresAt: null,
-      scope: null,
-      connectedAt: null,
-      connectedBySuperAdminId: null,
-      quotaExhaustedUntil: null,
-    });
+    await this.mcp.withRefreshLock((tx) =>
+      tx.seoProviderConnection.update({
+        where: { id: conn.id },
+        data: {
+          status: 'disconnected',
+          accessTokenEncrypted: null,
+          refreshTokenEncrypted: null,
+          tokenExpiresAt: null,
+          scope: null,
+          connectedAt: null,
+          connectedBySuperAdminId: null,
+          quotaExhaustedUntil: null,
+        },
+      }),
+    );
   }
 }

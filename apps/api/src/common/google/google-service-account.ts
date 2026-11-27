@@ -8,15 +8,33 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export class GoogleApiError extends Error {
   constructor(
     message: string,
+    /** Código HTTP; 0 = no hubo respuesta (red caída o tiempo agotado). */
     readonly status: number,
+    /** Motivo que da Google (`quotaExceeded`, `forbidden`…), si lo trae. */
+    readonly reason: string | null = null,
   ) {
     super(message);
   }
 }
 
-/** Google no responde ahora (límite de peticiones o error suyo): se puede reintentar. */
+/** Motivos de un 403 que son un límite pasajero y no una falta de permisos. */
+const GOOGLE_LIMIT_REASON = /quota|ratelimit|rate_limit|userratelimit|backenderror|limitexceeded/i;
+
+/** ¿Es un 403 por un límite de uso de Google (y no por permisos)? */
+export function isGoogleLimit(err: unknown): boolean {
+  if (!(err instanceof GoogleApiError) || err.status !== 403) return false;
+  return GOOGLE_LIMIT_REASON.test(`${err.reason ?? ''} ${err.message}`);
+}
+
+/**
+ * Google no responde ahora (límite de peticiones, error suyo, red caída o
+ * tiempo agotado): se puede reintentar.
+ */
 export function isGoogleTransient(err: unknown): err is GoogleApiError {
-  return err instanceof GoogleApiError && (err.status === 429 || err.status >= 500);
+  return (
+    err instanceof GoogleApiError &&
+    (err.status === 0 || err.status === 429 || err.status >= 500 || isGoogleLimit(err))
+  );
 }
 
 /** Error para el panel cuando Google no responde: 502 con un mensaje claro. */
@@ -84,15 +102,21 @@ export class GoogleServiceAccount {
       .update(unsigned)
       .sign(this.key.private_key)
       .toString('base64url');
-    const res = await fetch(TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion: `${unsigned}.${signature}`,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
+    let res: Response;
+    try {
+      res = await fetch(TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+          assertion: `${unsigned}.${signature}`,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new GoogleApiError(`Sin respuesta de Google: ${detail}`, 0);
+    }
     const body = (await res.json().catch(() => ({}))) as {
       access_token?: string;
       expires_in?: number;
@@ -114,18 +138,31 @@ export class GoogleServiceAccount {
   /** Llamada autenticada a una API de Google (JSON). */
   async request<T>(scope: string, method: 'GET' | 'POST', url: string, body?: unknown): Promise<T> {
     const token = await this.accessToken(scope);
-    const res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const json = (await res.json().catch(() => ({}))) as T & { error?: { message?: string } };
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (err) {
+      // Sin respuesta (red caída, conexión cortada, tiempo agotado): pasajero.
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new GoogleApiError(`Sin respuesta de Google: ${detail}`, 0);
+    }
+    const json = (await res.json().catch(() => ({}))) as T & {
+      error?: { message?: string; status?: string; errors?: { reason?: string }[] };
+    };
     if (!res.ok) {
-      throw new GoogleApiError(json.error?.message ?? `Google: ${res.status}`, res.status);
+      throw new GoogleApiError(
+        json.error?.message ?? `Google: ${res.status}`,
+        res.status,
+        json.error?.errors?.[0]?.reason ?? json.error?.status ?? null,
+      );
     }
     return json;
   }

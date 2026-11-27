@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   normalizeSeoUrl,
+  seoGlobMatch,
   seoIndexRuleMatches,
   splitSeoUrl,
   type SeoDiagnosticStatus,
@@ -174,8 +175,10 @@ export function seoCrawlExcluded(url: string, excludePaths: readonly string[]): 
 }
 
 /**
- * ¿Toca el rastreo semanal? El día y la hora de España coinciden con los
- * ajustes y no hay otro rastreo en los últimos 6 días.
+ * ¿Toca el rastreo semanal? Ya ha pasado el día y la hora de España de los
+ * ajustes (hace menos de 24 horas: si el worker se estaba reiniciando justo
+ * entonces, se recupera en la hora siguiente) y no hay otro rastreo en los
+ * últimos 6 días.
  */
 export function seoCrawlDue(input: {
   settings: SeoCrawlSettings;
@@ -186,7 +189,10 @@ export function seoCrawlDue(input: {
   now: Date;
 }): boolean {
   if (!input.settings.weeklyEnabled) return false;
-  if (input.weekday !== input.settings.weekday || input.hour !== input.settings.hour) return false;
+  const hoursSince =
+    ((input.weekday - input.settings.weekday + 7) % 7) * 24 + (input.hour - input.settings.hour);
+  const sinceScheduled = hoursSince < 0 ? hoursSince + 168 : hoursSince;
+  if (sinceScheduled >= 24) return false;
   if (!input.lastStartedAt) return true;
   return input.now.getTime() - Date.parse(input.lastStartedAt) >= 6 * 86_400_000;
 }
@@ -305,14 +311,7 @@ export function seoRobotsRulesFor(robots: SeoRobotsTxt, token: string): SeoRobot
 
 function robotsPatternMatches(pattern: string, path: string): boolean {
   const anchored = pattern.endsWith('$');
-  const body = anchored ? pattern.slice(0, -1) : pattern;
-  const re = new RegExp(
-    `^${body
-      .split('*')
-      .map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-      .join('.*')}${anchored ? '$' : ''}`,
-  );
-  return re.test(path);
+  return seoGlobMatch(anchored ? pattern.slice(0, -1) : pattern, path, anchored);
 }
 
 /**
@@ -350,15 +349,35 @@ export function seoRobotsAllowed(
 
 /** Las URL `<loc>` de un mapa del sitio y si es un índice de mapas. */
 export function parseSeoSitemap(xml: string): { index: boolean; urls: string[] } {
+  const lower = xml.toLowerCase();
+  // Si pasar a minúsculas cambia el largo (algún carácter raro), se trabaja con la copia.
+  const source = lower.length === xml.length ? xml : lower;
   const index = /<sitemapindex[\s>]/i.test(xml);
   const urls: string[] = [];
-  const re = /<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*<\/loc>/gi;
-  for (let m = re.exec(xml); m; m = re.exec(xml)) {
-    const v = decodeXmlEntities(m[1]!.trim());
+  // Recorrido lineal con `indexOf` (sin expresiones con retroceso: el mapa lo
+  // controla el dueño de la web) y tope de largo en cada dirección.
+  let pos = 0;
+  for (;;) {
+    const open = lower.indexOf('<loc>', pos);
+    if (open === -1) break;
+    const start = open + 5;
+    const close = lower.indexOf('</loc>', start);
+    if (close === -1) break;
+    pos = close + 6;
+    if (close - start > SEO_SITEMAP_MAX_LOC) continue;
+    let value = source.slice(start, close).trim();
+    if (value.toLowerCase().startsWith('<![cdata[') && value.endsWith(']]>')) {
+      value = value.slice(9, -3).trim();
+    }
+    if (value.includes('<')) continue;
+    const v = decodeXmlEntities(value);
     if (/^https?:\/\//i.test(v)) urls.push(v);
   }
   return { index, urls };
 }
+
+/** Largo máximo de la dirección de un mapa del sitio. */
+export const SEO_SITEMAP_MAX_LOC = 2000;
 
 function decodeXmlEntities(s: string): string {
   return s
@@ -891,6 +910,18 @@ export function analyzeSeoCrawl(input: {
       );
       continue;
     }
+    // Un 401, 403 o 429 al rastreador es casi siempre un cortafuegos o un límite de
+    // peticiones: no es que la página dé error para quien llega a ella.
+    if (p.status === 401 || p.status === 403 || p.status === 429) {
+      add(
+        'fetch_failed',
+        p,
+        `El servidor no deja leer la página al rastreador (responde ${p.status}): puede ser un cortafuegos o un límite de peticiones y no un error de la web.`,
+        { status: p.status, blocked: true },
+        'medium',
+      );
+      continue;
+    }
     if (p.status !== null && p.status >= 400) {
       add('http_error', p, `Responde ${p.status}.`, { status: p.status });
       continue;
@@ -1065,6 +1096,8 @@ export function analyzeSeoCrawl(input: {
   ) => {
     const groups = new Map<string, SeoCrawlPageFacts[]>();
     for (const p of indexable) {
+      // Una variante que declara otra canónica ya apunta a la buena: no cuenta como repetida.
+      if (p.canonical && normalizeSeoUrl(p.canonical) !== p.key) continue;
       const v = (value(p) ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
       if (!v) continue;
       groups.set(v, [...(groups.get(v) ?? []), p]);

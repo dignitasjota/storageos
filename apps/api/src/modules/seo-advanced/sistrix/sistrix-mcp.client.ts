@@ -6,6 +6,7 @@ import { PrismaAdminService } from '../../database/prisma-admin.service';
 
 import { SistrixConnectionsService } from './sistrix-connections.service';
 import {
+  SistrixInvalidClientError,
   SistrixInvalidGrantError,
   SistrixNotConnectedError,
   SistrixTransientError,
@@ -21,7 +22,7 @@ import {
 } from './sistrix-mcp.gateway';
 import { SISTRIX_MCP_USED, type McpToolResult, sistrixCallForbidden } from './sistrix-normalizer';
 
-import type { SeoProviderConnection } from '@storageos/database';
+import type { Prisma, SeoProviderConnection } from '@storageos/database';
 import type { SeoSistrixToolChangesDto, SeoSistrixToolDto } from '@storageos/shared';
 
 /** Se renueva si al token le queda menos de esto. */
@@ -144,6 +145,21 @@ export class SistrixMcpClient {
   }
 
   /**
+   * Ejecuta algo con el mismo bloqueo que la renovación: escribir los tokens
+   * (reconectar o desconectar) mientras otro proceso renueva dejaría la
+   * conexión con tokens que ya no valen.
+   */
+  withRefreshLock<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.admin.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${SISTRIX_REFRESH_LOCK}))`;
+        return fn(tx);
+      },
+      { timeout: 45_000, maxWait: 30_000 },
+    );
+  }
+
+  /**
    * Renueva los tokens con un bloqueo de la base de datos: SISTRIX rota el
    * refresh token, así que dos procesos que renovasen a la vez dejarían la
    * conexión con uno que ya no vale. Dentro del bloqueo se vuelve a leer la
@@ -191,6 +207,9 @@ export class SistrixMcpClient {
             await tx.seoProviderConnection.update({
               where: { id: conn.id },
               data: {
+                // Si SISTRIX ya no conoce nuestra aplicación, se registra de nuevo
+                // al volver a conectar (no se reutiliza un `client_id` muerto).
+                ...(err instanceof SistrixInvalidClientError ? { clientInfoEncrypted: null } : {}),
                 status: 'needs_reauth',
                 lastError: 'SISTRIX no acepta la renovación: hay que volver a conectar.',
                 lastErrorAt: new Date(),

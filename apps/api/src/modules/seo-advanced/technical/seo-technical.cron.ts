@@ -40,6 +40,7 @@ export class SeoTechnicalCron {
   async inspectionQueue(): Promise<void> {
     try {
       await this.inspection.scheduleDue();
+      await this.pagespeed.scheduleDue();
     } catch (err) {
       this.logger.error(`Cola de inspecciones SEO: ${(err as Error).message}`);
     }

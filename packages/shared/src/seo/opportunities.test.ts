@@ -107,6 +107,34 @@ describe('intención', () => {
   });
 });
 
+describe('scoreSeoOpportunity: los datos de GA4 y de conversiones nunca restan', () => {
+  const stat = (engaged: number, sessions = 200) => ({ sessions, engagedSessions: engaged });
+  it('con GA4, la puntuación no baja respecto a no tenerlo (aunque la interacción sea buena)', () => {
+    const without = scoreSeoOpportunity(base).score;
+    for (const engaged of [180, 150, 120, 90, 20, 0]) {
+      const withGa4 = scoreSeoOpportunity({ ...base, pageEngagement: stat(engaged) }).score;
+      expect(withGa4).toBeGreaterThanOrEqual(without);
+    }
+  });
+  it('la poca interacción empuja hacia arriba; la buena, no cambia nada', () => {
+    const good = scoreSeoOpportunity({ ...base, pageEngagement: stat(150) });
+    const bad = scoreSeoOpportunity({ ...base, pageEngagement: stat(10) });
+    expect(good.factors.some((f) => f.key === 'engagement')).toBe(false);
+    expect(good.score).toBe(scoreSeoOpportunity(base).score);
+    expect(bad.score).toBeGreaterThan(good.score);
+    const f = bad.factors.find((x) => x.key === 'engagement')!;
+    expect(f.points).toBeGreaterThan(0);
+  });
+  it('una página que convierte poco tampoco resta', () => {
+    const without = scoreSeoOpportunity(base).score;
+    const low = scoreSeoOpportunity({
+      ...base,
+      pageConversions: { conversions: 1, clicks: 400 },
+    }).score;
+    expect(low).toBeGreaterThanOrEqual(without);
+  });
+});
+
 describe('scoreSeoOpportunity', () => {
   it('lo que no se sabe cuenta como bajo (no desaparece) y la puntuación cuadra con los puntos', () => {
     const r = scoreSeoOpportunity(base);

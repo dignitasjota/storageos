@@ -1,5 +1,5 @@
 import { hash as argonHash } from '@node-rs/argon2';
-import { SEO_UNTRUSTED_OPEN, seoAiPromptKey, shiftDate } from '@storageos/shared';
+import { madridToday, SEO_UNTRUSTED_OPEN, seoAiPromptKey, shiftDate } from '@storageos/shared';
 import request from 'supertest';
 
 import { AI_PROVIDER, type AiProvider, type AiRequest } from '../src/modules/ai/ai-provider';
@@ -517,7 +517,9 @@ describe('SEO Avanzado: Google Analytics y visibilidad en IA (e2e, simulado)', (
     // La consulta anterior (hace un mes) tenía un prompt más tuyo.
     const prev = new Date(Date.now() - 31 * 86_400_000);
     await fetchAi(projectId, prev);
-    const prevDay = asDate(prev.toISOString().slice(0, 10));
+    // La fecha de cada muestra es la de Madrid (como en `store`): en UTC, entre
+    // las 23:00 y las 00:00, la consulta caía un día antes que su prompt manual.
+    const prevDay = asDate(madridToday(prev));
     await withAdminDb((db) =>
       db.seoAiPrompt.create({
         data: {
@@ -529,6 +531,24 @@ describe('SEO Avanzado: Google Analytics y visibilidad en IA (e2e, simulado)', (
           prompt: 'trasteros baratos ga4ia',
           promptKey: seoAiPromptKey('trasteros baratos ga4ia'),
           model: 'chatgpt',
+        },
+      }),
+    );
+    // La última tanda terminó bien y sin consultas fallidas (si no, no se compara).
+    await withAdminDb((db) =>
+      db.seoSyncRun.create({
+        data: {
+          projectId,
+          tenantId: null,
+          provider: 'sistrix_mcp',
+          kind: 'manual',
+          status: 'done',
+          dataType: 'ai_visibility',
+          itemsTotal: 1,
+          itemsDone: 1,
+          itemsFailed: 0,
+          startedAt: new Date(),
+          finishedAt: new Date(),
         },
       }),
     );

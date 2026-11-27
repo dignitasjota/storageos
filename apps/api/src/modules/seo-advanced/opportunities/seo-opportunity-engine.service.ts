@@ -26,6 +26,7 @@ import {
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { SeoGa4Service } from '../ga4/seo-ga4.service';
 import { SeoConversionsService } from '../reports/seo-conversions.service';
+import { syncedUntilOf } from '../seo-coverage';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
 import { SeoTechnicalReadService } from '../technical/seo-technical-read.service';
 
@@ -74,6 +75,9 @@ const sums = (
  * oportunidad con las reglas puras de `@storageos/shared` y lo guarda sin
  * pisar estado, notas ni asignación.
  */
+/** Días tras darla por hecha en que una oportunidad que sigue detectándose vuelve como nueva. */
+export const DONE_RETURN_DAYS = 60;
+
 @Injectable()
 export class SeoOpportunityEngineService {
   private readonly logger = new Logger(SeoOpportunityEngineService.name);
@@ -193,7 +197,13 @@ export class SeoOpportunityEngineService {
           )
         : null;
       const pageConversionsByQuery = queryPages
-        ? await this.conversions.pageStatsByQuery(project.id, p.domain.id, p.period, queryPages)
+        ? await this.conversions.pageStatsByQuery(
+            project.id,
+            p.domain.id,
+            p.period,
+            queryPages,
+            project.tenantId === null,
+          )
         : {};
       // Mucho tráfico y poca interacción (GA4, PR 12): solo con GA4 en el periodo.
       const hasGa4 = await this.ga4.hasData(project.id, p.period);
@@ -206,7 +216,7 @@ export class SeoOpportunityEngineService {
           )))
         : null;
       const pageEngagementByQuery = ga4Pages
-        ? await this.ga4.pageStatsByQuery(project.id, p.period, ga4Pages)
+        ? await this.ga4.pageStatsByQuery(project.id, p.period, ga4Pages, project.tenantId === null)
         : {};
       const found = detectSeoOpportunities({
         domain: p.domain.domain,
@@ -271,6 +281,7 @@ export class SeoOpportunityEngineService {
         from: range.previousFrom,
         to: range.previousTo,
         daysWithData: prevRows,
+        syncedUntil: await syncedUntilOf(this.admin, [domainId]),
       }),
       hasData: true,
     };
@@ -551,8 +562,17 @@ export class SeoOpportunityEngineService {
     const result = await this.admin.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-opp:${projectId}`}::text))`;
-        const back = (rec: Prisma.Sql) => Prisma.sql`seo_opportunities.status = 'dismissed'
-          AND ${rec}.score >= COALESCE(seo_opportunities.dismissed_score, 0) + ${t.reappearPoints}`;
+        // Vuelve como nueva (con su historial): una descartada cuya puntuación sube de
+        // forma clara (los puntos del ajuste, sin pasar nunca de 100: con 85 descartada
+        // haría falta 105), y una «hecha» si el problema reaparece: dejó de detectarse
+        // y vuelve, o lleva detectándose más de `DONE_RETURN_DAYS` días tras darla por hecha.
+        const back = (rec: Prisma.Sql) => Prisma.sql`(
+          (seo_opportunities.status = 'dismissed'
+            AND ${rec}.score >= LEAST(100, COALESCE(seo_opportunities.dismissed_score, 0) + ${t.reappearPoints}))
+          OR (seo_opportunities.status = 'done'
+            AND (NOT seo_opportunities.active
+              OR seo_opportunities.resolved_at < ${now}::timestamptz - make_interval(days => ${DONE_RETURN_DAYS}::int)))
+        )`;
         const returned = back(Prisma.raw('EXCLUDED'));
         const upserted =
           records.length === 0

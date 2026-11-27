@@ -13,7 +13,6 @@ import {
   SEO_GSC_DELAY_DAYS,
   SEO_TENANT_LIMITS,
   daysBetween,
-  searchConsoleSiteAllowed,
   seoDomainOfProperty,
   seoPeriodRange,
   summarizeSeoSite,
@@ -46,6 +45,7 @@ import { PrismaAdminService } from '../database/prisma-admin.service';
 import { PrismaService } from '../database/prisma.service';
 import { SearchConsoleClient } from '../search-console/search-console.client';
 
+import { SeoDomainOwnershipService } from './seo-domain-ownership.service';
 import { SeoGscSyncService } from './seo-gsc-sync.service';
 
 import type { Env } from '../../config/env.schema';
@@ -93,6 +93,7 @@ export class SeoProjectsService {
     private readonly client: SearchConsoleClient,
     private readonly sync: SeoGscSyncService,
     private readonly config: ConfigService<Env, true>,
+    private readonly ownership: SeoDomainOwnershipService,
   ) {}
 
   private db<T>(owner: SeoOwner, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -376,6 +377,9 @@ export class SeoProjectsService {
       await this.sync.enqueue(created.id, 'initial', actor);
       return this.get(owner, projectId);
     }
+    // El dueño verificado de la web se la quita a quien la tuviera como
+    // secundario externo (solo tenía acceso de la cuenta de servicio).
+    if (owner) await this.releaseExternalHolders(owner, property);
     if (await this.propertyTaken(owner, property)) {
       throw new ConflictException({
         code: 'seo_property_taken',
@@ -563,7 +567,7 @@ export class SeoProjectsService {
 
   async cancelRun(owner: SeoOwner, runId: string): Promise<SeoSyncRunDto> {
     const run = await this.db(owner, (tx) =>
-      tx.seoSyncRun.findFirst({ where: { id: runId, tenantId: owner } }),
+      tx.seoSyncRun.findFirst({ where: { id: runId, tenantId: owner, dataType: null } }),
     );
     if (!run) throw this.notFound();
     if (run.status !== 'queued' && run.status !== 'running') {
@@ -610,7 +614,7 @@ export class SeoProjectsService {
       : (project.domains.find((d) => d.role === 'primary') ?? project.domains[0]);
     if (opts.domainId && !domain) throw this.notFound();
     const days = opts.days;
-    const delay = domain ? this.delayDays(domain.dataUntil) : null;
+    const delay = domain ? this.delayDays(domain.syncedUntil ?? domain.dataUntil) : null;
     if (!domain) {
       const range = seoPeriodRange(today(), days);
       return {
@@ -646,7 +650,7 @@ export class SeoProjectsService {
       gte: new Date(`${from}T00:00:00Z`),
       lte: new Date(`${to}T00:00:00Z`),
     });
-    const [site, devices, byQuery] = await Promise.all([
+    const [site, devices, byQuery, detailRows] = await Promise.all([
       this.admin.seoGscMetric.findMany({
         where: { domainId: domain.id, grain: 'site', date: between(range.previousFrom, range.to) },
         select: { date: true, clicks: true, impressions: true, position: true },
@@ -659,6 +663,11 @@ export class SeoProjectsService {
         where: { domainId: domain.id, grain: 'query', date: between(range.from, range.to) },
         _sum: { clicks: true, impressions: true },
         _count: { _all: true },
+      }),
+      this.admin.seoGscMetric.findMany({
+        where: { domainId: domain.id, grain: 'query', date: between(range.from, range.to) },
+        select: { date: true },
+        distinct: ['date'],
       }),
     ]);
     const summary = summarizeSeoSite({
@@ -676,6 +685,7 @@ export class SeoProjectsService {
           : null,
       firstDate: dateOnly(bounds._min.date),
       lastDate,
+      detailDates: detailRows.map((r) => dateOnly(r.date)!),
     });
     return {
       projectId,
@@ -782,6 +792,12 @@ export class SeoProjectsService {
     if (await this.domainTakenAnywhere(owner, projectId, property)) {
       return `${domain} ya lo usa otra cuenta de TrasterOS. Si es tuyo, escríbenos a soporte.`;
     }
+    // La cuenta de servicio es la misma para todos: que tenga acceso no prueba
+    // que sea de quien lo pide. Si otro negocio demuestra que es suyo (dominio
+    // propio o de correo verificado, o su «SEO local»), no se le ofrece a este.
+    if (await this.ownership.belongsToAnotherTenant(owner, domain)) {
+      return `${domain} es el dominio verificado de otra cuenta de TrasterOS. Si es tuyo, escríbenos a soporte.`;
+    }
     return null;
   }
 
@@ -804,23 +820,8 @@ export class SeoProjectsService {
     return !!taken && taken.tenantId !== owner;
   }
 
-  /** Dominios de la plataforma: su web, su API, sus ficheros y su correo (y subdominios). */
   private isPlatformDomain(domain: string): boolean {
-    const hosts: string[] = [];
-    for (const key of ['WEB_BASE_URL', 'API_BASE_URL', 'MINIO_PUBLIC_URL'] as const) {
-      try {
-        hosts.push(new URL(this.config.get(key, { infer: true })).hostname);
-      } catch {
-        // URL no válida: se ignora.
-      }
-    }
-    const from = this.config.get('EMAIL_FROM_ADDRESS', { infer: true }).split('@')[1];
-    if (from) hosts.push(from);
-    const d = domain.toLowerCase().replace(/^www\./, '');
-    return hosts
-      .map((h) => h.toLowerCase().replace(/^www\./, ''))
-      .filter((h) => h.includes('.'))
-      .some((h) => d === h || d.endsWith(`.${h}`) || h.endsWith(`.${d}`));
+    return this.ownership.isPlatformDomain(domain);
   }
 
   /**
@@ -856,6 +857,21 @@ export class SeoProjectsService {
   }
 
   /**
+   * Quita de los proyectos de otros negocios esta web cuando la tienen solo como
+   * secundario externo (`gsc_access`) y quien la añade es su dueño verificado.
+   */
+  private async releaseExternalHolders(owner: string, property: string): Promise<void> {
+    const domain = seoDomainOfProperty(property);
+    await this.admin.seoProjectDomain.deleteMany({
+      where: {
+        verification: 'gsc_access',
+        tenantId: { not: null, notIn: [owner] },
+        OR: [{ domain }, { gscProperty: { equals: property, mode: 'insensitive' } }],
+      },
+    });
+  }
+
+  /**
    * La propiedad ya está en el proyecto de otro tenant (la misma, o una de
    * dominio del mismo dominio). Las direcciones de la plataforma comparten
    * dominio (`trasteros.pro/s/<slug>/`), así que ahí cuenta la propiedad.
@@ -883,32 +899,8 @@ export class SeoProjectsService {
     return !!taken;
   }
 
-  /**
-   * ¿Es una web del tenant? Su dominio propio verificado, el dominio de su
-   * correo (verificado con el TXT de propiedad) o su dirección en la
-   * plataforma. La cuenta de servicio es la misma para todos los negocios:
-   * sin esto uno podría ver las búsquedas de otro.
-   */
-  private async ownProperty(tenantId: string, property: string): Promise<boolean> {
-    const [tenant, emailDomain] = await Promise.all([
-      this.admin.tenant.findUnique({
-        where: { id: tenantId },
-        select: { slug: true, customDomain: true, customDomainVerifiedAt: true },
-      }),
-      this.admin.tenantEmailDomain.findFirst({
-        where: { tenantId, ownershipVerifiedAt: { not: null } },
-        select: { domain: true },
-      }),
-    ]);
-    if (!tenant) return false;
-    const platformUrl = this.config.get('WEB_BASE_URL', { infer: true });
-    const domains = [
-      tenant.customDomainVerifiedAt ? tenant.customDomain : null,
-      emailDomain?.domain ?? null,
-    ];
-    return domains.some((customDomain) =>
-      searchConsoleSiteAllowed(property, { slug: tenant.slug, customDomain, platformUrl }),
-    );
+  private ownProperty(tenantId: string, property: string): Promise<boolean> {
+    return this.ownership.ownProperty(tenantId, property);
   }
 
   private async notYours(tenantId: string, property: string): Promise<string> {
@@ -980,7 +972,7 @@ export class SeoProjectsService {
       status: row.status as SeoProjectStatus,
       createdAt: row.createdAt.toISOString(),
       domains: row.domains.map((d): SeoProjectDomainDto => {
-        const delay = this.delayDays(d.dataUntil);
+        const delay = this.delayDays(d.syncedUntil ?? d.dataUntil);
         const active = d.runs[0];
         return {
           id: d.id,

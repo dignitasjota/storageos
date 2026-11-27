@@ -132,6 +132,8 @@ export const SEO_ASSISTANT_TOOL_LABELS: Record<string, string> = {
   seo_serp: 'los resultados de Google',
   seo_conversions: 'lo que trae Google',
   seo_plan: 'actuaciones y tareas',
+  seo_ga4_pages: 'las páginas de entrada en Google Analytics',
+  seo_ai_visibility: 'la visibilidad en respuestas de IA',
   seo_propose_task: 'preparar una tarea',
   seo_propose_change: 'preparar una actuación',
   seo_propose_opportunity: 'preparar el cambio de una oportunidad',

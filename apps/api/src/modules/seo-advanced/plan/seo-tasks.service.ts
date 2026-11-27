@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 import {
   SEO_TASK_CSV_MAX,
@@ -62,7 +67,12 @@ export function parseSeoTaskQuery(q: Record<string, string | undefined>): SeoTas
     type: (SEO_TASK_TYPES as readonly string[]).includes(q.type ?? '')
       ? (q.type as SeoTaskType)
       : undefined,
-    assignedTo: q.assignedTo || undefined,
+    assignedTo:
+      q.assignedTo === 'none' ||
+      q.assignedTo === 'me' ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q.assignedTo ?? '')
+        ? q.assignedTo
+        : undefined,
     from: isSeoDate(q.from) ? q.from : undefined,
     to: isSeoDate(q.to) ? q.to : undefined,
     search: q.search?.trim().slice(0, 200) || undefined,
@@ -186,7 +196,12 @@ export class SeoTasksService {
     const project = await this.projects.resolveProject(owner, projectId);
     // Desde una oportunidad, canibalización o hallazgo: lo que falte, de ahí.
     const source = await loadPlanSource(this.admin, projectId, input);
-    await assertPlanLinks(this.admin, projectId, { changeId: input.changeId ?? null });
+    await assertPlanLinks(this.admin, projectId, {
+      opportunityId: input.opportunityId ?? null,
+      cannibalizationId: input.cannibalizationId ?? null,
+      indexFindingId: input.indexFindingId ?? null,
+      changeId: input.changeId ?? null,
+    });
     if (input.assignedToId) await this.assertAssignee(project, input.assignedToId);
     const status = input.status ?? 'todo';
     const keywords = input.keywords ?? source?.keywords ?? [];
@@ -287,9 +302,20 @@ export class SeoTasksService {
     projectId: string,
     id: string,
     input: MoveSeoTaskInput,
+    /** Quien la mueve (sin permiso de gestionar, solo si la tiene asignada o la creó). */
+    actor?: { userId: string; canManage: boolean },
   ): Promise<SeoTaskDto> {
     await this.projects.resolveProject(owner, projectId);
     const row = await this.findRow(projectId, id);
+    if (actor && !actor.canManage) {
+      const mine = row.assignedToUserId === actor.userId || row.createdByUserId === actor.userId;
+      if (!mine) {
+        throw new ForbiddenException({
+          code: 'seo_task_not_yours',
+          message: 'Solo puedes mover las tareas que tienes asignadas o que has creado.',
+        });
+      }
+    }
     await this.admin.$transaction(async (tx) => {
       // Una columna a la vez: dos movimientos en el mismo proyecto esperan su turno.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${projectId}), 6)`;
@@ -396,19 +422,19 @@ export class SeoTasksService {
         rows.flatMap((r) => [r.assignedToSuperAdminId, r.createdBySuperAdminId]),
       ),
       this.admin.seoOpportunity.findMany({
-        where: { id: { in: ids((r) => r.opportunityId) } },
+        where: { id: { in: ids((r) => r.opportunityId) }, projectId: project.id },
         select: { id: true, query: true },
       }),
       this.admin.seoCannibalization.findMany({
-        where: { id: { in: ids((r) => r.cannibalizationId) } },
+        where: { id: { in: ids((r) => r.cannibalizationId) }, projectId: project.id },
         select: { id: true, query: true },
       }),
       this.admin.seoIndexFinding.findMany({
-        where: { id: { in: ids((r) => r.indexFindingId) } },
+        where: { id: { in: ids((r) => r.indexFindingId) }, projectId: project.id },
         select: { id: true, url: true },
       }),
       this.admin.seoSiteChange.findMany({
-        where: { id: { in: ids((r) => r.changeId) } },
+        where: { id: { in: ids((r) => r.changeId) }, projectId: project.id },
         select: { id: true, title: true },
       }),
       this.admin.seoMasterImport.findMany({
