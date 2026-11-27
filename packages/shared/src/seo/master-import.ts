@@ -624,7 +624,17 @@ export function parseSeoMaster(sheets: readonly SeoImportSheet[]): ParsedSeoMast
     }
     const clicks = num('gsc_clics');
     const impressions = num('gsc_impresiones');
-    const ctr = num('gsc_ctr');
+    // El CTR va en fracción (0,125); si el maestro lo trae en porcentaje (12,5)
+    // se pasa a fracción, y lo imposible se descarta (la columna es DECIMAL(7,6)).
+    const rawCtr = num('gsc_ctr');
+    const ctr =
+      rawCtr === null || rawCtr < 0
+        ? null
+        : rawCtr <= 1
+          ? rawCtr
+          : rawCtr <= 100
+            ? Math.round(rawCtr * 1e4) / 1e6
+            : null;
     const gscPosition = num('gsc_posicion_media');
     const shown = impressions !== null && impressions > 0;
     const gsc =

@@ -642,11 +642,11 @@ describe('SEO Avanzado: diagnóstico (e2e)', () => {
       notes: 'Unificadas /a y /b',
     });
 
-    // Se dio por arreglada hace diez días y Google lo sigue enseñando: vuelve.
+    // Se dio por arreglada hace 40 días (pasado el margen de 28) y Google lo sigue enseñando: vuelve.
     await withAdminDb((db) =>
       db.seoCannibalization.update({
         where: { id: k1.id },
-        data: { resolvedAt: new Date(Date.now() - 10 * 86_400_000) },
+        data: { resolvedAt: new Date(Date.now() - 40 * 86_400_000) },
       }),
     );
     await http().post(`${base()}/recalculate`).set(asSuper());

@@ -917,12 +917,14 @@ export class AdminTenantsService {
         where: liveContract,
         _count: { _all: true },
       }),
-      // SEO Avanzado: proyecto con algún dominio conectado a Search Console.
+      // SEO Avanzado: un dominio conectado con la descarga hecha por el motor nuevo
+      // (la migración conecta a todos los que tienen «SEO local» y no es uso).
       this.admin.seoProjectDomain.groupBy({
         by: ['tenantId'],
         where: {
           ...(tenantId ? { tenantId } : { tenantId: { not: null } }),
           connectionStatus: 'connected',
+          initialDoneAt: { not: null },
         },
         _count: { _all: true },
       }),
@@ -2953,6 +2955,8 @@ export class AdminTenantsService {
       // SEO Avanzado: el plan (actuaciones y tareas: texto libre, URL, palabras y responsables).
       await tx.seoTask.deleteMany({ where: { tenantId } });
       await tx.seoSiteChange.deleteMany({ where: { tenantId } });
+      // SEO Avanzado: propuestas de anotación descartadas y CSV de SISTRIX importados (con lo que trajeron).
+      await tx.seoAnnotationDismissal.deleteMany({ where: { tenantId } });
       // SEO Avanzado: el diagnóstico (canibalización y páginas que no deberían estar en Google).
       await tx.seoCannibalization.deleteMany({ where: { tenantId } });
       await tx.seoIndexFinding.deleteMany({ where: { tenantId } });
@@ -2965,6 +2969,7 @@ export class AdminTenantsService {
       await tx.seoDomainMetric.deleteMany({ where: { tenantId } });
       await tx.seoDomainKeyword.deleteMany({ where: { tenantId } });
       await tx.seoSerpResult.deleteMany({ where: { tenantId } });
+      await tx.seoSistrixImport.deleteMany({ where: { tenantId } });
       await tx.seoDomainOpportunity.deleteMany({ where: { tenantId } });
       await tx.seoBacklinkTarget.deleteMany({ where: { tenantId } });
       await tx.seoAiVisibility.deleteMany({ where: { tenantId } });

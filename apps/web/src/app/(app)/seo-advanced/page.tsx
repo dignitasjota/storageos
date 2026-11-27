@@ -13,6 +13,10 @@ import { SeoAiProvider } from '@/components/seo/assistant/seo-ai-context';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
 import { SeoGa4ConnectionCard } from '@/components/seo/ga4/ga4-connection-card';
 import { SeoGa4PagesCard } from '@/components/seo/ga4/ga4-pages-card';
+import { SeoAnnotationProposalsCard } from '@/components/seo/improvements/annotations-card';
+import { SeoAreasCard } from '@/components/seo/improvements/areas-card';
+import { SeoCompetitionPanel } from '@/components/seo/improvements/competition-panel';
+import { SeoSistrixCsvCard } from '@/components/seo/improvements/sistrix-csv-card';
 import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoPlanCard } from '@/components/seo/plan/plan-card';
@@ -207,7 +211,17 @@ export default function SeoAdvancedPage() {
                 domains={project.domains}
               />
             ),
-            competencia: <SeoSistrixSections scope={{ kind: 'tenant' }} canEdit={canEdit} />,
+            competencia: (
+              <>
+                <SeoSistrixSections scope={{ kind: 'tenant' }} canEdit={canEdit} />
+                <SeoCompetitionPanel scope={{ kind: 'tenant' }} />
+                <SeoSistrixCsvCard
+                  scope={{ kind: 'tenant' }}
+                  canEdit={canEdit}
+                  domains={project.domains.map((d) => d.domain)}
+                />
+              </>
+            ),
             tecnico: (
               <>
                 <SeoInspectionCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
@@ -216,7 +230,14 @@ export default function SeoAdvancedPage() {
               </>
             ),
             plan: (
-              <SeoPlanCard scope={{ kind: 'tenant' }} canEdit={canEdit} domains={project.domains} />
+              <>
+                <SeoAnnotationProposalsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
+                <SeoPlanCard
+                  scope={{ kind: 'tenant' }}
+                  canEdit={canEdit}
+                  domains={project.domains}
+                />
+              </>
             ),
             informes: (
               <>
@@ -253,6 +274,7 @@ export default function SeoAdvancedPage() {
                     setRole: (id, role) => updateDomain.mutateAsync({ id, role }),
                   }}
                 />
+                <SeoAreasCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
                 <SeoGa4ConnectionCard scope={{ kind: 'tenant' }} canEdit={canEdit} />
                 <SeoImportsCard client={client} domains={project.domains} />
                 <SeoMasterImportsCard scope={{ kind: 'tenant' }} canEdit={canEdit} />

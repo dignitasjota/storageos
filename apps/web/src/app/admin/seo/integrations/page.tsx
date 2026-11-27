@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { AdminError } from '@/components/admin/admin-error';
 import { useConfirm } from '@/components/confirm-provider';
 import { BackLink } from '@/components/layout/back-link';
+import { SistrixApiProbeCard } from '@/components/seo/improvements/api-probe-card';
 import { seoErrorMessage } from '@/components/seo/seo-errors';
 import { SistrixRunRow } from '@/components/seo/sistrix/sistrix-status';
 import { Badge } from '@/components/ui/badge';
@@ -670,6 +671,7 @@ export default function SeoIntegrationsPage() {
         <>
           <McpCard data={data.data} canEdit={isSuperadmin} />
           <ApiCard data={data.data} canEdit={isSuperadmin} />
+          <SistrixApiProbeCard api={data.data.api} canEdit={isSuperadmin} />
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Trabajos pendientes</CardTitle>

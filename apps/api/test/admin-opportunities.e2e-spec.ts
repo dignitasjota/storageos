@@ -175,4 +175,53 @@ describe('Admin: señales de interés, oportunidades y propuestas (e2e)', () => 
       .send({ feature: 'sepa' })
       .expect(401);
   });
+
+  it('SEO Avanzado se propone a quien tiene SEO local, dominio propio y muchos clics de Google', async () => {
+    const owner = await registerVerifiedUser(app, 'adminseoadv');
+    const tenant = await adminClient.tenant.findUniqueOrThrow({ where: { slug: owner.slug } });
+    const admin = { Authorization: `Bearer ${token}` };
+    const addon = await adminClient.subscriptionAddon.upsert({
+      where: { slug: 'e2e-op-seo-advanced' },
+      update: { isActive: true },
+      create: {
+        slug: 'e2e-op-seo-advanced',
+        name: 'SEO Avanzado (e2e)',
+        priceMonthly: 199,
+        feature: 'seo_advanced',
+      },
+    });
+    await adminClient.tenantFeatureOverride.create({
+      data: { tenantId: tenant.id, feature: 'local_seo', enabled: true, source: 'manual' },
+    });
+    await adminClient.tenant.update({
+      where: { id: tenant.id },
+      data: { customDomain: `${owner.slug}.e2e.es`, customDomainVerifiedAt: new Date() },
+    });
+    const day = (n: number) => {
+      const d = new Date(Date.now() - n * 86_400_000);
+      d.setUTCHours(0, 0, 0, 0);
+      return d;
+    };
+    const candidate = async () => {
+      const ops = await request(app.getHttpServer())
+        .get('/admin/opportunities')
+        .set(admin)
+        .expect(200);
+      const row = ops.body.find((o: { addonId: string }) => o.addonId === addon.id);
+      return row?.candidates.find((c: { tenantId: string }) => c.tenantId === tenant.id);
+    };
+    // Pocos clics: no es candidato.
+    await adminClient.searchConsoleDay.create({
+      data: { tenantId: tenant.id, date: day(2), clicks: 20, impressions: 400, position: 9 },
+    });
+    expect(await candidate()).toBeUndefined();
+    // Más de 100 clics al mes: sí, con el motivo.
+    await adminClient.searchConsoleDay.create({
+      data: { tenantId: tenant.id, date: day(3), clicks: 150, impressions: 2000, position: 8 },
+    });
+    const found = await candidate();
+    expect(found).toBeTruthy();
+    expect(found.reasons.join(' ')).toContain('170 clics al mes');
+    await adminClient.subscriptionAddon.delete({ where: { id: addon.id } }).catch(() => undefined);
+  });
 });

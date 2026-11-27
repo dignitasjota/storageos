@@ -16,6 +16,8 @@ import {
 import { Info, Loader2, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 
+import { SeoBrandSplitCard } from './improvements/brand-split-card';
+import { SeoPageDevicesCard } from './improvements/page-devices-card';
 import { SeoChange } from './seo-change';
 import {
   SeoTrendChart,
@@ -271,7 +273,9 @@ export function SeoPanel({
         </CardContent>
       </Card>
 
+      {d?.lastDate && planScope && <SeoBrandSplitCard scope={planScope} params={params} />}
       {d?.lastDate && <SeoTablesCard client={client} params={params} inspectScope={planScope} />}
+      {d?.lastDate && planScope && <SeoPageDevicesCard scope={planScope} params={params} />}
     </div>
   );
 }

@@ -87,13 +87,14 @@ function parseAttrs(raw: string): Record<string, string> {
 /** URL absoluta http(s) sin fragmento; null si no es una dirección web. */
 export function resolveSeoHref(href: string, base: string): string | null {
   const h = href.trim();
-  if (!h || h.startsWith('#')) return null;
+  if (!h || h.startsWith('#') || h.length > MAX_SEO_LINK_LENGTH) return null;
   if (/^(mailto|tel|javascript|data|sms|whatsapp|ftp|file):/i.test(h)) return null;
   try {
     const u = new URL(h, base);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     u.hash = '';
-    return u.toString();
+    const out = u.toString();
+    return out.length > MAX_SEO_LINK_LENGTH ? null : out;
   } catch {
     return null;
   }
@@ -112,16 +113,93 @@ function jsonLdTypesOf(value: unknown, out: Set<string>): void {
   if (obj['@graph']) jsonLdTypesOf(obj['@graph'], out);
 }
 
+/** Una etiqueta no puede medir más: más allá, el `<` es texto (y nunca se busca su fin). */
+const MAX_TAG_LENGTH = 10_000;
+/** Un valor de enlace más largo se descarta (no se guarda ni se pide). */
+export const MAX_SEO_LINK_LENGTH = 2000;
+
+/** `</nombre` (sin distinguir mayúsculas) a partir de una posición; -1 si no hay. */
+function findCloseTag(html: string, name: string, from: number): number {
+  let i = html.indexOf('</', from);
+  while (i !== -1) {
+    if (html.slice(i + 2, i + 2 + name.length).toLowerCase() === name) return i;
+    i = html.indexOf('</', i + 2);
+  }
+  return -1;
+}
+
+const RAW_BLOCKS = ['script', 'style', 'template'] as const;
+
+/**
+ * Quita comentarios, scripts, estilos y plantillas y recoge el cuerpo de los
+ * JSON-LD, con UN recorrido lineal del HTML (sin expresiones regulares con
+ * retroceso: la página la controla un tercero y un comentario o una etiqueta sin
+ * cerrar no pueden congelar el proceso). Un bloque sin cerrar se come el resto,
+ * como hace un navegador.
+ */
+function stripBlocks(html: string, jsonLd: string[]): string {
+  const out: string[] = [];
+  const n = html.length;
+  let i = 0;
+  let gt = -2;
+  const nextGt = (from: number): number => {
+    if (gt === -2 || (gt !== -1 && gt < from)) gt = html.indexOf('>', from);
+    return gt;
+  };
+  while (i < n) {
+    const lt = html.indexOf('<', i);
+    if (lt === -1) {
+      out.push(html.slice(i));
+      break;
+    }
+    out.push(html.slice(i, lt));
+    if (html.startsWith('<!--', lt)) {
+      out.push(' ');
+      const close = html.indexOf('-->', lt + 4);
+      if (close === -1) break;
+      i = close + 3;
+      continue;
+    }
+    let raw: (typeof RAW_BLOCKS)[number] | null = null;
+    for (const name of RAW_BLOCKS) {
+      if (html.slice(lt + 1, lt + 1 + name.length).toLowerCase() !== name) continue;
+      const after = html.charAt(lt + 1 + name.length);
+      if (after === '' || after === '>' || after === '/' || /\s/.test(after)) raw = name;
+      break;
+    }
+    if (!raw) {
+      out.push('<');
+      i = lt + 1;
+      continue;
+    }
+    const openEnd = nextGt(lt);
+    if (openEnd === -1 || openEnd - lt > MAX_TAG_LENGTH) {
+      out.push('<');
+      i = lt + 1;
+      continue;
+    }
+    const bodyStart = openEnd + 1;
+    const close = findCloseTag(html, raw, bodyStart);
+    out.push(' ');
+    if (close === -1) break;
+    if (raw === 'script') {
+      const attrs = parseAttrs(html.slice(lt + 1 + raw.length, openEnd));
+      if (/ld\+json/i.test(attrs.type ?? '')) jsonLd.push(html.slice(bodyStart, close));
+    }
+    const closeEnd = html.indexOf('>', close);
+    i = closeEnd === -1 ? n : closeEnd + 1;
+  }
+  return out.join('');
+}
+
 /** Lee lo que interesa al SEO de una página HTML. */
 export function parseSeoHtml(html: string, pageUrl: string): ParsedSeoHtml {
-  // Los JSON-LD antes de quitar los scripts.
   const types = new Set<string>();
   let invalid = 0;
-  const scriptRe = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
-  for (let m = scriptRe.exec(html); m; m = scriptRe.exec(html)) {
-    const attrs = parseAttrs(m[1] ?? '');
-    if (!/ld\+json/i.test(attrs.type ?? '')) continue;
-    const body = (m[2] ?? '').trim();
+  const jsonLdBodies: string[] = [];
+  const text = stripBlocks(html, jsonLdBodies);
+  for (const raw of jsonLdBodies) {
+    const body = raw.trim();
     if (!body) continue;
     try {
       jsonLdTypesOf(JSON.parse(body), types);
@@ -129,11 +207,6 @@ export function parseSeoHtml(html: string, pageUrl: string): ParsedSeoHtml {
       invalid++;
     }
   }
-  const text = html
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, ' ')
-    .replace(/<template\b[^>]*>[\s\S]*?<\/template\s*>/gi, ' ');
 
   let base = pageUrl;
   let title: string | null = null;
@@ -154,15 +227,44 @@ export function parseSeoHtml(html: string, pageUrl: string): ParsedSeoHtml {
   let h1Buf = '';
   let svgDepth = 0;
   let lastIndex = 0;
-  const tagRe = /<(\/?)([a-zA-Z][a-zA-Z0-9:-]*)([^>]*)>/g;
-  for (let m = tagRe.exec(text); m; m = tagRe.exec(text)) {
+  let pos = 0;
+  let gtAt = -2;
+  const isNameStart = (c: number) => (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
+  const isNameChar = (c: number) => isNameStart(c) || (c >= 48 && c <= 57) || c === 58 || c === 45;
+  for (;;) {
+    // Siguiente etiqueta: recorrido lineal (el fin `>` se recuerda mientras valga).
+    const lt = text.indexOf('<', pos);
+    if (lt === -1) break;
+    let j = lt + 1;
+    const isClosing = text.charAt(j) === '/';
+    if (isClosing) j++;
+    if (!isNameStart(text.charCodeAt(j))) {
+      pos = lt + 1;
+      continue;
+    }
+    let k = j + 1;
+    while (k < text.length && k - j < 64 && isNameChar(text.charCodeAt(k))) k++;
+    if (gtAt === -2 || (gtAt !== -1 && gtAt < k)) gtAt = text.indexOf('>', k);
+    if (gtAt === -1) break;
+    if (gtAt - lt > MAX_TAG_LENGTH) {
+      pos = lt + 1;
+      continue;
+    }
+    pos = gtAt + 1;
+    const m = {
+      index: lt,
+      0: '',
+      1: isClosing ? '/' : '',
+      2: text.slice(j, k),
+      3: text.slice(k, gtAt),
+    };
     const between = text.slice(lastIndex, m.index);
-    lastIndex = tagRe.lastIndex;
+    lastIndex = pos;
     if (inTitle) titleBuf += between;
     if (h1Depth > 0) h1Buf += between;
     const closing = m[1] === '/';
     const name = m[2]!.toLowerCase();
-    const rawAttrs = m[3] ?? '';
+    const rawAttrs = m[3];
 
     if (name === 'svg') {
       svgDepth += closing ? -1 : rawAttrs.trim().endsWith('/') ? 0 : 1;

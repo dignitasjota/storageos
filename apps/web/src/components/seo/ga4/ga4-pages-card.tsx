@@ -125,7 +125,9 @@ export function SeoGa4PagesCard({ scope }: { scope: Ga4AiScope }) {
               {d.gscUntil || d.ga4Until
                 ? ` (últimos datos: Search Console ${d.gscUntil ? formatDate(d.gscUntil) : '—'}, Analytics ${d.ga4Until ? formatDate(d.ga4Until) : '—'})`
                 : ''}
-              .
+              . Los clics de aquí suman los de las páginas de entrada: pueden no coincidir con el
+              total del resumen del proyecto (que cuenta todo el sitio). Si Google Analytics aplica
+              umbrales de privacidad, faltarán sesiones.
             </p>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Figure label="Clics de Google" value={formatCount(d.totals.gscClicks)} />

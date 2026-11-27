@@ -298,6 +298,12 @@ export class BlogService {
     const scheduleChanged =
       (updated.publishAt?.getTime() ?? null) !== (existing.publishAt?.getTime() ?? null);
     if (scheduleChanged) changes.publishAt = updated.publishAt?.toISOString() ?? null;
+    // Título y descripción para Google: SEO Avanzado los propone como actuación.
+    const seoChanged =
+      updated.title !== existing.title ||
+      updated.seoTitle !== existing.seoTitle ||
+      updated.seoDescription !== existing.seoDescription;
+    if (seoChanged) changes.seo = { slug: updated.slug };
     if (Object.keys(changes).length > 0) {
       await this.audit.write({
         tenantId,
@@ -309,9 +315,11 @@ export class BlogService {
               ? updated.isPublished
                 ? 'blog_post.published'
                 : 'blog_post.unpublished'
-              : updated.publishAt
-                ? 'blog_post.scheduled'
-                : 'blog_post.schedule_cancelled',
+              : seoChanged && !scheduleChanged
+                ? 'blog_post.seo_changed'
+                : updated.publishAt
+                  ? 'blog_post.scheduled'
+                  : 'blog_post.schedule_cancelled',
         entityType: 'BlogPost',
         entityId: id,
         changes: { title: updated.title, ...changes },

@@ -198,8 +198,9 @@ export class SearchConsoleClient {
   /** ¿La cuenta de servicio tiene acceso a la propiedad? */
   async hasAccess(siteUrl: string): Promise<boolean> {
     if (this.stub) return !siteUrl.includes('noaccess');
+    const wanted = siteUrl.toLowerCase();
     return (await this.listSites()).some(
-      (s) => s.siteUrl === siteUrl && s.permissionLevel !== 'siteUnverifiedUser',
+      (s) => s.siteUrl.toLowerCase() === wanted && s.permissionLevel !== 'siteUnverifiedUser',
     );
   }
 

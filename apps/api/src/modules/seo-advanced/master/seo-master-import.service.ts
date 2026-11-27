@@ -51,6 +51,7 @@ import {
 import { isUniqueViolation } from '../../../common/prisma-errors';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { xlsxSheets } from '../../imports/import-engine';
+import { zipTooLarge } from '../gsc-import.reader';
 import { personNames } from '../plan/seo-plan-links';
 import { SeoImportsService, type SeoUploadedFile, type SiteDaysPlan } from '../seo-imports.service';
 import {
@@ -540,6 +541,12 @@ export class SeoMasterImportService {
       throw new BadRequestException({
         code: 'seo_master_invalid',
         message: 'Sube el maestro tal cual, en Excel (.xlsx).',
+      });
+    }
+    if (await zipTooLarge(buffer)) {
+      throw new BadRequestException({
+        code: 'seo_master_invalid',
+        message: 'El fichero ocupa demasiado descomprimido.',
       });
     }
     let sheets: { name: string; rows: string[][] }[];

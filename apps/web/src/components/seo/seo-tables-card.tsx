@@ -1,6 +1,13 @@
 'use client';
 
-import { pagePath, type SeoTableRowDto, type SeoTableSort } from '@storageos/shared';
+import {
+  SEO_BRAND_FILTERS,
+  SEO_BRAND_FILTER_LABELS,
+  pagePath,
+  type SeoBrandFilter,
+  type SeoTableRowDto,
+  type SeoTableSort,
+} from '@storageos/shared';
 import { ArrowUpDown, Download, Loader2, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -39,6 +46,7 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatCount, formatDate, formatNumber, formatPct } from '@/lib/format';
+import { useSeoAreas } from '@/lib/seo-advanced/improvement-hooks';
 import {
   seoTableCsv,
   useSeoCross,
@@ -57,6 +65,7 @@ const SORT_LABELS: Record<SeoTableSort, string> = {
 };
 
 type Dimension = 'query' | 'page';
+const ALL_AREAS = '__all__';
 
 const show = (dim: Dimension, key: string) => (dim === 'page' ? pagePath(key) : key);
 
@@ -96,6 +105,10 @@ export function SeoTablesCard({
   const [sort, setSort] = useState<SeoTableSort>('clicks');
   const [open, setOpen] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  // Marca frente a no marca y zona (mejoras 3 y 5): filtran búsquedas, páginas y el cruce.
+  const [brand, setBrand] = useState<SeoBrandFilter>('all');
+  const [area, setArea] = useState('');
+  const areas = useSeoAreas(inspectScope ?? { kind: 'tenant' }, !!inspectScope);
 
   // Se busca al dejar de escribir.
   useEffect(() => {
@@ -103,7 +116,8 @@ export function SeoTablesCard({
     return () => clearTimeout(t);
   }, [input]);
 
-  const tableParams = { ...params, search, sort };
+  const filtered = { ...params, brand, area: area || null };
+  const tableParams = { ...filtered, search, sort };
   const table = useSeoTable(client, dimension, tableParams);
   const pages = table.data?.pages ?? [];
   const first = pages[0];
@@ -181,6 +195,36 @@ export function SeoTablesCard({
               aria-label="Buscar"
             />
           </div>
+          <Select value={brand} onValueChange={(v) => setBrand(v as SeoBrandFilter)}>
+            <SelectTrigger className="w-full sm:w-[170px]" aria-label="Marca">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEO_BRAND_FILTERS.map((b) => (
+                <SelectItem key={b} value={b}>
+                  {SEO_BRAND_FILTER_LABELS[b]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {(areas.data?.areas.length ?? 0) > 0 && (
+            <Select
+              value={area || ALL_AREAS}
+              onValueChange={(v) => setArea(v === ALL_AREAS ? '' : v)}
+            >
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Zona">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_AREAS}>Todas las zonas</SelectItem>
+                {areas.data?.areas.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {a}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Select value={sort} onValueChange={(v) => setSort(v as SeoTableSort)}>
             <SelectTrigger className="w-full sm:w-[190px]" aria-label="Orden">
               <ArrowUpDown className="mr-1 size-3.5 text-muted-foreground" aria-hidden />
@@ -279,7 +323,7 @@ export function SeoTablesCard({
       </CardContent>
       <CrossSheet
         client={client}
-        params={params}
+        params={filtered}
         inspectScope={inspectScope}
         dimension={dimension}
         value={open}

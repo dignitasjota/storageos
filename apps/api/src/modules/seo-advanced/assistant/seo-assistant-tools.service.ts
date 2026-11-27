@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import {
   normalizeSeoKeyword,
   SEO_ASSISTANT_ACTION_LABELS,
+  SEO_UNTRUSTED_CLOSE,
+  SEO_UNTRUSTED_OPEN,
   seoUntrusted,
   type SeoPageSpeedRunDto,
   type SeoPanelPeriod,
@@ -793,8 +795,60 @@ function summarizeRun(run: SeoPageSpeedRunDto | null): unknown {
   };
 }
 
-/** Resultado de una herramienta: JSON con el recordatorio de cómo tratar lo externo. */
+/**
+ * Claves cuyo texto es nuestro (periodos, fechas, notas fijas, vocabularios): no
+ * hace falta delimitarlas. Todo lo demás es dato de fuera (búsquedas, URL,
+ * páginas de entrada, nombres de competidores, mensajes de Google, el resumen de una
+ * propuesta con el texto de una búsqueda) y va delimitado SIEMPRE, lo haya
+ * marcado ya la herramienta o no: un texto de más sin marcar es una vía de entrada.
+ */
+const OWN_TEXT_KEYS = new Set([
+  'origen',
+  'sinDatos',
+  'nota',
+  'periodo',
+  'desde',
+  'hasta',
+  'fecha',
+  'date',
+  'ultimoDiaConDatos',
+  'primerDiaConDatos',
+  'ultimosDatos',
+  'gravedad',
+  'prioridad',
+  'tipo',
+  'preparada',
+]);
+
+/** ¿Ya viene delimitado bien: un solo bloque, sin delimitadores dentro? */
+function isDelimited(value: string): boolean {
+  if (!value.startsWith(SEO_UNTRUSTED_OPEN) || !value.endsWith(SEO_UNTRUSTED_CLOSE)) return false;
+  const inner = value.slice(SEO_UNTRUSTED_OPEN.length, value.length - SEO_UNTRUSTED_CLOSE.length);
+  return !inner.includes(SEO_UNTRUSTED_OPEN) && !inner.includes(SEO_UNTRUSTED_CLOSE);
+}
+
+/** Pone entre delimitadores todo texto de un resultado que no sea una cifra, una fecha o texto propio. */
+export function delimitToolOutput(value: unknown, key = ''): unknown {
+  if (typeof value === 'string') {
+    if (OWN_TEXT_KEYS.has(key) || isDelimited(value)) return value;
+    // Cifras, fechas y horas sueltas.
+    if (/^[\d\s.,:+%/-]*$/.test(value)) return value;
+    return seoUntrusted(value, 600);
+  }
+  if (Array.isArray(value)) return value.map((v) => delimitToolOutput(v, key));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        delimitToolOutput(v, k),
+      ]),
+    );
+  }
+  return value;
+}
+
+/** Resultado de una herramienta: JSON con todo el texto externo delimitado. */
 function json(value: unknown): string {
-  const text = JSON.stringify(value);
+  const text = JSON.stringify(delimitToolOutput(value));
   return text.length > 12_000 ? `${text.slice(0, 12_000)}…(recortado)` : text;
 }

@@ -27,6 +27,7 @@ import {
   QUEUE_SEO,
   QUEUE_SEO_SISTRIX,
   QUEUE_SEO_CRAWL,
+  QUEUE_SEO_PAGESPEED,
 } from '../queues/queues.module';
 
 import { AdminAudit } from './admin-audit.decorator';
@@ -86,6 +87,7 @@ export class AdminQueuesController {
     @InjectQueue(QUEUE_SEO) seo: Queue,
     @InjectQueue(QUEUE_SEO_SISTRIX) seoSistrix: Queue,
     @InjectQueue(QUEUE_SEO_CRAWL) seoCrawl: Queue,
+    @InjectQueue(QUEUE_SEO_PAGESPEED) seoPagespeed: Queue,
   ) {
     this.queues = [
       billing,
@@ -100,6 +102,7 @@ export class AdminQueuesController {
       seo,
       seoSistrix,
       seoCrawl,
+      seoPagespeed,
     ];
   }
 

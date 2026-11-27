@@ -233,7 +233,7 @@ describe('SEO Avanzado: actuaciones y tareas (e2e)', () => {
     expect(w7.scope!.verdict).toBe('better');
     expect(w7.scope!.text).toMatch(/^Coincide con una mejora/);
     expect(w7.site!.before.impressions).toBe(3500);
-    expect(w7.contextNote).toContain('El sitio entero');
+    expect(w7.contextNote).toContain('El resto del sitio');
     const url = w7.items.find((i) => i.kind === 'url')!;
     expect(url).toMatchObject({ verdict: 'better', label: `${DOMAIN}/precios` });
     const kw = w7.items.find((i) => i.kind === 'keyword')!;

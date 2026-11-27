@@ -989,3 +989,23 @@ Google Analytics del tráfico orgánico por página (§12 y §18.9) y visibilida
 | 12  | Google Analytics del tráfico orgánico y visibilidad en buscadores de IA                                   |
 
 **Fuera del plan** (por si se retoma): anotaciones automáticas de §18.8, editar los grupos desde la pantalla de palabras, la etiqueta de Google en la lista de canibalización, la velocidad de la competencia, un navegador sin cabeza para webs que se pintan en el navegador, posiciones geolocalizadas (§16.7), backlinks más allá de `linktargets`, AI Tracker de SISTRIX (necesita proyectos suyos) y comprobar con la primera llamada real el formato de `ai_prompt_answers` y de la API clásica.
+
+## 39. Arreglos de la revisión (2026-11-26)
+
+Revisión independiente de las 12 PR en cinco partes (base y Search Console, SISTRIX, negocio, técnico, IA y GA4), y una PR de arreglos con todos los hallazgos. Migración `20270323100000_seo_review_fixes`; detalle de despliegue en `DEPLOYMENT.md §210`.
+
+**Arreglados** (entre paréntesis, el hallazgo en el informe de la revisión):
+
+- **Base y Search Console (1)**: dominio secundario ajeno (§1); crecimiento de dominios nuevos y cobertura con `synced_until`/`detail_since` (§2, §3, §5, menores); 403 que no es de permisos y errores de red (§4); carga inicial que retoma por cursor y tandas atascadas; importación con CTR en porcentaje y ZIP demasiado grande; exportación de datos del tenant con las hojas de SEO; señal de adopción solo con carga inicial hecha.
+- **SISTRIX (2)**: tandas cortadas a 60 (§1), presupuesto que no estimaba el coste (§4), 401 del MCP sin renovar, forma de respuesta desconocida, cancelar una tanda de la plataforma, alerta de visibilidad en IA según la última tanda, filtro del registro de consultas, `country` del brief (§9).
+- **Negocio (3)**: oportunidades hechas/descartadas que no volvían, canibalización con ganadores de un solo día, días sin impresiones, comparación «el resto del sitio», informes (periodo, reserva del cron, reintento), alertas semanales y agrupadas, tareas del responsable (§6) y enlaces del mismo proyecto.
+- **Técnico (4)**: expresiones regulares con retroceso en robots.txt, mapas, HTML y rutas excluidas (G1), rastreos reiniciados, bloqueados o con páginas sin responder, puertos, ventana del semanal, PageSpeed con cola propia, tope diario y reparto semanal, inspecciones atascadas.
+- **IA y GA4 (5)**: texto externo sin delimitar en URL y páginas de entrada (§1), factor de interacción que restaba (§2), `/s/<negocio>` mezclado en el proyecto de la plataforma (§3), propiedad de GA4 y su ID de medición (§4), cambio de propiedad durante la descarga (§5), brief que perdía búsquedas (§6), cuota de IA con solo SEO Avanzado (§7); y de los menores: tope de herramientas por vuelta, tokens con clave propia, pregunta sin respuesta, acción atascada, borrador desde lo editado, etiquetas, nombre del proyecto delimitado, periodo de GA4 por día descargado, fila `(other)` y orden fijo al descargar.
+
+**Decisiones**: una oportunidad hecha vuelve a los 60 días de datos; una descartada, con +20 puntos (el umbral «reaparece» de los ajustes); el factor de interacción es un extra que suma y nunca entra en la media; lo más conservador cuando el informe daba a elegir.
+
+**No arreglado, con motivo**: delimitadores aleatorios por pregunta (5, menor 7: los fijos no se pueden cerrar desde dentro, comprobado con prueba) · avisos de umbrales de GA4 en pantalla (solo se avisa en texto; necesita campos nuevos del informe de Google) · proyectos con varios dominios en el cruce de GA4 (5, menor 10: no hay un caso real hoy; cada proyecto tiene un dominio principal) · regla de licencia de SISTRIX (2 §12) y las «Mejoras» de los informes: son producto, no fallos (van en `docs/ROADMAP.md`).
+
+## 40. Mejoras (2026-11-26)
+
+PR de mejoras sobre los arreglos (migración `20270324100000_seo_improvements`; despliegue en `DEPLOYMENT.md §211`). Hechas las 14 (la 1, unificar con «SEO local», se descartó). Simplificaciones: los competidores del CSV se importan como «descubiertos» inactivos; el filtro de marca en páginas usa el grano `query_page` (se excluyen búsquedas anónimas); el rastreo mensual usa `intervalWeeks`; las zonas se detectan por palabra completa sin acentos; las parejas de idioma salen como motivo en la canibalización; el año anterior en oportunidades solo para las que suben o bajan. Pendiente: probar la API clásica con la clave real (la ejecuta el dueño) y la visibilidad en IA, que SISTRIX no ofrece por API.

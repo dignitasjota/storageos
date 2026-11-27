@@ -199,6 +199,8 @@ export function seoSiteChangeWindowState(input: {
   /** Primer y último día con datos de Google del dominio. */
   firstDataDate: string | null;
   lastDataDate: string | null;
+  /** Hasta qué día se ha descargado Search Console (los días sin fila son días a cero). */
+  syncedUntil?: string | null;
   /** Días con datos del dominio (cruce `site`) en cada ventana. */
   daysWithDataBefore: number;
   daysWithDataAfter: number;
@@ -208,7 +210,11 @@ export function seoSiteChangeWindowState(input: {
   if (input.today < availableOn) {
     return { status: 'waiting', availableOn, daysLeft: daysBetween(input.today, availableOn) };
   }
-  if (!input.lastDataDate || input.lastDataDate < range.afterTo) {
+  const knownUntil =
+    input.syncedUntil && (!input.lastDataDate || input.syncedUntil > input.lastDataDate)
+      ? input.syncedUntil
+      : input.lastDataDate;
+  if (!knownUntil || knownUntil < range.afterTo) {
     return { status: 'waiting', availableOn, daysLeft: null };
   }
   if (!input.firstDataDate || input.firstDataDate > range.beforeFrom) {
@@ -219,12 +225,14 @@ export function seoSiteChangeWindowState(input: {
     from: range.beforeFrom,
     to: range.beforeTo,
     daysWithData: input.daysWithDataBefore,
+    syncedUntil: input.syncedUntil ?? null,
   });
   const after = seoPeriodCovered({
     firstDate: input.firstDataDate,
     from: range.afterFrom,
     to: range.afterTo,
     daysWithData: input.daysWithDataAfter,
+    syncedUntil: input.syncedUntil ?? null,
   });
   return { status: before && after ? 'ready' : 'incomplete', availableOn, daysLeft: null };
 }
@@ -279,7 +287,12 @@ export interface SeoSiteChangeVerdictResult {
 export function seoSiteChangeVerdict(input: {
   before: SeoTotalsDto;
   after: SeoTotalsDto;
-  /** Totales del dominio en las mismas ventanas (referencia). */
+  /**
+   * Totales del RESTO del sitio (el dominio menos el alcance) en las mismas
+   * ventanas: referencia para no confundir con una subida de temporada. Con el
+   * alcance contando más de la mitad del sitio, no hay resto con el que comparar
+   * (null).
+   */
   site?: { before: SeoTotalsDto; after: SeoTotalsDto } | null;
   minImpressions?: number;
 }): SeoSiteChangeVerdictResult {
@@ -335,11 +348,11 @@ export function seoSiteChangeVerdict(input: {
     const site = siteVariation.clicksPct;
     const own = variation.clicksPct;
     if (verdict === 'better' && site >= 10 && (own === null || site >= own - 5)) {
-      contextNote = `Todo el sitio subió parecido (${signedPct(site)} de clics en las mismas fechas): puede ser temporada y no el cambio.`;
+      contextNote = `El resto del sitio subió parecido (${signedPct(site)} de clics en las mismas fechas): puede ser temporada y no el cambio.`;
     } else if (verdict === 'worse' && site <= -10 && (own === null || site <= own + 5)) {
-      contextNote = `Todo el sitio bajó parecido (${signedPct(site)} de clics en las mismas fechas): puede no tener que ver con el cambio.`;
+      contextNote = `El resto del sitio bajó parecido (${signedPct(site)} de clics en las mismas fechas): puede no tener que ver con el cambio.`;
     } else {
-      contextNote = `El sitio entero, en las mismas fechas: ${signedPct(site)} de clics.`;
+      contextNote = `El resto del sitio, en las mismas fechas: ${signedPct(site)} de clics.`;
     }
   }
   return { verdict, variation, text, contextNote };
@@ -407,6 +420,18 @@ export interface SeoSiteChangeOverlapDto {
   date: string;
 }
 
+/** El mismo antes y después del año anterior (mejora 12): evita falsas alarmas por la estacionalidad. */
+export interface SeoSiteChangeYearAgoDto {
+  /** Hay datos completos de las dos ventanas del año anterior. */
+  available: boolean;
+  /** Por qué no (si no está disponible). */
+  message: string | null;
+  before: SeoTotalsDto | null;
+  after: SeoTotalsDto | null;
+  /** Variación del año anterior en las mismas fechas (para compararla con la de este año). */
+  variation: SeoChangeDto | null;
+}
+
 export interface SeoSiteChangeWindowDto extends SeoSiteChangeRange {
   days: number;
   status: SeoSiteChangeWindowStatus;
@@ -417,6 +442,8 @@ export interface SeoSiteChangeWindowDto extends SeoSiteChangeRange {
   /** El dominio entero en las mismas fechas. */
   site: { before: SeoTotalsDto; after: SeoTotalsDto; variation: SeoChangeDto | null } | null;
   contextNote: string | null;
+  /** Lo mismo un año antes (solo en la ficha). */
+  yearAgo?: SeoSiteChangeYearAgoDto | null;
   /** Por URL y por palabra (solo en la ficha). */
   items: SeoSiteChangeItemDto[];
   overlaps: SeoSiteChangeOverlapDto[];

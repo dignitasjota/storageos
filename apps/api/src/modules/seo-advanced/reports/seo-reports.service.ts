@@ -2,6 +2,9 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@storageos/database';
 import {
+  SEO_GSC_FINAL_DELAY_DAYS,
+  daysBetween,
+  shiftDate,
   SEO_OPPORTUNITY_OPEN_STATUSES,
   SEO_PLATFORM_CONVERSION_TYPES,
   SEO_PRIMARY_CONVERSION_TYPES,
@@ -40,6 +43,7 @@ import { EmailService } from '../../email/email.service';
 import { FilesService } from '../../files/files.service';
 import { SeoGa4Service } from '../ga4/seo-ga4.service';
 import { SeoSiteChangesService } from '../plan/seo-site-changes.service';
+import { syncedUntilOf } from '../seo-coverage';
 import { SeoProjectsService, type ProjectRow, type SeoOwner } from '../seo-projects.service';
 import { SeoAiVisibilityService } from '../sistrix/seo-ai-visibility.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
@@ -231,9 +235,14 @@ export class SeoReportsService {
     });
   }
 
-  async build(project: ProjectRow, period: SeoReportPeriod): Promise<SeoReportContentDto> {
+  async build(project: ProjectRow, fullPeriod: SeoReportPeriod): Promise<SeoReportContentDto> {
     const primary = project.domains.find((d) => d.role === 'primary') ?? project.domains[0] ?? null;
     const ids = primary ? [primary.id] : [];
+    // Google da los datos definitivos 2 o 3 días tarde: si el periodo acaba más
+    // allá de lo que hay, se calcula con lo que existe (y el informe lo dice)
+    // en vez de salir «incompleto» y sin comparación.
+    const syncedUntilAll = await syncedUntilOf(this.admin, ids);
+    const period = shrinkReportPeriod(fullPeriod, syncedUntilAll);
     const bounds = primary
       ? await this.admin.seoGscMetric.aggregate({
           where: { domainId: primary.id, grain: 'site' },
@@ -257,11 +266,13 @@ export class SeoReportsService {
       days(period.from, period.to),
       days(period.previousFrom, period.previousTo),
     ]);
+    const syncedUntil = await syncedUntilOf(this.admin, ids);
     const complete = seoPeriodCovered({
       firstDate: first,
       from: period.from,
       to: period.to,
       daysWithData: curDays,
+      syncedUntil,
     });
     const comparable =
       complete &&
@@ -270,6 +281,7 @@ export class SeoReportsService {
         from: period.previousFrom,
         to: period.previousTo,
         daysWithData: prevDays,
+        syncedUntil,
       });
 
     // Lo que trae Google (de `seo_conversions_daily`).
@@ -675,7 +687,10 @@ export class SeoReportsService {
           INSERT INTO seo_reports (tenant_id, project_id, kind, period_from, period_to, period_key, trigger, status)
           VALUES (${p.tenantId}::uuid, ${p.id}::uuid, ${kind}, ${period.from}::date, ${period.to}::date,
                   ${period.key}, 'cron', 'sending')
-          ON CONFLICT DO NOTHING
+          ON CONFLICT (project_id, kind, period_key) WHERE trigger = 'cron'
+          DO UPDATE SET status = 'sending', created_at = now(), error = NULL
+            -- Un envío que murió a medias (reinicio del worker) se retoma al cabo de una hora.
+            WHERE seo_reports.status = 'sending' AND seo_reports.created_at < now() - interval '1 hour'
           RETURNING id::text`);
         const id = claimed[0]?.id;
         if (!id) continue;
@@ -834,4 +849,26 @@ export class SeoReportsService {
     const { html, text } = renderAdminEmail(md);
     return { subject, html, text };
   }
+}
+
+/**
+ * Recorta el periodo al último día con datos definitivos (descargado menos el
+ * retraso de Google), con al menos 3 días, y el anterior a los mismos días. Sin
+ * recorte, el mismo periodo.
+ */
+export function shrinkReportPeriod(
+  period: SeoReportPeriod,
+  syncedUntil: string | null,
+): SeoReportPeriod {
+  if (!syncedUntil) return period;
+  const finalDay = shiftDate(syncedUntil, -SEO_GSC_FINAL_DELAY_DAYS);
+  if (finalDay >= period.to || finalDay < shiftDate(period.from, 2)) return period;
+  const days = daysBetween(period.from, finalDay) + 1;
+  const [y, m, d] = finalDay.split('-');
+  return {
+    ...period,
+    to: finalDay,
+    previousTo: shiftDate(period.previousFrom, days - 1),
+    label: `${period.label} (con datos de Google hasta el ${d}/${m}/${y})`,
+  };
 }

@@ -292,13 +292,9 @@ describe('análisis de las páginas', () => {
     ]);
     expect(typesOf(a.issues, '/b')).toEqual(['canonical_other', 'h1_multiple', 'title_too_long']);
     expect(typesOf(a.issues, '/c')).toEqual(['canonical_variant', 'nofollow', 'title_too_short']);
-    expect(typesOf(a.issues, '/d')).toEqual(['description_duplicate', 'title_duplicate']);
-    expect(typesOf(a.issues, '/e')).toEqual([
-      'canonical_error',
-      'canonical_other',
-      'description_duplicate',
-      'title_duplicate',
-    ]);
+    // /e declara otra canónica: ya apunta a la buena, no cuenta como repetida de /d.
+    expect(typesOf(a.issues, '/d')).toEqual([]);
+    expect(typesOf(a.issues, '/e')).toEqual(['canonical_error', 'canonical_other']);
     expect(typesOf(a.issues, '/rota')).toEqual(['broken_link', 'http_error']);
     expect(typesOf(a.issues, '/caida')).toEqual(['broken_link', 'fetch_failed']);
     // Con «noindex» en el mapa del sitio: una sola incidencia (alta) y sin las de contenido.
@@ -529,5 +525,69 @@ describe('integración', () => {
     expect(detectSeoOpportunities(base).map((o) => o.type)).toEqual(
       found.filter((o) => o.type !== 'internal_links').map((o) => o.type),
     );
+  });
+});
+
+describe('análisis: repetidos, bloqueos del servidor y arreglos', () => {
+  it('dos páginas con el mismo título y sin canónica ajena sí son repetidas', () => {
+    const pages = [
+      page('/', { links: [`${H}/p`, `${H}/q`, `${H}/p?orden=precio`] }),
+      page('/p', { title: 'Mismo título de verdad para dos páginas distintas' }),
+      page('/q', { title: 'Mismo título de verdad para dos páginas distintas' }),
+      // Una variante con filtro que apunta a la buena con su canónica: no es repetida.
+      page('/p?orden=precio', {
+        title: 'Mismo título de verdad para dos páginas distintas',
+        canonical: `${H}/p`,
+      }),
+    ];
+    const a = analyzeSeoCrawl({ pages, homeKey: HOME, sitemapFound: true });
+    expect(typesOf(a.issues, '/p')).toContain('title_duplicate');
+    expect(typesOf(a.issues, '/q')).toContain('title_duplicate');
+    expect(typesOf(a.issues, '/p?orden=precio')).not.toContain('title_duplicate');
+  });
+
+  it('un 403 o un 429 al rastreador no es «una página que da error»', () => {
+    const pages = [
+      page('/', { links: [`${H}/a`, `${H}/b`] }),
+      page('/a', { status: 403, finalStatus: 403, isHtml: false }),
+      page('/b', { status: 429, finalStatus: 429, isHtml: false }),
+    ];
+    const a = analyzeSeoCrawl({ pages, homeKey: HOME, sitemapFound: true });
+    expect(typesOf(a.issues, '/a')).toContain('fetch_failed');
+    expect(typesOf(a.issues, '/a')).not.toContain('http_error');
+    expect(typesOf(a.issues, '/b')).not.toContain('http_error');
+    const blocked = a.issues.find((i) => i.url === `${H}/a` && i.type === 'fetch_failed')!;
+    expect(blocked.data).toMatchObject({ blocked: true, status: 403 });
+  });
+
+  it('el rastreo semanal que se pierde su hora se recupera en las 24 horas siguientes', () => {
+    const settings = { ...SEO_CRAWL_DEFAULTS.platform, weeklyEnabled: true, weekday: 1, hour: 3 };
+    const due = (weekday: number, hour: number) =>
+      seoCrawlDue({ settings, weekday, hour, lastStartedAt: null, now: new Date() });
+    expect(due(1, 3)).toBe(true);
+    expect(due(1, 4)).toBe(true); // el worker se reiniciaba a las 03:05
+    expect(due(2, 2)).toBe(true);
+    expect(due(2, 3)).toBe(false);
+    expect(due(1, 2)).toBe(false);
+  });
+});
+
+describe('con impresiones y fuera del mapa del sitio', () => {
+  const home = page('/', { inSitemap: true, links: [`${H}/precios`, `${H}/vieja`, `${H}/l/en`] });
+  it('lo marca solo si el sitio tiene mapa y la página sale en Google', () => {
+    const pages = [
+      home,
+      page('/precios', { inSitemap: true, impressions: 200 }),
+      page('/vieja', { impressions: 80 }),
+      page('/sin-impresiones', { impressions: 0 }),
+      page('/l/en', { impressions: 12, noindex: true }),
+    ];
+    const withMap = analyzeSeoCrawl({ pages, homeKey: HOME, sitemapFound: true });
+    expect(typesOf(withMap.issues, '/vieja')).toContain('not_in_sitemap');
+    expect(typesOf(withMap.issues, '/precios')).not.toContain('not_in_sitemap');
+    expect(typesOf(withMap.issues, '/sin-impresiones')).not.toContain('not_in_sitemap');
+    expect(typesOf(withMap.issues, '/l/en')).not.toContain('not_in_sitemap');
+    const noMap = analyzeSeoCrawl({ pages, homeKey: HOME, sitemapFound: false });
+    expect(noMap.issues.some((i) => i.type === 'not_in_sitemap')).toBe(false);
   });
 });

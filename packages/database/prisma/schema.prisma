@@ -9869,6 +9869,8 @@ model SeoProject {
   strategy       String   @default("local")
   targetLocation String?  @map("target_location")
   brandTerms     String[] @default([]) @map("brand_terms")
+  /// Municipios y barrios que le importan (mejora 5).
+  localAreas     String[] @default([]) @map("local_areas")
   weights        Json     @default("{}")
   frequencies    Json     @default("{}")
   /// active · paused
@@ -9933,6 +9935,8 @@ model SeoProject {
   aiActions         SeoAiAction[]
   contentBriefs     SeoContentBrief[]
   ga4LandingDaily   SeoGa4LandingDaily[]
+  annotationDismissals SeoAnnotationDismissal[]
+  sistrixImports       SeoSistrixImport[]
 
   @@map("seo_projects")
 }
@@ -9952,7 +9956,12 @@ model SeoProjectDomain {
   checkedAt        DateTime? @map("checked_at") @db.Timestamptz(6)
   connectedAt      DateTime? @map("connected_at") @db.Timestamptz(6)
   lastSyncedAt     DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  /// Último día con filas en el cruce `site` (los días sin impresiones no tienen fila).
   dataUntil        DateTime? @map("data_until") @db.Date
+  /// Hasta qué día se ha descargado con éxito (haya o no filas esos días).
+  syncedUntil      DateTime? @map("synced_until") @db.Date
+  /// Desde qué día hay detalle por búsqueda y página (los Excel solo traen el total diario).
+  detailSince      DateTime? @map("detail_since") @db.Date
   initialDoneAt    DateTime? @map("initial_done_at") @db.Timestamptz(6)
   /// own · gsc_access (secundario no propio con acceso de la cuenta de servicio)
   verification     String    @default("own")
@@ -10095,6 +10104,8 @@ model SeoSyncRun {
   pausedReason           String?   @map("paused_reason")
   pausedUntil            DateTime? @map("paused_until") @db.Timestamptz(6)
   creditsUsed            Int       @default(0) @map("credits_used")
+  /// Última vez que la descarga avanzó (una en curso sin avanzar horas se da por caída).
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   project SeoProject        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   domain  SeoProjectDomain? @relation(fields: [domainId], references: [id], onDelete: Cascade)
@@ -10147,6 +10158,8 @@ model SeoProviderConnection {
   lastErrorAt                 DateTime? @map("last_error_at") @db.Timestamptz(6)
   connectedAt                 DateTime? @map("connected_at") @db.Timestamptz(6)
   connectedBySuperAdminId     String?   @map("connected_by_super_admin_id") @db.Uuid
+  /// Semana del último aviso del 80 % del presupuesto.
+  budgetAlertWeek             DateTime? @map("budget_alert_week") @db.Date
   createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -10198,6 +10211,8 @@ model SeoCompetitor {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// El maestro que lo creó (null si no, o si se borró la importación).
   masterImportId String? @map("master_import_id") @db.Uuid
+  /// Ruta del directorio que se analiza (competidor.es/valencia/); null = todo el dominio.
+  pathPrefix     String? @map("path_prefix")
 
   project      SeoProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: SetNull)
@@ -10319,9 +10334,12 @@ model SeoDomainKeyword {
   url        String   @default("")
   /// La importación de un maestro que la añadió (se borra con ella).
   masterImportId String? @map("master_import_id") @db.Uuid
+  sistrixImportId String? @map("sistrix_import_id") @db.Uuid
 
-  masterImport SeoMasterImport? @relation(fields: [masterImportId], references: [id], onDelete: Cascade)
+  masterImport  SeoMasterImport?  @relation(fields: [masterImportId], references: [id], onDelete: Cascade)
+  sistrixImport SeoSistrixImport? @relation(fields: [sistrixImportId], references: [id], onDelete: Cascade, map: "seo_domain_keywords_import_fkey")
 
+  @@index([sistrixImportId], map: "seo_domain_keywords_import_idx")
   @@index([domain, country, sampleDate(sort: Desc)], map: "seo_domain_keywords_lookup_idx")
   @@index([masterImportId], map: "seo_domain_keywords_master_import_idx")
   @@index([tenantId], map: "seo_domain_keywords_tenant_idx")
@@ -10340,9 +10358,14 @@ model SeoSerpResult {
   position   Int
   domain     String
   url        String   @default("")
+  /// Título del resultado (cuando el proveedor lo da, desde la mejora 4).
+  title      String?
+  sistrixImportId String? @map("sistrix_import_id") @db.Uuid
 
-  keyword SeoKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  keyword       SeoKeyword        @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  sistrixImport SeoSistrixImport? @relation(fields: [sistrixImportId], references: [id], onDelete: Cascade, map: "seo_serp_results_import_fkey")
 
+  @@index([sistrixImportId], map: "seo_serp_results_import_idx")
   @@index([keywordId, country, sampleDate(sort: Desc)], map: "seo_serp_results_lookup_idx")
   @@index([tenantId], map: "seo_serp_results_tenant_idx")
   @@map("seo_serp_results")
@@ -10561,6 +10584,10 @@ model SeoSiteChange {
   taskId                 String?   @map("task_id") @db.Uuid
   createdByUserId        String?   @map("created_by_user_id") @db.Uuid
   createdBySuperAdminId  String?   @map("created_by_super_admin_id") @db.Uuid
+  /// manual · auto (propuesta del registro de actividad y confirmada)
+  source                 String    @default("manual")
+  /// Id del registro de actividad del que sale (no se duplica).
+  sourceRef              String?   @map("source_ref")
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -11130,6 +11157,8 @@ model SeoContentBrief {
   targetUrl              String?  @map("target_url")
   structure              Json     @default("{}")
   contentMarkdown        String   @map("content_markdown")
+  /// true si alguien ha editado el Markdown: el borrador del blog sale de lo editado.
+  contentEdited          Boolean  @default(false) @map("content_edited")
   /// draft · in_progress · published
   status                 String   @default("draft")
   taskId                 String?  @map("task_id") @db.Uuid
@@ -11225,4 +11254,59 @@ model PlatformAiUsageEvent {
 
   @@index([createdAt], map: "platform_ai_usage_events_created_at_idx")
   @@map("platform_ai_usage_events")
+}
+
+/// Propuesta de anotación descartada: no se vuelve a proponer.
+model SeoAnnotationDismissal {
+  id        String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  sourceRef String   @map("source_ref")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project SeoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, sourceRef], map: "seo_annotation_dismissals_key")
+  @@index([tenantId], map: "seo_annotation_dismissals_tenant_idx")
+  @@map("seo_annotation_dismissals")
+}
+
+/// Un CSV de SISTRIX importado a mano (mejora 8): lo que trajo y cuándo.
+model SeoSistrixImport {
+  id                     String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  tenantId               String?  @map("tenant_id") @db.Uuid
+  projectId              String   @map("project_id") @db.Uuid
+  /// domain_keywords · serp · competitors
+  kind                   String
+  filename               String
+  domain                 String?
+  keyword                String?
+  country                String   @default("ES")
+  rows                   Int      @default(0)
+  skipped                Int      @default(0)
+  createdByUserId        String?  @map("created_by_user_id") @db.Uuid
+  createdBySuperAdminId  String?  @map("created_by_super_admin_id") @db.Uuid
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  project        SeoProject         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  domainKeywords SeoDomainKeyword[]
+  serpResults    SeoSerpResult[]
+
+  @@index([projectId, createdAt(sort: Desc)], map: "seo_sistrix_imports_project_idx")
+  @@index([tenantId], map: "seo_sistrix_imports_tenant_idx")
+  @@map("seo_sistrix_imports")
+}
+
+/// Muestra de la respuesta de la API clásica de SISTRIX (tabla global, solo plataforma).
+model SeoApiSample {
+  id                    String   @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  method                String
+  params                Json     @default("{}")
+  response              Json?
+  credits               Int      @default(0)
+  creditsKnown          Boolean  @default(false) @map("credits_known")
+  createdBySuperAdminId String?  @map("created_by_super_admin_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("seo_api_samples")
 }

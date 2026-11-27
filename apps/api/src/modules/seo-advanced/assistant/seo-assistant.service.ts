@@ -4,6 +4,7 @@ import {
   SEO_STRATEGY_LABELS,
   SEO_UNTRUSTED_CLOSE,
   SEO_UNTRUSTED_OPEN,
+  seoUntrusted,
   type SeoAssistantActionDto,
   type SeoAssistantChatInput,
   type SeoAssistantChatResultDto,
@@ -217,7 +218,7 @@ export class SeoAssistantService {
         ).id;
     options.hooks?.onStart?.(conversationId);
 
-    await this.admin.seoAiMessage.create({
+    const userMessage = await this.admin.seoAiMessage.create({
       data: {
         tenantId: project.tenantId,
         conversationId,
@@ -247,19 +248,35 @@ export class SeoAssistantService {
       write,
       proposedActionIds: [],
     };
-    const result = await this.ai.runToolLoop({
-      // El consumo: el del tenant que pregunta; desde el panel admin, el de la plataforma.
-      tenantId: actor.kind === 'tenant' ? actor.tenantId : null,
-      userId: person.userId,
-      superAdminId: person.superAdminId,
-      feature: SEO_ASSISTANT_FEATURE,
-      system: { stable: SYSTEM_PROMPT, dynamic: this.context(project, !!write) },
-      messages,
-      tools: this.tools.definitions({ write }),
-      execute: (name, toolInput) => this.tools.execute(ctx, name, toolInput),
-      ...(options.hooks ? { hooks: options.hooks } : {}),
-      ...(options.reservation ? { reservation: options.reservation } : {}),
-    });
+    const newConversation = !input.conversationId;
+    let result: Awaited<ReturnType<AiService['runToolLoop']>>;
+    try {
+      result = await this.ai.runToolLoop({
+        // El consumo: el del tenant que pregunta; desde el panel admin, el de la plataforma.
+        tenantId: actor.kind === 'tenant' ? actor.tenantId : null,
+        userId: person.userId,
+        superAdminId: person.superAdminId,
+        feature: SEO_ASSISTANT_FEATURE,
+        system: { stable: SYSTEM_PROMPT, dynamic: this.context(project, !!write) },
+        messages,
+        tools: this.tools.definitions({ write }),
+        execute: (name, toolInput) => this.tools.execute(ctx, name, toolInput),
+        ...(options.hooks ? { hooks: options.hooks } : {}),
+        ...(options.reservation ? { reservation: options.reservation } : {}),
+      });
+    } catch (err) {
+      // Sin respuesta, la pregunta no se queda guardada sola (ni una conversación vacía):
+      // la persona la vuelve a escribir y no hay un hilo con preguntas sin contestar.
+      await this.admin.seoAiMessage
+        .delete({ where: { id: userMessage.id } })
+        .catch(() => undefined);
+      if (newConversation) {
+        await this.admin.seoAiConversation
+          .delete({ where: { id: conversationId } })
+          .catch(() => undefined);
+      }
+      throw err;
+    }
 
     const assistant = await this.admin.$transaction(async (tx) => {
       const msg = await tx.seoAiMessage.create({
@@ -328,8 +345,12 @@ export class SeoAssistantService {
       .join(', ');
     return [
       '## Proyecto',
-      `Nombre: ${project.name}. Estrategia: ${SEO_STRATEGY_LABELS[project.strategy as keyof typeof SEO_STRATEGY_LABELS] ?? project.strategy}.${
-        project.targetLocation ? ` Zona objetivo: ${project.targetLocation}.` : ''
+      // El nombre y la zona los escribe quien creó el proyecto (un negocio, al que el soporte
+      // puede preguntar por él): texto de fuera, delimitado.
+      `Nombre: ${seoUntrusted(project.name, 120)}. Estrategia: ${SEO_STRATEGY_LABELS[project.strategy as keyof typeof SEO_STRATEGY_LABELS] ?? project.strategy}.${
+        project.targetLocation
+          ? ` Zona objetivo: ${seoUntrusted(project.targetLocation, 120)}.`
+          : ''
       }`,
       `Dominios: ${domains || 'ninguno todavía'}.`,
       `Hoy es ${today} (hora de España).`,

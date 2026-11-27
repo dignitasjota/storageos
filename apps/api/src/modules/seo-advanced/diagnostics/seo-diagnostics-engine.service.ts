@@ -41,6 +41,9 @@ type Counts = SeoDiagnosticsRecalcDto['index'];
  * cada descarga de Search Console (en el trabajo de oportunidades), al
  * cambiar los ajustes y con «Recalcular ahora».
  */
+/** Días que Google tiene para retirar o asentar lo arreglado antes de darlo por vuelto. */
+const FIXED_RETURN_MARGIN_DAYS = 28;
+
 @Injectable()
 export class SeoDiagnosticsEngineService {
   private readonly logger = new Logger(SeoDiagnosticsEngineService.name);
@@ -322,10 +325,12 @@ export class SeoDiagnosticsEngineService {
         }),
       ).values(),
     ];
-    // Una arreglada vuelve como nueva si Google la sigue enseñando después de darla por arreglada.
+    // Una arreglada vuelve como nueva si Google la sigue enseñando pasado un margen
+    // desde que se dio por arreglada (Google tarda semanas en retirar una página o
+    // en asentar una redirección: sin margen, «arreglada» duraría tres días).
     const back = (table: string, dateCol: string) =>
       Prisma.raw(`${table}.status = 'fixed'
-        AND EXCLUDED.${dateCol} > (${table}.resolved_at AT TIME ZONE 'Europe/Madrid')::date`);
+        AND EXCLUDED.${dateCol} > (${table}.resolved_at AT TIME ZONE 'Europe/Madrid')::date + ${FIXED_RETURN_MARGIN_DAYS}`);
     const result = await this.admin.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`seo-diag:${projectId}`}::text))`;

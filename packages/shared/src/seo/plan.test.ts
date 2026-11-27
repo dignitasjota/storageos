@@ -139,13 +139,13 @@ describe('veredicto', () => {
       site: { before: totals(100, 5000, 10), after: totals(150, 7000, 10) },
     });
     expect(season.verdict).toBe('better');
-    expect(season.contextNote).toMatch(/Todo el sitio subió parecido/);
+    expect(season.contextNote).toMatch(/El resto del sitio subió parecido/);
     const own = seoSiteChangeVerdict({
       before: totals(20, 400, 9),
       after: totals(40, 600, 6),
       site: { before: totals(100, 5000, 10), after: totals(102, 5000, 10) },
     });
-    expect(own.contextNote).toBe('El sitio entero, en las mismas fechas: +2 % de clics.');
+    expect(own.contextNote).toBe('El resto del sitio, en las mismas fechas: +2 % de clics.');
   });
 });
 

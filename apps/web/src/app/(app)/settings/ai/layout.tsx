@@ -12,7 +12,10 @@ import { useHasFeature, useHasPermission, useMe } from '@/lib/auth/hooks';
  */
 export default function AiSettingsLayout({ children }: { children: ReactNode }) {
   const me = useMe();
-  const hasFeature = useHasFeature('ai_assistant');
+  // SEO Avanzado también gasta consultas de IA: la clave propia se pone aquí.
+  const hasAssistant = useHasFeature('ai_assistant');
+  const hasSeo = useHasFeature('seo_advanced');
+  const hasFeature = hasAssistant || hasSeo;
   const canManage = useHasPermission('settings:manage');
   const settings = useTenantAiSettings(!!me.data && !hasFeature && canManage);
 

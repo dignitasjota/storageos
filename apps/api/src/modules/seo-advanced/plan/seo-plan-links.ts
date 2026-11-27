@@ -53,6 +53,13 @@ export async function loadPlanSource(
   projectId: string,
   ids: SeoPlanSourceIds,
 ): Promise<SeoPlanSourceContext | null> {
+  // Los tres enlaces tienen que ser del proyecto, no solo el primero (la clave
+  // ajena de la base de datos admite un id de otro proyecto).
+  await assertPlanLinks(admin, projectId, {
+    opportunityId: ids.opportunityId,
+    cannibalizationId: ids.cannibalizationId,
+    indexFindingId: ids.indexFindingId,
+  });
   if (ids.opportunityId) {
     const o = await admin.seoOpportunity.findFirst({
       where: { id: ids.opportunityId, projectId },

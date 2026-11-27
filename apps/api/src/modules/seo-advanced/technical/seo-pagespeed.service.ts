@@ -1,5 +1,5 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@storageos/database';
 import {
   SEO_PAGESPEED_HISTORY_MAX,
@@ -7,6 +7,7 @@ import {
   seoAbsoluteUrl,
   seoInspectionUrlKey,
   selectSeoPageSpeedUrls,
+  seoCrawlSiteOf,
   type RunSeoPageSpeedInput,
   type SeoPageSpeedDto,
   type SeoPageSpeedHistoryDto,
@@ -18,7 +19,7 @@ import {
 import { Queue } from 'bullmq';
 
 import { PrismaAdminService } from '../../database/prisma-admin.service';
-import { JOB_SEO_PAGESPEED, QUEUE_SEO } from '../../queues/queue-names';
+import { JOB_SEO_PAGESPEED, QUEUE_SEO_PAGESPEED } from '../../queues/queue-names';
 import { seoProjectEligible } from '../reports/seo-eligible';
 import { SeoProjectsService, type SeoActor, type SeoOwner } from '../seo-projects.service';
 
@@ -34,6 +35,12 @@ const TOP_PAGES_DAYS = 28;
 const STUCK_MS = 20 * 60_000;
 /** Lo que se lista en la pantalla (URL distintas). */
 const LIST_MAX = 100;
+/** Mediciones a mano como mucho por proyecto y día (las de un día natural, hora de España). */
+export const SEO_PAGESPEED_DAILY_MANUAL = 40;
+/** Fallos pasajeros seguidos tras los que la cola se corta (Google caído o sin clave). */
+const MAX_CONSECUTIVE_FAILURES = 5;
+/** Espera entre un proyecto y otro al repartir la medición semanal. */
+const WEEKLY_SPREAD_MS = 3 * 60_000;
 
 /**
  * PageSpeed Insights (PR 9): bajo demanda y cada semana para la portada, las
@@ -50,7 +57,7 @@ export class SeoPageSpeedService {
     private readonly projects: SeoProjectsService,
     private readonly inspection: SeoInspectionService,
     private readonly client: PageSpeedClient,
-    @InjectQueue(QUEUE_SEO) private readonly queue: Queue,
+    @InjectQueue(QUEUE_SEO_PAGESPEED) private readonly queue: Queue,
   ) {}
 
   // -------------------------------------------------------------- lectura
@@ -118,6 +125,17 @@ export class SeoPageSpeedService {
   ): Promise<SeoPageSpeedRunDto[]> {
     const t = await this.inspection.target(owner, projectId, input.url);
     const strategies = input.strategies ?? [...SEO_PAGESPEED_STRATEGIES];
+    // Tope por proyecto y día: la clave de Google es de toda la plataforma.
+    const since = new Date(Date.now() - 24 * 3600_000);
+    const today = await this.admin.seoPageSpeedRun.count({
+      where: { projectId, trigger: 'manual', createdAt: { gte: since } },
+    });
+    if (today + strategies.length > SEO_PAGESPEED_DAILY_MANUAL) {
+      throw new BadRequestException({
+        code: 'seo_pagespeed_daily_limit',
+        message: `Has llegado al máximo de ${SEO_PAGESPEED_DAILY_MANUAL} mediciones al día de este proyecto. Vuelve mañana.`,
+      });
+    }
     await this.enqueue(
       t.project.tenantId,
       projectId,
@@ -168,13 +186,14 @@ export class SeoPageSpeedService {
     return res.count;
   }
 
-  async schedule(projectId: string): Promise<void> {
+  async schedule(projectId: string, delayMs = 0): Promise<void> {
     try {
       await this.queue.add(
         JOB_SEO_PAGESPEED,
         { projectId },
         {
           jobId: `seo-psi-${projectId}-${Date.now()}`,
+          ...(delayMs > 0 ? { delay: delayMs } : {}),
           removeOnComplete: true,
           removeOnFail: true,
           attempts: 1,
@@ -200,6 +219,7 @@ export class SeoPageSpeedService {
     let done = 0;
     let failed = 0;
     const touched = new Set<string>();
+    let consecutiveFailures = 0;
     for (let i = 0; i < QUEUE_BATCH; i++) {
       const next = await this.admin.seoPageSpeedRun.findFirst({
         where: { ...(projectId ? { projectId } : {}), status: 'queued' },
@@ -240,12 +260,16 @@ export class SeoPageSpeedService {
           },
         });
         done++;
+        consecutiveFailures = 0;
       } catch (err) {
         await this.admin.seoPageSpeedRun.update({
           where: { id: next.id },
           data: { status: 'error', error: (err as Error).message.slice(0, 500) },
         });
         failed++;
+        // Con Google caído o sin clave, cada medición agota sus reintentos (minutos):
+        // tras unos cuantos fallos seguidos se corta y el resto espera a otra pasada.
+        if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break;
       }
     }
     for (const id of touched) {
@@ -260,7 +284,7 @@ export class SeoPageSpeedService {
   // -------------------------------------------------------- lote semanal
 
   /** Las URL de la semana de un proyecto (portada, objetivos importantes y más clics). */
-  async enqueueWeekly(projectId: string): Promise<number> {
+  async enqueueWeekly(projectId: string, delayMs = 0): Promise<number> {
     const project = await this.projects.resolveProject(undefined, projectId);
     const settings = this.inspection.settingsOf(project);
     if (!settings.pagespeedEnabled || project.status !== 'active') return 0;
@@ -286,7 +310,8 @@ export class SeoPageSpeedService {
       ).map((r) => r.page);
     }
     const urls = selectSeoPageSpeedUrls({
-      home: `https://${primary.domain}/`,
+      // La portada de la propiedad (la web de un negocio en la plataforma es `/s/<negocio>/`).
+      home: seoCrawlSiteOf(primary.gscProperty, primary.domain).startUrl,
       targets: kws.map((k) => seoAbsoluteUrl(k.targetUrl!, primary.domain)),
       topPages,
       max: settings.pagespeedMaxUrls,
@@ -316,8 +341,24 @@ export class SeoPageSpeedService {
       where: { id: projectId },
       data: { pagespeedScheduledAt: new Date() },
     });
-    if (n > 0) await this.schedule(projectId);
+    if (n > 0) await this.schedule(projectId, delayMs);
     return n;
+  }
+
+  /**
+   * Repaso periódico: lo que quedó «en cola» (un reinicio, un corte por fallos) y no
+   * tiene trabajo esperando vuelve a programarse.
+   */
+  async scheduleDue(): Promise<number> {
+    const rows = await this.admin.seoPageSpeedRun.groupBy({
+      by: ['projectId'],
+      where: {
+        status: 'queued',
+        createdAt: { lt: new Date(Date.now() - 30 * 60_000) },
+      },
+    });
+    for (const r of rows) await this.schedule(r.projectId);
+    return rows.length;
   }
 
   /** Cron semanal: todos los proyectos con la medición activada. */
@@ -332,7 +373,8 @@ export class SeoPageSpeedService {
       if (!this.inspection.settingsOf(p).pagespeedEnabled) continue;
       if (!(await seoProjectEligible(this.admin, p.tenantId))) continue;
       try {
-        queued += await this.enqueueWeekly(p.id);
+        // Repartido en el tiempo: un proyecto cada pocos minutos, no todos a la vez.
+        queued += await this.enqueueWeekly(p.id, n * WEEKLY_SPREAD_MS);
         n++;
       } catch (err) {
         this.logger.warn(`[seo-psi] semana de ${p.id}: ${(err as Error).message}`);

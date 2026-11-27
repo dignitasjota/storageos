@@ -83,6 +83,7 @@ import { CSV_BOM, csvCell, csvLineCell } from '../../../common/csv';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
 import { parseRaw, resolveImportCsv } from '../../imports/import-engine';
 import { SeoOpportunityEngineService } from '../opportunities/seo-opportunity-engine.service';
+import { syncedUntilOf } from '../seo-coverage';
 import { SeoProjectsService, type ProjectRow, type SeoOwner } from '../seo-projects.service';
 import { SeoSistrixService } from '../sistrix/seo-sistrix.service';
 import { poolOfProject } from '../sistrix/sistrix-sync.service';
@@ -633,6 +634,7 @@ export class SeoDiagnosticsService {
         from: range.previousFrom,
         to: range.previousTo,
         daysWithData: prevDays,
+        syncedUntil: await syncedUntilOf(this.admin, [domain.id]),
       });
       const [c, p, pages] = await Promise.all([
         this.sums(domain.id, 'query', Prisma.sql`query`, words, range.from, range.to),

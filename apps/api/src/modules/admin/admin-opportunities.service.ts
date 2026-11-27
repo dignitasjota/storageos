@@ -33,6 +33,12 @@ import type {
 
 const DAY = 86_400_000;
 const OFFER_ACTION = 'admin.saas_addon.proposed';
+/** Clics al mes de Google a partir de los que se propone SEO Avanzado (configurable). */
+export function seoUpsellMinClicks(): number {
+  const n = Number(process.env.SEO_ADVANCED_UPSELL_MIN_CLICKS);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 100;
+}
+
 /** El mismo extra no se vuelve a proponer al mismo tenant antes de estos días. */
 export const ADDON_OFFER_COOLDOWN_DAYS = 14;
 
@@ -51,6 +57,10 @@ interface TenantSignals {
   invoices30d: number;
   overdueInvoices: number;
   hasCustomDomain: boolean;
+  /** Clics de Google a su web los últimos 30 días (Search Console de SEO local). */
+  organicClicks30d: number;
+  /** Clics al mes a partir de los que se propone SEO Avanzado. */
+  seoUpsellMinClicks: number;
   features: Set<TenantFeature>;
   /** Máximos del plan con la capacidad que ya aportan sus extras. */
   maxUnits: number | null;
@@ -89,6 +99,11 @@ const RULES: Partial<Record<TenantFeature, Rule>> = {
   web_premium: (s) => (s.facilities >= 2 ? `${s.facilities} locales` : null),
   whatsapp_business: (s) => (s.features.has('web_premium') ? 'Tiene Web Premium' : null),
   local_seo: (s) => (s.features.has('web_premium') ? 'Tiene Web Premium' : null),
+  // Ya trabaja el SEO (SEO local), tiene su dominio y Google le trae visitas de verdad.
+  seo_advanced: (s) =>
+    s.features.has('local_seo') && s.hasCustomDomain && s.organicClicks30d > s.seoUpsellMinClicks
+      ? `Tiene SEO local y dominio propio, y Google le trae ${s.organicClicks30d} clics al mes`
+      : null,
 };
 
 /**
@@ -193,6 +208,7 @@ export class AdminOpportunitiesService {
       invites,
       devices,
       credentials,
+      clicks,
     ] = await Promise.all([
       this.admin.facility.groupBy({
         by: ['tenantId'],
@@ -272,6 +288,12 @@ export class AdminOpportunitiesService {
         where: { tenantId: { in: ids }, revokedAt: null },
         _count: { _all: true },
       }),
+      // Clics de Google de los últimos 30 días (Search Console de SEO local).
+      this.admin.searchConsoleDay.groupBy({
+        by: ['tenantId'],
+        where: { tenantId: { in: ids }, date: { gte: since30 } },
+        _sum: { clicks: true },
+      }),
     ]);
     const count = (rows: { tenantId: string; _count: { _all: number } }[]) =>
       new Map(rows.map((r) => [r.tenantId, r._count._all]));
@@ -286,6 +308,8 @@ export class AdminOpportunitiesService {
     const invitesBy = count(invites);
     const devicesBy = count(devices);
     const credentialsBy = count(credentials);
+    const clicksBy = new Map(clicks.map((c) => [c.tenantId, c._sum.clicks ?? 0]));
+    const minClicks = seoUpsellMinClicks();
     const ownedSet = new Set(owned.map((o) => `${o.tenantId}:${o.addonId}`));
     // Capacidad que ya aportan los extras contratados (como el límite efectivo).
     const grantsBy = new Map<string, { units: number; facilities: number; users: number }>();
@@ -334,6 +358,8 @@ export class AdminOpportunitiesService {
         invoices30d: invBy.get(t.id) ?? 0,
         overdueInvoices: overBy.get(t.id) ?? 0,
         hasCustomDomain: !!t.customDomainVerifiedAt,
+        organicClicks30d: clicksBy.get(t.id) ?? 0,
+        seoUpsellMinClicks: minClicks,
         features: new Set(effectiveFeaturesFromList(base, overridesBy.get(t.id) ?? [])),
         maxUnits: plusGrants(plan?.maxUnits, grants.units),
         maxFacilities: plusGrants(plan?.maxFacilities, grants.facilities),

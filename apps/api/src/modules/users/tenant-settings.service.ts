@@ -751,8 +751,33 @@ export class TenantSettingsService {
     }
     if (input.googleSiteVerification !== undefined)
       data.googleSiteVerification = input.googleSiteVerification || null;
-    if (input.googleAnalyticsId !== undefined)
-      data.googleAnalyticsId = input.googleAnalyticsId || null;
+    if (input.googleAnalyticsId !== undefined) {
+      const id = (input.googleAnalyticsId || '').trim().toUpperCase();
+      if (id) {
+        // El ID de medición es público (está en el HTML de cualquier web): sirve para
+        // probar que una propiedad de GA4 es tuya, así que no puede ser el de la
+        // plataforma ni el de otro negocio.
+        const platform = await this.admin.platformWebsite.findFirst({ select: { seo: true } });
+        const platformId = String(
+          (platform?.seo as { ga4MeasurementId?: string } | null)?.ga4MeasurementId ?? '',
+        ).toUpperCase();
+        const taken = await this.admin.tenant.count({
+          where: {
+            id: { not: args.tenantId },
+            deletedAt: null,
+            googleAnalyticsId: { equals: id, mode: 'insensitive' },
+          },
+        });
+        if ((platformId && id === platformId) || taken > 0) {
+          throw new BadRequestException({
+            code: 'ga4_measurement_id_taken',
+            message:
+              'Ese ID de medición de Google Analytics ya lo usa otra web de TrasterOS. Pon el de tu propia propiedad.',
+          });
+        }
+      }
+      data.googleAnalyticsId = id || null;
+    }
 
     if (input.customDomain !== undefined) {
       const domain = input.customDomain.trim().toLowerCase();

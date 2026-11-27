@@ -7,10 +7,13 @@ import {
   SEO_SITE_CHANGE_TYPE_LABELS,
   SEO_SITE_CHANGE_VERDICT_LABELS,
   SEO_SITE_CHANGE_WINDOWS,
+  SEO_YEAR_AGO_MISSING,
   normalizeSeoKeyword,
   seoOverlappingChanges,
   seoChange,
   seoPageMatchesKey,
+  seoPeriodCovered,
+  seoShiftYears,
   seoSiteChangeRange,
   seoSiteChangeScope,
   seoSiteChangeVerdict,
@@ -29,6 +32,7 @@ import {
   type SeoSiteChangeOverlapInput,
   type SeoSiteChangeType,
   type SeoSiteChangeWindowDto,
+  type SeoSiteChangeYearAgoDto,
   type SeoTotalsDto,
   type UpdateSeoSiteChangeInput,
 } from '@storageos/shared';
@@ -36,6 +40,7 @@ import {
 import { CSV_BOM, csvCell, csvLineCell } from '../../../common/csv';
 import { todayInTimezone, zonedDayStart } from '../../../common/format';
 import { PrismaAdminService } from '../../database/prisma-admin.service';
+import { syncedUntilOf } from '../seo-coverage';
 import { SeoProjectsService, type ProjectRow, type SeoOwner } from '../seo-projects.service';
 
 import { assertPlanLinks, loadPlanSource, personNames, resolveDomainId } from './seo-plan-links';
@@ -65,9 +70,14 @@ export interface SeoSiteChangeQuery {
 }
 
 export function parseSeoSiteChangeQuery(q: Record<string, string | undefined>): SeoSiteChangeQuery {
-  const num = (v: string | undefined) => (v !== undefined && v !== '' ? Number(v) : undefined);
+  const num = (v: string | undefined) => {
+    const n = v !== undefined && v !== '' ? Number(v) : NaN;
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const uuid = (v: string | undefined) =>
+    v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : undefined;
   return {
-    domainId: q.domainId || undefined,
+    domainId: uuid(q.domainId),
     type: (SEO_SITE_CHANGE_TYPES as readonly string[]).includes(q.type ?? '')
       ? (q.type as SeoSiteChangeType)
       : undefined,
@@ -87,6 +97,21 @@ function addSums(a: SeoMetricSums | undefined, b: SeoMetricSums): SeoMetricSums 
     positionSum: a.positionSum + b.positionSum,
     rows: a.rows + b.rows,
   };
+}
+
+/** Lo que queda del sitio al quitarle el alcance (nunca por debajo de cero). */
+function restOf(site: Sums, scope: Sums, from: string, to: string): SeoTotalsDto {
+  let s: SeoMetricSums = { ...EMPTY };
+  for (const [date, v] of site) if (date >= from && date <= to) s = addSums(s, v);
+  let t: SeoMetricSums = { ...EMPTY };
+  for (const [date, v] of scope) if (date >= from && date <= to) t = addSums(t, v);
+  return seoTotalsFromSums({
+    clicks: Math.max(0, s.clicks - t.clicks),
+    impressions: Math.max(0, s.impressions - t.impressions),
+    weightedPosition: Math.max(0, s.weightedPosition - t.weightedPosition),
+    positionSum: Math.max(0, s.positionSum - t.positionSum),
+    rows: Math.max(0, s.rows - t.rows),
+  });
 }
 
 function sumRange(byDate: Sums, from: string, to: string): SeoTotalsDto {
@@ -298,7 +323,12 @@ export class SeoSiteChangesService {
   ): Promise<SeoSiteChangeDto> {
     const project = await this.projects.resolveProject(owner, projectId);
     const source = await loadPlanSource(this.admin, projectId, input);
-    await assertPlanLinks(this.admin, projectId, { taskId: input.taskId ?? null });
+    await assertPlanLinks(this.admin, projectId, {
+      taskId: input.taskId ?? null,
+      opportunityId: input.opportunityId ?? null,
+      cannibalizationId: input.cannibalizationId ?? null,
+      indexFindingId: input.indexFindingId ?? null,
+    });
     const urls = input.urls ?? (source ? source.urls : []);
     const keywords = input.keywords ?? (source ? source.keywords : []);
     const scope = seoSiteChangeScope({ urls, keywords });
@@ -680,6 +710,7 @@ export class SeoSiteChangesService {
     overlapsOf: (days: number) => SeoSiteChangeWindowDto['overlaps'],
   ): Promise<SeoSiteChangeWindowDto[]> {
     const bounds = domainId ? await boundsOf(domainId) : { first: null, last: null };
+    const syncedUntil = domainId ? await syncedUntilOf(this.admin, [domainId]) : null;
     const maxRange = seoSiteChangeRange(date, MAX_WINDOW);
     // Días con datos del dominio (cruce `site`), para saber si la ventana está completa.
     const siteDays = new Set<string>();
@@ -713,6 +744,7 @@ export class SeoSiteChangesService {
           today: now,
           firstDataDate: bounds.first,
           lastDataDate: bounds.last,
+          syncedUntil,
           daysWithDataBefore: count(range.beforeFrom, range.beforeTo),
           daysWithDataAfter: count(range.afterFrom, range.afterTo),
         }),
@@ -725,6 +757,30 @@ export class SeoSiteChangesService {
       const range = seoSiteChangeRange(date, widest);
       data = await this.scopeData(domainId, r, range.beforeFrom, range.afterTo);
     }
+    // El mismo antes y después un año antes (solo en la ficha; Search Console guarda 16 meses).
+    let yearData: ScopeData | null = null;
+    if (withItems && domainId && ready.length > 0) {
+      const widest = Math.max(...ready.map((s) => s.days));
+      const range = seoSiteChangeRange(date, widest);
+      yearData = await this.scopeData(
+        domainId,
+        r,
+        seoShiftYears(range.beforeFrom, -1),
+        seoShiftYears(range.afterTo, -1),
+      );
+    }
+    const yearCovered = (from: string, to: string) => {
+      if (!yearData) return false;
+      let n = 0;
+      for (const d of yearData.site.keys()) if (d >= from && d <= to) n++;
+      return seoPeriodCovered({
+        firstDate: bounds.first,
+        from,
+        to,
+        daysWithData: n,
+        syncedUntil,
+      });
+    };
     const labelOf = new Map<string, string>();
     for (const u of r.urls) {
       const key = seoUrlKey(u);
@@ -749,10 +805,17 @@ export class SeoSiteChangesService {
       const siteAfter = sumRange(data.site, range.afterFrom, range.afterTo);
       const before = sumRange(data.total, range.beforeFrom, range.beforeTo);
       const after = sumRange(data.total, range.afterFrom, range.afterTo);
+      // La referencia es el RESTO del sitio: el alcance está dentro del dominio
+      // y, si es casi todo el tráfico, el sitio sube o baja con él.
+      const restBefore = restOf(data.site, data.total, range.beforeFrom, range.beforeTo);
+      const restAfter = restOf(data.site, data.total, range.afterFrom, range.afterTo);
+      const scopeClicks = before.clicks + after.clicks;
+      const siteClicks = siteBefore.clicks + siteAfter.clicks;
+      const scopeIsMostOfSite = siteClicks > 0 && scopeClicks / siteClicks > 0.5;
       const verdict = seoSiteChangeVerdict({
         before,
         after,
-        site: scopeOnly ? null : { before: siteBefore, after: siteAfter },
+        site: scopeOnly || scopeIsMostOfSite ? null : { before: restBefore, after: restAfter },
       });
       const item = (kind: 'url' | 'keyword', label: string, sums: Sums): SeoSiteChangeItemDto => {
         const b = sumRange(sums, range.beforeFrom, range.beforeTo);
@@ -774,8 +837,39 @@ export class SeoSiteChangesService {
             ...[...data.byKeyword].map(([key, sums]) => item('keyword', key, sums)),
           ]
         : [];
+      let yearAgo: SeoSiteChangeYearAgoDto | null = null;
+      if (withItems) {
+        const yb = {
+          from: seoShiftYears(range.beforeFrom, -1),
+          to: seoShiftYears(range.beforeTo, -1),
+        };
+        const ya = {
+          from: seoShiftYears(range.afterFrom, -1),
+          to: seoShiftYears(range.afterTo, -1),
+        };
+        if (yearData && yearCovered(yb.from, yb.to) && yearCovered(ya.from, ya.to)) {
+          const yBefore = sumRange(yearData.total, yb.from, yb.to);
+          const yAfter = sumRange(yearData.total, ya.from, ya.to);
+          yearAgo = {
+            available: true,
+            message: null,
+            before: yBefore,
+            after: yAfter,
+            variation: seoChange(yAfter, yBefore),
+          };
+        } else {
+          yearAgo = {
+            available: false,
+            message: SEO_YEAR_AGO_MISSING,
+            before: null,
+            after: null,
+            variation: null,
+          };
+        }
+      }
       return {
         ...base,
+        yearAgo,
         scope: {
           before,
           after,

@@ -80,6 +80,16 @@ export function parseSeoAlertQuery(q: Record<string, string | undefined>): SeoAl
  * admin y Telegram/Slack. Las de SISTRIX ya las avisa su conexión: aquí solo
  * entran en la lista.
  */
+/** Una alerta por tipo y proyecto como mucho cada 7 días (salvo que suba la gravedad). */
+const ALERT_COOLDOWN_MS = 7 * 24 * 3600_000;
+
+/** Varias alertas nuevas resumidas en un aviso. */
+function groupedAlert(alerts: readonly SeoAlertCandidate[]): { title: string; message: string } {
+  const lines = alerts.slice(0, 10).map((a) => `• ${a.title}`);
+  if (alerts.length > 10) lines.push(`… y ${alerts.length - 10} más.`);
+  return { title: `${alerts.length} alertas nuevas`, message: lines.join('\n') };
+}
+
 @Injectable()
 export class SeoAlertsService {
   private readonly logger = new Logger(SeoAlertsService.name);
@@ -313,7 +323,25 @@ export class SeoAlertsService {
     );
 
     const toNotify: { id: string; c: SeoAlertCandidate }[] = [];
+    const rank = { low: 1, medium: 2, high: 3 } as const;
     for (const c of plan.create) {
+      // Como mucho un aviso por tipo y proyecto cada 7 días (§19.2), salvo que la
+      // gravedad suba: una alerta resuelta hace poco no vuelve a avisar, y si la
+      // resolvió una persona no vuelve a abrirse hasta pasados los 7 días.
+      const recent = await this.admin.seoAlert.findFirst({
+        where: {
+          projectId,
+          dedupKey: c.key,
+          status: 'resolved',
+          resolvedAt: { gte: new Date(now.getTime() - ALERT_COOLDOWN_MS) },
+        },
+        orderBy: { resolvedAt: 'desc' },
+        select: { severity: true, resolvedBy: true },
+      });
+      const worse =
+        !!recent && rank[c.severity] > (rank[recent.severity as keyof typeof rank] ?? 0);
+      if (recent && !worse && recent.resolvedBy === 'manual') continue;
+      const silent = !!recent && !worse;
       // Entre réplicas, el índice parcial deja entrar solo una.
       const rows = await this.admin.$queryRaw<{ id: string }[]>(Prisma.sql`
         INSERT INTO seo_alerts (tenant_id, project_id, type, dedup_key, severity, title, message, data)
@@ -321,7 +349,7 @@ export class SeoAlertsService {
                 ${c.title}, ${c.message}, ${JSON.stringify(c.data)}::jsonb)
         ON CONFLICT DO NOTHING
         RETURNING id::text`);
-      if (rows[0]) toNotify.push({ id: rows[0].id, c });
+      if (rows[0] && !silent) toNotify.push({ id: rows[0].id, c });
     }
     for (const t of plan.touch) {
       await this.admin.seoAlert.update({
@@ -403,7 +431,9 @@ export class SeoAlertsService {
           domain: d.domain,
           connectionStatus: d.connectionStatus,
           lastError: d.lastError,
-          dataUntil: dateOnly(d.dataUntil),
+          // La última descarga buena, no el último día con filas: un sitio sin
+          // impresiones no es un Google sin datos.
+          dataUntil: dateOnly(d.syncedUntil ?? d.dataUntil),
           initialDone: !!d.initialDoneAt,
           today: day,
           thresholds: t,
@@ -486,13 +516,15 @@ export class SeoAlertsService {
           status: 'new',
           category: { in: PRIVATE_CATEGORIES },
         },
-        orderBy: { impressions: 'desc' },
-        take: 50,
+        // Se evalúan todas (hasta un tope alto) y en un orden fijo: con un corte en 50
+        // y un orden que cambia, cada revisión resolvía y abría alertas distintas.
+        orderBy: [{ impressions: 'desc' }, { key: 'asc' }],
+        take: 500,
       }),
       this.admin.seoCannibalization.findMany({
         where: { projectId: project.id, active: true, status: 'new', severity: 'high' },
-        orderBy: { lastSeenAt: 'desc' },
-        take: 50,
+        orderBy: { key: 'asc' },
+        take: 500,
       }),
     ]);
     for (const f of findings) {
@@ -585,7 +617,7 @@ export class SeoAlertsService {
             status: { not: 'ok' },
           },
           orderBy: { url: 'asc' },
-          take: 50,
+          take: 200,
         }),
         this.admin.seoCrawlPage.findMany({
           where: { crawlId: crawl.id, urlKey: { in: [homeKey, ...targets.keys()] } },
@@ -595,17 +627,22 @@ export class SeoAlertsService {
         ...seoCrawlAlerts({
           crawlId: crawl.id,
           finishedAt: (crawl.finishedAt ?? crawl.createdAt).toISOString(),
-          newErrors: newErrors.map((e) => ({
-            url: e.url,
-            status:
-              typeof e.data === 'object' && e.data && 'status' in e.data
-                ? ((e.data as { status?: number }).status ?? null)
-                : null,
-            error: e.type === 'fetch_failed' ? e.detail : null,
-          })),
+          // Lo que el servidor no deja leer al rastreador (403, 429) no es un error de la web.
+          newErrors: newErrors
+            .filter((e) => !(e.data as { blocked?: boolean } | null)?.blocked)
+            .map((e) => ({
+              url: e.url,
+              status:
+                typeof e.data === 'object' && e.data && 'status' in e.data
+                  ? ((e.data as { status?: number }).status ?? null)
+                  : null,
+              error: e.type === 'fetch_failed' ? e.detail : null,
+            })),
           critical: critical.flatMap((p) => {
             const problem =
-              p.error || (p.status !== null && p.status >= 400)
+              // 401, 403 y 429: el servidor bloquea al rastreador, no es que la portada falle.
+              p.error ||
+              (p.status !== null && p.status >= 400 && ![401, 403, 429].includes(p.status))
                 ? ('error' as const)
                 : p.noindex
                   ? ('noindex' as const)
@@ -680,7 +717,9 @@ export class SeoAlertsService {
   ): Promise<void> {
     const link = this.link(project);
     if (project.tenantId) {
-      for (const a of alerts) {
+      // Varias a la vez (la primera carga de un histórico): un solo aviso.
+      const list = alerts.length > 3 ? [groupedAlert(alerts)] : alerts;
+      for (const a of list) {
         await this.notifications.createForPermission(project.tenantId, 'settings:manage', {
           type: 'seo.alert',
           title: a.title,
@@ -691,24 +730,24 @@ export class SeoAlertsService {
       if (settings.email) await this.emailTenant(project.tenantId, alerts, link);
       return;
     }
-    for (const a of alerts) {
-      await this.admin.superAdminNotification.create({
-        data: {
-          type: 'seo.alert',
-          title: `SEO (${project.name}): ${a.title}`,
-          body: a.message.slice(0, 500),
-          link,
-          recipientId: null,
-        },
-      });
-      this.events.emit(SEO_PLATFORM_ALERT_EVENT, {
-        projectId: project.id,
-        projectName: project.name,
-        title: a.title,
-        message: a.message,
+    // Un solo aviso (y un solo mensaje de Telegram o Slack) por proyecto y revisión.
+    const one = alerts.length === 1 ? alerts[0]! : groupedAlert(alerts);
+    await this.admin.superAdminNotification.create({
+      data: {
+        type: 'seo.alert',
+        title: `SEO (${project.name}): ${one.title}`,
+        body: one.message.slice(0, 500),
         link,
-      } satisfies SeoPlatformAlertEvent);
-    }
+        recipientId: null,
+      },
+    });
+    this.events.emit(SEO_PLATFORM_ALERT_EVENT, {
+      projectId: project.id,
+      projectName: project.name,
+      title: one.title,
+      message: one.message,
+      link,
+    } satisfies SeoPlatformAlertEvent);
   }
 
   /** Un correo con las alertas nuevas a quien configura el negocio (con su marca). */

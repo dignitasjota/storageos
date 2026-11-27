@@ -1,5 +1,4 @@
 import {
-  type OAuthClientProvider,
   UnauthorizedError,
   discoverOAuthServerInfo,
   exchangeAuthorization,
@@ -16,6 +15,7 @@ import {
 import { type FetchLike, stripRedirectUriOnCodeExchange } from './mcp-fetch';
 import {
   SistrixDataError,
+  SistrixInvalidClientError,
   SistrixInvalidGrantError,
   SistrixTransientError,
   SistrixUnauthorizedError,
@@ -31,6 +31,8 @@ import type {
 
 /** Servidor MCP de SISTRIX. */
 export const SISTRIX_MCP_URL = 'https://api.sistrix.com/mcp/';
+/** Tiempo máximo de cada llamada OAuth a SISTRIX. */
+const OAUTH_TIMEOUT_MS = 20_000;
 /** Ámbito que pide SISTRIX. */
 export const SISTRIX_MCP_SCOPE = 'sistrix';
 
@@ -116,41 +118,6 @@ const clientInformation = (c: McpClientInfo): OAuthClientInformationMixed => ({
   ...(c.clientSecret ? { client_secret: c.clientSecret } : {}),
 });
 
-/**
- * Proveedor OAuth del SDK respaldado por la conexión guardada: entrega el
- * token de acceso que se leyó (descifrado) de la base de datos. No entrega el
- * refresh token a propósito: la renovación la hace siempre nuestro servicio,
- * con un bloqueo, porque SISTRIX lo rota y dos renovaciones a la vez dejarían
- * la conexión sin un token válido.
- */
-class StoredTokenProvider implements OAuthClientProvider {
-  constructor(private readonly accessToken: string) {}
-  get redirectUrl(): undefined {
-    return undefined;
-  }
-  get clientMetadata() {
-    return { client_name: 'TrasterOS SEO', redirect_uris: [] as string[] };
-  }
-  clientInformation(): undefined {
-    return undefined;
-  }
-  tokens(): OAuthTokens {
-    return { access_token: this.accessToken, token_type: 'Bearer' };
-  }
-  saveTokens(): void {
-    // La renovación no pasa por aquí (ver arriba).
-  }
-  redirectToAuthorization(): void {
-    throw new SistrixUnauthorizedError();
-  }
-  saveCodeVerifier(): void {
-    throw new SistrixUnauthorizedError();
-  }
-  codeVerifier(): string {
-    throw new SistrixUnauthorizedError();
-  }
-}
-
 /** Fallos del transporte → nuestros errores (pasajero, 401 o de datos). */
 function mapTransportError(err: unknown): Error {
   if (err instanceof SistrixUnauthorizedError) return err;
@@ -175,7 +142,20 @@ function mapTransportError(err: unknown): Error {
 /** Implementación real con el SDK oficial (`@modelcontextprotocol/sdk`). */
 export class SdkSistrixMcpGateway extends SistrixMcpGateway {
   readonly simulated = false;
-  private readonly fetchFn: FetchLike = (url, init) => fetch(url, init);
+  /**
+   * Llamadas OAuth (descubrimiento, registro, canje, renovación, revocación): con
+   * un tiempo máximo. La renovación va dentro de una transacción con un bloqueo
+   * y no puede quedarse esperando más que ella.
+   */
+  private readonly fetchFn: FetchLike = (url, init) =>
+    fetch(url, {
+      ...init,
+      signal: init?.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(OAUTH_TIMEOUT_MS)])
+        : AbortSignal.timeout(OAUTH_TIMEOUT_MS),
+    });
+  /** El transporte MCP (las respuestas pueden ser un flujo largo): sin tiempo máximo propio. */
+  private readonly transportFetch: FetchLike = (url, init) => fetch(url, init);
 
   async discover(): Promise<McpOAuthServer> {
     const info = await discoverOAuthServerInfo(SISTRIX_MCP_URL, { fetchFn: this.fetchFn });
@@ -259,6 +239,13 @@ export class SdkSistrixMcpGateway extends SistrixMcpGateway {
       return toTokenSet(tokens, refreshToken);
     } catch (err) {
       const e = err as { errorCode?: string; message?: string; name?: string };
+      if (
+        e?.errorCode === 'invalid_client' ||
+        e?.errorCode === 'unauthorized_client' ||
+        /invalid_client|unauthorized_client/i.test(e?.message ?? '')
+      ) {
+        throw new SistrixInvalidClientError(e.message);
+      }
       if (e?.errorCode === 'invalid_grant' || /invalid_grant/i.test(e?.message ?? '')) {
         throw new SistrixInvalidGrantError(e.message);
       }
@@ -285,9 +272,12 @@ export class SdkSistrixMcpGateway extends SistrixMcpGateway {
 
   private async withClient<T>(accessToken: string, fn: (c: Client) => Promise<T>): Promise<T> {
     const client = new Client({ name: 'trasteros-seo', version: '1.0.0' });
+    // El token va en la cabecera, SIN proveedor OAuth: ante un 401 el SDK con
+    // proveedor intenta registrar y autorizar por su cuenta y lanza un error que
+    // no es un 401 (nunca llegaríamos a renovar). Sin él, lanza `StreamableHTTPError(401)`.
     const transport = new StreamableHTTPClientTransport(new URL(SISTRIX_MCP_URL), {
-      authProvider: new StoredTokenProvider(accessToken),
-      fetch: this.fetchFn,
+      requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
+      fetch: this.transportFetch,
     });
     try {
       await client.connect(transport);

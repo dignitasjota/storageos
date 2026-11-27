@@ -64,7 +64,8 @@ function markerQuery(q: Record<string, string | undefined>) {
 /**
  * El plan del proyecto del tenant: actuaciones (con su antes y después) y
  * tareas SEO. Ver con `analytics:read`; apuntar, cambiar y borrar con
- * `settings:manage`. «Mis tareas» = `assignedTo=me`.
+ * `settings:manage` (el responsable de una tarea la mueve con `analytics:read`).
+ * «Mis tareas» = `assignedTo=me`.
  */
 @RequireFeature('seo_advanced')
 @Controller('seo-advanced/plan')
@@ -217,7 +218,9 @@ export class SeoAdvancedPlanController {
     });
   }
 
-  @RequirePermission('settings:manage')
+  // Quien tiene la tarea asignada (o la creó) la mueve y la cierra con solo
+  // `analytics:read`; el resto necesita `settings:manage`.
+  @RequirePermission('analytics:read')
   @Post('tasks/:taskId/move')
   @HttpCode(200)
   async moveTask(
@@ -225,7 +228,10 @@ export class SeoAdvancedPlanController {
     @Param('taskId', ParseUUIDPipe) taskId: string,
     @Body() body: MoveTaskDto,
   ): Promise<SeoTaskDto> {
-    return this.tasks.move(user.tenantId, await this.projectId(user), taskId, body);
+    return this.tasks.move(user.tenantId, await this.projectId(user), taskId, body, {
+      userId: user.sub,
+      canManage: !!user.permissions?.includes('settings:manage'),
+    });
   }
 
   @RequirePermission('settings:manage')

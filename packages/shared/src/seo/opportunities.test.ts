@@ -107,6 +107,34 @@ describe('intención', () => {
   });
 });
 
+describe('scoreSeoOpportunity: los datos de GA4 y de conversiones nunca restan', () => {
+  const stat = (engaged: number, sessions = 200) => ({ sessions, engagedSessions: engaged });
+  it('con GA4, la puntuación no baja respecto a no tenerlo (aunque la interacción sea buena)', () => {
+    const without = scoreSeoOpportunity(base).score;
+    for (const engaged of [180, 150, 120, 90, 20, 0]) {
+      const withGa4 = scoreSeoOpportunity({ ...base, pageEngagement: stat(engaged) }).score;
+      expect(withGa4).toBeGreaterThanOrEqual(without);
+    }
+  });
+  it('la poca interacción empuja hacia arriba; la buena, no cambia nada', () => {
+    const good = scoreSeoOpportunity({ ...base, pageEngagement: stat(150) });
+    const bad = scoreSeoOpportunity({ ...base, pageEngagement: stat(10) });
+    expect(good.factors.some((f) => f.key === 'engagement')).toBe(false);
+    expect(good.score).toBe(scoreSeoOpportunity(base).score);
+    expect(bad.score).toBeGreaterThan(good.score);
+    const f = bad.factors.find((x) => x.key === 'engagement')!;
+    expect(f.points).toBeGreaterThan(0);
+  });
+  it('una página que convierte poco tampoco resta', () => {
+    const without = scoreSeoOpportunity(base).score;
+    const low = scoreSeoOpportunity({
+      ...base,
+      pageConversions: { conversions: 1, clicks: 400 },
+    }).score;
+    expect(low).toBeGreaterThanOrEqual(without);
+  });
+});
+
 describe('scoreSeoOpportunity', () => {
   it('lo que no se sabe cuenta como bajo (no desaparece) y la puntuación cuadra con los puntos', () => {
     const r = scoreSeoOpportunity(base);
@@ -506,5 +534,37 @@ describe('detectSeoOpportunities', () => {
     const a = detect({ queries: [q('Trasteros  Valencia', 400, 6)] });
     const b = detect({ queries: [q('trasteros valencia', 800, 5)] });
     expect(a[0]!.key).toBe(b[0]!.key);
+  });
+});
+
+describe('zona sin página', () => {
+  const gap = {
+    area: 'Mislata',
+    query: 'trasteros mislata',
+    impressions: 120,
+    queries: 3,
+    hasPage: false,
+  };
+  it('propone la zona que se busca y no tiene página', () => {
+    const found = detect({ queries: [q('trasteros mislata', 120, 14)], areaGaps: [gap] });
+    const z = found.filter((o) => o.type === 'zone_no_page');
+    expect(z).toHaveLength(1);
+    expect(z[0]?.factors.some((f) => f.key === 'zone' && f.points > 0)).toBe(true);
+    expect(z[0]?.metrics.zoneGap?.area).toBe('Mislata');
+  });
+  it('no la propone con página, con poca demanda ni sin zonas', () => {
+    expect(
+      detect({ areaGaps: [{ ...gap, hasPage: true }] }).filter((o) => o.type === 'zone_no_page'),
+    ).toHaveLength(0);
+    expect(
+      detect({ areaGaps: [{ ...gap, impressions: 5 }] }).filter((o) => o.type === 'zone_no_page'),
+    ).toHaveLength(0);
+    expect(detect({}).filter((o) => o.type === 'zone_no_page')).toHaveLength(0);
+  });
+  it('el factor de zona no cambia las puntuaciones que no lo usan', () => {
+    const a = scoreSeoOpportunity(base);
+    const b = scoreSeoOpportunity({ ...base, zoneGap: null });
+    expect(b.score).toBe(a.score);
+    expect(b.factors.map((f) => f.key)).not.toContain('zone');
   });
 });

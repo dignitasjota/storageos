@@ -10,6 +10,7 @@ import {
 import { useMemo } from 'react';
 
 import type {
+  SeoBrandFilter,
   SeoCrossDto,
   SeoDashboardDto,
   SeoImportDetailDto,
@@ -84,10 +85,16 @@ export interface SeoPanelParams {
   from?: string | undefined;
   to?: string | undefined;
   domainId?: string | null | undefined;
+  /** Solo búsquedas de marca o sin marca (con los términos del proyecto). */
+  brand?: SeoBrandFilter | undefined;
+  /** Solo búsquedas que nombran esta zona. */
+  area?: string | null | undefined;
 }
 
 export function panelQueryString(p: SeoPanelParams, extra: Record<string, string> = {}): string {
   const q = new URLSearchParams({ period: p.period, ...extra });
+  if (p.brand && p.brand !== 'all') q.set('brand', p.brand);
+  if (p.area) q.set('area', p.area);
   if (p.period === 'custom' && p.from && p.to) {
     q.set('from', p.from);
     q.set('to', p.to);

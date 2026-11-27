@@ -158,6 +158,31 @@ describe('canibalización', () => {
     expect(c!.lastDataDate).toBe(d(10));
   });
 
+  it('dos páginas que salen a la vez cada día no son una alternancia: no hay conflicto', () => {
+    // Las dos en la primera página, casi empatadas: gana una u otra por una impresión.
+    const rows: SeoDailyPageRow[] = [];
+    for (let k = 1; k <= 14; k++) {
+      const aWins = k % 2 === 1;
+      rows.push({ date: d(k), page: `${BASE}/a`, clicks: 1, impressions: aWins ? 5 : 4 });
+      rows.push({ date: d(k), page: `${BASE}/b`, clicks: 1, impressions: aWins ? 4 : 5 });
+    }
+    const c = analyzeSeoCannibalization({
+      query: 'trasteros valencia',
+      brandTerms: [],
+      pages: [
+        { page: `${BASE}/a`, clicks: 14, impressions: 63, position: 6.2 },
+        { page: `${BASE}/b`, clicks: 14, impressions: 63, position: 4.1 },
+      ],
+      daily: rows,
+      targetUrl: null,
+      thresholds: T,
+    });
+    expect(c).not.toBeNull();
+    expect(c!.kind).toBe('coexistence');
+    expect(c!.severity).toBe('low');
+    expect(c!.switches).toBe(0);
+  });
+
   it('dos páginas que se reparten sin alternarse: reparto (no conflicto)', () => {
     const c = analyzeSeoCannibalization({
       query: 'guardamuebles valencia',
@@ -388,5 +413,38 @@ describe('palabras seguidas por intención o grupo', () => {
       position: 7,
     });
     expect(groups[1]!.label).toBe('Sin intención');
+  });
+});
+
+describe('canibalización: portada y versiones de idioma', () => {
+  it('sin URL objetivo, la portada con poca parte (enlace de sitio) no cuenta', () => {
+    const c = analyzeSeoCannibalization({
+      query: 'trasteros mislata',
+      brandTerms: [],
+      pages: [
+        { page: `${BASE}/mislata`, clicks: 20, impressions: 300, position: 3 },
+        { page: `${BASE}/`, clicks: 1, impressions: 40, position: 12 },
+      ],
+      daily: [],
+      targetUrl: null,
+      thresholds: T,
+    });
+    expect(c).toBeNull();
+  });
+  it('dos versiones de idioma se explican como tales', () => {
+    const c = analyzeSeoCannibalization({
+      query: 'storage valencia',
+      brandTerms: [],
+      pages: [
+        { page: `${BASE}/precios`, clicks: 10, impressions: 120, position: 14 },
+        { page: `${BASE}/l/en/precios`, clicks: 6, impressions: 100, position: 18 },
+      ],
+      daily: [],
+      targetUrl: null,
+      thresholds: T,
+    });
+    expect(c).not.toBeNull();
+    expect(c!.reason).toContain('versiones de idioma');
+    expect(c!.action).toContain('hreflang');
   });
 });

@@ -16,6 +16,10 @@ import { SeoAiProvider } from '@/components/seo/assistant/seo-ai-context';
 import { SeoDiagnosticsCard } from '@/components/seo/diagnostics/diagnostics-card';
 import { SeoGa4ConnectionCard } from '@/components/seo/ga4/ga4-connection-card';
 import { SeoGa4PagesCard } from '@/components/seo/ga4/ga4-pages-card';
+import { SeoAnnotationProposalsCard } from '@/components/seo/improvements/annotations-card';
+import { SeoAreasCard } from '@/components/seo/improvements/areas-card';
+import { SeoCompetitionPanel } from '@/components/seo/improvements/competition-panel';
+import { SeoSistrixCsvCard } from '@/components/seo/improvements/sistrix-csv-card';
 import { SeoMasterImportsCard } from '@/components/seo/master-imports-card';
 import { SeoOpportunitiesCard } from '@/components/seo/opportunities/opportunities-card';
 import { SeoPlanCard } from '@/components/seo/plan/plan-card';
@@ -224,6 +228,12 @@ export default function AdminSeoProjectPage() {
               <>
                 {isTenant && <PlatformSistrixToggle projectId={p.id} canEdit={isSuperadmin} />}
                 <SeoSistrixSections scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
+                <SeoCompetitionPanel scope={{ kind: 'admin', projectId: p.id }} />
+                <SeoSistrixCsvCard
+                  scope={{ kind: 'admin', projectId: p.id }}
+                  canEdit={canEdit}
+                  domains={p.domains.map((d) => d.domain)}
+                />
               </>
             ),
             tecnico: (
@@ -234,11 +244,17 @@ export default function AdminSeoProjectPage() {
               </>
             ),
             plan: (
-              <SeoPlanCard
-                scope={{ kind: 'admin', projectId: p.id }}
-                canEdit={canEdit}
-                domains={p.domains}
-              />
+              <>
+                <SeoAnnotationProposalsCard
+                  scope={{ kind: 'admin', projectId: p.id }}
+                  canEdit={canEdit}
+                />
+                <SeoPlanCard
+                  scope={{ kind: 'admin', projectId: p.id }}
+                  canEdit={canEdit}
+                  domains={p.domains}
+                />
+              </>
             ),
             informes: (
               <>
@@ -266,6 +282,7 @@ export default function AdminSeoProjectPage() {
                     setRole: (domain, role) => updateDomain.mutateAsync({ id: domain, role }),
                   }}
                 />
+                <SeoAreasCard scope={{ kind: 'admin', projectId: p.id }} canEdit={canEdit} />
                 <SeoGa4ConnectionCard
                   scope={{ kind: 'admin', projectId: p.id }}
                   canEdit={canEdit}

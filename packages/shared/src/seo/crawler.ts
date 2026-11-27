@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
   normalizeSeoUrl,
+  seoGlobMatch,
   seoIndexRuleMatches,
   splitSeoUrl,
   type SeoDiagnosticStatus,
@@ -64,6 +65,8 @@ export interface SeoCrawlSettings {
   /** Día de la semana (0 domingo … 6 sábado) y hora (España). */
   weekday: number;
   hour: number;
+  /** Cada cuántas semanas (1 = cada semana, 4 = una vez al mes). */
+  intervalWeeks: number;
   /** Páginas como mucho en cada rastreo. */
   maxPages: number;
   /** Pausa entre dos peticiones (milisegundos). */
@@ -79,6 +82,7 @@ export const SEO_CRAWL_DEFAULTS: Record<SeoCrawlScope, SeoCrawlSettings> = {
     weeklyEnabled: false,
     weekday: 1,
     hour: 3,
+    intervalWeeks: 1,
     maxPages: 500,
     pauseMs: 1000,
     maxMinutes: 60,
@@ -88,6 +92,7 @@ export const SEO_CRAWL_DEFAULTS: Record<SeoCrawlScope, SeoCrawlSettings> = {
     weeklyEnabled: true,
     weekday: 1,
     hour: 3,
+    intervalWeeks: 1,
     maxPages: 2000,
     pauseMs: 1000,
     maxMinutes: 240,
@@ -139,6 +144,9 @@ export function seoCrawlSettingsOf(stored: unknown, scope: SeoCrawlScope): SeoCr
     }
   }
   if (typeof s.weeklyEnabled === 'boolean') out.weeklyEnabled = s.weeklyEnabled;
+  if (s.intervalWeeks === 1 || s.intervalWeeks === 2 || s.intervalWeeks === 4) {
+    out.intervalWeeks = s.intervalWeeks;
+  }
   if (Array.isArray(s.excludePaths)) {
     out.excludePaths = [
       ...new Set(
@@ -157,6 +165,7 @@ export const UpdateSeoCrawlSettingsSchema = z
     weeklyEnabled: z.boolean(),
     weekday: z.number().int().min(0).max(6),
     hour: z.number().int().min(0).max(23),
+    intervalWeeks: z.union([z.literal(1), z.literal(2), z.literal(4)]),
     maxPages: z.number().int().min(10).max(2000),
     pauseMs: z.number().int().min(500).max(10_000),
     maxMinutes: z.number().int().min(5).max(360),
@@ -174,8 +183,10 @@ export function seoCrawlExcluded(url: string, excludePaths: readonly string[]): 
 }
 
 /**
- * ¿Toca el rastreo semanal? El día y la hora de España coinciden con los
- * ajustes y no hay otro rastreo en los últimos 6 días.
+ * ¿Toca el rastreo semanal? Ya ha pasado el día y la hora de España de los
+ * ajustes (hace menos de 24 horas: si el worker se estaba reiniciando justo
+ * entonces, se recupera en la hora siguiente) y no hay otro rastreo en los
+ * últimos 6 días.
  */
 export function seoCrawlDue(input: {
   settings: SeoCrawlSettings;
@@ -186,9 +197,13 @@ export function seoCrawlDue(input: {
   now: Date;
 }): boolean {
   if (!input.settings.weeklyEnabled) return false;
-  if (input.weekday !== input.settings.weekday || input.hour !== input.settings.hour) return false;
+  const hoursSince =
+    ((input.weekday - input.settings.weekday + 7) % 7) * 24 + (input.hour - input.settings.hour);
+  const sinceScheduled = hoursSince < 0 ? hoursSince + 168 : hoursSince;
+  if (sinceScheduled >= 24) return false;
   if (!input.lastStartedAt) return true;
-  return input.now.getTime() - Date.parse(input.lastStartedAt) >= 6 * 86_400_000;
+  const gapDays = Math.max(1, input.settings.intervalWeeks) * 7 - 1;
+  return input.now.getTime() - Date.parse(input.lastStartedAt) >= gapDays * 86_400_000;
 }
 
 // ------------------------------------------------------------- alcance
@@ -305,14 +320,7 @@ export function seoRobotsRulesFor(robots: SeoRobotsTxt, token: string): SeoRobot
 
 function robotsPatternMatches(pattern: string, path: string): boolean {
   const anchored = pattern.endsWith('$');
-  const body = anchored ? pattern.slice(0, -1) : pattern;
-  const re = new RegExp(
-    `^${body
-      .split('*')
-      .map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-      .join('.*')}${anchored ? '$' : ''}`,
-  );
-  return re.test(path);
+  return seoGlobMatch(anchored ? pattern.slice(0, -1) : pattern, path, anchored);
 }
 
 /**
@@ -350,15 +358,35 @@ export function seoRobotsAllowed(
 
 /** Las URL `<loc>` de un mapa del sitio y si es un índice de mapas. */
 export function parseSeoSitemap(xml: string): { index: boolean; urls: string[] } {
+  const lower = xml.toLowerCase();
+  // Si pasar a minúsculas cambia el largo (algún carácter raro), se trabaja con la copia.
+  const source = lower.length === xml.length ? xml : lower;
   const index = /<sitemapindex[\s>]/i.test(xml);
   const urls: string[] = [];
-  const re = /<loc>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*<\/loc>/gi;
-  for (let m = re.exec(xml); m; m = re.exec(xml)) {
-    const v = decodeXmlEntities(m[1]!.trim());
+  // Recorrido lineal con `indexOf` (sin expresiones con retroceso: el mapa lo
+  // controla el dueño de la web) y tope de largo en cada dirección.
+  let pos = 0;
+  for (;;) {
+    const open = lower.indexOf('<loc>', pos);
+    if (open === -1) break;
+    const start = open + 5;
+    const close = lower.indexOf('</loc>', start);
+    if (close === -1) break;
+    pos = close + 6;
+    if (close - start > SEO_SITEMAP_MAX_LOC) continue;
+    let value = source.slice(start, close).trim();
+    if (value.toLowerCase().startsWith('<![cdata[') && value.endsWith(']]>')) {
+      value = value.slice(9, -3).trim();
+    }
+    if (value.includes('<')) continue;
+    const v = decodeXmlEntities(value);
     if (/^https?:\/\//i.test(v)) urls.push(v);
   }
   return { index, urls };
 }
+
+/** Largo máximo de la dirección de un mapa del sitio. */
+export const SEO_SITEMAP_MAX_LOC = 2000;
 
 function decodeXmlEntities(s: string): string {
   return s
@@ -411,6 +439,8 @@ export const SEO_CRAWL_ISSUE_TYPES = [
   'sitemap_redirect',
   'sitemap_noindex',
   'sitemap_blocked',
+  // Mejoras: con impresiones en Google y fuera del mapa del sitio.
+  'not_in_sitemap',
 ] as const;
 export type SeoCrawlIssueType = (typeof SEO_CRAWL_ISSUE_TYPES)[number];
 export const SeoCrawlIssueTypeEnum = z.enum(SEO_CRAWL_ISSUE_TYPES);
@@ -697,6 +727,13 @@ export const SEO_CRAWL_ISSUES: Record<SeoCrawlIssueType, SeoCrawlIssueInfo> = {
     what: 'El mapa del sitio pide a Google que mire una página que a la vez dice «no me indexes».',
     how: 'Decide: si debe salir en Google, quita el «noindex»; si no, sácala del mapa del sitio.',
   },
+  not_in_sitemap: {
+    label: 'Con impresiones y fuera del mapa del sitio',
+    group: 'sitemap',
+    severity: 'low',
+    what: 'Google enseña esta página, pero no está en el mapa del sitio (sitemap.xml): se la encuentra por enlaces, no porque tú se la hayas dicho.',
+    how: 'Añádela al mapa del sitio (o, si no quieres que salga en Google, ponle «noindex»).',
+  },
   sitemap_blocked: {
     label: 'En el mapa del sitio y bloqueada',
     group: 'sitemap',
@@ -891,6 +928,18 @@ export function analyzeSeoCrawl(input: {
       );
       continue;
     }
+    // Un 401, 403 o 429 al rastreador es casi siempre un cortafuegos o un límite de
+    // peticiones: no es que la página dé error para quien llega a ella.
+    if (p.status === 401 || p.status === 403 || p.status === 429) {
+      add(
+        'fetch_failed',
+        p,
+        `El servidor no deja leer la página al rastreador (responde ${p.status}): puede ser un cortafuegos o un límite de peticiones y no un error de la web.`,
+        { status: p.status, blocked: true },
+        'medium',
+      );
+      continue;
+    }
     if (p.status !== null && p.status >= 400) {
       add('http_error', p, `Responde ${p.status}.`, { status: p.status });
       continue;
@@ -1065,6 +1114,8 @@ export function analyzeSeoCrawl(input: {
   ) => {
     const groups = new Map<string, SeoCrawlPageFacts[]>();
     for (const p of indexable) {
+      // Una variante que declara otra canónica ya apunta a la buena: no cuenta como repetida.
+      if (p.canonical && normalizeSeoUrl(p.canonical) !== p.key) continue;
       const v = (value(p) ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
       if (!v) continue;
       groups.set(v, [...(groups.get(v) ?? []), p]);
@@ -1151,6 +1202,22 @@ export function analyzeSeoCrawl(input: {
       });
     else if (p.googleBlocked && !p.robotsBlocked)
       add('sitemap_blocked', p, 'robots.txt no deja leerla a Google y está en el mapa del sitio.');
+  }
+
+  // Con impresiones en Google y fuera del mapa del sitio (solo si el sitio tiene mapa).
+  if (input.sitemapFound) {
+    for (const p of pages) {
+      if (p.inSitemap || !p.inScope || p.impressions <= 0 || p.noindex || p.robotsBlocked) continue;
+      if (isError(p) || isRedirect(p) || !p.isHtml) continue;
+      // Una variante que declara otra canónica ya apunta a la buena.
+      if (p.canonical && normalizeSeoUrl(p.canonical) !== p.key) continue;
+      add(
+        'not_in_sitemap',
+        p,
+        `Tiene ${seoFmtInt(p.impressions)} impresiones en Google y no está en el mapa del sitio.`,
+        { impressions: p.impressions },
+      );
+    }
   }
 
   // Con impresiones y sin rastrear.

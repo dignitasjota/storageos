@@ -20,6 +20,7 @@ import {
 import {
   type SistrixData,
   type SistrixQuery,
+  estimateApiCredits,
   sistrixQueryHash,
   toApiCall,
   toMcpCall,
@@ -92,6 +93,7 @@ export class SistrixFetchService {
             }
           : null,
         supportsApi: q ? toApiCall(q) !== null : true,
+        estimatedCredits: q ? (estimateApiCredits(q) ?? 1) : 1,
       },
       now,
     );
@@ -174,27 +176,37 @@ export class SistrixFetchService {
   ): Promise<void> {
     // Por si acaso: ningún argumento con nombre de secreto llega al registro.
     const args = Object.fromEntries(
-      Object.entries(entry.args).filter(([k]) => !/key|token|secret|password/i.test(k)),
+      Object.entries(entry.args).filter(
+        ([k]) =>
+          !/^(api_?key|apikey|access_?token|refresh_?token|token|secret|client_?secret|password|authorization)$/i.test(
+            k,
+          ),
+      ),
     );
-    await this.admin.seoApiRequest.create({
-      data: {
-        tenantId: ctx.pool,
-        projectId: ctx.projectId,
-        runId: ctx.runId,
-        provider: entry.provider,
-        tool: entry.tool,
-        view: entry.view,
-        args: args as object,
-        queryHash: entry.hash,
-        status: entry.status,
-        errorCode: entry.errorCode ?? null,
-        errorMessage: entry.errorMessage?.slice(0, 500) ?? null,
-        durationMs: entry.durationMs ?? 0,
-        credits: entry.credits ?? 0,
-        createdByUserId: ctx.userId ?? null,
-        createdBySuperAdminId: ctx.superAdminId ?? null,
-      },
-    });
+    // Si el registro falla, la respuesta (ya pagada) no se pierde.
+    await this.admin.seoApiRequest
+      .create({
+        data: {
+          tenantId: ctx.pool,
+          projectId: ctx.projectId,
+          runId: ctx.runId,
+          provider: entry.provider,
+          tool: entry.tool,
+          view: entry.view,
+          args: args as object,
+          queryHash: entry.hash,
+          status: entry.status,
+          errorCode: entry.errorCode ?? null,
+          errorMessage: entry.errorMessage?.slice(0, 500) ?? null,
+          durationMs: entry.durationMs ?? 0,
+          credits: entry.credits ?? 0,
+          createdByUserId: ctx.userId ?? null,
+          createdBySuperAdminId: ctx.superAdminId ?? null,
+        },
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(`No se pudo anotar la petición a SISTRIX: ${(err as Error).message}`);
+      });
   }
 
   /**
@@ -256,6 +268,22 @@ export class SistrixFetchService {
           err instanceof SistrixTransientError
             ? `SISTRIX no responde ahora: ${err.message}`
             : (err as Error).message;
+        // La cuota (7010) puede llegar como error del protocolo y no como texto.
+        if (decision.provider === 'sistrix_mcp' && /\b7010\b/.test(message)) {
+          await this.log(ctx, {
+            provider: decision.provider,
+            tool: fallbackCall.tool,
+            view: typeof fallbackCall.args.view === 'string' ? fallbackCall.args.view : null,
+            args: fallbackCall.args,
+            hash,
+            status: 'quota',
+            errorCode: '7010',
+            errorMessage: message,
+            durationMs,
+          });
+          await this.markQuota();
+          continue;
+        }
         const code =
           err instanceof SistrixDataError
             ? err.code
@@ -312,10 +340,10 @@ export class SistrixFetchService {
         return { kind: 'error', code: out.code, message: out.message, provider: decision.provider };
       }
       const fetchedAt = new Date();
-      await this.log(ctx, { ...base, status: out.kind === 'ok' ? 'ok' : 'empty' });
       const value: CachedValue =
         out.kind === 'ok' ? { outcome: 'ok', data: out.data } : { outcome: 'empty', data: null };
       const dataDate = out.kind === 'ok' ? out.dataDate : null;
+      // La caché va primero: si el registro fallara, la respuesta pagada no se pierde.
       await this.saveCache(
         ctx.pool,
         hash,
@@ -327,6 +355,7 @@ export class SistrixFetchService {
         ctx.ttlDays,
         fetchedAt,
       );
+      await this.log(ctx, { ...base, status: out.kind === 'ok' ? 'ok' : 'empty' });
       await this.markSuccess(ctx.pool, decision.provider);
       return {
         kind: 'data',

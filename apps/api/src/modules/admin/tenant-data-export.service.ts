@@ -408,6 +408,7 @@ export class TenantDataExportService {
     ]);
 
     await this.extraSheets(wb, tenantId);
+    await this.seoSheets(wb, tenantId);
     // Filas por hoja (sin la cabecera).
     const counts: Record<string, number> = {};
     for (const ws of wb.worksheets) counts[ws.name] = Math.max(0, ws.rowCount - 1);
@@ -765,6 +766,131 @@ export class TenantDataExportService {
       { header: 'Importe', value: (r) => r.totalAmount / 100 },
       { header: 'Confirmada', value: (r) => r.confirmedAt },
       { header: 'Alta', value: (r) => r.createdAt },
+    ]);
+  }
+
+  /**
+   * SEO Avanzado: proyectos con sus dominios, palabras seguidas, oportunidades,
+   * tareas y actuaciones. Lo descargado de Google (millones de filas) no va: se
+   * vuelve a pedir; las claves de SISTRIX tampoco.
+   */
+  private async seoSheets(wb: ExcelJS.Workbook, tenantId: string): Promise<void> {
+    const where = { tenantId };
+    const [projects, competitors, imports, domains, keywords, opportunities, tasks, changes] =
+      await Promise.all([
+        this.admin.seoProject.findMany({ where, orderBy: { createdAt: 'asc' } }),
+        this.admin.seoCompetitor.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoSistrixImport.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoProjectDomain.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true, strategy: true, country: true } } },
+        }),
+        this.admin.seoProjectKeyword.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { keyword: { select: { keyword: true } }, project: { select: { name: true } } },
+        }),
+        this.admin.seoOpportunity.findMany({
+          where,
+          orderBy: [{ score: 'desc' }, { createdAt: 'asc' }],
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoTask.findMany({
+          where,
+          orderBy: { createdAt: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+        this.admin.seoSiteChange.findMany({
+          where,
+          orderBy: { changeDate: 'asc' },
+          include: { project: { select: { name: true } } },
+        }),
+      ]);
+    this.sheet(wb, 'SEO - proyecto', projects, [
+      { header: 'Nombre', width: 24, value: (p) => p.name },
+      { header: 'Estrategia', value: (p) => p.strategy },
+      { header: 'País', value: (p) => p.country },
+      { header: 'Ubicación objetivo', width: 28, value: (p) => p.targetLocation },
+      { header: 'Términos de marca', width: 32, value: (p) => p.brandTerms.join(', ') },
+      { header: 'Zonas (municipios y barrios)', width: 36, value: (p) => p.localAreas.join(', ') },
+      { header: 'Estado', value: (p) => p.status },
+      { header: 'Alta', value: (p) => p.createdAt },
+    ]);
+    this.sheet(wb, 'SEO - competidores', competitors, [
+      { header: 'Proyecto', width: 24, value: (c) => c.project.name },
+      { header: 'Dominio', width: 28, value: (c) => c.domain },
+      { header: 'Directorio analizado', value: (c) => c.pathPrefix },
+      { header: 'Nombre', value: (c) => c.name },
+      { header: 'Notas', width: 32, value: (c) => c.notes },
+      { header: 'Se sigue', value: (c) => c.isActive },
+      { header: 'Origen', value: (c) => c.source },
+    ]);
+    this.sheet(wb, 'SEO - CSV de SISTRIX importados', imports, [
+      { header: 'Proyecto', width: 24, value: (i) => i.project.name },
+      { header: 'Tipo', value: (i) => i.kind },
+      { header: 'Fichero', width: 28, value: (i) => i.filename },
+      { header: 'Dominio', value: (i) => i.domain },
+      { header: 'Búsqueda', value: (i) => i.keyword },
+      { header: 'Filas', value: (i) => i.rows },
+      { header: 'Fecha', value: (i) => i.createdAt },
+    ]);
+    this.sheet(wb, 'SEO - proyectos y dominios', domains, [
+      { header: 'Proyecto', width: 24, value: (d) => d.project.name },
+      { header: 'Dominio', width: 28, value: (d) => d.domain },
+      { header: 'Propiedad de Search Console', width: 32, value: (d) => d.gscProperty },
+      { header: 'Función', value: (d) => d.role },
+      { header: 'Estado', value: (d) => d.connectionStatus },
+      { header: 'Descargado hasta', value: (d) => d.syncedUntil },
+      { header: 'Alta', value: (d) => d.createdAt },
+    ]);
+    this.sheet(wb, 'SEO - palabras', keywords, [
+      { header: 'Proyecto', width: 24, value: (k) => k.project.name },
+      { header: 'Palabra', width: 32, value: (k) => k.keyword.keyword },
+      { header: 'Grupo', value: (k) => k.groupName },
+      { header: 'Intención', value: (k) => k.intent },
+      { header: 'URL objetivo', width: 36, value: (k) => k.targetUrl },
+      { header: 'Prioridad', value: (k) => k.priority },
+      { header: 'Activa', value: (k) => k.isActive },
+      { header: 'Origen', value: (k) => k.source },
+    ]);
+    this.sheet(wb, 'SEO - oportunidades', opportunities, [
+      { header: 'Proyecto', width: 24, value: (o) => o.project.name },
+      { header: 'Tipo', value: (o) => o.type },
+      { header: 'Búsqueda', width: 32, value: (o) => o.query },
+      { header: 'Página', width: 36, value: (o) => o.page },
+      { header: 'Puntuación', value: (o) => o.score },
+      { header: 'Estado', value: (o) => o.status },
+      { header: 'Notas', width: 32, value: (o) => o.notes },
+      { header: 'Detectada', value: (o) => o.detectedAt },
+    ]);
+    this.sheet(wb, 'SEO - tareas', tasks, [
+      { header: 'Proyecto', width: 24, value: (t) => t.project.name },
+      { header: 'Título', width: 36, value: (t) => t.title },
+      { header: 'Tipo', value: (t) => t.type },
+      { header: 'Estado', value: (t) => t.status },
+      { header: 'Prioridad', value: (t) => t.priority },
+      { header: 'Fecha límite', value: (t) => t.dueDate },
+      { header: 'URL', width: 36, value: (t) => t.url },
+      { header: 'Completada', value: (t) => t.completedAt },
+    ]);
+    this.sheet(wb, 'SEO - actuaciones', changes, [
+      { header: 'Proyecto', width: 24, value: (c) => c.project.name },
+      { header: 'Fecha', value: (c) => c.changeDate },
+      { header: 'Tipo', value: (c) => c.type },
+      { header: 'Título', width: 36, value: (c) => c.title },
+      { header: 'Descripción', width: 40, value: (c) => c.description },
+      { header: 'URLs', width: 40, value: (c) => c.urls.join(', ') },
+      { header: 'Palabras', width: 28, value: (c) => c.keywords.join(', ') },
+      { header: 'Notas', width: 32, value: (c) => c.notes },
     ]);
   }
 

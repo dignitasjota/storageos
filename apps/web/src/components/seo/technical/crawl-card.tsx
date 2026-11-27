@@ -246,9 +246,9 @@ export function SeoCrawlCard({ scope, canEdit }: { scope: TechnicalScope; canEdi
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              Rastreo semanal:{' '}
+              Rastreo automático:{' '}
               {data.settings.weeklyEnabled
-                ? `los ${SEO_WEEKDAY_LABELS[data.settings.weekday]} a las ${String(data.settings.hour).padStart(2, '0')}:00`
+                ? `${data.settings.intervalWeeks === 4 ? 'una vez al mes' : data.settings.intervalWeeks === 2 ? 'cada dos semanas' : 'cada semana'}, los ${SEO_WEEKDAY_LABELS[data.settings.weekday]} a las ${String(data.settings.hour).padStart(2, '0')}:00`
                 : 'apagado'}
               {' · '}hasta {formatCount(data.settings.maxPages)} páginas, una cada{' '}
               {(data.settings.pauseMs / 1000).toLocaleString('es-ES')} s. Se identifica como{' '}
@@ -661,6 +661,7 @@ function CrawlSettingsDialog({
               weeklyEnabled: draft.weeklyEnabled,
               weekday: draft.weekday,
               hour: draft.hour,
+              intervalWeeks: draft.intervalWeeks as 1 | 2 | 4,
               maxPages: draft.maxPages,
               pauseMs: draft.pauseMs,
               maxMinutes: draft.maxMinutes,
@@ -717,8 +718,24 @@ function CrawlSettingsDialog({
               onCheckedChange={(v) => setDraft({ ...draft, weeklyEnabled: v === true })}
             />
             <Label htmlFor="crawl-weekly" className="font-normal leading-snug">
-              Rastrear la web solo una vez por semana.
+              Rastrear la web automáticamente.
             </Label>
+          </div>
+          <div className="space-y-1">
+            <Label>Cada cuánto</Label>
+            <Select
+              value={String(draft.intervalWeeks)}
+              onValueChange={(v) => setDraft({ ...draft, intervalWeeks: Number(v) })}
+            >
+              <SelectTrigger aria-label="Cada cuánto se rastrea">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Cada semana</SelectItem>
+                <SelectItem value="2">Cada dos semanas</SelectItem>
+                <SelectItem value="4">Una vez al mes</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">

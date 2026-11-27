@@ -22,6 +22,7 @@ import {
   type SeoVisibilitySeriesDto,
   type UpdateSeoCompetitorInput,
   type UpdateSeoProjectKeywordInput,
+  seoUrlInPath,
 } from '@storageos/shared';
 
 import { isUniqueViolation } from '../../../common/prisma-errors';
@@ -91,6 +92,7 @@ export class SeoSistrixDataService {
           name: c.name,
           notes: c.notes,
           isActive: c.isActive,
+          pathPrefix: c.pathPrefix,
           source: c.source as 'manual' | 'discovered' | 'master',
           createdAt: iso(c.createdAt),
           masterImportedAt: c.masterImport ? iso(c.masterImport.createdAt) : null,
@@ -133,6 +135,7 @@ export class SeoSistrixDataService {
           isActive: true,
           name: input.name ?? existing.name,
           notes: input.notes ?? existing.notes,
+          ...(input.pathPrefix !== undefined ? { pathPrefix: input.pathPrefix } : {}),
         },
       });
     } else {
@@ -144,6 +147,7 @@ export class SeoSistrixDataService {
             domain: input.domain,
             name: input.name ?? null,
             notes: input.notes ?? null,
+            pathPrefix: input.pathPrefix ?? null,
           },
         });
       } catch (err) {
@@ -174,6 +178,7 @@ export class SeoSistrixDataService {
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+        ...(input.pathPrefix !== undefined ? { pathPrefix: input.pathPrefix } : {}),
       },
     });
     return this.competitors(owner, projectId);
@@ -254,6 +259,8 @@ export class SeoSistrixDataService {
     this.assertDomain(p, domain);
     const pool = poolOfProject(p);
     const country = p.country.toLowerCase();
+    // Un competidor de un directorio solo enseña lo que cuelga de su ruta.
+    const prefix = p.competitors.find((c) => c.domain === domain)?.pathPrefix ?? null;
     const samples = await this.admin.seoDomainKeyword.findMany({
       where: { tenantId: pool, domain, country },
       distinct: ['sampleDate'],
@@ -263,19 +270,21 @@ export class SeoSistrixDataService {
     });
     if (samples.length === 0) return { domain, origin: null, previousDate: null, items: [] };
     const [latest, previous] = samples;
-    const [rows, prevRows] = await Promise.all([
+    const [allRows, prevAll] = await Promise.all([
       this.admin.seoDomainKeyword.findMany({
         where: { tenantId: pool, domain, country, sampleDate: latest!.sampleDate },
         orderBy: { position: 'asc' },
-        take: 500,
+        take: prefix ? 5000 : 500,
       }),
       previous
         ? this.admin.seoDomainKeyword.findMany({
             where: { tenantId: pool, domain, country, sampleDate: previous.sampleDate },
-            select: { keyword: true, position: true },
+            select: { keyword: true, position: true, url: true },
           })
         : Promise.resolve([]),
     ]);
+    const rows = allRows.filter((r) => seoUrlInPath(r.url, prefix)).slice(0, 500);
+    const prevRows = prevAll.filter((r) => seoUrlInPath(r.url, prefix));
     const prev = new Map(prevRows.map((r) => [r.keyword, r.position]));
     const first = rows[0];
     return {
@@ -508,6 +517,7 @@ export class SeoSistrixDataService {
         position: r.position,
         domain: r.domain,
         url: r.url,
+        title: r.title,
         own: own.has(strip(r.domain)),
         competitor: comp.has(strip(r.domain)),
       })),

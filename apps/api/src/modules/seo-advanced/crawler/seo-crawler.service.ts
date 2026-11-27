@@ -56,6 +56,8 @@ const sha1 = (s: string) => createHash('sha1').update(s).digest('hex');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Un rastreo «en curso» sin señal desde hace esto se puede retomar (el proceso murió). */
 const STALE_MS = 3 * 60_000;
+/** Respuestas seguidas de «para» (429, 5xx o sin respuesta) tras las que se corta el rastreo. */
+const MAX_PUSHBACK = 15;
 /** Días de Search Console para las páginas con impresiones. */
 const GSC_DAYS = 90;
 /** URL de hallazgos de indexación abiertos que se piden para confirmar el motivo. */
@@ -229,13 +231,15 @@ export class SeoCrawlerService {
     });
   }
 
-  private async addJob(crawlId: string): Promise<void> {
+  private async addJob(crawlId: string, delayMs = 0): Promise<void> {
     try {
       await this.queue.add(
         JOB_SEO_CRAWL,
         { crawlId },
         {
-          jobId: seoCrawlJobId(crawlId),
+          // Un reintento con retraso lleva otro id: el original puede seguir en la cola.
+          jobId: delayMs > 0 ? `${seoCrawlJobId(crawlId)}-r${Date.now()}` : seoCrawlJobId(crawlId),
+          ...(delayMs > 0 ? { delay: delayMs } : {}),
           attempts: 1,
           removeOnComplete: true,
           removeOnFail: true,
@@ -266,6 +270,22 @@ export class SeoCrawlerService {
   async resumePending(): Promise<number> {
     const rows = await this.admin.seoCrawl.findMany({
       where: { status: { in: ['queued', 'running'] } },
+      select: { id: true },
+    });
+    for (const r of rows) await this.addJob(r.id);
+    return rows.length;
+  }
+
+  /** Rastreos en cola o «en curso» sin señal desde hace rato: su trabajo vuelve a la cola. */
+  async requeueStale(): Promise<number> {
+    const before = new Date(Date.now() - STALE_MS);
+    const rows = await this.admin.seoCrawl.findMany({
+      where: {
+        OR: [
+          { status: 'queued', createdAt: { lt: before } },
+          { status: 'running', OR: [{ heartbeatAt: null }, { heartbeatAt: { lt: before } }] },
+        ],
+      },
       select: { id: true },
     });
     for (const r of rows) await this.addJob(r.id);
@@ -324,9 +344,21 @@ export class SeoCrawlerService {
         started_at = COALESCE(started_at, ${now}), updated_at = ${now}
       WHERE id = ${crawlId}::uuid AND (status = 'queued' OR (status = 'running'
         AND (heartbeat_at IS NULL OR heartbeat_at < ${new Date(now.getTime() - STALE_MS)})))`);
-    if (claim === 0) return;
+    if (claim === 0) {
+      // Tras un reinicio el trabajo vuelve a la cola antes de que pasen los
+      // minutos sin señal: sin esto el rastreo quedaba «en curso» sin nadie que lo
+      // siguiera. Si sigue vivo y sin señal reciente, se vuelve a intentar luego.
+      const live = await this.admin.seoCrawl.findUnique({
+        where: { id: crawlId },
+        select: { status: true, heartbeatAt: true },
+      });
+      if (live?.status === 'running') await this.addJob(crawlId, STALE_MS + 30_000);
+      return;
+    }
     let crawl = await this.admin.seoCrawl.findUnique({ where: { id: crawlId } });
     if (!crawl) return;
+    // Un rastreo retomado cuenta su tiempo máximo desde que se retoma.
+    const resumed = !!crawl.startedAt && crawl.startedAt.getTime() < now.getTime() - 60_000;
     const project = await this.admin.seoProject.findUnique({
       where: { id: crawl.projectId },
       include: { domains: true },
@@ -353,8 +385,26 @@ export class SeoCrawlerService {
         crawl = (await this.admin.seoCrawl.findUnique({ where: { id: crawlId } }))!;
       }
       const robots = state.robotsTxt ? parseSeoRobotsTxt(state.robotsTxt) : null;
-      const stop = await this.crawlPages(crawl, project, site, settings, state, robots, allowHost);
+      const stop = await this.crawlPages(
+        crawl,
+        project,
+        site,
+        settings,
+        state,
+        robots,
+        allowHost,
+        resumed ? now.getTime() : null,
+      );
       if (stop === 'stopped') return;
+      if (stop === 'blocked') {
+        // El servidor dice que pares: no se cierra como «arreglado» lo que no se pudo ver.
+        await this.finish(
+          crawlId,
+          'failed',
+          'La web respondió con errores de límite o de servidor una y otra vez: se paró el rastreo para no cargarla. Inténtalo más tarde.',
+        );
+        return;
+      }
       await this.finalize(crawlId, project, site, settings, state, stop);
     } catch (err) {
       const message = (err as Error).message.slice(0, 500);
@@ -552,8 +602,9 @@ export class SeoCrawlerService {
     state: CrawlState,
     robots: SeoRobotsTxt | null,
     allowHost: (h: string) => boolean,
-  ): Promise<'stopped' | 'max_pages' | 'max_time' | null> {
-    const started = (crawl.startedAt ?? new Date()).getTime();
+    resumedAtMs: number | null = null,
+  ): Promise<'stopped' | 'max_pages' | 'max_time' | 'blocked' | null> {
+    const started = resumedAtMs ?? (crawl.startedAt ?? new Date()).getTime();
     const deadline = started + settings.maxMinutes * 60_000;
     const sitemapKeys = new Set((state.sitemapUrls ?? []).map((u) => normalizeSeoUrl(u)));
     const impressions = new Map<string, number>();
@@ -602,6 +653,7 @@ export class SeoCrawlerService {
 
     const blocked: string[] = [];
     let blockedCount = 0;
+    let pushback = 0;
     const next = (): QueueItem | null =>
       linkQueue.shift() ?? seeds.shift() ?? findingQueue.shift() ?? null;
     const maxRows = settings.maxPages * ROW_FACTOR;
@@ -645,7 +697,25 @@ export class SeoCrawlerService {
       const res = await this.fetcher.fetch(item.url, { allowHost });
       fetched++;
       rows++;
+      // El servidor que dice «para» (429, 5xx, tiempo agotado) una vez tras otra:
+      // se afloja y, pasado un tope, se para sin tocar las incidencias.
+      if (
+        res.status === 429 ||
+        (res.status !== null && res.status >= 500) ||
+        res.error === 'timeout' ||
+        res.error === 'network'
+      ) {
+        pushback++;
+        if (pushback >= MAX_PUSHBACK) return 'blocked';
+        await sleep(Math.min(5000, pushback * 500));
+      } else pushback = 0;
+      const parseStart = Date.now();
       const page = this.pageData(res, item, site);
+      if (Date.now() - parseStart > 2000) {
+        this.logger.warn(
+          `Rastreo ${crawl.id}: ${item.url} tardó ${Date.now() - parseStart} ms en leerse`,
+        );
+      }
       await this.savePage({ ...base, ...page });
       // Enlaces del sitio (y su canónica) a la cola.
       if (inScope && page.isHtml) {
@@ -897,6 +967,12 @@ export class SeoCrawlerService {
     }
 
     // Incidencias: comparación con el rastreo anterior y ciclo de vida.
+    const responded = rows.filter((r) => r.status !== null).map((r) => r.urlKey);
+    const errored = rows.filter((r) => r.status === null && !r.robotsBlocked).map((r) => r.urlKey);
+    // Un rastreo que llegó al final con la web respondiendo (menos de la mitad de
+    // las páginas sin respuesta) es fiable para dar por arreglado lo que no sale.
+    const reliable =
+      stopReason === null && (rows.length === 0 || errored.length / rows.length < 0.5);
     const records = analysis.issues.map((c) => ({
       key: sha1(c.key),
       type: c.type,
@@ -945,13 +1021,19 @@ export class SeoCrawlerService {
               resolved_crawl_id = NULL,
               active = true`);
         }
-        // Lo que ya no sale se resuelve solo (sin tocar las notas).
+        // Lo que ya no sale se resuelve solo (sin tocar las notas), pero solo lo
+        // que este rastreo ha podido ver: una URL que respondió, o (si el rastreo
+        // llegó al final y la web respondió) una que ya no existe. Con un tope de
+        // páginas o de tiempo, o con la web caída, no se da por arreglado lo que
+        // no se volvió a pedir.
         await tx.$executeRaw(Prisma.sql`
           UPDATE seo_crawl_issues SET active = false, resolved_at = ${now},
             resolved_crawl_id = ${crawlId}::uuid, updated_at = ${now},
             status = CASE WHEN status IN ('new', 'reviewed') THEN 'fixed' ELSE status END
           WHERE project_id = ${project.id}::uuid AND active
-            AND (last_crawl_id IS NULL OR last_crawl_id <> ${crawlId}::uuid)`);
+            AND (last_crawl_id IS NULL OR last_crawl_id <> ${crawlId}::uuid)
+            AND (url_key = ANY(${responded}::text[])
+              OR (${reliable} AND NOT (url_key = ANY(${errored}::text[]))))`);
         return compareSeoCrawlIssues(
           new Set(before.map((b) => b.key)),
           new Set(records.map((r) => r.key)),
