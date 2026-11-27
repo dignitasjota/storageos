@@ -56,6 +56,20 @@ function extractMeta(req: Request): RequestMeta {
 }
 
 /**
+ * Express enruta SIN distinguir mayúsculas: `/s/<slug>/Blog` cae en la ruta
+ * `:slug/blog` (declarada antes que la de la ficha) y el listado del blog
+ * respondía a una dirección que no existe. Un segmento literal que no
+ * coincide exacto da 404 limpio, igual que cualquier dirección desconocida.
+ * `fromEnd` = 0 para el último segmento, 1 para el penúltimo.
+ */
+function assertLiteralSegment(req: Request, literal: string, fromEnd: number): void {
+  const parts = req.path.split('/').filter(Boolean);
+  if (parts[parts.length - 1 - fromEnd] !== literal) {
+    throw new NotFoundException({ code: 'not_found', message: 'No encontrado' });
+  }
+}
+
+/**
  * Endpoint público de la landing por tenant (`/s/[slug]`). Sin auth ni
  * versión (`VERSION_NEUTRAL`) para una URL estable; throttle por IP.
  */
@@ -136,16 +150,19 @@ export class LandingController {
    */
   @Get(':slug/blog')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
-  blogList(@Param('slug') slug: string): Promise<PublicBlogListDto> {
+  blogList(@Req() req: Request, @Param('slug') slug: string): Promise<PublicBlogListDto> {
+    assertLiteralSegment(req, 'blog', 0);
     return this.landing.listBlogPosts(slug);
   }
 
   @Get(':slug/blog/:postSlug')
   @Throttle({ default: { limit: 60, ttl: 60_000 } })
   blogPost(
+    @Req() req: Request,
     @Param('slug') slug: string,
     @Param('postSlug') postSlug: string,
   ): Promise<PublicBlogPostDto> {
+    assertLiteralSegment(req, 'blog', 1);
     return this.landing.getBlogPost(slug, postSlug);
   }
 
