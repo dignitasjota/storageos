@@ -1,3 +1,4 @@
+import { legalDocRobots } from '@storageos/shared';
 import { notFound } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { cache } from 'react';
@@ -50,7 +51,7 @@ export async function buildLegalMetadata(slug: string, doc: TenantLegalDoc): Pro
     }),
     alternates: { canonical: legalHref(slug, doc, data.customDomain) },
     // Páginas de obligado cumplimiento: se pueden seguir, no hace falta indexarlas.
-    robots: { index: false, follow: true },
+    robots: legalDocRobots(),
   };
 }
 

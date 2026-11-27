@@ -513,6 +513,7 @@ model Tenant {
   /// (`/s/<slug>`) + claim del hero + sección «quiénes somos». Sin la feature se
   /// usa la plantilla `default` y estos textos se ignoran.
   webTemplate                  String                @default("default") @map("web_template")
+  webIndexing                  String                @default("auto") @map("web_indexing")
   webHeadline                  String?               @map("web_headline")
   webAbout                     String?               @map("web_about")
   /// Secciones activables de la web pública (testimonios/FAQ/contacto). Flags jsonb.

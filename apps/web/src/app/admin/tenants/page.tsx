@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import { NewTenantDialog } from './new-tenant-dialog';
 import { TenantsBulkBar } from './tenants-bulk-bar';
+import { WebIndexingPreviewDialog } from './web-indexing-preview-dialog';
 
 import type { AdminTenantOverviewDto } from '@storageos/shared';
 
@@ -306,6 +307,7 @@ export default function AdminTenantsPage() {
   const ask = useConfirm();
   const canEdit = useIsSuperadmin();
   const [newOpen, setNewOpen] = useState(false);
+  const [indexOpen, setIndexOpen] = useState(false);
   const [filters, setFilters] = useState<Filters>(EMPTY);
   // `?plan=<slug>` (desde Planes) abre la lista filtrada por ese plan.
   useEffect(() => {
@@ -591,6 +593,9 @@ export default function AdminTenantsPage() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button variant="outline" size="sm" onClick={() => setIndexOpen(true)}>
+            Indexación en Google
+          </Button>
           <Button variant="outline" size="sm" onClick={exportCsv} disabled={rows.length === 0}>
             <Download className="mr-1.5 size-4" /> CSV
           </Button>
@@ -601,6 +606,7 @@ export default function AdminTenantsPage() {
           )}
         </div>
         <NewTenantDialog open={newOpen} onClose={() => setNewOpen(false)} />
+        <WebIndexingPreviewDialog open={indexOpen} onClose={() => setIndexOpen(false)} />
       </div>
 
       <div className="flex gap-1 border-b">

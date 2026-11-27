@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config';
 import {
   DEMO_TENANT_TAG,
+  decideWebIndexing,
+  type WebIndexingMode,
   SUSPENSION_WEB_OFFLINE_DAYS,
   suspensionDays,
   areaPageLinks,
@@ -755,6 +757,10 @@ export class LandingService {
    * logo NO se gatean por `web_premium` (son parte del white-label base).
    */
   /** Suspendido desde hace 15 días o más: su web deja de verse. */
+  private suspendedDays(t: { canceledAt: Date | null; updatedAt: Date }): number {
+    return suspensionDays(t.canceledAt ?? t.updatedAt);
+  }
+
   private webOffline(t: { canceledAt: Date | null; updatedAt: Date }): boolean {
     return suspensionDays(t.canceledAt ?? t.updatedAt) >= SUSPENSION_WEB_OFFLINE_DAYS;
   }
@@ -777,6 +783,7 @@ export class LandingService {
         contactEmail: true,
         updatedAt: true,
         tags: true,
+        webIndexing: true,
       },
     });
     if (!tenant || tenant.deletedAt) {
@@ -813,7 +820,14 @@ export class LandingService {
       faviconUrl: tenant.webFaviconKey
         ? this.files.buildPublicUrl('public', tenant.webFaviconKey)
         : null,
-      noindex: tenant.tags.includes(DEMO_TENANT_TAG),
+      // Indexación del tenant (D3): la misma decisión que el sitemap.
+      noindex: !decideWebIndexing({
+        webPublished: webPublished(readiness),
+        status: tenant.status,
+        isDemo: tenant.tags.includes(DEMO_TENANT_TAG),
+        suspendedDays: tenant.status === 'suspended' ? this.suspendedDays(tenant) : null,
+        mode: tenant.webIndexing as WebIndexingMode,
+      }).indexable,
     };
   }
 
@@ -996,17 +1010,37 @@ export class LandingService {
   }
 
   async sitemap(): Promise<PublicSitemapDto> {
-    const tenants = await this.admin.tenant.findMany({
+    // Mismo criterio que la web (`decideWebIndexing`): publicada (cuenta verificada
+    // y local activo), modo no «off» y, en automático, negocio activo o en prueba y
+    // no demo. Con el modo automático, el resultado es el de siempre.
+    const candidates = await this.admin.tenant.findMany({
       where: {
         deletedAt: null,
-        status: { in: ['trial', 'active'] },
+        webIndexing: { not: 'off' },
         users: { some: { emailVerifiedAt: { not: null } } },
         facilities: { some: { deletedAt: null, isActive: true } },
-        // La cuenta de demostración no es un negocio real: fuera de Google.
-        NOT: { tags: { has: DEMO_TENANT_TAG } },
       },
-      select: { slug: true, updatedAt: true, customDomain: true, customDomainVerifiedAt: true },
+      select: {
+        slug: true,
+        updatedAt: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        status: true,
+        tags: true,
+        webIndexing: true,
+        canceledAt: true,
+      },
     });
+    const tenants = candidates.filter(
+      (t) =>
+        decideWebIndexing({
+          webPublished: true,
+          status: t.status,
+          isDemo: t.tags.includes(DEMO_TENANT_TAG),
+          suspendedDays: t.status === 'suspended' ? this.suspendedDays(t) : null,
+          mode: t.webIndexing as WebIndexingMode,
+        }).inSitemap,
+    );
     if (tenants.length === 0) return { entries: [] };
 
     const [facilities, blogPosts, promos] = await Promise.all([
