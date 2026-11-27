@@ -3454,3 +3454,29 @@ Primera PR de la fase 1 del plan de SEO de las webs (`docs/SEO_WEBS_PLAN.md`). S
 5. `curl -A Googlebot` a `/s/<slug>`: el `<title>` y la descripción llegan dentro del `<head>`.
 
 **Rollback**: son cabeceras, metadatos y `robots.txt`; no hay datos ni migraciones. Revertir los commits de la PR (`git revert`) devuelve el comportamiento anterior. Google tardará en volver a rastrear las rutas que dejan de bloquearse.
+
+## 213. SEO web: indexación por tenant (fase 1, PR 2)
+
+Segunda PR de la fase 1 del plan de SEO de las webs (`docs/SEO_WEBS_PLAN.md`, decisión D3). Añade el control de indexación de cada web: automático, sí o no, en la ficha del tenant del panel admin. No cambia ninguna URL, ni la reserva, el cobro, la firma, el portal ni los dominios propios.
+
+- **Migración** `20270327100000_tenant_web_indexing`: añade `tenants.web_indexing` (`auto` | `on` | `off`, por defecto `auto`, con `CHECK`). Solo añade la columna; ningún tenant cambia de valor.
+- **Regla única** (`packages/shared/src/web/indexing.ts`, `decideWebIndexing`). La usan el sitemap y los datos que llegan a la web (`noindex` de cada página del tenant), así que no hay dos reglas que puedan divergir.
+  - `auto`: indexable si la web está publicada (cuenta verificada y algún local activo), el negocio está activo o en prueba y no es la cuenta de demostración.
+  - Suspendidos: **15 días**, el mismo plazo que ya usa la web para dejar de servirse (`SUSPENSION_WEB_OFFLINE_DAYS`, contado desde `canceled_at`). Hasta entonces la página sigue como hoy: indexable, pero fuera del sitemap (el sitemap ya excluía a los suspendidos). A partir del día 15, fuera del índice y del sitemap.
+  - Dados de baja: fuera del índice al instante.
+  - `on`: fuerza indexable (si la web está publicada). Ignora demo, suspensión y baja. Es la excepción a propósito.
+  - `off`: noindex y fuera del sitemap, siempre.
+  - **Textos legales** (aviso legal, privacidad, cookies, condiciones): siempre `noindex, follow`, con cualquier modo (`legalDocRobots`). Decisión del dueño.
+- **Por qué `auto` no cambia el sitemap de nadie**: el filtro del sitemap de antes era publicada + trial/active + no demo, y la regla nueva da lo mismo. Está demostrado con un test que recorre todas las combinaciones de estado, demo y publicación (`todayWebIndexing` = el comportamiento anterior). Lo que sí cambia en `auto`, en la metaetiqueta `robots` (no en el sitemap): los negocios **dados de baja**, los **suspendidos de 15 días o más** y las webs **sin publicar** (cuenta sin verificar o sin local activo). Son los que la regla quiere sacar del índice.
+- **Panel de super admin**: en la ficha del tenant, tarjeta «Indexación en Google» con el estado calculado (indexable o no, en el sitemap o no, y por qué) y el selector Automático / Sí / No con la explicación de cada modo. Solo `superadmin` lo cambia (`PUT /admin/web-indexing/tenants/:id`, auditado en `audit_logs` y `super_admin_audit_logs`); soporte lo ve en solo lectura.
+- **Lista previa**: en Tenants, el botón «Indexación en Google» abre la lista de todos los tenants (`GET /admin/web-indexing/preview`, solo lectura): lo que ve Google hoy frente a lo que vería con la regla y el modo guardado. Por defecto solo muestra los que cambian.
+
+**Qué comprobar antes y después de desplegar**
+
+1. Antes de dejar la regla activa, abrir Tenants → «Indexación en Google» y revisar la lista de los que cambian. Esperado: solo bajas, suspendidos de 15 días o más y webs sin publicar. Si sale un negocio activo con web publicada, parar y mirarlo.
+2. `jota` (la cuenta de pruebas): si no tiene la etiqueta `demo`, la regla automática no la saca del índice. D3 dice que debe quedar en **«No»**: ponerlo a mano desde su ficha. No se cambia por código.
+3. `https://trasteros.pro/s/<slug>` de un negocio activo: `<meta name="robots">` con `index` y el slug en `/sitemap.xml`.
+4. `https://trasteros.pro/s/<slug>/aviso-legal` (y privacidad, cookies, condiciones): `noindex, follow` siempre.
+5. Un negocio en «No»: fuera de `/sitemap.xml` y con `noindex` en su portada.
+
+**Rollback**: no hay migración destructiva ni se borran datos. Poner el tenant en `on` o `auto` devuelve el comportamiento de la regla; revertir el commit deja la columna sin uso y todo vuelve a como estaba. Google tarda en reflejar los cambios de `noindex` y de sitemap.
