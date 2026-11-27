@@ -6,6 +6,7 @@ import type { Metadata } from 'next';
 
 import { appName, iconVersion, tenantIconPath, tenantManifestPath } from '@/lib/portal/tenant-app';
 import { fetchPortalBrand } from '@/lib/portal/tenant-app.server';
+import { NOINDEX_ROBOTS, tenantPageMetadata } from '@/lib/seo/tenant-metadata';
 
 type Props = { searchParams: Promise<{ slug?: string }> };
 
@@ -22,14 +23,24 @@ async function resolveSlug(searchParams: Props['searchParams']): Promise<string 
   return querySlug || domainSlug || null;
 }
 
-/** Con operador, la app que se instala lleva su nombre, color e icono. */
+/**
+ * Con operador, la página y la app que se instala llevan su nombre, color e
+ * icono, y su propia descripción (sin la de TrasterOS). Acceso de clientes:
+ * no se indexa (también lo pide el `X-Robots-Tag` del middleware).
+ */
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const slug = await resolveSlug(searchParams);
   const brand = slug ? await fetchPortalBrand(slug) : null;
-  if (!slug || !brand || brand.portalUnavailable) return {};
+  if (!slug || !brand || brand.portalUnavailable) return { robots: NOINDEX_ROBOTS };
   const name = appName(brand.tenantName);
+  const title = `Acceso de clientes · ${name}`;
   return {
-    title: `Acceso de clientes · ${name}`,
+    ...tenantPageMetadata({
+      tenantName: brand.tenantName,
+      title,
+      description: `Entra en tu área de clientes de ${brand.tenantName}: contratos, facturas, accesos y mensajes.`,
+    }),
+    robots: NOINDEX_ROBOTS,
     manifest: tenantManifestPath(slug),
     appleWebApp: { capable: true, statusBarStyle: 'default', title: name },
     icons: {

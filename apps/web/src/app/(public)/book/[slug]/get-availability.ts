@@ -8,6 +8,7 @@ import {
   intlLocaleFor,
   type PublicWebLocale,
 } from '@/app/(public)/s/[slug]/i18n/messages';
+import { NOINDEX_ROBOTS, tenantPageMetadata } from '@/lib/seo/tenant-metadata';
 import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 
 const API_URL = SERVER_API_URL;
@@ -52,15 +53,27 @@ async function fallbackMessage(locale: PublicWebLocale): Promise<string> {
 }
 
 /**
- * Título de la página de reserva con la marca del tenant (sin la plantilla
- * «· TrasterOS» del layout raíz: en su dominio propio es su web).
+ * Metadatos de la página de reserva con la marca del tenant (sin la plantilla
+ * «· TrasterOS» ni la descripción del layout raíz: en su dominio propio es su
+ * web). Es una página transaccional: lleva `noindex` (también por cabecera).
  */
 export async function bookingMetadata(slug: string, locale: PublicWebLocale): Promise<Metadata> {
   const { data } = await getBookingAvailability(slug, locale);
-  if (!data) return { title: { absolute: locale === 'en' ? 'Book' : 'Reservar' } };
-  const title =
-    locale === 'en'
-      ? `Book a storage unit online · ${data.tenantName}`
-      : `Reserva tu trastero online · ${data.tenantName}`;
-  return { title: { absolute: title }, openGraph: { title, siteName: data.tenantName } };
+  if (!data) {
+    return {
+      title: { absolute: locale === 'en' ? 'Book' : 'Reservar' },
+      robots: NOINDEX_ROBOTS,
+    };
+  }
+  const en = locale === 'en';
+  const title = en
+    ? `Book a storage unit online · ${data.tenantName}`
+    : `Reserva tu trastero online · ${data.tenantName}`;
+  const description = en
+    ? `Book a storage unit with ${data.tenantName}: pick the size and the location, sign and pay in minutes.`
+    : `Reserva online un trastero en ${data.tenantName}: elige tamaño y local, firma y paga en minutos.`;
+  return {
+    ...tenantPageMetadata({ tenantName: data.tenantName, title, description, locale }),
+    robots: NOINDEX_ROBOTS,
+  };
 }

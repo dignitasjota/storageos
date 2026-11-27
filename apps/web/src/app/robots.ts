@@ -1,4 +1,4 @@
-import { ROBOTS_PRIVATE_PATHS } from '@storageos/shared';
+import { platformRobotsRules } from '@storageos/shared';
 
 import type { MetadataRoute } from 'next';
 
@@ -12,21 +12,18 @@ function siteUrl(): string {
   ).replace(/\/$/, '');
 }
 
-const PRIVATE = [...ROBOTS_PRIVATE_PATHS];
-
 /**
- * robots.txt: indexa la home y las landings públicas (`/s/`); bloquea el panel
- * de staff/admin, el portal del inquilino, el widget embebible y la API. Si en
- * panel admin → Web de TrasterOS → SEO se desactiva la indexación, se bloquea
- * la web de la plataforma pero no las de los tenants (`/s/`).
+ * robots.txt de la plataforma: indexa la home y las webs públicas de los
+ * tenants (`/s/`). No bloquea ninguna página: lo que no debe salir en Google
+ * lleva `noindex` (ver `WEB_NOINDEX_PREFIXES`). Si en panel admin → Web de
+ * TrasterOS → SEO se desactiva la indexación, se bloquea la web de la
+ * plataforma pero no las de los tenants (`/s/`).
  */
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const base = siteUrl();
   const { seo } = await fetchPlatformWebsite();
   return {
-    rules: seo.indexable
-      ? { userAgent: '*', allow: ['/', '/s/'], disallow: PRIVATE }
-      : { userAgent: '*', allow: ['/s/'], disallow: ['/', ...PRIVATE] },
+    rules: platformRobotsRules(seo.indexable),
     sitemap: `${base}/sitemap.xml`,
   };
 }

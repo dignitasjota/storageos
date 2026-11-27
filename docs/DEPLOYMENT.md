@@ -3432,3 +3432,25 @@ Migración `20270324100000_seo_improvements` (se aplica sola). Variables nuevas,
 - **Arranque automático**: al conectar el dominio principal de un tenant sale un primer rastreo, una medición de velocidad y un rastreo mensual.
 - **Venta**: regla de oportunidad de `seo_advanced` y descripción del extra sin «Próximamente»; la exportación del tenant incluye proyecto, competidores e importaciones.
 - **Qué comprobar tras desplegar**: (1) un tenant con SEO Avanzado ve «Marca / sin marca» en Rendimiento; (2) en Panel admin → SEO → Integraciones, «Probar la API» pide autorización y no gasta nada sin ella; (3) Oportunidades del admin propone el extra a quien supere los clics.
+
+## 212. SEO web: noindex, robots y canónicas (fase 1, PR 1)
+
+Primera PR de la fase 1 del plan de SEO de las webs (`docs/SEO_WEBS_PLAN.md`). Solo cabeceras, metadatos, `robots.txt` y códigos de respuesta: no cambia ninguna URL pública ni ningún flujo de reserva, cobro, firma o portal.
+
+- **Noindex también en los dominios propios (B1, decisión D5)**: el middleware pone `X-Robots-Tag: noindex, nofollow` a las rutas de reserva (`/reservar…` y `/book/…`), portal, firma, pago, reseña, baja, widget, panel y los tokens de un solo uso, también cuando llegan por el dominio propio del tenant. Antes solo lo ponía en la plataforma. La lista vive en `packages/shared/src/web/noindex.ts` (`WEB_NOINDEX_PREFIXES`, `isNoindexPath`). Las páginas de reserva, acceso de clientes y legales además llevan `noindex` en la metaetiqueta.
+- **`robots.txt` sin rutas transaccionales (B2)**: el de la plataforma (`app/robots.ts`) y el de cada dominio propio (`tenant-seo/[slug]/robots`) ya no bloquean reserva, portal, firma ni pago. Google tiene que poder leer el `noindex`. Solo se bloquea `/api/`. Un test en `@storageos/shared` comprueba que ninguna ruta con `noindex` aparece en `Disallow`.
+- **Canónica sin barra final (B3)**: la canónica y los `hreflang` de una web de tenant sin dominio propio son `/s/<slug>` y `/s/<slug>/l/en` (antes `/s/<slug>/`, que redirige). Con dominio propio la raíz conserva su barra (`https://dominio/`). Helper `tenantPageUrl` y test.
+- **`/Blog` da 404 (B15)**: Express no distingue mayúsculas y `/s/<slug>/Blog` caía en el listado del blog. Ahora un segmento que no coincide exacto da 404 limpio. Test e2e en `landing-blog`.
+- **`/l/es/…` da 308 (B16, parte)**: la versión en español que vuelve a la ruta sin idioma es una redirección permanente (`permanentRedirect`), no 307. El resto de B16 (404 propia, `lastmod`, zonas renombradas…) queda para otras PR.
+- **Metadatos en el `<head>` para Googlebot (M1)**: `htmlLimitedBots` en `next.config.mjs` incluye Googlebot y su inspector. Sin esto, Google leía título, descripción, robots y canónica dentro del `<body>`.
+- **Marca del tenant en reserva, acceso de clientes y textos legales (B11)**: `apps/web/src/lib/seo/tenant-metadata.ts` declara título absoluto, descripción, Open Graph y twitter con el nombre del tenant. Antes Next heredaba los del layout raíz (TrasterOS). El 404 del tenant queda para la PR de la página 404 propia (C8), porque la página `not-found` de Next no recibe el tenant.
+
+**Qué comprobar tras desplegar**
+
+1. `https://<dominio propio>/reservar` y `/portal/login`: cabecera `x-robots-tag: noindex, nofollow` y `<meta name="robots">` con `noindex`; la reserva, el portal y la firma siguen funcionando.
+2. `https://<dominio propio>/robots.txt`: sin `Disallow` de `/reservar`, `/book`, `/portal`, `/sign` ni `/pay`; con `Sitemap:`.
+3. `https://trasteros.pro/s/<slug>/` redirige a `/s/<slug>` (308) y la canónica de `/s/<slug>` no lleva barra final.
+4. `https://trasteros.pro/s/<slug>/Blog` da 404; `https://trasteros.pro/s/<slug>/l/es` da 308 a `/s/<slug>`.
+5. `curl -A Googlebot` a `/s/<slug>`: el `<title>` y la descripción llegan dentro del `<head>`.
+
+**Rollback**: son cabeceras, metadatos y `robots.txt`; no hay datos ni migraciones. Revertir los commits de la PR (`git revert`) devuelve el comportamiento anterior. Google tardará en volver a rastrear las rutas que dejan de bloquearse.

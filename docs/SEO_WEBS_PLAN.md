@@ -466,3 +466,17 @@ Una página «trasteros en Valencia» sin local allí debe ser una guía o landi
 
 - D1 y D4 necesitan trabajo de infraestructura: DNS comodín `*.trasteros.pro` y certificado comodín en el proxy (Let's Encrypt con desafío DNS). No se puede hacer solo con código.
 - Pendiente de confirmar: `trasteros.pro/s/<slug>` de un tenant con dominio propio (hoy da 200 con canónica): propongo 308 al dominio propio. Y el de un tenant sin dominio propio: propongo 308 a `<slug>.trasteros.pro`.
+
+## Estado de la implementación
+
+**Fase 1, PR 1 (`feat/seo-web-noindex-robots`)**: noindex en dominios propios y `robots.txt` sin rutas transaccionales, canónica sin barra, `/Blog` 404, `/l/es` 308, Googlebot en el `<head>` y marca del tenant en reserva, acceso y legales. Detalle y comprobaciones en `docs/DEPLOYMENT.md §212`.
+
+| Id  | Estado                  | Commit                                                             |
+| --- | ----------------------- | ------------------------------------------------------------------ |
+| B1  | hecho                   | `bb3cf840` (noindex por cabecera en dominios propios y plataforma) |
+| B2  | hecho                   | `bb3cf840` (robots sin rutas con noindex)                          |
+| B3  | hecho                   | `946dad2d` (canónica y hreflang sin barra final)                   |
+| B15 | hecho                   | `bcdb8626` (`/Blog` → 404; e2e en `landing-blog`)                  |
+| B16 | parcial (`/l/es` → 308) | `bf6aba5a`; resto pendiente (404 propia, `lastmod`, zonas, etc.)   |
+| M1  | hecho                   | `7b0f9f23` (Googlebot en `htmlLimitedBots`)                        |
+| B11 | parcial (sin el 404)    | `85872963` (reserva, acceso y legales); el 404 va con C8 (PR 7)    |

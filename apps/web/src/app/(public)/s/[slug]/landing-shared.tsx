@@ -1,4 +1,9 @@
-import { faqInLanguage, type LandingSection, type PublicLandingDto } from '@storageos/shared';
+import {
+  faqInLanguage,
+  type LandingSection,
+  type PublicLandingDto,
+  tenantPageUrl,
+} from '@storageos/shared';
 import { notFound, redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 
@@ -178,10 +183,12 @@ function languageAlternates(
   slug: string,
 ): Record<string, string> {
   const base = data.customDomain ? `https://${data.customDomain}` : `/s/${slug}`;
+  // Sin barra final: `/s/<slug>/` redirige a `/s/<slug>` y una alternativa que
+  // redirige no vale para indexar (`tenantPageUrl`).
   return {
-    es: `${base}/`,
-    en: `${base}/l/en`,
-    'x-default': `${base}/`,
+    es: tenantPageUrl(base),
+    en: tenantPageUrl(base, 'l/en'),
+    'x-default': tenantPageUrl(base),
   };
 }
 
@@ -236,7 +243,7 @@ export async function buildLandingMetadata(
   if (section) return sectionMetadata(data, base, where, section, locale);
   // Con dominio propio activo, el canonical apunta a él (versión canónica);
   // así la ruta `/s/<slug>` de la plataforma no compite por SEO.
-  const canonical = locale === 'en' ? `${base}/l/en` : `${base}/`;
+  const canonical = locale === 'en' ? tenantPageUrl(base, 'l/en') : tenantPageUrl(base);
   return {
     // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
     title: { absolute: title },

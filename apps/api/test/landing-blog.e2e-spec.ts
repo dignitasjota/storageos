@@ -31,6 +31,27 @@ describe('Blog público de la landing (e2e)', () => {
     expect(detail.status).toBe(404);
   });
 
+  it('B15: `/Blog` (mayúscula) da 404 limpio, no 500 ni el listado del blog', async () => {
+    const owner = await registerVerifiedUser(app, 'blog-pub-case');
+    await setTenantFeatureOverride(owner.slug, 'web_premium', true);
+
+    // Express enruta sin distinguir mayúsculas: sin la comprobación literal
+    // `/Blog` caía en la ruta del listado (y el web lo trataba como un local).
+    const upper = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/Blog`);
+    expect(upper.status).toBe(404);
+    expect(upper.body.posts).toBeUndefined();
+
+    const mixed = await request(app.getHttpServer()).get(
+      `/public/landing/${owner.slug}/Blog/una-entrada`,
+    );
+    expect(mixed.status).toBe(404);
+
+    // La ruta exacta sigue respondiendo.
+    const exact = await request(app.getHttpServer()).get(`/public/landing/${owner.slug}/blog`);
+    expect(exact.status).toBe(200);
+    expect(Array.isArray(exact.body.posts)).toBe(true);
+  });
+
   it('con la feature: solo se listan/sirven las entradas publicadas', async () => {
     const owner = await registerVerifiedUser(app, 'blog-pub-on');
     const auth = { Authorization: `Bearer ${owner.accessToken}` };

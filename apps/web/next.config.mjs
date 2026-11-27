@@ -130,6 +130,12 @@ function imagesConfig() {
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@storageos/ui'],
+  // Bots que deben recibir `<title>`, descripción, robots y canónica en el
+  // `<head>` (y no en el `<body>` con el resto del streaming). Next trae una
+  // lista por defecto sin Googlebot: sin esto Google leía esos metadatos en el
+  // `<body>`, donde no cuentan igual. Se añade Googlebot y su inspector.
+  htmlLimitedBots:
+    /Googlebot|Google-InspectionTool|Mediapartners-Google|Slurp|DuckDuckBot|baiduspider|yandex|sogou|bitlybot|tumblr|vkShare|quora link preview|redditbot|ia_archiver|Bingbot|BingPreview|applebot|facebookexternalhit|facebookcatalog|Twitterbot|LinkedInBot|Slackbot|Discordbot|WhatsApp|SkypeUriPreview/i,
   // pnpm + Next dev (webpack): con `resolve.symlinks` por defecto (true),
   // webpack resuelve el symlink de los paquetes del workspace a su ruta
   // real (`packages/*`, FUERA de node_modules), por lo que el loader de
