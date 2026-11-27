@@ -45,6 +45,7 @@ export * from './web/search-console';
 export * from './web/secret-paths';
 export * from './web/legal';
 export * from './web/noindex';
+export * from './web/tenant-url';
 export * from './accounting';
 export * from './notifications';
 export * from './reviews';

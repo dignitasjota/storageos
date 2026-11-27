@@ -1,8 +1,4 @@
-import {
-  WEB_NOINDEX_PREFIXES,
-  matchesPathPrefix,
-  resolveCustomDomainRoute,
-} from '@storageos/shared';
+import { isNoindexPath, resolveCustomDomainRoute } from '@storageos/shared';
 import { type NextRequest, NextResponse } from 'next/server';
 
 import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
@@ -21,13 +17,15 @@ import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 const PROTECTED = ['/dashboard', '/settings'];
 
 /**
- * Páginas de la plataforma sin valor para los buscadores (acceso, enlaces de un
- * solo uso, pagos, portal…): se piden «no indexar» con `X-Robots-Tag` (muchas
- * son componentes de cliente que no pueden declarar metadatos). La lista vive
- * en `@storageos/shared`: la usan también `robots.txt` y SEO Avanzado.
+ * Páginas sin valor para los buscadores (acceso, enlaces de un solo uso, reserva,
+ * pagos, portal, panel…), también en los dominios propios de los tenants: se
+ * piden «no indexar» con `X-Robots-Tag` (muchas son componentes de cliente que
+ * no pueden declarar metadatos). La lista vive en `@storageos/shared`: la usan
+ * también las metaetiquetas, `robots.txt` y SEO Avanzado. La ruta que se mira
+ * es la que ve el navegador (`/reservar…`), no la reescrita (`/book/…`).
  */
 function withNoindex(pathname: string, res: NextResponse): NextResponse {
-  if (WEB_NOINDEX_PREFIXES.some((p) => matchesPathPrefix(pathname, p))) {
+  if (isNoindexPath(pathname)) {
     res.headers.set('X-Robots-Tag', 'noindex, nofollow');
   }
   return res;
@@ -143,7 +141,7 @@ function platformProtection(req: NextRequest): NextResponse {
   if (pathname.startsWith('/widget/')) return allowWidgetFraming(passThrough(req));
 
   const isProtected = PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-  if (!isProtected) return withNoindex(pathname, passThrough(req));
+  if (!isProtected) return passThrough(req);
 
   const refresh = req.cookies.get('refresh_token');
   if (refresh && refresh.value) return passThrough(req);
@@ -193,7 +191,7 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
         // no `route.path` — por eso se marca con una cabecera para que el
         // layout público (server) fuerce el marco "sin plataforma".
         headers.set('x-storageos-tenant-public', '1');
-        return NextResponse.rewrite(url, { request: { headers } });
+        return withNoindex(pathname, NextResponse.rewrite(url, { request: { headers } }));
       }
       if (route.action === 'redirectToPlatform' && PLATFORM_HOST) {
         return NextResponse.redirect(
@@ -202,13 +200,13 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
         );
       }
       const res = NextResponse.next({ request: { headers } });
-      return pathname.startsWith('/widget/') ? allowWidgetFraming(res) : res;
+      return withNoindex(pathname, pathname.startsWith('/widget/') ? allowWidgetFraming(res) : res);
     }
     // Host no resoluble (dominio no registrado/verificado): pasa tal cual.
   }
 
   // --- Dominio de la plataforma: protección de rutas + widget ---
-  return platformProtection(req);
+  return withNoindex(pathname, platformProtection(req));
 }
 
 export const config = {
