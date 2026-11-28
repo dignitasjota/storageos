@@ -41,7 +41,10 @@ export async function tenantIconsMetadata(slug: string): Promise<Metadata> {
 export async function tenantRobots(
   slug: string,
   indexable = true,
+  /** Petición por el subdominio `<slug>.<plataforma>`: nunca se indexa (SEO web D4). */
+  subdomain = false,
 ): Promise<{ index: boolean; follow: boolean }> {
+  if (subdomain) return { index: false, follow: false };
   const brand = await fetchBrand(slug);
   if (brand?.noindex) return { index: false, follow: false };
   return { index: indexable, follow: true };

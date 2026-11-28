@@ -3938,3 +3938,12 @@ Rutas del tenant bajo `/seo-advanced` (lectura `analytics:read`, escritura `sett
 - `PATCH keywords-batch`, `POST keywords-batch/accept-suggested-urls`, `POST keyword-groups/rename`.
 - `GET opportunities/:id/year-ago`; `GET sistrix/requests` (historial para el tenant).
 - Admin: `POST /admin/seo/sistrix/api/probe {method,...}` y `GET .../api/samples` (superadmin).
+
+### Subdominios de la plataforma (SEO web, fase 1 PR 5, 2026-11-30)
+
+- `GET /public/landing/resolve-subdomain?slug=` (público, sin versión, 120/min) → `{ found, tenantSlug, redirectHost, serves }`. `redirectHost` = dominio propio verificado (con la función en el plan) al que el subdominio redirige 308; `serves` = la web se sirve en el subdominio (publicada y negocio activo o en prueba). Identificadores reservados → `found: false`. Lo consume el middleware del web con caché de 60 s.
+- Identificadores reservados: `api`, `www`, `app`, `mail`, `admin`, `web`, `static`, `cdn`, `files`, `smtp`, `ns`, `ftp`, `status`, `docs`, `help`, `support`, `staging`, `dev`, `test`, `demo`. El alta (`POST /auth/register` y la creación de tenants por el panel) responde 400 `slug_reserved` (o, sin identificador pedido, toma el siguiente libre).
+- `GET /admin/subdomains` (cualquier rol del panel) → subdominios pendientes de crear en el proxy: `{ tenantId, tenantName, tenantSlug, status, host, redirectHost, readyAt }`.
+- `GET /admin/subdomains/:tenantId/check` (cualquier rol, solo lectura) → `{ host, ok, status, detail }`. En tests no sale a la red (`nodns` en el identificador simula «sin configurar»).
+- `PUT /admin/subdomains/:tenantId {ready}` (_superadmin_) → `{ ok: true }`. Marca el subdominio como creado (`subdomain_ready_at`) o lo devuelve a pendiente; auditado en `audit_logs` y `super_admin_audit_logs` (`admin.tenant.subdomain_ready_changed`). Soporte recibe 403 `insufficient_super_admin_role`.
+- `GET /admin/today` añade `subdomainsPending` (mismo formato que `domainsReady`, con el subdominio completo como `domain`) y lo cuenta en «por crear».

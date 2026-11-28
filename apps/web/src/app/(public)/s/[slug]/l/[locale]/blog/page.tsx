@@ -6,6 +6,8 @@ import { DEFAULT_PUBLIC_WEB_LOCALE, isPublicWebLocale } from '../../../i18n/mess
 
 import type { Metadata } from 'next';
 
+import { isTenantSubdomainRequest } from '@/lib/seo/tenant-subdomain-request';
+
 export async function generateMetadata({
   params,
 }: {
@@ -13,7 +15,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug, locale } = await params;
   if (!isPublicWebLocale(locale)) return { robots: { index: false } };
-  return buildBlogListMetadata(slug, locale);
+  return buildBlogListMetadata(slug, locale, await isTenantSubdomainRequest());
 }
 
 export default async function BlogListLocalePage({

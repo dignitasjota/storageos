@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -17,7 +18,9 @@ import {
   DEFAULT_TRIAL_PLAN_SLUG,
   DEFAULT_LEGAL_DOCUMENTS,
   effectiveFeaturesFromList,
+  isReservedTenantSlug,
   permissionsForRole,
+  RESERVED_TENANT_SLUG_MESSAGE,
   resolvePlanFeatures,
 } from '@storageos/shared';
 
@@ -1067,6 +1070,14 @@ export class AuthService {
 
   private async resolveSlug(tenantName: string, requestedSlug?: string): Promise<string> {
     if (requestedSlug) {
+      // Un identificador reservado (api, www, admin…) es de la plataforma: sus
+      // subdominios no sirven la web de ningún negocio (SEO web, D4).
+      if (isReservedTenantSlug(requestedSlug)) {
+        throw new BadRequestException({
+          code: 'slug_reserved',
+          message: RESERVED_TENANT_SLUG_MESSAGE,
+        });
+      }
       const taken = await this.admin.tenant.findUnique({ where: { slug: requestedSlug } });
       if (taken) {
         throw new ConflictException('Ese slug ya esta en uso');
@@ -1079,6 +1090,8 @@ export class AuthService {
     }
     for (let attempt = 0; attempt < 10; attempt++) {
       const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`;
+      // Un nombre que sale en reservados (p. ej. «Admin») no se usa: se sigue con el sufijo.
+      if (isReservedTenantSlug(candidate)) continue;
       const taken = await this.admin.tenant.findUnique({ where: { slug: candidate } });
       if (!taken) return candidate;
     }

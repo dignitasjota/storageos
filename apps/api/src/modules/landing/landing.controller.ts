@@ -39,6 +39,7 @@ import type {
   PublicSitemapDto,
   PublicTenantBrandDto,
   ResolveDomainDto,
+  ResolveSubdomainDto,
 } from '@storageos/shared';
 import type { Request, Response } from 'express';
 
@@ -94,6 +95,16 @@ export class LandingController {
   @Throttle({ default: { limit: 120, ttl: 60_000 } })
   resolveDomain(@Query('host') host: string): Promise<ResolveDomainDto> {
     return this.landing.resolveDomain(host ?? '');
+  }
+
+  /**
+   * Subdominio `<slug>.<plataforma>` (SEO web D4): consume el middleware del web
+   * para decidir entre redirigir al dominio propio, servir la web o dar 404.
+   */
+  @Get('resolve-subdomain')
+  @Throttle({ default: { limit: 120, ttl: 60_000 } })
+  resolveSubdomain(@Query('slug') slug: string): Promise<ResolveSubdomainDto> {
+    return this.landing.resolveSubdomain(slug ?? '');
   }
 
   /** Marca del operador por slug (login del inquilino white-label). */

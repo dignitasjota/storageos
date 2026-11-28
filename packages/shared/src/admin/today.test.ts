@@ -24,6 +24,7 @@ const empty: AdminTodayUrgencySource = {
   leadFollowupsDue: [],
   staleLeads: [],
   domainsReady: [],
+  subdomainsPending: [],
   rgpdOverdue: [],
   aeatIssues: [],
   certificatesExpiring: [],

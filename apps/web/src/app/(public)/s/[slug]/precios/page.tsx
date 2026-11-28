@@ -5,6 +5,8 @@ import { buildLandingMetadata, LandingPageBody } from '../landing-shared';
 
 import type { Metadata } from 'next';
 
+import { isTenantSubdomainRequest } from '@/lib/seo/tenant-subdomain-request';
+
 /**
  * `/precios` del dominio propio del tenant (dirección fija para campañas): la
  * web de una página, bajando sola a la sección. Solo en el dominio propio — en
@@ -20,7 +22,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  return buildLandingMetadata(slug, 'es', 'precios');
+  return buildLandingMetadata(slug, 'es', 'precios', await isTenantSubdomainRequest());
 }
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {

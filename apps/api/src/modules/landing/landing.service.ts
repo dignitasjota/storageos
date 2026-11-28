@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import {
   DEMO_TENANT_TAG,
   decideWebIndexing,
+  isReservedTenantSlug,
+  RESOLVE_SUBDOMAIN_NOT_FOUND,
+  subdomainServesWeb,
+  type ResolveSubdomainDto,
   type WebIndexingMode,
   SUSPENSION_WEB_OFFLINE_DAYS,
   suspensionDays,
@@ -898,6 +902,42 @@ export class LandingService {
           areaLinks: full.areaLinks,
         };
       })(),
+    };
+  }
+
+  /**
+   * Qué hacer con `<slug>.<plataforma>` (SEO web, D4): redirigir al dominio propio
+   * verificado, servir la web del negocio o dar 404. Sin dominio propio, la
+   * función de dominio no cuenta: el subdominio es la entrada de cada negocio.
+   */
+  async resolveSubdomain(slug: string): Promise<ResolveSubdomainDto> {
+    const name = slug.trim().toLowerCase();
+    if (!name || isReservedTenantSlug(name)) return RESOLVE_SUBDOMAIN_NOT_FOUND;
+    const tenant = await this.admin.tenant.findUnique({
+      where: { slug: name },
+      select: {
+        id: true,
+        status: true,
+        deletedAt: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+      },
+    });
+    if (!tenant || tenant.deletedAt) return RESOLVE_SUBDOMAIN_NOT_FOUND;
+    // Dominio propio verificado y con la función en su plan: el subdominio le
+    // redirige (308). Sin la función (bajó de plan) vuelve a servirse aquí.
+    const redirectHost =
+      tenant.customDomain &&
+      tenant.customDomainVerifiedAt &&
+      (await tenantHasFeature(this.admin, tenant.id, 'custom_domain'))
+        ? tenant.customDomain
+        : null;
+    const readiness = await tenantReadiness(this.admin, tenant.id);
+    return {
+      found: true,
+      tenantSlug: name,
+      redirectHost,
+      serves: subdomainServesWeb({ webPublished: webPublished(readiness), status: tenant.status }),
     };
   }
 

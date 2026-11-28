@@ -91,6 +91,7 @@ function listLanguageAlternates(
 export async function buildBlogListMetadata(
   slug: string,
   locale: PublicWebLocale,
+  subdomain = false,
 ): Promise<Metadata> {
   const data = await getBlogList(slug);
   if (!data) {
@@ -113,7 +114,7 @@ export async function buildBlogListMetadata(
     title: { absolute: title },
     description,
     alternates: { canonical, languages: listLanguageAlternates(data, slug) },
-    robots: await tenantRobots(slug),
+    robots: await tenantRobots(slug, true, subdomain),
     openGraph: {
       title,
       description,
@@ -150,6 +151,7 @@ export async function buildBlogPostMetadata(
   slug: string,
   postSlug: string,
   locale: PublicWebLocale,
+  subdomain = false,
 ): Promise<Metadata> {
   const found = await lookupBlogPost(slug, postSlug);
   // Dirección antigua: la página redirige (308); no se indexa.
@@ -178,7 +180,7 @@ export async function buildBlogPostMetadata(
     title: { absolute: title },
     description,
     alternates: { canonical, languages: postLanguageAlternates(data, slug, postSlug) },
-    robots: await tenantRobots(slug),
+    robots: await tenantRobots(slug, true, subdomain),
     openGraph: {
       title,
       description,

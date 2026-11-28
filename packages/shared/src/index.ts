@@ -40,6 +40,7 @@ export * from './web/web-analytics';
 export * from './web/ga4';
 export * from './web/sitemap-xml';
 export * from './web/indexing';
+export * from './web/subdomain';
 export * from './web/city-pages';
 export * from './web/area-pages';
 export * from './web/search-console';

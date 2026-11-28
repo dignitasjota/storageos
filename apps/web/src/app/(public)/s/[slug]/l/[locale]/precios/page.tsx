@@ -7,13 +7,15 @@ import { buildLandingMetadata, LandingPageBody } from '../../../landing-shared';
 
 import type { Metadata } from 'next';
 
+import { isTenantSubdomainRequest } from '@/lib/seo/tenant-subdomain-request';
+
 type Params = { params: Promise<{ slug: string; locale: string }> };
 
 /** `/l/<idioma>/precios` del dominio propio (la misma web bajando a la sección). */
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug, locale } = await params;
   if (!isPublicWebLocale(locale)) return { robots: { index: false } };
-  return buildLandingMetadata(slug, locale, 'precios');
+  return buildLandingMetadata(slug, locale, 'precios', await isTenantSubdomainRequest());
 }
 
 export default async function Page({ params }: Params) {
