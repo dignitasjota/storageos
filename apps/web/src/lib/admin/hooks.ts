@@ -216,6 +216,9 @@ import type {
   TenantResetInput,
   TenantResetPreviewDto,
   TenantResetResultDto,
+  AdminTenantWebIndexingDto,
+  AdminWebIndexingPreviewDto,
+  WebIndexingMode,
 } from '@storageos/shared';
 
 // ============================================================================
@@ -3512,5 +3515,40 @@ export function useRemovePlatformBlogCover() {
         json: { coverImageKey: null },
       }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: PLATFORM_BLOG_KEY }),
+  });
+}
+
+/** Indexación en Google de un tenant (decisión y modo guardado). */
+export function useAdminTenantWebIndexing(id: string | undefined) {
+  return useQuery({
+    queryKey: ['admin', 'tenants', id, 'web-indexing'] as const,
+    queryFn: () => adminApiFetch<AdminTenantWebIndexingDto>(`/admin/web-indexing/tenants/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+/** Cambia el modo de indexación (solo super admin). */
+export function useSetWebIndexing(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: WebIndexingMode) =>
+      adminApiFetch<AdminTenantWebIndexingDto>(`/admin/web-indexing/tenants/${id}`, {
+        method: 'PUT',
+        json: { mode },
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'tenants', id, 'web-indexing'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'web-indexing', 'preview'] });
+    },
+  });
+}
+
+/** Lista previa de la indexación de todos los tenants (solo lectura). */
+export function useAdminWebIndexingPreview(enabled = true) {
+  return useQuery({
+    queryKey: ['admin', 'web-indexing', 'preview'] as const,
+    queryFn: () => adminApiFetch<AdminWebIndexingPreviewDto>('/admin/web-indexing/preview'),
+    enabled,
+    staleTime: 30_000,
   });
 }

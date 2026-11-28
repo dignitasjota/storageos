@@ -90,6 +90,8 @@ import { AdminTodayController } from './admin-today.controller';
 import { AdminTodayService } from './admin-today.service';
 import { AdminTrialsOpsService } from './admin-trials-ops.service';
 import { AdminUsageService } from './admin-usage.service';
+import { AdminWebIndexingController } from './admin-web-indexing.controller';
+import { AdminWebIndexingService } from './admin-web-indexing.service';
 import { AdminGuard } from './admin.guard';
 import { AeatCertExpiryCron } from './aeat-cert-expiry.cron';
 import { AeatCertExpiryService } from './aeat-cert-expiry.service';
@@ -228,6 +230,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     AdminPushController,
     AdminTenantsOverviewController,
     AdminBillingOpsController,
+    AdminWebIndexingController,
     AdminQuoteController,
     AdminOpportunitiesController,
     AdminPaymentSettingsController,
@@ -275,6 +278,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
   ],
   providers: [
     SalesNotifyService,
+    AdminWebIndexingService,
     AdminFollowupsInboxService,
     AdminTrialsOpsService,
     AdminAtRiskOpsService,

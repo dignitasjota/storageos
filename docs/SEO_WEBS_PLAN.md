@@ -471,6 +471,8 @@ Una página «trasteros en Valencia» sin local allí debe ser una guía o landi
 
 **Fase 1, PR 1 (`feat/seo-web-noindex-robots`)**: noindex en dominios propios y `robots.txt` sin rutas transaccionales, canónica sin barra, `/Blog` 404, `/l/es` 308, Googlebot en el `<head>` y marca del tenant en reserva, acceso y legales. Detalle y comprobaciones en `docs/DEPLOYMENT.md §212`.
 
+**Fase 1, PR 2 (`feat/seo-web-indexing`)**: control de indexación por tenant (D3): columna `tenants.web_indexing`, regla única `decideWebIndexing` para sitemap y `noindex`, suspendidos a 15 días, bajas fuera del índice y lista previa en el panel admin. Los textos legales siempre `noindex`. Detalle en `docs/DEPLOYMENT.md §213`.
+
 | Id  | Estado                  | Commit                                                             |
 | --- | ----------------------- | ------------------------------------------------------------------ |
 | B1  | hecho                   | `bb3cf840` (noindex por cabecera en dominios propios y plataforma) |
@@ -478,5 +480,7 @@ Una página «trasteros en Valencia» sin local allí debe ser una guía o landi
 | B3  | hecho                   | `946dad2d` (canónica y hreflang sin barra final)                   |
 | B15 | hecho                   | `bcdb8626` (`/Blog` → 404; e2e en `landing-blog`)                  |
 | B16 | parcial (`/l/es` → 308) | `bf6aba5a`; resto pendiente (404 propia, `lastmod`, zonas, etc.)   |
+| B4  | hecho                   | `6b7f8b4c` (control `web_indexing` automático / sí / no, D3)       |
+| B13 | hecho                   | `6b7f8b4c` (suspendido 15 días o más y bajas fuera del índice)     |
 | M1  | hecho                   | `7b0f9f23` (Googlebot en `htmlLimitedBots`)                        |
 | B11 | parcial (sin el 404)    | `85872963` (reserva, acceso y legales); el 404 va con C8 (PR 7)    |

@@ -49,6 +49,7 @@ import { TenantNotesCard } from './tenant-notes-card';
 import { TenantSummaryCard } from './tenant-summary-card';
 import { TenantTimelineCard } from './tenant-timeline-card';
 import { TenantUsersDialog } from './tenant-users-dialog';
+import { WebIndexingCard } from './web-indexing-card';
 import { WhatsappAiCard } from './whatsapp-ai-card';
 
 import { AdminError } from '@/components/admin/admin-error';
@@ -483,6 +484,7 @@ export default function AdminTenantDetailPage() {
             </Card>
 
             <TenantHealthCard tenantId={id} />
+            <WebIndexingCard tenantId={id} />
             <OnboardingCard tenantId={id} />
             <FeatureOverridesCard tenantId={id} />
             <AiUsageCard tenantId={id} />
