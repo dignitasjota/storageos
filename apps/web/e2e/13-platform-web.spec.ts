@@ -40,8 +40,47 @@ test.describe('Web de TrasterOS', () => {
     await expect(page.getByText(/127 trasteros alquilados/)).toBeVisible();
   });
 
-  test('una funcionalidad que no existe da 404', async ({ page }) => {
+  test('una funcionalidad que no existe da 404 en español con enlace a la portada', async ({
+    page,
+  }) => {
     const res = await page.goto('/funcionalidades/no-existe');
     expect(res?.status()).toBe(404);
+    await expect(page.getByText('Esta página no existe')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Ir a la portada' })).toHaveAttribute('href', '/');
+  });
+
+  test('el menú de la cabecera está en el HTML inicial (sin abrirlo)', async ({ request }) => {
+    const html = await (await request.get('/')).text();
+    expect(html).toContain('/funcionalidades/facturacion-veri-factu');
+    expect(html).toContain('/soluciones/administradores-de-trasteros');
+  });
+
+  test('las páginas interiores declaran imagen para redes y su propia url', async ({ page }) => {
+    await page.goto('/terminos');
+    await expect(page.locator('meta[property="og:url"]')).toHaveAttribute('content', /\/terminos$/);
+    await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
+      'content',
+      /\/opengraph-image/,
+    );
+  });
+
+  test('con «Solo necesarias» no se guarda de dónde viene la visita', async ({ page }) => {
+    await page.addInitScript(() =>
+      window.localStorage.setItem('storageos.cookie-consent', 'necessary'),
+    );
+    await page.goto('/precios?utm_source=test&utm_medium=cpc');
+    const rechazado = await page.evaluate(() =>
+      window.localStorage.getItem('storageos.attribution._platform'),
+    );
+    expect(rechazado).toBeNull();
+  });
+
+  test('con «Aceptar todas» sí se guarda el origen', async ({ page }) => {
+    await page.addInitScript(() => window.localStorage.setItem('storageos.cookie-consent', 'all'));
+    await page.goto('/precios?utm_source=test&utm_medium=cpc');
+    const aceptado = await page.evaluate(() =>
+      window.localStorage.getItem('storageos.attribution._platform'),
+    );
+    expect(aceptado).not.toBeNull();
   });
 });
