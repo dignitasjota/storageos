@@ -4,7 +4,7 @@ import { ChevronDown, Menu } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 import { PlatformLogo } from '@/components/public/platform-logo';
 import {
@@ -142,29 +142,30 @@ export function PublicHeader({
         </div>
       </div>
 
-      {/* Desplegable de escritorio */}
-      {open && !isPortal && (
-        <div className="absolute inset-x-0 top-full hidden border-t border-border/60 bg-background text-foreground shadow-xl lg:block">
-          <div className="container py-8">
-            {open === 'product' && <ProductPanel onNavigate={close} />}
-            {open === 'solutions' && (
-              <LinkPanel
-                title={t('menu.solutions')}
-                links={SOLUTIONS_MENU}
-                onNavigate={close}
-                columns="sm:grid-cols-3"
-              />
-            )}
-            {open === 'resources' && (
-              <LinkPanel
-                title={t('menu.resources')}
-                links={resources}
-                onNavigate={close}
-                columns="sm:grid-cols-3"
-              />
-            )}
-          </div>
-        </div>
+      {/* Desplegables de escritorio: van montados siempre para que sus enlaces
+          estén en el HTML inicial (Google los indexa); solo se ve el abierto. */}
+      {!isPortal && (
+        <>
+          <DesktopPanel visible={open === 'product'}>
+            <ProductPanel onNavigate={close} />
+          </DesktopPanel>
+          <DesktopPanel visible={open === 'solutions'}>
+            <LinkPanel
+              title={t('menu.solutions')}
+              links={SOLUTIONS_MENU}
+              onNavigate={close}
+              columns="sm:grid-cols-3"
+            />
+          </DesktopPanel>
+          <DesktopPanel visible={open === 'resources'}>
+            <LinkPanel
+              title={t('menu.resources')}
+              links={resources}
+              onNavigate={close}
+              columns="sm:grid-cols-3"
+            />
+          </DesktopPanel>
+        </>
       )}
 
       {/* Menú del móvil */}
@@ -180,6 +181,19 @@ export function PublicHeader({
         </SheetContent>
       </Sheet>
     </header>
+  );
+}
+
+/** Contenedor de un desplegable de escritorio: oculto salvo cuando está abierto (y en móvil). */
+function DesktopPanel({ visible, children }: { visible: boolean; children: ReactNode }) {
+  return (
+    <div
+      className={`absolute inset-x-0 top-full border-t border-border/60 bg-background text-foreground shadow-xl ${
+        visible ? 'hidden lg:block' : 'hidden'
+      }`}
+    >
+      <div className="container py-8">{children}</div>
+    </div>
   );
 }
 

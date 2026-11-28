@@ -3480,3 +3480,24 @@ Segunda PR de la fase 1 del plan de SEO de las webs (`docs/SEO_WEBS_PLAN.md`, de
 5. Un negocio en «No»: fuera de `/sitemap.xml` y con `noindex` en su portada.
 
 **Rollback**: no hay migración destructiva ni se borran datos. Poner el tenant en `on` o `auto` devuelve el comportamiento de la regla; revertir el commit deja la columna sin uso y todo vuelve a como estaba. Google tarda en reflejar los cambios de `noindex` y de sitemap.
+
+## 215. Web del SaaS: higiene SEO (fase 1, PR 7)
+
+Séptima PR de la fase 1 del plan de SEO de las webs (`docs/SEO_WEBS_PLAN.md`, sección 3.2). Solo afecta a la web de trasteros.pro (la plataforma). No toca los negocios (`/s/…`, `/book/…`, subdominios ni dominios propios), ni títulos o precios del SaaS, ni el blog, ni los textos legales, ni ninguna URL pública existente.
+
+- **C3, menú en el HTML.** Los tres desplegables de escritorio (producto, soluciones, recursos) van montados y ocultos hasta que se abren, así que sus enlaces están en el HTML que lee Google. Se ven y se usan igual. El menú del móvil (panel lateral) sigue montándose al abrirlo.
+- **C5, email fuera de la URL.** El alta y el inicio de sesión dejan el email y la empresa en `sessionStorage` (`lib/auth/pending-verification`) y la página «Revisa tu correo» los lee de ahí; antes iban en `?email=…&tenantSlug=…`. `/verify-email-sent`, `/forgot-password-sent` y `/forgot-tenant` pasan a `noindex` (`WEB_NOINDEX_PREFIXES`). `/register?email=…` sigue leyendo esos parámetros si alguien enlaza así (no lo escribe nuestro código).
+- **C6, imagen para redes en interiores.** Precios, funcionalidades (y sus fichas), soluciones (y sus fichas), blog (y sus entradas sin portada), calculadora y legales declaran la imagen de `/opengraph-image` (la que se sube en el panel admin → Web de TrasterOS → SEO, o la genérica). Las legales ya no heredan la `og:url` de la portada: cada una declara la suya (`lib/seo/share.ts`).
+- **C7, rechazar cookies.** En trasteros.pro, «Solo necesarias» impide guardar el origen de la visita (utm, referer) en el navegador y enviarlo con el formulario o el registro. Antes no se comprobaba: la comprobación miraba la clave de los negocios. Al rechazar en la página se borra lo guardado. Regla en `keepsVisitOrigin` (`@storageos/shared`). Sin decisión (`null`) sí se guarda, como antes.
+- **C8, 404 propia.** `app/not-found.tsx` muestra una página en español con la marca y un enlace a la portada. Las direcciones de los negocios (`/s/…`, `/book/…`, `/sign/…`, `/portal/…`, `/widget/…`… y los dominios propios) siguen con la página neutral de antes: el middleware pasa la ruta que pidió el navegador en `x-storageos-pathname` y `isTenantFacingPath` decide (`packages/shared/src/web/tenant-facing.ts`).
+
+**Qué comprobar tras desplegar**
+
+1. `https://trasteros.pro/precios` (y `/funcionalidades`, `/soluciones`, `/blog`, `/terminos`): `curl -s` y buscar `og:image` (apunta a `/opengraph-image`) y `og:url` propia (en `/terminos`, `https://trasteros.pro/terminos`, no la portada).
+2. `curl -s https://trasteros.pro/` (sin ejecutar JavaScript): el HTML debe traer los enlaces de los desplegables de «Producto», «Soluciones» y «Recursos» (p. ej. `/funcionalidades/…` o `/#func-…`), no solo los cuatro enlaces de la cabecera. En Search Console, «Ver código fuente» de la portada.
+3. `https://trasteros.pro/pagina-que-no-existe` → 404 en español con la marca y enlace «Ir a la portada».
+4. `https://trasteros.pro/s/<slug>/no-existe` y `https://<dominio propio>/no-existe` → siguen con la página neutral en inglés (no es un error: es lo que se dejó).
+5. Alta en trasteros.pro: tras «Crear cuenta», la URL de «Revisa tu correo» no lleva el email; la página muestra el email y permite reenviar.
+6. Con «Solo necesarias» aceptado: no aparecen `storageos.attribution._platform` en localStorage tras una visita con `?utm_source=test`.
+
+**Rollback**: son cambios de cabeceras, metadatos, la página 404 y el consentimiento del navegador; no hay migraciones ni datos. Revertir los cinco commits de la PR devuelve el comportamiento anterior.

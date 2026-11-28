@@ -17,6 +17,7 @@ import { StickyMobileCta } from '@/components/marketing/sticky-cta';
 import { PlatformAttribution } from '@/components/public/platform-attribution';
 import { fetchPlatformBlogPost, formatBlogDate } from '@/lib/marketing/blog';
 import { ORGANIZATION_ID, SITE_URL } from '@/lib/marketing/site';
+import { PLATFORM_SHARE_IMAGE } from '@/lib/seo/share';
 
 export async function generateMetadata({
   params,
@@ -41,9 +42,11 @@ export async function generateMetadata({
       locale: 'es_ES',
       publishedTime: post.publishedAt,
       modifiedTime: post.updatedAt,
-      ...(post.coverImageUrl
-        ? { images: [{ url: post.coverImageUrl, alt: post.coverImageAlt }] }
-        : {}),
+      images: [
+        post.coverImageUrl
+          ? { url: post.coverImageUrl, alt: post.coverImageAlt }
+          : { url: PLATFORM_SHARE_IMAGE, alt: 'TrasterOS' },
+      ],
     },
     twitter: { card: 'summary_large_image', title, ...(description ? { description } : {}) },
   };

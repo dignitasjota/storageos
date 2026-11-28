@@ -109,6 +109,7 @@ const INTERNAL_HEADERS = [
   'x-storageos-tenant-slug',
   'x-storageos-tenant-public',
   'x-storageos-head',
+  'x-storageos-pathname',
 ];
 
 function cleanHeaders(req: NextRequest): Headers {
@@ -117,6 +118,9 @@ function cleanHeaders(req: NextRequest): Headers {
   // Una petición HEAD solo comprueba el enlace (no es una visita): las páginas
   // no ven el método, así que se lo dice esta cabecera (el QR no cuenta el clic).
   if (req.method === 'HEAD') headers.set('x-storageos-head', '1');
+  // La ruta que pidió el navegador (la reescrita no se ve desde una página 404):
+  // la página 404 la usa para elegir la neutral de los negocios o la de la plataforma.
+  headers.set('x-storageos-pathname', req.nextUrl.pathname);
   return headers;
 }
 

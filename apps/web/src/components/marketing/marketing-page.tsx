@@ -18,6 +18,7 @@ import { StickyMobileCta } from '@/components/marketing/sticky-cta';
 import { PlatformAttribution } from '@/components/public/platform-attribution';
 import { marketingPageHref, relatedPages, type MarketingPage } from '@/lib/marketing/pages';
 import { ORGANIZATION_ID, SITE_URL } from '@/lib/marketing/site';
+import { PLATFORM_SHARE_IMAGE } from '@/lib/seo/share';
 
 export function marketingMetadata(page: MarketingPage): Metadata {
   const path = marketingPageHref(page);
@@ -28,6 +29,7 @@ export function marketingMetadata(page: MarketingPage): Metadata {
     openGraph: {
       type: 'website',
       url: `${SITE_URL}${path}`,
+      images: [{ url: PLATFORM_SHARE_IMAGE, alt: 'TrasterOS' }],
       title: page.metaTitle,
       description: page.metaDescription,
       siteName: 'TrasterOS',

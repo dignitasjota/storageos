@@ -31,6 +31,10 @@ describe('isNoindexPath (B1 / D5)', () => {
     '/dashboard',
     '/settings/billing',
     '/admin/tenants',
+    // Páginas de acceso y de «revisa tu correo»: sin valor para Google (SEO C5).
+    '/verify-email-sent',
+    '/forgot-password-sent',
+    '/forgot-tenant',
   ])('lleva noindex: %s', (path) => {
     expect(isNoindexPath(path)).toBe(true);
   });
@@ -47,6 +51,8 @@ describe('isNoindexPath (B1 / D5)', () => {
     '/aviso-legal',
     '/reservarmas',
     '/payments',
+    '/verify-email-sentinel',
+    '/forgot-tenants-list',
   ])('se indexa: %s', (path) => {
     expect(isNoindexPath(path)).toBe(false);
   });

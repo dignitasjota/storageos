@@ -473,14 +473,21 @@ Una página «trasteros en Valencia» sin local allí debe ser una guía o landi
 
 **Fase 1, PR 2 (`feat/seo-web-indexing`)**: control de indexación por tenant (D3): columna `tenants.web_indexing`, regla única `decideWebIndexing` para sitemap y `noindex`, suspendidos a 15 días, bajas fuera del índice y lista previa en el panel admin. Los textos legales siempre `noindex`. Detalle en `docs/DEPLOYMENT.md §213`.
 
-| Id  | Estado                  | Commit                                                             |
-| --- | ----------------------- | ------------------------------------------------------------------ |
-| B1  | hecho                   | `bb3cf840` (noindex por cabecera en dominios propios y plataforma) |
-| B2  | hecho                   | `bb3cf840` (robots sin rutas con noindex)                          |
-| B3  | hecho                   | `946dad2d` (canónica y hreflang sin barra final)                   |
-| B15 | hecho                   | `bcdb8626` (`/Blog` → 404; e2e en `landing-blog`)                  |
-| B16 | parcial (`/l/es` → 308) | `bf6aba5a`; resto pendiente (404 propia, `lastmod`, zonas, etc.)   |
-| B4  | hecho                   | `6b7f8b4c` (control `web_indexing` automático / sí / no, D3)       |
-| B13 | hecho                   | `6b7f8b4c` (suspendido 15 días o más y bajas fuera del índice)     |
-| M1  | hecho                   | `7b0f9f23` (Googlebot en `htmlLimitedBots`)                        |
-| B11 | parcial (sin el 404)    | `85872963` (reserva, acceso y legales); el 404 va con C8 (PR 7)    |
+**Fase 1, PR 7 (`feat/seo-saas-web-hygiene`)**: higiene SEO de la web de TrasterOS (trasteros.pro): C3 menú en el HTML, C5 email fuera de la URL y `noindex` en las páginas de acceso, C6 imagen para redes en las páginas interiores, C7 rechazar cookies impide guardar el origen y C8 404 propia en español. Detalle y comprobaciones en `docs/DEPLOYMENT.md §215`.
+
+| Id  | Estado                  | Commit                                                               |
+| --- | ----------------------- | -------------------------------------------------------------------- |
+| B1  | hecho                   | `bb3cf840` (noindex por cabecera en dominios propios y plataforma)   |
+| B2  | hecho                   | `bb3cf840` (robots sin rutas con noindex)                            |
+| B3  | hecho                   | `946dad2d` (canónica y hreflang sin barra final)                     |
+| B15 | hecho                   | `bcdb8626` (`/Blog` → 404; e2e en `landing-blog`)                    |
+| B16 | parcial (`/l/es` → 308) | `bf6aba5a`; resto pendiente (404 propia, `lastmod`, zonas, etc.)     |
+| B4  | hecho                   | `6b7f8b4c` (control `web_indexing` automático / sí / no, D3)         |
+| B13 | hecho                   | `6b7f8b4c` (suspendido 15 días o más y bajas fuera del índice)       |
+| M1  | hecho                   | `7b0f9f23` (Googlebot en `htmlLimitedBots`)                          |
+| B11 | hecho                   | `85872963` (reserva, acceso y legales); el 404 de C8 cierra el resto |
+| C3  | hecho                   | `a4ae1a1d` (desplegables de la cabecera en el HTML inicial)          |
+| C5  | hecho                   | `b396e12b` (email fuera de la URL; `noindex` en acceso)              |
+| C6  | hecho                   | `60b18cbc` (imagen para redes y `og:url` propia en interiores)       |
+| C7  | hecho                   | `bad5e726` (rechazar no guarda el origen en trasteros.pro)           |
+| C8  | hecho                   | `a3234949` (404 de la plataforma en español; negocios intactos)      |

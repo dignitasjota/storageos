@@ -3,9 +3,11 @@ import type { Metadata } from 'next';
 import { LegalPage, formatLegalDate } from '@/components/public/legal-ui';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { fetchLegalDoc } from '@/lib/legal';
+import { shareOpenGraph } from '@/lib/seo/share';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/privacidad' },
+  openGraph: shareOpenGraph({ path: '/privacidad', title: 'Política de Privacidad · TrasterOS' }),
   title: 'Política de Privacidad',
   description:
     'Cómo TrasterOS trata los datos personales conforme al RGPD y la LOPDGDD: responsable, finalidades, base jurídica, encargados, derechos y contacto.',

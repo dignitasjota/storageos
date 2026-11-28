@@ -1,3 +1,7 @@
+import { PLATFORM_ATTRIBUTION_KEY, keepsVisitOrigin } from '@storageos/shared';
+
+import { readConsent } from '@/components/public/cookie-consent';
+
 /**
  * Elección del visitante sobre la medición en la web de un tenant (por negocio,
  * en el navegador). `all` = acepta la analítica (Google Analytics si el negocio
@@ -66,5 +70,9 @@ export function setStaffBrowser(on: boolean, auto = false): void {
  * navegador de alguien del equipo.
  */
 export function measurementAllowed(slug: string): boolean {
+  // La web de TrasterOS (trasteros.pro) usa su propio aviso de cookies.
+  if (slug === PLATFORM_ATTRIBUTION_KEY) {
+    return keepsVisitOrigin(readConsent()) && !isStaffBrowser();
+  }
   return readTenantConsent(slug) !== 'necessary' && !isStaffBrowser();
 }
