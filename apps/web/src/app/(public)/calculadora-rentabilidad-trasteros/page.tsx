@@ -14,6 +14,7 @@ import {
 import { ProfitabilityCalculator } from '@/components/marketing/profitability-calculator';
 import { PlatformAttribution } from '@/components/public/platform-attribution';
 import { ORGANIZATION_ID, SITE_URL } from '@/lib/marketing/site';
+import { PLATFORM_SHARE_IMAGE } from '@/lib/seo/share';
 
 const PATH = '/calculadora-rentabilidad-trasteros';
 const TITLE = 'Calculadora de rentabilidad de un negocio de trasteros | TrasterOS';
@@ -27,6 +28,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     url: `${SITE_URL}${PATH}`,
+    images: [{ url: PLATFORM_SHARE_IMAGE, alt: 'TrasterOS' }],
     title: TITLE,
     description: DESCRIPTION,
     siteName: 'TrasterOS',

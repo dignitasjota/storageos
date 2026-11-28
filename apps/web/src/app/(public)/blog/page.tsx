@@ -13,6 +13,7 @@ import {
 import { PlatformAttribution } from '@/components/public/platform-attribution';
 import { fetchPlatformBlogPosts, formatBlogDate } from '@/lib/marketing/blog';
 import { ORGANIZATION_ID, SITE_URL } from '@/lib/marketing/site';
+import { PLATFORM_SHARE_IMAGE } from '@/lib/seo/share';
 
 const TITLE = 'Blog sobre la gestión de trasteros y self-storage | TrasterOS';
 const DESCRIPTION =
@@ -25,6 +26,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     url: `${SITE_URL}/blog`,
+    images: [{ url: PLATFORM_SHARE_IMAGE, alt: 'TrasterOS' }],
     title: TITLE,
     description: DESCRIPTION,
     siteName: 'TrasterOS',

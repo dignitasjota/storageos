@@ -11,6 +11,8 @@ import { MarketingPageGrid } from '@/components/marketing/marketing-page';
 import { StickyMobileCta } from '@/components/marketing/sticky-cta';
 import { PlatformAttribution } from '@/components/public/platform-attribution';
 import { FEATURE_PAGES } from '@/lib/marketing/pages';
+import { SITE_URL } from '@/lib/marketing/site';
+import { PLATFORM_SHARE_IMAGE } from '@/lib/seo/share';
 
 const TITLE = 'Funcionalidades del software de gestión de trasteros | TrasterOS';
 const DESCRIPTION =
@@ -22,6 +24,8 @@ export const metadata: Metadata = {
   alternates: { canonical: '/funcionalidades' },
   openGraph: {
     type: 'website',
+    url: `${SITE_URL}/funcionalidades`,
+    images: [{ url: PLATFORM_SHARE_IMAGE, alt: 'TrasterOS' }],
     title: TITLE,
     description: DESCRIPTION,
     siteName: 'TrasterOS',

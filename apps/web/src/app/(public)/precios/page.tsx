@@ -20,6 +20,7 @@ import { fetchFounderOffer } from '@/lib/founder-offer';
 import { SITE_URL } from '@/lib/marketing/site';
 import { fetchPublicPlans } from '@/lib/platform-plans';
 import { fetchPlatformWebsite } from '@/lib/platform-website';
+import { PLATFORM_SHARE_IMAGE } from '@/lib/seo/share';
 
 const TITLE = 'Precios del software de gestión de trasteros | TrasterOS';
 const DESCRIPTION =
@@ -32,6 +33,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     url: `${SITE_URL}/precios`,
+    images: [{ url: PLATFORM_SHARE_IMAGE, alt: 'TrasterOS' }],
     title: TITLE,
     description: DESCRIPTION,
     siteName: 'TrasterOS',

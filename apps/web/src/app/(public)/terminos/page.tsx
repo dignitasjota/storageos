@@ -3,9 +3,11 @@ import type { Metadata } from 'next';
 import { LegalPage, formatLegalDate } from '@/components/public/legal-ui';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { fetchLegalDoc } from '@/lib/legal';
+import { shareOpenGraph } from '@/lib/seo/share';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/terminos' },
+  openGraph: shareOpenGraph({ path: '/terminos', title: 'Términos y Condiciones · TrasterOS' }),
   title: 'Términos y Condiciones',
   description:
     'Condiciones de uso del servicio TrasterOS: objeto, cuenta, planes y pagos, obligaciones, responsabilidad, cancelación, protección de datos y ley aplicable.',

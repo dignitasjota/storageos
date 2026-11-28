@@ -3,9 +3,11 @@ import type { Metadata } from 'next';
 import { LegalPage, formatLegalDate } from '@/components/public/legal-ui';
 import { MarkdownView } from '@/components/public/markdown-view';
 import { fetchLegalDoc } from '@/lib/legal';
+import { shareOpenGraph } from '@/lib/seo/share';
 
 export const metadata: Metadata = {
   alternates: { canonical: '/cookies' },
+  openGraph: shareOpenGraph({ path: '/cookies', title: 'Política de Cookies · TrasterOS' }),
   title: 'Política de Cookies',
   description:
     'Qué cookies y tecnologías equivalentes utiliza TrasterOS, su finalidad, base jurídica y cómo gestionarlas.',

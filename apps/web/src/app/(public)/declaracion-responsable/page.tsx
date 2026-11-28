@@ -12,10 +12,15 @@ import type { Metadata } from 'next';
 
 import { Button } from '@/components/ui/button';
 import { DeclarationView } from '@/components/verifactu/declaration-view';
+import { shareOpenGraph } from '@/lib/seo/share';
 import { DECLARATION_PATH, declarationPdfUrl } from '@/lib/verifactu-declaration';
 
 export const metadata: Metadata = {
   alternates: { canonical: DECLARATION_PATH },
+  openGraph: shareOpenGraph({
+    path: DECLARATION_PATH,
+    title: 'Declaración responsable Veri*Factu · TrasterOS',
+  }),
   title: 'Declaración responsable Veri*Factu',
   description: `Declaración responsable del sistema informático de facturación ${VERIFACTU_SYSTEM.name}: versión, componentes, funcionalidades y datos del productor (Orden HAC/1177/2024).`,
 };
