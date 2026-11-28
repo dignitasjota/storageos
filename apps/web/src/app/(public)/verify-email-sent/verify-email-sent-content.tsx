@@ -4,21 +4,29 @@ import { MailCheck } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useResendVerification } from '@/lib/auth/hooks';
+import { type PendingVerification, readPendingVerification } from '@/lib/auth/pending-verification';
 
 export function VerifyEmailSentContent() {
   const t = useTranslations('auth.verifySent');
   const params = useSearchParams();
-  const email = params.get('email') ?? '';
-  const tenantSlug = params.get('tenantSlug') ?? '';
+  // El email y la empresa no van en la URL: los deja el formulario de alta en
+  // sessionStorage (ver `lib/auth/pending-verification`).
+  const [pending, setPending] = useState<PendingVerification | null>(null);
+  const email = pending?.email ?? '';
+  const tenantSlug = pending?.tenantSlug ?? '';
   const autoResend = params.get('resend') === '1';
   const resend = useResendVerification();
   const autoResendDone = useRef(false);
+
+  useEffect(() => {
+    setPending(readPendingVerification());
+  }, []);
 
   // Si llegamos aqui desde el flujo de login 403 (email_not_verified),
   // disparamos el reenvio automaticamente. Solo una vez.
@@ -33,7 +41,7 @@ export function VerifyEmailSentContent() {
       },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [email, tenantSlug]);
 
   const onResend = () => {
     if (!email || !tenantSlug) {

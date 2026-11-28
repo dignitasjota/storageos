@@ -35,6 +35,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ApiError, apiFetch } from '@/lib/auth/api';
 import { useRegister } from '@/lib/auth/hooks';
+import { savePendingVerification } from '@/lib/auth/pending-verification';
 import { forgetSalesCode, rememberSalesCode, storedSalesCode } from '@/lib/sales-code';
 
 /** Datos que trae el enlace de una propuesta (email, empresa y nombre). */
@@ -235,10 +236,8 @@ export function RegisterForm({
     };
     try {
       const res = await register.mutateAsync(payload);
-      router.replace(
-        `/verify-email-sent?email=${encodeURIComponent(payload.email)}` +
-          `&tenantSlug=${encodeURIComponent(res.tenant.slug)}`,
-      );
+      savePendingVerification({ email: payload.email, tenantSlug: res.tenant.slug });
+      router.replace('/verify-email-sent');
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.statusCode === 409) {

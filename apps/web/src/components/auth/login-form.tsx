@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { ApiError } from '@/lib/auth/api';
 import { useLogin } from '@/lib/auth/hooks';
 import { lastTenantSlug, rememberTenantSlug } from '@/lib/auth/last-tenant';
+import { savePendingVerification } from '@/lib/auth/pending-verification';
 import { useChallenge2fa } from '@/lib/two-factor/hooks';
 
 export function LoginForm() {
@@ -102,11 +103,11 @@ export function LoginForm() {
               action: {
                 label: t('errors.resendVerification'),
                 onClick: () => {
-                  router.push(
-                    `/verify-email-sent?email=${encodeURIComponent(form.getValues('email'))}` +
-                      `&tenantSlug=${encodeURIComponent(form.getValues('tenantSlug'))}` +
-                      `&resend=1`,
-                  );
+                  savePendingVerification({
+                    email: form.getValues('email'),
+                    tenantSlug: form.getValues('tenantSlug'),
+                  });
+                  router.push('/verify-email-sent?resend=1');
                 },
               },
             });
