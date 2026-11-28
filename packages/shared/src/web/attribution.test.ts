@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectTrafficSource, sourceFromReferrer, trafficSourceToUtm } from './attribution';
+import {
+  detectTrafficSource,
+  keepsVisitOrigin,
+  sourceFromReferrer,
+  trafficSourceToUtm,
+} from './attribution';
 
 const own = ['trasteros-garcia.com', 'trasteros.pro'];
 const detect = (search: string, referrer = '') =>
@@ -113,5 +118,16 @@ describe('trafficSourceToUtm', () => {
       utmMedium: 'cpc',
     });
     expect(trafficSourceToUtm(null)).toEqual({});
+  });
+});
+
+describe('keepsVisitOrigin (C7: rechazar no guarda el origen)', () => {
+  it('no guarda nada si el visitante rechazó las cookies no necesarias', () => {
+    expect(keepsVisitOrigin('necessary')).toBe(false);
+  });
+
+  it('guarda el origen si aceptó todo o aún no ha elegido', () => {
+    expect(keepsVisitOrigin('all')).toBe(true);
+    expect(keepsVisitOrigin(null)).toBe(true);
   });
 });

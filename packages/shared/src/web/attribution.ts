@@ -181,3 +181,12 @@ export function trafficSourceToUtm(s: TrafficSource | null): {
     ...(s.landing ? { landingPath: s.landing.slice(0, LANDING_PATH_MAX) } : {}),
   };
 }
+
+/**
+ * ¿Se puede guardar en el navegador de dónde viene la visita (utm, referer)?
+ * Con «Solo necesarias» (rechazo) no: ni se guarda ni se envía con el formulario.
+ * Sin decisión (`null`) sí, como la medición propia de los negocios.
+ */
+export function keepsVisitOrigin(consent: string | null): boolean {
+  return consent !== 'necessary';
+}

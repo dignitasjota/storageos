@@ -137,6 +137,16 @@ export function currentClickIds(slug: string): AdClickIds | undefined {
   }
 }
 
+/** Borra el origen guardado (al rechazar las cookies no necesarias). */
+export function clearVisitOrigin(slug: string): void {
+  try {
+    window.localStorage.removeItem(key(slug));
+    window.sessionStorage.removeItem(seenKey(slug));
+  } catch {
+    /* sin almacenamiento: no hay nada que borrar */
+  }
+}
+
 /** Origen a usar al enviar una reserva o un contacto (null si no se sabe). */
 export function currentTrafficSource(slug: string): TrafficSource | null {
   if (typeof window === 'undefined') return null;
