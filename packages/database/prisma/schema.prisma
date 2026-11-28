@@ -567,6 +567,8 @@ model Tenant {
   customDomainCheckOk          Boolean?              @map("custom_domain_check_ok")
   /// dns | https cuando la última comprobación falló.
   customDomainCheckIssue       String?               @map("custom_domain_check_issue")
+  /// Subdominio `<slug>.<plataforma>` creado en el proxy (null = pendiente). SEO web D4.
+  subdomainReadyAt             DateTime?             @map("subdomain_ready_at") @db.Timestamptz(6)
   nightPassEnabled             Boolean               @default(false) @map("night_pass_enabled")
   nightPassPrice               Decimal               @default(0) @map("night_pass_price") @db.Decimal(10, 2)
   collectionsEnabled           Boolean               @default(false) @map("collections_enabled")

@@ -26,6 +26,7 @@ export const ADMIN_TODAY_SECTION_LABELS: Record<string, string> = {
   leadFollowupsDue: 'seguimientos de leads',
   staleLeads: 'leads parados',
   domainsReady: 'dominios propios',
+  subdomainsPending: 'subdominios por crear',
   incompleteInvoices: 'facturas sin datos fiscales',
   rgpdOverdue: 'solicitudes RGPD',
   npsNegative: 'respuestas NPS',
@@ -65,6 +66,7 @@ export type AdminTodayUrgencySource = Pick<
   | 'leadFollowupsDue'
   | 'staleLeads'
   | 'domainsReady'
+  | 'subdomainsPending'
   | 'rgpdOverdue'
   | 'aeatIssues'
   | 'certificatesExpiring'
@@ -121,7 +123,8 @@ export function adminTodayUrgentCounts(
     d.devicesOffline.length +
     d.overdueCrons.length +
     d.failedWebhooks.length +
-    (d.failedJobs > 0 ? 1 : 0);
+    (d.failedJobs > 0 ? 1 : 0) +
+    d.subdomainsPending.length;
   return { business, ops, total: business + ops };
 }
 
@@ -214,6 +217,9 @@ export function adminTodayVisitItems(d: AdminTodayDto): AdminTodayVisitSnapshotI
   );
   d.domainsReady.forEach((x) =>
     add('domainsReady', `domain:${x.tenantId}`, x.tenantName, '/admin/custom-domains'),
+  );
+  d.subdomainsPending.forEach((x) =>
+    add('subdomainsPending', `subdomain:${x.tenantId}`, x.tenantName, '/admin/custom-domains'),
   );
   const issues: [string, string, AdminTodayDto['aeatIssues']][] = [
     ['rgpdOverdue', 'rgpd', d.rgpdOverdue],

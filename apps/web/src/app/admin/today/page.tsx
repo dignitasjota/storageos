@@ -148,6 +148,7 @@ function onlyMine(data: AdminTodayDto, me: string | undefined): AdminTodayDto {
     paymentFailures: [],
     inactivePaying: [],
     domainsReady: [],
+    subdomainsPending: [],
     incompleteInvoices: [],
     rgpdOverdue: [],
     npsNegative: [],
@@ -600,6 +601,23 @@ export default function AdminTodayPage() {
                     detail={d.domain}
                     urgent
                     snooze={{ kind: 'domain', ref: d.tenantId, label: d.tenantName }}
+                  />
+                ))}
+              </SimpleCard>
+            )}
+
+            {data.subdomainsPending.length > 0 && (
+              <SimpleCard
+                title={`Subdominios por crear en el proxy (${data.subdomainsPending.length})`}
+                icon={<Globe className="size-4 text-slate-500" />}
+                action={{ href: '/admin/custom-domains', label: 'Crear →' }}
+              >
+                {data.subdomainsPending.map((d) => (
+                  <TenantRow
+                    key={d.tenantId}
+                    id={d.tenantId}
+                    name={d.tenantName}
+                    detail={d.domain}
                   />
                 ))}
               </SimpleCard>

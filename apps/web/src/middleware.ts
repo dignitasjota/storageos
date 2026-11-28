@@ -1,4 +1,16 @@
-import { isNoindexPath, resolveCustomDomainRoute } from '@storageos/shared';
+import {
+  isNoindexPath,
+  isReservedTenantSlug,
+  legacySiteRest,
+  legacySiteTarget,
+  RESOLVE_SUBDOMAIN_NOT_FOUND,
+  type ResolveSubdomainDto,
+  resolveCustomDomainRoute,
+  subdomainRedirectTarget,
+  TENANT_SUBDOMAIN_HEADER,
+  TENANT_SUBDOMAIN_ROBOTS,
+  tenantSubdomainOf,
+} from '@storageos/shared';
 import { type NextRequest, NextResponse } from 'next/server';
 
 import { SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
@@ -44,6 +56,15 @@ function hostFromUrl(u: string | undefined): string | null {
 const PLATFORM_HOST = hostFromUrl(
   process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_WEB_URL,
 );
+
+/** Protocolo de la plataforma (`https:` en producción, `http:` en desarrollo). */
+const PLATFORM_PROTOCOL = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://localhost').protocol;
+  } catch {
+    return 'https:';
+  }
+})();
 
 /** ¿El host es el de la plataforma (o dev: localhost / IP)? */
 function isPlatformHost(host: string): boolean {
@@ -100,6 +121,121 @@ async function resolveSlug(host: string): Promise<DomainResolution> {
   return value;
 }
 
+// Subdominios `<slug>.<plataforma>` y `/s/<slug>`: la misma caché corta que los
+// dominios propios. Un fallo de la API no se cachea (se reintenta en la siguiente).
+const subdomainCache = new Map<string, { value: ResolveSubdomainDto; exp: number }>();
+
+async function resolveSubdomainCached(slug: string): Promise<ResolveSubdomainDto> {
+  const now = Date.now();
+  const cached = subdomainCache.get(slug);
+  if (cached && cached.exp > now) return cached.value;
+  let value: ResolveSubdomainDto = RESOLVE_SUBDOMAIN_NOT_FOUND;
+  try {
+    const res = await fetch(
+      `${API_URL}/public/landing/resolve-subdomain?slug=${encodeURIComponent(slug)}`,
+      { headers: internalApiHeaders() },
+    );
+    if (!res.ok) return RESOLVE_SUBDOMAIN_NOT_FOUND;
+    value = (await res.json()) as ResolveSubdomainDto;
+  } catch {
+    return RESOLVE_SUBDOMAIN_NOT_FOUND;
+  }
+  if (subdomainCache.size >= DOMAIN_CACHE_MAX) {
+    const oldest = subdomainCache.keys().next().value;
+    if (oldest !== undefined) subdomainCache.delete(oldest);
+  }
+  subdomainCache.set(slug, { value, exp: now + DOMAIN_TTL_MS });
+  return value;
+}
+
+/** Respuesta 404 para un subdominio que no sirve la web: nunca se indexa. */
+function subdomainNotFound(): NextResponse {
+  return new NextResponse('No encontrado', {
+    status: 404,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Robots-Tag': TENANT_SUBDOMAIN_ROBOTS,
+    },
+  });
+}
+
+/**
+ * `<slug>.<plataforma>` (SEO web D4): 308 al dominio propio verificado, o la web
+ * del negocio con `noindex` (sin dominio propio y publicada), o 404.
+ */
+async function subdomainResponse(req: NextRequest, slug: string): Promise<NextResponse> {
+  const { pathname, search } = req.nextUrl;
+  const info = await resolveSubdomainCached(slug);
+  const parts = pathname.split('/').filter(Boolean);
+  // `/s/<slug>…` en el propio subdominio: la ruta limpia (sin pasar por `/s/`).
+  const ownLegacy = parts[0] === 's' && parts[1] === slug;
+  const cleanPath = ownLegacy ? (legacySiteRest(pathname, slug) ?? '/') : pathname;
+  // Aislamiento (D4): el subdominio solo sirve la web de SU negocio.
+  const foreign = (parts[0] === 's' || parts[0] === 'book') && !!parts[1] && parts[1] !== slug;
+  let res: NextResponse;
+  if (!info.found || foreign) {
+    res = subdomainNotFound();
+  } else if (info.redirectHost) {
+    const target = subdomainRedirectTarget({
+      customDomain: info.redirectHost,
+      pathname: cleanPath,
+      search,
+    });
+    res = NextResponse.redirect(new URL(target.path, `https://${target.host}`), 308);
+  } else if (!info.serves) {
+    res = subdomainNotFound();
+  } else if (ownLegacy) {
+    const hostHeader = req.headers.get('host') ?? `${slug}.${PLATFORM_HOST ?? ''}`;
+    res = NextResponse.redirect(
+      new URL(`${cleanPath}${search}`, `${PLATFORM_PROTOCOL}//${hostHeader}`),
+      308,
+    );
+  } else {
+    const route = resolveCustomDomainRoute(pathname, slug);
+    const headers = cleanHeaders(req);
+    headers.set('x-storageos-tenant-slug', slug);
+    headers.set(TENANT_SUBDOMAIN_HEADER, '1');
+    if (route.action === 'rewrite') {
+      const url = req.nextUrl.clone();
+      url.pathname = route.path;
+      headers.set('x-storageos-tenant-public', '1');
+      res = NextResponse.rewrite(url, { request: { headers } });
+    } else if (route.action === 'redirectToPlatform' && PLATFORM_HOST) {
+      res = NextResponse.redirect(
+        new URL(`${pathname}${search}`, `${PLATFORM_PROTOCOL}//${PLATFORM_HOST}`),
+        308,
+      );
+    } else {
+      res = NextResponse.next({ request: { headers } });
+    }
+  }
+  res.headers.set('X-Robots-Tag', TENANT_SUBDOMAIN_ROBOTS);
+  return res;
+}
+
+/**
+ * `trasteros.pro/s/<slug>…` (SEO web D4): 308 al dominio propio verificado o al
+ * subdominio del negocio, con la misma ruta. Null si no hay negocio con ese
+ * identificador (la página responde su 404 de siempre).
+ */
+async function legacySiteRedirect(req: NextRequest): Promise<NextResponse | null> {
+  const { pathname, search } = req.nextUrl;
+  const slug = pathname.split('/')[2] ?? '';
+  if (!slug || !PLATFORM_HOST || isReservedTenantSlug(slug)) return null;
+  const info = await resolveSubdomainCached(slug);
+  if (!info.found) return null;
+  const target = legacySiteTarget({
+    pathname,
+    search,
+    slug,
+    customDomain: info.redirectHost,
+    platformHost: PLATFORM_HOST,
+  });
+  if (!target) return null;
+  const protocol = info.redirectHost ? 'https:' : PLATFORM_PROTOCOL;
+  return NextResponse.redirect(new URL(target.path, `${protocol}//${target.host}`), 308);
+}
+
 /**
  * Cabeceras que solo pone este middleware (dominio propio del tenant). Si las
  * manda el navegador se quitan: con ellas cualquiera podía servir en la
@@ -109,6 +245,7 @@ const INTERNAL_HEADERS = [
   'x-storageos-tenant-slug',
   'x-storageos-tenant-public',
   'x-storageos-head',
+  TENANT_SUBDOMAIN_HEADER,
 ];
 
 function cleanHeaders(req: NextRequest): Headers {
@@ -165,6 +302,10 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
   const host = (req.headers.get('host') ?? '').toLowerCase();
   const { pathname, search } = req.nextUrl;
 
+  // --- Subdominio `<slug>.<plataforma>` de un negocio (SEO web D4) ---
+  const subdomainSlug = host && PLATFORM_HOST ? tenantSubdomainOf(host, PLATFORM_HOST) : null;
+  if (subdomainSlug) return subdomainResponse(req, subdomainSlug);
+
   // --- Dominio propio de tenant (white-label) ---
   if (host && !isPlatformHost(host)) {
     const { slug, hasExternalSite, canonicalHost } = await resolveSlug(host);
@@ -181,6 +322,26 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
       // su dominio propio (portal, login, cualquier página pública) — no
       // depende de que la URL lleve `?slug=` (que nuestras plantillas añaden,
       // pero una web externa del tenant o un enlace tecleado a mano no).
+      // Aislamiento (B5, D4): en un dominio propio solo se sirve la web de SU
+      // negocio. `/s/<otro>` y `/book/<otro>` dan 404; `/s/<el suyo>/…` va a la ruta limpia.
+      const parts = pathname.split('/').filter(Boolean);
+      const first = parts[0];
+      const other = parts[1];
+      if ((first === 's' || first === 'book') && other && other !== slug) {
+        return withNoindex(pathname, subdomainNotFound());
+      }
+      if (first === 's' && other === slug) {
+        const target = legacySiteTarget({
+          pathname,
+          search,
+          slug,
+          customDomain: canonicalHost ?? host.split(':')[0] ?? host,
+          platformHost: PLATFORM_HOST ?? host,
+        });
+        if (target) {
+          return NextResponse.redirect(new URL(target.path, `https://${target.host}`), 308);
+        }
+      }
       const headers = cleanHeaders(req);
       headers.set('x-storageos-tenant-slug', slug);
       if (route.action === 'rewrite') {
@@ -203,6 +364,12 @@ export async function middleware(req: NextRequest): Promise<NextResponse> {
       return withNoindex(pathname, pathname.startsWith('/widget/') ? allowWidgetFraming(res) : res);
     }
     // Host no resoluble (dominio no registrado/verificado): pasa tal cual.
+  }
+
+  // --- Dominio de la plataforma: `/s/<slug>` pasa a su dominio propio o subdominio ---
+  if (pathname.startsWith('/s/')) {
+    const moved = await legacySiteRedirect(req);
+    if (moved) return moved;
   }
 
   // --- Dominio de la plataforma: protección de rutas + widget ---

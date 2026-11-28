@@ -125,6 +125,8 @@ import type {
   AdminAtRiskDto,
   RetentionPlaybookResultDto,
   AdminCustomDomainDto,
+  AdminSubdomainCheckDto,
+  AdminTenantSubdomainDto,
   AssignAddonInput,
   SaasAddonDto,
   TenantBillingSummaryDto,
@@ -1332,6 +1334,38 @@ export function useCustomDomainAction(action: 'verify' | 'revoke') {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['admin', 'custom-domains'] });
     },
+  });
+}
+
+// --- Subdominios de la plataforma (SEO web D4) ---
+export function useAdminSubdomains() {
+  return useQuery({
+    queryKey: ['admin', 'subdomains'],
+    queryFn: () => adminApiFetch<AdminTenantSubdomainDto[]>('/admin/subdomains'),
+  });
+}
+
+/** Marca el subdominio como creado en el proxy (o lo devuelve a pendiente). Solo superadmin. */
+export function useSetSubdomainReady() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenantId, ready }: { tenantId: string; ready: boolean }) =>
+      adminApiFetch<{ ok: true }>(`/admin/subdomains/${tenantId}`, {
+        method: 'PUT',
+        json: { ready },
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin', 'subdomains'] });
+      void qc.invalidateQueries({ queryKey: ['admin', 'today'] });
+    },
+  });
+}
+
+/** Pide el subdominio y dice si responde (solo lectura). */
+export function useCheckSubdomain() {
+  return useMutation({
+    mutationFn: (tenantId: string) =>
+      adminApiFetch<AdminSubdomainCheckDto>(`/admin/subdomains/${tenantId}/check`),
   });
 }
 

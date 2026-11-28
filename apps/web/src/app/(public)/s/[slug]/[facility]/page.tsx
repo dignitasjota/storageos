@@ -4,6 +4,8 @@ import { buildFacilityMetadata, FacilityPageBody } from './facility-shared';
 
 import type { Metadata } from 'next';
 
+import { isTenantSubdomainRequest } from '@/lib/seo/tenant-subdomain-request';
+
 /** ¿Llega por el dominio propio del negocio? (cabecera que pone el middleware). */
 async function onCustomDomain(slug: string): Promise<boolean> {
   return (await headers()).get('x-storageos-tenant-slug') === slug;
@@ -15,7 +17,13 @@ export async function generateMetadata({
   params: Promise<{ slug: string; facility: string }>;
 }): Promise<Metadata> {
   const { slug, facility } = await params;
-  return buildFacilityMetadata(slug, facility, 'es', await onCustomDomain(slug));
+  return buildFacilityMetadata(
+    slug,
+    facility,
+    'es',
+    await onCustomDomain(slug),
+    await isTenantSubdomainRequest(),
+  );
 }
 
 export default async function FacilityLandingPage({

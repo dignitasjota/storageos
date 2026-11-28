@@ -44,6 +44,7 @@ import { AdminActivityService } from './admin-activity.service';
 import { AdminApprovalsService } from './admin-approvals.service';
 import { AdminBusinessService } from './admin-business.service';
 import { AdminOpsHealthService } from './admin-ops-health.service';
+import { AdminSubdomainsService } from './admin-subdomains.service';
 import { AdminTenantFollowupsService } from './admin-tenant-followups.service';
 import { AdminTenantsService } from './admin-tenants.service';
 import { AdminTodayExtrasService } from './admin-today-extras.service';
@@ -186,6 +187,7 @@ export class AdminTodayService {
     private readonly agility: SupportAgilityService,
     private readonly tickets: SupportTicketsService,
     private readonly dunning: PlatformDunningService,
+    private readonly subdomains: AdminSubdomainsService,
     @InjectQueue(QUEUE_BILLING) billingQueue: Queue,
     @InjectQueue(QUEUE_DUNNING) dunningQueue: Queue,
     @InjectQueue(QUEUE_PAYMENTS) paymentsQueue: Queue,
@@ -295,6 +297,7 @@ export class AdminTodayService {
       leadFollowupsAll,
       staleLeadsAll,
       domainsAll,
+      subdomainsAll,
       invoicesAll,
       rgpdAll,
       npsAll,
@@ -332,6 +335,7 @@ export class AdminTodayService {
       safe('leadFollowupsDue', () => this.leads.followupsDue(now), []),
       safe('staleLeads', () => this.staleLeads(now), [] as AdminTodayStaleLeadDto[]),
       safe('domainsReady', () => this.extras.domainsReady(), []),
+      safe('subdomainsPending', () => this.subdomains.pendingForToday(), []),
       safe('incompleteInvoices', () => this.extras.incompleteInvoices(now), []),
       safe('rgpdOverdue', () => this.extras.rgpdOverdue(now), []),
       safe('npsNegative', () => this.extras.npsNegative(now), []),
@@ -441,6 +445,8 @@ export class AdminTodayService {
       // Ya vienen ordenados: los de alto valor y los que más días llevan, primero.
       staleLeads: keep(staleLeadsAll, 'stale_lead', (l) => l.id),
       domainsReady: keep(domainsAll, 'domain', (d) => d.tenantId),
+      // Subdominios por crear en el proxy: sin acción de «Apartar» (es infraestructura).
+      subdomainsPending: subdomainsAll,
       incompleteInvoices: keep(invoicesAll, 'invoice_data', (t) => t.tenantId).sort(byCount),
       rgpdOverdue: keep(rgpdAll, 'rgpd', (t) => t.tenantId).sort(byCount),
       // Las notas más bajas, primero.

@@ -14,6 +14,7 @@ import {
   EmailDomainLine,
   NotifySetting,
 } from './domain-extras';
+import { SubdomainsCard } from './subdomains-card';
 
 import type { AdminCustomDomainBlockDto, AdminCustomDomainDto } from '@storageos/shared';
 
@@ -418,6 +419,9 @@ export default function AdminCustomDomainsPage() {
           )}
         </>
       )}
+      <div className="mt-6">
+        <SubdomainsCard />
+      </div>
       <DomainGuideDialog
         tenantId={guide?.tenantId ?? null}
         domain={guide?.customDomain ?? ''}

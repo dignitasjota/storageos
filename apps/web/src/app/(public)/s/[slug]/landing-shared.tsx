@@ -25,6 +25,7 @@ import { WhatsappFloatButton } from './whatsapp-float-button';
 import type { Metadata } from 'next';
 
 import { safeJsonLd } from '@/lib/json-ld';
+import { tenantSubdomainOrigin } from '@/lib/seo/tenant-subdomain';
 import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 import { tenantRobots } from '@/lib/tenant-favicon';
 
@@ -196,6 +197,8 @@ export async function buildLandingMetadata(
   slug: string,
   locale: PublicWebLocale,
   section?: LandingSection,
+  /** Petición por el subdominio del negocio (lo mira la página, que puede leer cabeceras). */
+  subdomain = false,
 ): Promise<Metadata> {
   const data = await getLanding(slug);
   if (!data) {
@@ -239,7 +242,11 @@ export async function buildLandingMetadata(
   const generatedDescription =
     describe(pricePart).length <= 160 ? describe(pricePart) : describe('');
   const description = seo.homeDescription ?? generatedDescription;
-  const base = data.customDomain ? `https://${data.customDomain}` : `/s/${slug}`;
+  const base = data.customDomain
+    ? `https://${data.customDomain}`
+    : subdomain
+      ? tenantSubdomainOrigin(slug)
+      : `/s/${slug}`;
   if (section) return sectionMetadata(data, base, where, section, locale);
   // Con dominio propio activo, el canonical apunta a él (versión canónica);
   // así la ruta `/s/<slug>` de la plataforma no compite por SEO.
@@ -249,7 +256,7 @@ export async function buildLandingMetadata(
     title: { absolute: title },
     description,
     alternates: { canonical, languages: languageAlternates(data, slug) },
-    robots: await tenantRobots(slug),
+    robots: await tenantRobots(slug, true, subdomain),
     // Solo en el homepage de la propiedad (esta ruta) — es lo que exige el
     // método "Etiqueta HTML" de Google Search Console.
     ...(data.googleSiteVerification

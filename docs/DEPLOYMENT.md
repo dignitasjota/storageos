@@ -3480,3 +3480,46 @@ Segunda PR de la fase 1 del plan de SEO de las webs (`docs/SEO_WEBS_PLAN.md`, de
 5. Un negocio en «No»: fuera de `/sitemap.xml` y con `noindex` en su portada.
 
 **Rollback**: no hay migración destructiva ni se borran datos. Poner el tenant en `on` o `auto` devuelve el comportamiento de la regla; revertir el commit deja la columna sin uso y todo vuelve a como estaba. Google tarda en reflejar los cambios de `noindex` y de sitemap.
+
+## 214. SEO web: subdominios de la plataforma (fase 1, PR 5)
+
+Quinta PR de la fase 1 del plan de SEO de las webs (`docs/SEO_WEBS_PLAN.md`, decisión D4 y punto B5). Cada negocio tiene su dirección `<identificador>.trasteros.pro`, que **no se indexa**. Si el negocio tiene dominio propio verificado, esa dirección le redirige (308) a su dominio. Las direcciones antiguas `trasteros.pro/s/<identificador>` redirigen al mismo sitio.
+
+- **Migración** `20270330100000_tenant_subdomain`: añade `tenants.subdomain_ready_at` (nulo = pendiente). Solo añade la columna; no cambia ningún dato. Se aplica con el despliegue, como el resto de migraciones (`migrate deploy`).
+- **Resolución** (`packages/shared/src/web/subdomain.ts`): `tenantSubdomainOf` saca el identificador del host; `legacySiteTarget` y `subdomainRedirectTarget` dan el destino del 308 (misma ruta y query). La regla de «sirve la web» es la de `decideWebIndexing` (publicada y negocio activo o en prueba); un suspendido o un negocio dado de baja da 404 en el subdominio.
+- **Identificadores reservados**: `api`, `www`, `app`, `mail`, `admin`, `web`, `static`, `cdn`, `files`, `smtp`, `ns`, `ftp`, `status`, `docs`, `help`, `support`, `staging`, `dev`, `test`, `demo`. Al darse de alta un negocio con uno de ellos, la API responde 400 (`slug_reserved`) y el formulario lo dice. Si el identificador sale del nombre (p. ej. «Admin»), se usa el siguiente libre (`admin-2`). No hay ninguna ruta de renombrado de identificadores en el código: si se añade una, debe llamar a `isReservedTenantSlug`.
+- **Sitemap de la plataforma**: ya no lista ningún negocio. `trasteros.pro/s/<slug>` redirige, así que no puede ir en el sitemap. El sitemap de cada dominio propio no cambia.
+- **Panel admin**: en Dominios propios (`/admin/custom-domains`), sección «Subdominios de la plataforma», con los pendientes; «Hoy» muestra el contador en «Subdominios por crear en el proxy». «Comprobar» pide el subdominio y dice si responde (solo lectura, cualquier rol). «Hecho» lo marca como creado y queda auditado (solo superadmin; soporte no puede).
+
+### Crear el subdominio en el proxy (a mano, uno por negocio)
+
+El DNS comodín `*.trasteros.pro` ya apunta al servidor, pero el certificado no es comodín: cada subdominio necesita su certificado. Pasos para cada negocio de la cola:
+
+1. En el panel admin, Dominios propios, copiar el subdominio (p. ej. `garcia.trasteros.pro`).
+2. En Nginx Proxy Manager: **Hosts → Proxy Hosts → Add Proxy Host**.
+   - Domain Names: `garcia.trasteros.pro`.
+   - Scheme `http`, Forward Hostname `web`, Forward Port `3000`. Block Common Exploits activado.
+3. Pestaña **SSL**: SSL Certificate «Request a new SSL Certificate», con Let's Encrypt, Force SSL y HTTP/2. Email de contacto y aceptar las condiciones. Guardar.
+4. Esperar a que el certificado se emita (desafío HTTP; si falla, revisar que el DNS de ese subdominio resuelve al servidor).
+5. Volver al panel admin → **Comprobar**: debe decir `Responde 200` (o `Responde 404` si el negocio no publica su web o está suspendido, que es lo esperado en esos casos).
+6. **Hecho**. El subdominio sale de la cola y de «Hoy».
+
+**Límite de Let's Encrypt**: 50 certificados por dominio registrado y semana (`trasteros.pro`) y 5 por el mismo conjunto de nombres. Con muchos negocios nuevos en una semana, emitir por lotes y revisar el aviso del proxy: el resto se puede seguir a la semana siguiente sin que nada se rompa (el subdominio sigue sin responder hasta entonces).
+
+### Qué comprobar tras desplegar
+
+1. Antes de crear ningún proxy host, abrir `/admin/custom-domains` y revisar la lista: debe salir **todo negocio existente** (todos están pendientes hasta que se cree su subdominio). Es lo esperado.
+2. Comprobar en la base de datos que ningún negocio usa un identificador reservado (en producción, no en local):
+   `select slug from tenants where slug in ('api','www','app','mail','admin','web','static','cdn','files','smtp','ns','ftp','status','docs','help','support','staging','dev','test','demo');`
+   Si sale alguno, no se cambia de forma automática: se decide con el dueño. Hasta entonces, su subdominio queda reservado y el de la plataforma gana.
+3. Un negocio con su subdominio creado: `https://<slug>.trasteros.pro/` responde la web con `<meta name="robots" content="noindex, nofollow">` y cabecera `X-Robots-Tag: noindex, nofollow`.
+4. `https://trasteros.pro/s/<slug>/aviso-legal` redirige 308 a `https://<slug>.trasteros.pro/aviso-legal` (o a su dominio propio si lo tiene).
+5. Un negocio con dominio propio verificado: `https://<slug>.trasteros.pro/reservar?x=1` redirige 308 a `https://<su dominio>/reservar?x=1`.
+6. `/sitemap.xml` de la plataforma no lista ningún negocio.
+
+### Rollback
+
+- Código: revertir los commits de la PR. El DNS comodín sigue apuntando al servidor, así que los subdominios creados dejarían de ser la web del negocio (el middleware anterior no los reconoce); revertir la PR devuelve el comportamiento anterior.
+- Proxy: borrar los Proxy Hosts de los subdominios creados si se quiere quitar la dirección por completo.
+- Base de datos: la columna `subdomain_ready_at` queda sin uso; no hace falta migración inversa.
+- Google tardará en reflejar los cambios de `noindex` y de sitemap.

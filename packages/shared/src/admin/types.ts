@@ -1862,6 +1862,8 @@ export interface AdminTodayDto {
   staleLeads: AdminTodayStaleLeadDto[];
   /** Dominios con el DNS listo, por activar. */
   domainsReady: AdminTodayDomainDto[];
+  /** Subdominios `<slug>.<plataforma>` por crear en el proxy (SEO web D4). */
+  subdomainsPending: AdminTodayDomainDto[];
   /** Facturas de suscripción de los últimos 90 días sin NIF o domicilio. */
   incompleteInvoices: AdminTenantIssueCountDto[];
   /** Solicitudes RGPD de inquilinos fuera de plazo. */

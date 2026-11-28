@@ -31,6 +31,7 @@ import { facilityDescription, facilityTitle, type PublicWebT } from './facility-
 import type { AreaPageFaq, PublicFacilityLandingDto } from '@storageos/shared';
 import type { Metadata } from 'next';
 
+import { tenantSubdomainOrigin } from '@/lib/seo/tenant-subdomain';
 import { ApiUnavailableError, SERVER_API_URL, internalApiHeaders } from '@/lib/server-api';
 import { tenantRobots } from '@/lib/tenant-favicon';
 
@@ -228,6 +229,8 @@ export async function buildFacilityMetadata(
   locale: PublicWebLocale,
   /** Visto desde el dominio propio (la página lo sabe por la cabecera del middleware). */
   onCustomDomain = false,
+  /** Petición por el subdominio del negocio (SEO web D4). */
+  subdomain = false,
 ): Promise<Metadata> {
   const found = await lookupFacility(slug, facilitySlug);
   if (found && 'movedTo' in found) return { robots: { index: false, follow: true } };
@@ -256,23 +259,33 @@ export async function buildFacilityMetadata(
   // Localidad, tamaños y precio en el título y la descripción (lo que se busca).
   const title = own?.seoTitle || facilityTitle(f, data.tenantName, locale);
   const description = own?.seoDescription || facilityDescription(t, f, data.tenantName, locale);
+  // En el subdominio del negocio la canónica es ese mismo host, nunca trasteros.pro.
+  const origin = !data.customDomain && subdomain ? tenantSubdomainOrigin(slug) : null;
   const base = data.customDomain
     ? `https://${data.customDomain}/${facilitySlug}`
-    : `/s/${slug}/${facilitySlug}`;
+    : origin
+      ? `${origin}/${facilitySlug}`
+      : `/s/${slug}/${facilitySlug}`;
   // Con un solo local, la portada es la página principal (esta repite su contenido).
   const canonical = data.singleFacility
-    ? landingHref(slug, locale, data.customDomain)
+    ? origin
+      ? locale === 'en'
+        ? `${origin}/l/en`
+        : `${origin}/`
+      : landingHref(slug, locale, data.customDomain)
     : locale === 'en'
       ? data.customDomain
         ? `https://${data.customDomain}/l/en/${facilitySlug}`
-        : `/s/${slug}/l/en/${facilitySlug}`
+        : origin
+          ? `${origin}/l/en/${facilitySlug}`
+          : `/s/${slug}/l/en/${facilitySlug}`
       : base;
   return {
     // Sin la plantilla «· TrasterOS» del layout raíz: es la web del tenant.
     title: { absolute: title },
     description,
     alternates: { canonical, languages: languageAlternates(data, slug, facilitySlug) },
-    robots: await tenantRobots(slug),
+    robots: await tenantRobots(slug, true, subdomain),
     // Sin `opengraph-image.tsx` propio para este segmento: hereda el del
     // tenant en `/s/[slug]/opengraph-image.tsx` (convención de Next).
     openGraph: {

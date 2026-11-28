@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { isValidIban, normalizeIban } from '../sepa';
+import { isReservedTenantSlug, RESERVED_TENANT_SLUG_MESSAGE } from '../web/subdomain';
 
 /**
  * Regla de slug: solo minusculas, digitos y guiones simples. Sin guion al
@@ -42,6 +43,7 @@ export const RegisterSchema = z.object({
     .min(3, 'El identificador debe tener al menos 3 caracteres')
     .max(63, 'El identificador no puede tener más de 63 caracteres')
     .regex(slugRegex, 'Solo letras, dígitos y guiones (no al inicio ni al final)')
+    .refine((slug) => !isReservedTenantSlug(slug), RESERVED_TENANT_SLUG_MESSAGE)
     .optional(),
   fullName: z
     .string()

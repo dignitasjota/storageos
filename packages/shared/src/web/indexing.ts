@@ -103,6 +103,28 @@ export function todayWebIndexing(input: {
 }
 
 /**
+ * ¿El subdominio `<slug>.<plataforma>` sirve la web del negocio? (SEO web fase
+ * 1, D4). Usa la misma regla que la indexación: solo sirve si `decideWebIndexing`
+ * dice `live` (publicada, negocio activo o en prueba). Un suspendido o un
+ * negocio dado de baja da 404 en el subdominio, con independencia de su modo.
+ * La demostración sí se sirve (en el subdominio nunca se indexa).
+ */
+export function subdomainServesWeb(input: {
+  webPublished: boolean;
+  status: WebIndexingStatus;
+}): boolean {
+  return (
+    decideWebIndexing({
+      webPublished: input.webPublished,
+      status: input.status,
+      isDemo: false,
+      suspendedDays: null,
+      mode: 'auto',
+    }).reason === 'live'
+  );
+}
+
+/**
  * Metaetiquetas `robots` de un texto legal del negocio. Siempre `noindex`
  * (decisión del dueño): no depende del modo del tenant.
  */

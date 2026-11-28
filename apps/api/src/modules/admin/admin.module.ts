@@ -62,6 +62,8 @@ import { AdminQueuesController } from './admin-queues.controller';
 import { AdminQuoteController } from './admin-quote.controller';
 import { AdminQuoteService } from './admin-quote.service';
 import { AdminSegmentService } from './admin-segment.service';
+import { AdminSubdomainsController } from './admin-subdomains.controller';
+import { AdminSubdomainsService } from './admin-subdomains.service';
 import { AdminSuperAdminsController } from './admin-super-admins.controller';
 import { AdminSupportService } from './admin-support.service';
 import { AdminSystemController } from './admin-system.controller';
@@ -261,6 +263,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     PlatformMessagesTenantController,
     WebhooksCleanupController,
     AdminFollowupsController,
+    AdminSubdomainsController,
     AdminFollowupsInboxController,
     AdminTrialsOpsController,
     AdminOpportunitiesOpsController,
@@ -356,6 +359,7 @@ import { WeeklyDigestService } from './weekly-digest.service';
     SupportTicketsService,
     AdminOpsHealthService,
     AdminCustomDomainsService,
+    AdminSubdomainsService,
     AdminBillingOpsHealthService,
     AdminBillingNoticesService,
     AdminDomainsOpsService,
