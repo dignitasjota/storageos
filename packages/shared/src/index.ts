@@ -43,6 +43,7 @@ export * from './web/indexing';
 export * from './web/city-pages';
 export * from './web/area-pages';
 export * from './web/search-console';
+export * from './web/tenant-facing';
 export * from './web/secret-paths';
 export * from './web/legal';
 export * from './web/noindex';
